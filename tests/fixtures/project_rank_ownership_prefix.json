@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "dealer": "south",
+  "roundNumber": 1,
+  "matchScore": [0, 0],
+  "deckOrder": [9, 15, 31, 7, 11, 18, 3, 16, 4, 20, 23, 27, 1, 5, 19, 14, 24, 25, 10, 28, 30, 8, 17, 22, 2, 6, 13, 26, 0, 29, 12, 21],
+  "auctionActions": [
+    {"actor": "east", "action": "pass"},
+    {"actor": "north", "action": "pass"},
+    {"actor": "west", "action": "pass"},
+    {"actor": "south", "action": "pass"},
+    {"actor": "east", "action": "pass"},
+    {"actor": "north", "action": "sun"}
+  ],
+  "escalationActions": [],
+  "projectActions": [
+    {"actor": "east", "action": "pass"},
+    {"actor": "north", "action": "pass"},
+    {"actor": "west", "action": "declare", "projectId": "PROJECT-FC6D78545AAB889F"},
+    {"actor": "south", "action": "declare", "projectId": "PROJECT-37AB43FB421CAA8B"}
+  ],
+  "projectDeclarations": [],
+  "projectAssertions": [],
+  "stateAssertions": {},
+  "playActions": [
+    {"actor": "east", "card": "HA", "ekka": false},
+    {"actor": "north", "card": "HK", "ekka": false},
+    {"actor": "west", "card": "HQ", "ekka": false},
+    {"actor": "south", "card": "H9", "ekka": false},
+    {"actor": "east", "card": "CA", "ekka": false},
+    {"actor": "north", "card": "CK", "ekka": false},
+    {"actor": "west", "card": "C7", "ekka": false},
+    {"actor": "south", "card": "CJ", "ekka": false},
+    {"actor": "east", "card": "DK", "ekka": false},
+    {"actor": "north", "card": "D10", "ekka": false},
+    {"actor": "west", "card": "D7", "ekka": false},
+    {"actor": "south", "card": "DJ", "ekka": false},
+    {"actor": "north", "card": "SA", "ekka": false},
+    {"actor": "west", "card": "S7", "ekka": false},
+    {"actor": "south", "card": "HJ", "ekka": false},
+    {"actor": "east", "card": "S8", "ekka": false},
+    {"actor": "north", "card": "H10", "ekka": false},
+    {"actor": "west", "card": "C8", "ekka": false},
+    {"actor": "south", "card": "DQ", "ekka": false},
+    {"actor": "east", "card": "H7", "ekka": false},
+    {"actor": "north", "card": "SK", "ekka": false},
+    {"actor": "west", "card": "S10", "ekka": false},
+    {"actor": "south", "card": "CQ", "ekka": false},
+    {"actor": "east", "card": "SQ", "ekka": false},
+    {"actor": "west", "card": "SJ", "ekka": false}
+  ]
+}

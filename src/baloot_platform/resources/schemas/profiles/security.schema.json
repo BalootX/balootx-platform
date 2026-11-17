@@ -1,0 +1,227 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/security.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "auth": {
+      "additionalProperties": false,
+      "properties": {
+        "api_key_environment": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "trusted_context_scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "api_key_environment",
+        "mode",
+        "trusted_context_scope"
+      ],
+      "type": "object"
+    },
+    "headers": {
+      "additionalProperties": false,
+      "properties": {
+        "content_security_policy": {
+          "type": "string"
+        },
+        "frame_options": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "content_security_policy",
+        "frame_options"
+      ],
+      "type": "object"
+    },
+    "http": {
+      "additionalProperties": false,
+      "properties": {
+        "cors_origins": {
+          "type": "array"
+        },
+        "maximum_body_bytes": {
+          "type": "integer"
+        },
+        "rate_limit_per_minute": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cors_origins",
+        "maximum_body_bytes",
+        "rate_limit_per_minute"
+      ],
+      "type": "object"
+    },
+    "mcp": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_mutations_environment": {
+          "type": "string"
+        },
+        "read_only_by_default": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "allow_mutations_environment",
+        "read_only_by_default"
+      ],
+      "type": "object"
+    },
+    "oauth": {
+      "additionalProperties": false,
+      "properties": {
+        "access_token_lifetime_seconds": {
+          "type": "integer"
+        },
+        "audience_environment": {
+          "type": "string"
+        },
+        "issuer_environment": {
+          "type": "string"
+        },
+        "resource_server": {
+          "type": "boolean"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "access_token_lifetime_seconds",
+        "audience_environment",
+        "issuer_environment",
+        "resource_server",
+        "scopes"
+      ],
+      "type": "object"
+    },
+    "oidc": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled_when_configured": {
+          "type": "boolean"
+        },
+        "pkce_required": {
+          "type": "boolean"
+        },
+        "state_ttl_seconds": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "enabled_when_configured",
+        "pkce_required",
+        "state_ttl_seconds"
+      ],
+      "type": "object"
+    },
+    "passkeys": {
+      "additionalProperties": false,
+      "properties": {
+        "challenge_ttl_seconds": {
+          "type": "integer"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "origin_environment": {
+          "type": "string"
+        },
+        "rp_id_environment": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "challenge_ttl_seconds",
+        "enabled",
+        "origin_environment",
+        "rp_id_environment"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "roles": {
+      "additionalProperties": false,
+      "properties": {
+        "admin": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "guest": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "player": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "referee": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "admin",
+        "guest",
+        "player",
+        "referee"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "auth",
+    "headers",
+    "http",
+    "mcp",
+    "oauth",
+    "oidc",
+    "passkeys",
+    "profile",
+    "roles",
+    "schema_version"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,132 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/game.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "all_pass": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_deal": {
+          "type": "boolean"
+        },
+        "auto_redeal": {
+          "type": "boolean"
+        },
+        "dealer_policy": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "archive_deal",
+        "auto_redeal",
+        "dealer_policy"
+      ],
+      "type": "object"
+    },
+    "bots": {
+      "additionalProperties": false,
+      "properties": {
+        "action_timeout_ms": {
+          "type": "integer"
+        },
+        "default_plugin": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "action_timeout_ms",
+        "default_plugin",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    "fair_play": {
+      "additionalProperties": false,
+      "properties": {
+        "live_hidden_hand_analysis": {
+          "type": "boolean"
+        },
+        "post_game_analysis": {
+          "type": "boolean"
+        },
+        "trusted_context_scope_required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "live_hidden_hand_analysis",
+        "post_game_analysis",
+        "trusted_context_scope_required"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "sessions": {
+      "additionalProperties": false,
+      "properties": {
+        "event_sourcing": {
+          "type": "boolean"
+        },
+        "optimistic_concurrency": {
+          "type": "boolean"
+        },
+        "persistence": {
+          "type": "string"
+        },
+        "reconnect_tokens": {
+          "type": "boolean"
+        },
+        "reveal_hands_after_round": {
+          "type": "boolean"
+        },
+        "spectator_delay_seconds": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_sourcing",
+        "optimistic_concurrency",
+        "persistence",
+        "reconnect_tokens",
+        "reveal_hands_after_round",
+        "spectator_delay_seconds"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "all_pass",
+    "bots",
+    "fair_play",
+    "profile",
+    "schema_version",
+    "sessions"
+  ],
+  "type": "object"
+}

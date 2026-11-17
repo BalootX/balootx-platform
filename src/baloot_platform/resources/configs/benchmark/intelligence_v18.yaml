@@ -1,0 +1,28 @@
+schema_version: 1
+profile:
+  id: intelligence_benchmark_v18
+  version: 18.0.0
+  status: production_candidate
+strata:
+- buy_or_pass
+- opening_lead
+- second_seat
+- third_seat
+- fourth_seat
+- projects
+- endgame
+- score_strategy
+metrics:
+- policy_accuracy
+- top3_accuracy
+- expected_regret
+- match_value_loss
+- brier_score
+- illegal_action_rate
+promotion_thresholds:
+  minimum_examples: 5000
+  minimum_policy_accuracy: 0.6
+  maximum_expected_regret: 1.5
+  maximum_illegal_action_rate: 0.0
+automatic_promotion: false
+group_split_by_game_hash: true

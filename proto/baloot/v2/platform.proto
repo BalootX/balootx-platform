@@ -1,0 +1,81 @@
+syntax = "proto3";
+package baloot.v2;
+
+message Card { uint32 id = 1; string code = 2; string suit = 3; string rank = 4; }
+message Error { string code = 1; string message = 2; map<string,string> details = 3; }
+message ProfileRef { string id = 1; string version = 2; string sha256 = 3; }
+message BundleRef { string sha256 = 1; map<string,ProfileRef> components = 2; }
+message GameRef { string game_id = 1; uint64 version = 2; }
+message BidAction { string seat = 1; string action = 2; string trump_suit = 3; uint64 expected_version = 4; }
+message PlayAction { string seat = 1; Card card = 2; bool ekka = 3; uint64 expected_version = 4; }
+message CreateGameRequest { uint64 seed = 1; string dealer = 2; string rules_profile = 3; uint32 us_score = 4; uint32 them_score = 5; }
+message GameState { GameRef game = 1; BundleRef bundle = 2; string phase = 3; string current_player = 4; bytes canonical_json = 5; string state_sha256 = 6; }
+message ContextRequest { bytes canonical_json = 1; string rules_profile = 2; }
+message AnalysisRequest { bytes canonical_json = 1; string observer = 2; string rules_profile = 3; uint32 samples = 4; uint32 exact_allocation_limit = 5; uint32 exact_search_remaining = 6; bool experimental_conventions = 7; uint64 seed = 8; }
+message AnalysisResult { BundleRef bundle = 1; bytes canonical_json = 2; }
+message VideoJobRequest { bytes canonical_json = 1; }
+message RenderBatchRequest { bytes canonical_json = 1; string idempotency_key = 2; }
+message JobRef { string job_id = 1; string status = 2; double progress = 3; }
+message JobResult { JobRef job = 1; bytes canonical_json = 2; }
+message Identifier { string value = 1; }
+message DecisionRef { string decision_id = 1; }
+message ChallengeRef { string challenge_id = 1; }
+message ReplayPackage { bytes canonical_json = 1; string game_hash = 2; string game_serial = 3; }
+message ReplayAuditRequest { string identifier = 1; string mode = 2; bool rerun = 3; uint32 maximum_decisions = 4; uint32 samples = 5; uint32 exact_allocation_limit = 6; uint32 exact_search_remaining = 7; bool experimental_conventions = 8; uint64 seed = 9; }
+message DecisionAuditRequest { string decision_id = 1; string analysis_id = 2; bool rerun = 3; uint32 samples = 4; uint32 exact_allocation_limit = 5; uint32 exact_search_remaining = 6; bool experimental_conventions = 7; uint64 seed = 8; }
+message AuditResult { bytes canonical_json = 1; string audit_id = 2; string report_hash = 3; }
+message DifficultyAttempt { string decision_id = 1; string player_id = 2; bytes chosen_action_json = 3; double response_seconds = 4; double confidence = 5; double reported_skill = 6; bool changed_answer = 7; }
+message ChallengeAttempt { string challenge_id = 1; string player_id = 2; bytes chosen_action_json = 3; double response_seconds = 4; double confidence = 5; double reported_skill = 6; bool changed_answer = 7; }
+message AdaptiveChallengeRequest { string player_id = 1; repeated string recent_ids = 2; }
+message DifficultyResult { bytes canonical_json = 1; double engine_difficulty = 2; double calibrated_difficulty = 3; string label = 4; }
+message ReopenGameRequest { string identifier = 1; bool branch = 2; }
+message ForkDecisionRequest { string decision_id = 1; bytes action_json = 2; bool continue_to_end = 3; uint32 maximum_actions = 4; }
+message HistoryOperationResult { bytes canonical_json = 1; string game_id = 2; string parent_game_hash = 3; bool completed = 4; }
+message HistoricalReplayVideoRequest {
+  string identifier = 1;
+  string decision_id = 2;
+  string renderer_plugin = 3;
+  string theme = 4;
+  uint32 width = 5;
+  uint32 height = 6;
+  uint32 fps = 7;
+  uint32 crf = 8;
+  uint32 audit_samples = 9;
+  bool rerun_audit = 10;
+  uint32 maximum_audit_decisions = 11;
+}
+message VideoRecordRef { string video_id = 1; }
+message VideoRecord { bytes canonical_json = 1; string video_id = 2; string game_hash = 3; }
+message Empty {}
+message Health { string status = 1; string version = 2; string bundle_sha256 = 3; }
+
+service BalootPlatform {
+  rpc HealthCheck(Empty) returns (Health);
+  rpc CreateGame(CreateGameRequest) returns (GameState);
+  rpc GetGame(GameRef) returns (GameState);
+  rpc SubmitBid(BidAction) returns (GameState);
+  rpc PlayCard(PlayAction) returns (GameState);
+  rpc ValidateContext(ContextRequest) returns (GameState);
+  rpc ContinueContext(ContextRequest) returns (GameState);
+  rpc Analyze(AnalysisRequest) returns (AnalysisResult);
+  rpc CreateVideo(VideoJobRequest) returns (JobRef);
+  rpc GetJob(JobRef) returns (JobResult);
+  rpc GetReplay(Identifier) returns (ReplayPackage);
+  rpc ReopenGame(ReopenGameRequest) returns (HistoryOperationResult);
+  rpc ForkDecision(ForkDecisionRequest) returns (HistoryOperationResult);
+  rpc AuditGame(ReplayAuditRequest) returns (AuditResult);
+  rpc ExplainDecision(DecisionAuditRequest) returns (AuditResult);
+  rpc CompareDecision(DecisionRef) returns (AuditResult);
+  rpc GetDecisionDifficulty(DecisionRef) returns (DifficultyResult);
+  rpc RecordDecisionAttempt(DifficultyAttempt) returns (DifficultyResult);
+  rpc GetChallengeDifficulty(ChallengeRef) returns (DifficultyResult);
+  rpc RecordChallengeAttempt(ChallengeAttempt) returns (DifficultyResult);
+  rpc GetAdaptiveChallenge(AdaptiveChallengeRequest) returns (AnalysisResult);
+  rpc GetVideoRecord(VideoRecordRef) returns (VideoRecord);
+  rpc GetVideoTimeline(VideoRecordRef) returns (VideoRecord);
+  rpc GetVideoAuditMap(VideoRecordRef) returns (VideoRecord);
+  rpc RenderGameReplay(HistoricalReplayVideoRequest) returns (JobRef);
+  rpc CreateRenderBatch(RenderBatchRequest) returns (JobRef);
+  rpc GetRenderBatch(JobRef) returns (JobResult);
+  rpc CancelRenderBatch(JobRef) returns (JobResult);
+}

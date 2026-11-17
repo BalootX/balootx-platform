@@ -1,0 +1,193 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/learning.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "active_learning": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_queue_items": {
+          "type": "integer"
+        },
+        "weights": {
+          "additionalProperties": false,
+          "properties": {
+            "interestingness": {
+              "type": "number"
+            },
+            "model_disagreement": {
+              "type": "number"
+            },
+            "model_error": {
+              "type": "number"
+            },
+            "uncertainty": {
+              "type": "number"
+            },
+            "under_reviewed": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "interestingness",
+            "model_disagreement",
+            "model_error",
+            "uncertainty",
+            "under_reviewed"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "maximum_queue_items",
+        "weights"
+      ],
+      "type": "object"
+    },
+    "dataset": {
+      "additionalProperties": false,
+      "properties": {
+        "exclude_unverified_games": {
+          "type": "boolean"
+        },
+        "group_split_key": {
+          "type": "string"
+        },
+        "minimum_examples": {
+          "type": "integer"
+        },
+        "test_fraction": {
+          "type": "number"
+        },
+        "train_fraction": {
+          "type": "number"
+        },
+        "validation_fraction": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "exclude_unverified_games",
+        "group_split_key",
+        "minimum_examples",
+        "test_fraction",
+        "train_fraction",
+        "validation_fraction"
+      ],
+      "type": "object"
+    },
+    "feedback": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_sources": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "minimum_confidence": {
+          "type": "number"
+        },
+        "require_rationale_for_expert": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "allowed_sources",
+        "minimum_confidence",
+        "require_rationale_for_expert"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "promotion": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_illegal_action_rate": {
+          "type": "number"
+        },
+        "minimum_examples": {
+          "type": "integer"
+        },
+        "minimum_top3_accuracy": {
+          "type": "number"
+        },
+        "require_holdout_evaluation": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "maximum_illegal_action_rate",
+        "minimum_examples",
+        "minimum_top3_accuracy",
+        "require_holdout_evaluation"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "training": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_size": {
+          "type": "integer"
+        },
+        "default_backend": {
+          "type": "string"
+        },
+        "epochs": {
+          "type": "integer"
+        },
+        "l2": {
+          "type": "number"
+        },
+        "learning_rate": {
+          "type": "number"
+        },
+        "preference_loss_weight": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "batch_size",
+        "default_backend",
+        "epochs",
+        "l2",
+        "learning_rate",
+        "preference_loss_weight"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "active_learning",
+    "dataset",
+    "feedback",
+    "profile",
+    "promotion",
+    "schema_version",
+    "training"
+  ],
+  "type": "object"
+}

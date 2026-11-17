@@ -1,0 +1,139 @@
+schemaVersion: 1
+profile:
+  id: gea_baloot_2023_adjudication_research_v1
+  version: 1.0.0
+  status: source_verified_uncertified
+sourceAuthority:
+  class: official_regulation
+  sourceId: gea_baloot_regulation_2023
+  url: https://enjoy.sa/media/j1ofreng/baloot.pdf
+  archiveUrl: https://web.archive.org/web/20230314050221id_/https://enjoy.sa/media/j1ofreng/baloot.pdf
+  sha256: 9a7c67046549c5013f10e31069e6feba70e20eb1d47b27c7a2ba8abaa3e848c2
+  bytes: 3035758
+  verificationReceiptPath: release/saudi-baloot-official-source-verification-20260831.json
+  verificationReceiptSha256: f1d72ebd1e984aaec6edeac9b23a4857ac2dfbeea099a792bd3fdd533ad537a8
+  currentAuthorityBoundary: verified_2023_not_proven_current_2026_requires_external_ratification
+events:
+  incorrect_highest_card_naming:
+    labelAr: تسمية ورقة على أنها الأكبر
+    labelEn: Incorrect highest-card naming
+    violationCode: illegal_card
+    stage: play
+    authorityClass: official_regulation_adjudication
+    domainPrimitive: adjudication.external_card_naming
+    sourceClause: section_9.registration_table.incorrect_highest_card_naming
+    sourceTextAr: أكه بورقة على أنها أكبر ورقة لعب في الجولة ولم تكن كذلك.
+    eventScope: external_evidence
+    ordinaryTrace: not_an_action
+    availableRemedies: [opponent_register_with_projects, continue_play]
+    requiresTableReferee: true
+    generatedSearch: unsupported
+    exactInput: audit_sidecar_only
+    hardPredicate: unsupported
+    uiExposure: hidden
+    observerSafety: referee_restricted
+    messageAr: يحفظ النص واقعة تسمية ورقة على أنها الأكبر ولم تكن كذلك، مع حق الخصم في طلب التسجيل بالمشاريع أو الاستمرار؛ ولا يثبت المصطلح المحايد أنها إكّة خاطئة.
+    messageEn: The exact row records naming a card as the highest when it was not, with opponent choice to register with projects or continue; the neutral event does not claim a false-Ekka interpretation.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#incorrect-highest-card-naming
+  out_of_turn:
+    labelAr: لعب قبل الدور
+    labelEn: Play before turn
+    violationCode: out_of_turn
+    stage: play
+    authorityClass: official_regulation_adjudication
+    domainPrimitive: rules.play.current_actor
+    sourceClause: section_9.first_registration_table.play_before_turn
+    eventScope: adjudicated_attempt
+    ordinaryTrace: rejected
+    coveredSubtype: play_before_turn
+    availableRemedies: [opponent_register_with_projects, continue_play]
+    requiresTableReferee: true
+    generatedSearch: unsupported
+    exactInput: legal_trace_rejects_attempt_audit_sidecar_supported
+    hardPredicate: unsupported
+    uiExposure: hidden
+    observerSafety: referee_restricted
+    messageAr: اللعب قبل الدور لا يغيّر مسار اللعب القانوني، ويحفظ كواقعة تحكيم تمنح الخصم التسجيل بالمشاريع أو الاستمرار.
+    messageEn: A play before turn does not mutate the legal trace and is preserved as a referee event with opponent remedy choice.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#out-of-turn
+  invalid_bid:
+    labelAr: شراء قبل الدور
+    labelEn: Purchase before turn
+    violationCode: wrong_bid
+    stage: auction
+    authorityClass: official_regulation_adjudication
+    domainPrimitive: rules.auction.legal_actions
+    sourceClause: section_9.takweesh_table.purchase_before_turn
+    eventScope: adjudicated_attempt
+    ordinaryTrace: rejected
+    coveredSubtype: purchase_before_turn
+    availableRemedies: [opponent_takweesh, continue_play]
+    requiresTableReferee: true
+    generatedSearch: unsupported
+    exactInput: legal_trace_rejects_attempt_audit_sidecar_supported
+    hardPredicate: unsupported
+    uiExposure: hidden
+    observerSafety: referee_restricted
+    messageAr: الشراء قبل الدور لا يدخل سجل المزاد القانوني، ويحفظ كواقعة تحكيم تمنح الخصم التكويش أو الاستمرار؛ ولا تعمم هذه المعالجة على بقية أخطاء الشراء.
+    messageEn: Purchase before turn never enters legal auction history and is preserved with the opponent takweesh-or-continue choice; other invalid-bid subtypes are not collapsed into this remedy.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#invalid-bid
+  exposed_card:
+    labelAr: ورقة مكشوفة
+    labelEn: Exposed dealt card
+    violationCode: exposed_card
+    stage: play
+    authorityClass: official_regulation_adjudication
+    domainPrimitive: adjudication.external_card_exposure
+    sourceClause: section_9.takweesh_table.exposed_dealt_card_named_by_opponent
+    eventScope: external_evidence
+    ordinaryTrace: not_an_action
+    availableRemedies: [opponent_takweesh, continue_play]
+    requiresTableReferee: true
+    generatedSearch: unsupported
+    exactInput: audit_sidecar_only
+    hardPredicate: unsupported
+    uiExposure: hidden
+    observerSafety: referee_restricted
+    messageAr: انكشاف ورقة موزعة وتسميتها من الخصم دليل تحكيم يمنح الخصم التكويش أو الاستمرار، وليس حركة لعب مولدة.
+    messageEn: A dealt card exposed and named by the opponent is referee evidence with opponent choice to takweesh or continue, not a generated play action.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#exposed-card
+  signalling:
+    labelAr: إشارة أثناء اللعب
+    labelEn: Signalling during play
+    violationCode: communication
+    stage: play
+    authorityClass: official_regulation_referee_adjudication
+    domainPrimitive: adjudication.external_communication
+    sourceClause: section_2.2_and_section_9.signalling
+    eventScope: external_evidence
+    ordinaryTrace: not_an_action
+    availableRemedies: [warning, register_against_with_projects]
+    requiresTableReferee: true
+    generatedSearch: unsupported
+    exactInput: audit_sidecar_only
+    hardPredicate: unsupported
+    uiExposure: hidden
+    observerSafety: referee_restricted
+    messageAr: الإشارة المزعومة دليل حكم منفصل عن استنتاجات اللعب؛ الإنذار للأولى والثانية، والثالثة تسجيل بالمشاريع أو تسجيل فوري بعد تقييم الحكم.
+    messageEn: Alleged signalling is referee evidence separate from play inference; first and second incidents warn, while a third or referee-evaluated incident may be registered against with projects.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#signalling
+  verbal_baloot_inside_sequential_100:
+    labelAr: نطق بلوت داخل سرا مية
+    labelEn: Verbal Baloot inside sequential 100
+    violationCode: communication
+    stage: projects
+    authorityClass: official_regulation_adjudication
+    domainPrimitive: rules.projects.baloot_verbal_declaration
+    sourceClause: section_5.clauses_5_6_and_5_8
+    eventScope: external_evidence
+    ordinaryTrace: not_an_action
+    availableRemedies: [opponent_register_with_projects, continue_play]
+    requiresTableReferee: true
+    generatedSearch: unsupported
+    exactInput: audit_sidecar_only
+    hardPredicate: unsupported
+    uiExposure: hidden
+    observerSafety: referee_restricted
+    messageAr: بلوت السرا المية يحتسب آلياً، لكن النطق به ممنوع ويحفظ كواقعة تحكيم منفصلة تمنح الخصم طلب التسجيل أو الاستمرار.
+    messageEn: Baloot inside a sequential 100 scores automatically, but verbal declaration is forbidden and preserved as a separate referee event with opponent remedy choice.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#verbal-baloot-inside-sequential-100

@@ -1,0 +1,38 @@
+schema_version: 1
+profile:
+  id: standardized_shared_environment_v1
+  version: 1.0.0
+  status: production_default
+  description: Immutable same-start environment for a shared laffa or full sakka.
+terminology:
+  match_ar: صكّة
+  round_ar: لفة
+  trick_ar: أكلة
+schedule:
+  algorithm: precommitted_deal_attempt_stream_v2
+  minimum_deal_attempts: 16
+  deal_attempts_per_maximum_round: 8
+  maximum_deal_attempts: 512
+  dealer_progression: counter_clockwise
+  all_pass_consumes_attempt: true
+  completed_round_consumes_attempt: true
+  preserve_source_schedule_when_branching: true
+determinism:
+  bot_seed_policy: state_seed_version_actor_v1
+  same_action_path_same_result: true
+  require_reproducible_bot_actions: true
+  freeze_agent_full_tunings: true
+  freeze_strategy_plugins: true
+  freeze_rules_and_scoring: true
+  freeze_model_artifacts: true
+models:
+  default_shared_mode: disabled_for_shared_environment
+  allowed_modes: [disabled_for_shared_environment, frozen_artifact]
+  require_artifact_hash_when_enabled: true
+sharing:
+  allowed_scopes: [laffa, sakka]
+  default_scope: laffa
+  hide_future_seeds: true
+  hide_cut_positions: true
+  hide_future_cards: true
+  comparison_requires_identical_environment_hash: true

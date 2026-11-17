@@ -1,0 +1,462 @@
+{
+  "actualDealSeed": 20261117,
+  "analysis": {
+    "actions": [
+      {
+        "bestShare": 0.7142857142857143,
+        "card": {
+          "code": "CJ",
+          "id": 28,
+          "label": "J♣",
+          "rank": "jack",
+          "suit": "clubs",
+          "symbol": "♣"
+        },
+        "confidence95": [
+          0.35892909014821267,
+          0.9177828342909844
+        ],
+        "contractSuccessProbability": 0.8571428571428571,
+        "deprecatedAliases": {
+          "expectedMatchMargin": -1.1428571428571428,
+          "expectedOpponentPoints": 9.571428571428571,
+          "expectedTeamPoints": 8.428571428571429,
+          "winProbability": 0.7142857142857143
+        },
+        "distribution": {
+          "dealCount": 7,
+          "downsideCvar10": -18.0,
+          "volatility": 6.91641053537726
+        },
+        "drawProbability": 0.14285714285714285,
+        "effectiveSamples": 7.0,
+        "exactShare": 0.0,
+        "expectedMatchMargin": -1.1428571428571428,
+        "expectedOpponentAwardedPoints": 9.571428571428571,
+        "expectedOpponentPoints": 9.571428571428571,
+        "expectedRoundMargin": -1.1428571428571428,
+        "expectedTeamAwardedPoints": 8.428571428571429,
+        "expectedTeamPoints": 8.428571428571429,
+        "matchValueModel": "policy_conditioned_exact_dynamic_program_v2",
+        "matchWinConfidence95": [
+          0.17540373723113534,
+          0.7692538778810253
+        ],
+        "matchWinProbability": 0.4571428571428572,
+        "principalVariation": [
+          "SQ",
+          "HQ",
+          "DJ",
+          "SA",
+          "CQ",
+          "C10",
+          "CA",
+          "S10",
+          "HK"
+        ],
+        "roundLeadConfidence95": [
+          0.35892909014821267,
+          0.9177828342909844
+        ],
+        "roundLeadProbability": 0.7142857142857143,
+        "samples": 7,
+        "searchCompletionStatus": "heuristic_complete",
+        "searchNodes": 9,
+        "winProbability": 0.7142857142857143
+      },
+      {
+        "bestShare": 0.14285714285714285,
+        "card": {
+          "code": "SA",
+          "id": 7,
+          "label": "A♠",
+          "rank": "ace",
+          "suit": "spades",
+          "symbol": "♠"
+        },
+        "confidence95": [
+          0.02567895594897479,
+          0.51313450331903
+        ],
+        "contractSuccessProbability": 0.2857142857142857,
+        "deprecatedAliases": {
+          "expectedMatchMargin": -12.571428571428571,
+          "expectedOpponentPoints": 15.285714285714286,
+          "expectedTeamPoints": 2.7142857142857144,
+          "winProbability": 0.14285714285714285
+        },
+        "distribution": {
+          "dealCount": 7,
+          "downsideCvar10": -18.0,
+          "volatility": 8.599952539024235
+        },
+        "drawProbability": 0.14285714285714285,
+        "effectiveSamples": 7.0,
+        "exactShare": 0.0,
+        "expectedMatchMargin": -12.571428571428571,
+        "expectedOpponentAwardedPoints": 15.285714285714286,
+        "expectedOpponentPoints": 15.285714285714286,
+        "expectedRoundMargin": -12.571428571428571,
+        "expectedTeamAwardedPoints": 2.7142857142857144,
+        "expectedTeamPoints": 2.7142857142857144,
+        "matchValueModel": "policy_conditioned_exact_dynamic_program_v2",
+        "matchWinConfidence95": [
+          0.027475447870411868,
+          0.5187169960493048
+        ],
+        "matchWinProbability": 0.14857142857142858,
+        "principalVariation": [
+          "DJ",
+          "CQ",
+          "HQ",
+          "SQ",
+          "CA",
+          "CJ",
+          "C10",
+          "HK",
+          "S10"
+        ],
+        "roundLeadConfidence95": [
+          0.02567895594897479,
+          0.51313450331903
+        ],
+        "roundLeadProbability": 0.14285714285714285,
+        "samples": 7,
+        "searchCompletionStatus": "heuristic_complete",
+        "searchNodes": 9,
+        "winProbability": 0.14285714285714285
+      },
+      {
+        "bestShare": 0.14285714285714285,
+        "card": {
+          "code": "CA",
+          "id": 31,
+          "label": "A♣",
+          "rank": "ace",
+          "suit": "clubs",
+          "symbol": "♣"
+        },
+        "confidence95": [
+          0.02567895594897479,
+          0.51313450331903
+        ],
+        "contractSuccessProbability": 0.14285714285714285,
+        "deprecatedAliases": {
+          "expectedMatchMargin": -15.142857142857142,
+          "expectedOpponentPoints": 16.571428571428573,
+          "expectedTeamPoints": 1.4285714285714286,
+          "winProbability": 0.14285714285714285
+        },
+        "distribution": {
+          "dealCount": 7,
+          "downsideCvar10": -18.0,
+          "volatility": 6.998542122237652
+        },
+        "drawProbability": 0.0,
+        "effectiveSamples": 7.0,
+        "exactShare": 0.0,
+        "expectedMatchMargin": -15.142857142857142,
+        "expectedOpponentAwardedPoints": 16.571428571428573,
+        "expectedOpponentPoints": 16.571428571428573,
+        "expectedRoundMargin": -15.142857142857142,
+        "expectedTeamAwardedPoints": 1.4285714285714286,
+        "expectedTeamPoints": 1.4285714285714286,
+        "matchValueModel": "policy_conditioned_exact_dynamic_program_v2",
+        "matchWinConfidence95": [
+          0.008628137840391126,
+          0.4453269979329265
+        ],
+        "matchWinProbability": 0.07714285714285715,
+        "principalVariation": [
+          "DJ",
+          "CQ",
+          "HQ",
+          "SQ",
+          "CJ",
+          "C10",
+          "HK",
+          "S10",
+          "SA"
+        ],
+        "roundLeadConfidence95": [
+          0.02567895594897479,
+          0.51313450331903
+        ],
+        "roundLeadProbability": 0.14285714285714285,
+        "samples": 7,
+        "searchCompletionStatus": "heuristic_complete",
+        "searchNodes": 9,
+        "winProbability": 0.14285714285714285
+      }
+    ],
+    "analysisProfile": {
+      "id": "deep_analysis_v1",
+      "version": "1.0.0"
+    },
+    "conventionsApplied": false,
+    "debateScore": 20,
+    "deductions": [
+      {
+        "certainty": 1.0,
+        "kind": "void_suit",
+        "seat": "west",
+        "source": "trick_3_failed_to_follow",
+        "suit": "hearts"
+      },
+      {
+        "certainty": 1.0,
+        "kind": "void_suit",
+        "seat": "south",
+        "source": "trick_3_failed_to_follow",
+        "suit": "hearts"
+      },
+      {
+        "certainty": 1.0,
+        "kind": "void_suit",
+        "seat": "east",
+        "source": "trick_3_failed_to_follow",
+        "suit": "hearts"
+      },
+      {
+        "certainty": 1.0,
+        "kind": "void_suit",
+        "seat": "north",
+        "source": "trick_5_failed_to_follow",
+        "suit": "spades"
+      }
+    ],
+    "difficulty": 67,
+    "effectiveSampleSize": 7.0,
+    "explanation": [
+      "Compared 3 legal actions across 7 legal hidden deals.",
+      "Hidden-deal method: exhaustive_constrained_hidden_deals; effective sample size 7.0.",
+      "The exposed purchase card and revealed projects are pinned to their known owners.",
+      "Opponent legal alternatives are reconstructed per hypothetical deal and never copied from the true hidden hands.",
+      "Hard deductions restrict legality; convention evidence only reweights legal deals when explicitly enabled.",
+      "Recommended CJ by the configured objective: expected round margin.",
+      "Round lead probability, contract success, and match-to-target probability are reported separately."
+    ],
+    "hiddenDeals": 7,
+    "method": "exhaustive_constrained_hidden_deals+hard_facts_only",
+    "objective": "match_point_margin",
+    "observer": "south",
+    "recommendedCard": {
+      "code": "CJ",
+      "id": 28,
+      "label": "J♣",
+      "rank": "jack",
+      "suit": "clubs",
+      "symbol": "♣"
+    },
+    "signals": [
+      {
+        "cards": [
+          {
+            "code": "H9",
+            "id": 10,
+            "label": "9♥",
+            "rank": "nine",
+            "suit": "hearts",
+            "symbol": "♥"
+          },
+          {
+            "code": "HJ",
+            "id": 12,
+            "label": "J♥",
+            "rank": "jack",
+            "suit": "hearts",
+            "symbol": "♥"
+          }
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention.",
+        "confidence": 0.35,
+        "forcedness": "unknown",
+        "interpretations": [
+          "possible encouragement or preserved strength",
+          "could be forced, tactical, or deceptive"
+        ],
+        "kind": "low_then_high",
+        "relationship": "partner",
+        "seat": "north"
+      },
+      {
+        "cards": [
+          {
+            "code": "DQ",
+            "id": 21,
+            "label": "Q♦",
+            "rank": "queen",
+            "suit": "diamonds",
+            "symbol": "♦"
+          },
+          {
+            "code": "DA",
+            "id": 23,
+            "label": "A♦",
+            "rank": "ace",
+            "suit": "diamonds",
+            "symbol": "♦"
+          }
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention.",
+        "confidence": 0.35,
+        "forcedness": "unknown",
+        "interpretations": [
+          "possible encouragement or preserved strength",
+          "could be forced, tactical, or deceptive"
+        ],
+        "kind": "low_then_high",
+        "relationship": "left_opponent",
+        "seat": "west"
+      },
+      {
+        "cards": [
+          {
+            "code": "S7",
+            "id": 0,
+            "label": "7♠",
+            "rank": "seven",
+            "suit": "spades",
+            "symbol": "♠"
+          },
+          {
+            "code": "S9",
+            "id": 2,
+            "label": "9♠",
+            "rank": "nine",
+            "suit": "spades",
+            "symbol": "♠"
+          }
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention.",
+        "confidence": 0.66,
+        "forcedness": "highly_optional",
+        "interpretations": [
+          "possible encouragement or preserved strength",
+          "could be forced, tactical, or deceptive"
+        ],
+        "kind": "low_then_high",
+        "relationship": "self",
+        "seat": "south"
+      },
+      {
+        "cards": [
+          {
+            "code": "D10",
+            "id": 19,
+            "label": "10♦",
+            "rank": "ten",
+            "suit": "diamonds",
+            "symbol": "♦"
+          },
+          {
+            "code": "D7",
+            "id": 16,
+            "label": "7♦",
+            "rank": "seven",
+            "suit": "diamonds",
+            "symbol": "♦"
+          }
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention.",
+        "confidence": 0.35,
+        "forcedness": "unknown",
+        "interpretations": [
+          "possible shortness or discouragement",
+          "could be forced, tactical, or deceptive"
+        ],
+        "kind": "high_then_low",
+        "relationship": "right_opponent",
+        "seat": "east"
+      },
+      {
+        "cards": [
+          {
+            "code": "DK",
+            "id": 22,
+            "label": "K♦",
+            "rank": "king",
+            "suit": "diamonds",
+            "symbol": "♦"
+          },
+          {
+            "code": "D9",
+            "id": 18,
+            "label": "9♦",
+            "rank": "nine",
+            "suit": "diamonds",
+            "symbol": "♦"
+          }
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention.",
+        "confidence": 0.35,
+        "forcedness": "unknown",
+        "interpretations": [
+          "possible encouragement or preserved strength",
+          "could be forced, tactical, or deceptive"
+        ],
+        "kind": "low_then_high",
+        "relationship": "partner",
+        "seat": "north"
+      },
+      {
+        "cards": [
+          {
+            "code": "S8",
+            "id": 1,
+            "label": "8♠",
+            "rank": "eight",
+            "suit": "spades",
+            "symbol": "♠"
+          },
+          {
+            "code": "SK",
+            "id": 6,
+            "label": "K♠",
+            "rank": "king",
+            "suit": "spades",
+            "symbol": "♠"
+          }
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention.",
+        "confidence": 0.35,
+        "forcedness": "unknown",
+        "interpretations": [
+          "possible encouragement or preserved strength",
+          "could be forced, tactical, or deceptive"
+        ],
+        "kind": "low_then_high",
+        "relationship": "left_opponent",
+        "seat": "west"
+      }
+    ]
+  },
+  "configurationSha256": "aa6de2dee34574228463f4d4c4bd9caa2e52a8c29845f521a9b352089717b5bc",
+  "gameRecordHash": "b00f2919cc91ad9a53ec83a65917ad179a9ec0e64ef830b8d88871a34d578494",
+  "legalReplay": "passed",
+  "qualification": "candidate_for_media_and_editorial_review",
+  "requestOverrides": {
+    "exact_allocation_limit": 2000,
+    "exact_search_max_nodes": 20000,
+    "exact_search_max_remaining": 4,
+    "exact_search_max_seconds": 2.0,
+    "match_score": [
+      140,
+      140
+    ],
+    "max_candidates_per_seed": 2,
+    "max_seed_attempts": 64,
+    "maximum_sampling_attempts": 4000,
+    "minimum_expected_margin_gap": 3.0,
+    "minimum_hidden_deals": 1,
+    "minimum_win_probability_gap": 0.1,
+    "pause_trick_max": 6,
+    "pause_trick_min": 5,
+    "requested_samples": 16,
+    "require_project": false,
+    "seed": 20261114
+  },
+  "schemaVersion": 1,
+  "sourceSha256": "5c13c7fdee54dae900a527b11dab642d9ec67da91a5955147251bf5472667fc2",
+  "story": "A late legal choice in a 140–140 match with a close round finish"
+}

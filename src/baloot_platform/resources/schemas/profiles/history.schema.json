@@ -1,0 +1,128 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/history.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "integrity": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_json": {
+          "type": "boolean"
+        },
+        "serial_prefix": {
+          "type": "string"
+        },
+        "sha256_hash_chain": {
+          "type": "boolean"
+        },
+        "verify_on_read": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "canonical_json",
+        "serial_prefix",
+        "sha256_hash_chain",
+        "verify_on_read"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "reanalysis": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_branch_from_any_version": {
+          "type": "boolean"
+        },
+        "preserve_previous_analyses": {
+          "type": "boolean"
+        },
+        "schedule_after_engine_upgrade": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "allow_branch_from_any_version",
+        "preserve_previous_analyses",
+        "schedule_after_engine_upgrade"
+      ],
+      "type": "object"
+    },
+    "retention": {
+      "additionalProperties": false,
+      "properties": {
+        "retain_all_passed_deals": {
+          "type": "boolean"
+        },
+        "retain_annulled_deals": {
+          "type": "boolean"
+        },
+        "retain_intermediate_versions": {
+          "type": "boolean"
+        },
+        "retain_original_after_correction": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "retain_all_passed_deals",
+        "retain_annulled_deals",
+        "retain_intermediate_versions",
+        "retain_original_after_correction"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "video": {
+      "additionalProperties": false,
+      "properties": {
+        "embed_game_serial": {
+          "type": "boolean"
+        },
+        "embed_short_hash": {
+          "type": "boolean"
+        },
+        "preserve_render_manifest": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "embed_game_serial",
+        "embed_short_hash",
+        "preserve_render_manifest"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "integrity",
+    "profile",
+    "reanalysis",
+    "retention",
+    "schema_version",
+    "video"
+  ],
+  "type": "object"
+}

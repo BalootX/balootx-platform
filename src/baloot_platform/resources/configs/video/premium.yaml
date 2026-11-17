@@ -1,0 +1,855 @@
+schema_version: 1
+profile:
+  id: premium_video
+  version: 21.3.5
+  status: governed_candidate
+identity:
+  enrollment_uri_template: balootx://g/{game_serial}
+  default_player_names:
+    north: Player 01
+    east: Player 02
+    south: Player 03
+    west: Player 04
+  player_name_pool:
+  - Player 01
+  - Player 02
+  - Player 03
+  - Player 04
+  - Player 05
+  - Player 06
+  - Player 07
+  - Player 08
+  - Player 09
+  - Player 10
+  - Player 11
+  - Player 12
+  - Player 13
+  - Player 14
+  - Player 15
+  - Player 16
+localizations:
+  video.decision.challenge_title: تحدّي اللفّة
+  video.decision.challenge_question: وش تشوف اللعب؟
+  video.decision.generated_title: تحدّي اللفّة {number}
+  video.decision.generated_question: وش تلعب؟ وليه؟
+  video.decision.choose_best_move: وش تلعب؟
+  video.decision.best_move: الاختيار
+  video.decision.timer_open: ؟
+  video.card_back.label: بلوت
+  video.card_back.subtitle: BALOOTX
+  video.role.dealer: الموزع
+  video.role.buyer: المشتري
+  video.scoring.sun_tie.buyer_makes: 'قاعدة تعادل الصن: المشتري ينجح.'
+  video.scoring.sun_tie.buyer_loses: 'قاعدة تعادل الصن: المشتري يخسر.'
+  video.scoring.sun_tie.legacy_raw_units: 'قاعدة تعادل الصن: نسخة تاريخية تعتمد آحاد
+    نقاط العد؛ ليست تعادلًا في نتيجة الجولة.'
+  video.accessibility.score_and_game: النتيجة ورقم اللعبة
+  video.accessibility.qr: افتح نفس اللعبة
+  video.accessibility.hand: أوراق اللاعب
+  video.accessibility.decision_choices: الخيارات القانونية
+  video.accessibility.decision_choices_en: Legal choices
+  video.governance.research_audit_badge: للبحث والتدقيق فقط — غير مؤهل للنشر
+  video.analysis.expert_reason: القرار يحافظ على أفضل خط لعب موثّق.
+  video.analysis.no_salvage: المحرك فحص كل اللعبات القانونية؛ ما فيه أي لعبة تنقذ
+    الفريق.
+  video.analysis.one_winning_action: إثبات OR-Tools CP-SAT أكد أن فيه لعبة واحدة فقط
+    تحقق النتيجة المطلوبة.
+  video.analysis.unique_awarded_margin: في هالتوزيعة، الفارق المثبت {selectedMargin}
+    نقطة؛ أقرب بديل {nextBestMargin}.
+  video.analysis.multiple_winning_actions: أكثر من لعبة قانونية تحقق النتيجة المطلوبة
+    حسب الإثبات.
+  video.analysis.bounded_proof: الإثبات محدود بالأفق الموضح، ولا يثبت أفضلية عالمية
+    بعده.
+  video.analysis.policy_conditioned_proof: النتيجة صحيحة ضد سياسات اللاعبين المحددة
+    في هذا التحليل.
+  video.analysis.proof_incomplete: الحالة قانونية، لكن ميزانية الإثبات لم تكفِ لإكمال
+    كل الفروع.
+  video.analysis.proof_scope.complete_state: 'إثبات هالقرار: كل الأوراق معلومة.'
+  video.analysis.proof_scope.actor_information_set: 'إثبات هالقرار: معلومات اللاعب
+    فقط.'
+  video.analysis.proof_scope.actor_information_set_tail: 'بداية الإثبات الدقيق بمعلومات
+    اللاعب: أكلة {proofStartTrick}، لعبة {proofStartPlay}. القرار المعروض: أكلة {featuredTrick}،
+    لعبة {featuredPlay}. القرارات السابقة خارج الإثبات الدقيق.'
+  video.analysis.proof_scope.complete_state_tail: 'بداية الإثبات الدقيق بكل الأوراق:
+    أكلة {proofStartTrick}، لعبة {proofStartPlay}. القرار المعروض: أكلة {featuredTrick}،
+    لعبة {featuredPlay}. القرارات السابقة خارج الإثبات الدقيق.'
+  video.analysis.worst_case_awarded_margin: 'ضمان أسوأ حالة: {worstCaseValue} نقطة؛
+    أقرب بديل {nextBestWorstCaseValue}. عدد الخيارات المثلى {optimalActionCount}؛
+    هذه ليست نتيجة التوزيعة الفعلية ولا عدد اللعبات الفائزة.'
+  video.analysis.proof_scope.unproven: هذا القرار بدون إثبات مكتمل.
+  video.analysis.proof_failed: الإثبات المكتمل بيّن أن الادعاء المطلوب غير صحيح.
+  video.analysis.replay_only: هذا عرض للّعب المسجّل فقط؛ ما تم اعتماده كأفضل قرار.
+  video.analysis.verified_tactical: '{best} يعطي أفضل نتيجة مثبتة في التحليل.'
+  video.analysis.only_winning_move: '{best} هو الوحيد اللي يحفظ اللفّة.'
+  video.analysis.contract_rescue: '{best} ينقذ المشتري ويمنع طيران اللعب.'
+  video.analysis.only_winning_contract_rescue: '{best} هو الوحيد اللي ينقذ المشتري؛
+    {alternative} تطيّر اللعب.'
+  video.analysis.small_card_big_gain: '{best} يفتح المكسب المتأخر من ورقة صغيرة.'
+  video.analysis.large_card_sacrifice: '{best} تضحية محسوبة ترجع بمكسب أكبر.'
+  video.analysis.kabout_creation_prevention: '{best} يغيّر مسار الكبوت في الوقت الحاسم.'
+  video.analysis.kabout_creation: '{best} يحافظ على مسار الكبوت.'
+  video.analysis.kabout_prevention: '{best} هو اللي يكسر مسار الكبوت.'
+  video.analysis.entry_unblocking: '{best} يفتح الدخلة ويمنع انحباس الورق.'
+  video.analysis.trump_control: '{best} يحفظ التحكم بالحكم للوقت الصح.'
+  video.analysis.partner_enablement: '{best} يفتح الطريق لشريكك في اللفة الجاية.'
+  video.audio.entry_control_explanation: الخصم اليمين ما مشى على اللون. حفظ العشرة
+    كان أفضل، لأنه يعطيك فرصة تمسك اللعب في الأكلة الجاية.
+  video.observer.predict_opponent_play: وش تتوقع يلعب؟
+  video.observer.read_partner_signal: وش يقصد شريكك؟
+  video.observer.identify_threat: وين التهديد؟
+  video.observer.plan_next_response: كيف ترد؟
+  video.observer.infer_distribution: وش توزيع الورق؟
+  video.observer.post_reveal_analysis: وش اللي تغيّر؟
+  video.observer.insight: الإشارة تغيّر قراءة اللفة.
+  video.bid.hokum: حكم
+  video.bid.sun: صن
+  video.bid.ashkal: أشكل
+  video.bid.pass: بس
+  video.bid.hokum_en: Hokum
+  video.bid.sun_en: Sun
+  video.bid.ashkal_en: Ashkal
+  video.bid.pass_en: Pass
+  video.bid.challenge_title: تحدّي الشراء {number}
+  video.bid.challenge_question: وش تشوف الشراء؟
+  video.escalation.challenge_question: وش تختار في الدبل؟
+  video.escalation.decline: بس
+  video.escalation.double: دبل
+  video.escalation.triple: ثري
+  video.escalation.four: فور
+  video.escalation.gahwa: قهوة
+  video.escalation.mode.open: مفتوح
+  video.escalation.mode.locked: مقفول
+  video.escalation.decline_en: Decline
+  video.escalation.double_en: Double
+  video.escalation.triple_en: Triple
+  video.escalation.four_en: Four
+  video.escalation.gahwa_en: Gahwa
+  video.escalation.mode.open_en: Open
+  video.escalation.mode.locked_en: Locked
+  video.project.challenge_question: وش المشروع المعلن؟
+  video.bid.round.1: أول
+  video.bid.round.2: ثاني
+  video.purchase.hokum_summary: '{contract} {round} {trump}'
+  video.purchase.plain_summary: '{contract} {round}'
+  video.project.siri: سرا
+  video.project.fifty: خمسين
+  video.project.hundred: مية
+  video.project.hundred_sequence: مية
+  video.project.hundred_four_kind: مية
+  video.project.four_hundred: أربعمية
+  video.project.siri_en: Siri
+  video.project.fifty_en: Fifty
+  video.project.hundred_en: Hundred
+  video.project.hundred_sequence_en: Hundred sequence
+  video.project.hundred_four_kind_en: Hundred four of a kind
+  video.project.four_hundred_en: Four hundred
+  video.result.title: نتيجة اللفّة
+  video.result.us: لنا
+  video.result.them: لهم
+  video.result.round: اللعب
+  video.result.projects: المشاريع
+  video.result.baloot: البلوت
+  video.result.awarded: المحتسب
+  video.result.total: الإجمالي
+  video.review.bid_title: مراجعة الشراء
+  video.review.bid_question: وش كان الشراء الأفضل؟
+  video.review.play_title: مراجعة اللفّة
+  video.review.play_question: وش كان اللعب الأفضل؟
+  video.review.historical_title: مراجعة اللفّة الموثّقة
+  video.review.historical_question: وش كان القرار الأفضل؟
+  video.hud.trick: الأكلة
+  video.hud.bidding_round: الجولة
+  video.hud.purchase: الشراء
+  video.hud.session: جلسة
+  video.decision.your_turn: دورك يا {name}
+  video.governance.research_title: للبحث والتدقيق فقط
+  video.governance.not_publishable: غير مؤهل للنشر
+  video.governance.research_short: للبحث فقط
+  video.notice.title: ملاحظة بحثية
+  video.notice.sentence: هذا الفيديو لأغراض البحث فقط، ويُمنع تداوله.
+  video.project.call_label: مشروع
+  video.call.baloot: بلوت
+challenge_copy:
+  page_title: تحدّي BalootX
+  code_label: رمز التحدّي
+  loading: جارٍ فتح الحالة…
+  error_title: تعذّر فتح التحدّي
+  score_aria: النتيجة والشراء
+  us_score: لنا
+  them_score: لهم
+  table_aria: حالة الطاولة
+  play_target: العب هنا
+  decision_eyebrow: قرارك
+  confidence_aria: الثقة بالاختيار
+  confidence_unsure: متردد
+  confidence_confident: واثق
+  confidence_certain: متأكد
+  drag_hint: اسحب الورقة للطاولة أو اضغط عليها
+  drag_release: اترك الورقة للعب
+  drag_up: اسحب للأعلى
+  hand_aria: ورقك
+  commit: ثبّت اختيارك
+  committing: جارٍ تثبيت الاختيار…
+  result_default_label: النتيجة
+  result_default_title: تم تسجيل اختيارك
+  reason_label: السبب المختصر
+  participants: المشاركون
+  recommended_rate: اختاروا التوصية
+  audience_difficulty: صعوبة الجمهور
+  player_choices: اختيارات اللاعبين
+  friend_choices: اختيارات أصدقائك
+  next_challenge: جرّب تحدّيًا آخر
+  guest_name: ضيف BalootX
+  role_dealer: الموزع
+  role_buyer: المشتري
+  role_player: لاعب
+  buyer_with_name: المشتري {buyer}
+  contract_sun: صن
+  contract_hokum: حكم
+  contract_ashkal: أشكل
+  purchase_first: أول
+  purchase_second: ثاني
+  purchase_hokum_summary: '{contract} {round} {trump}'
+  purchase_plain_summary: '{contract} {round}'
+  truth_exact_optimal: حل مثبت
+  truth_robust_best_known: أفضل حل موثوق
+  truth_debatable: أكثر من حل مدعوم
+  truth_unresolved: غير محسوم
+  truth_rejected: مرفوض
+  prompt_choose_acting_action: وش تلعب؟
+  prompt_predict_opponent_play: وش تتوقع يلعب؟
+  prompt_read_partner_signal: وش تقرأ من لعب شريكك؟
+  prompt_identify_threat: وين الخطر؟
+  prompt_plan_next_response: وش خطتك للرد؟
+  prompt_infer_distribution: كيف تتوقع توزيع الورق؟
+  prompt_post_reveal_analysis: حلّل المسار
+  prompt_bid: وش تشتري؟
+  prompt_escalation: وش تختار في الدبل؟
+  prompt_project: وش المشروع المعلن؟
+  prompt_bid_en: What do you bid?
+  prompt_escalation_en: What do you choose in escalation?
+  prompt_project_en: Which project do you declare?
+  decision_options_aria: الخيارات القانونية
+  decision_options_aria_en: Legal choices
+  action_accessibility: الخيار {action}
+  action_accessibility_en: Choice {action}
+  action_bid_pass: بس
+  action_bid_sun: صن
+  action_bid_hokum: حكم
+  action_bid_ashkal: أشكل
+  action_bid_pass_en: Pass
+  action_bid_sun_en: Sun
+  action_bid_hokum_en: Hokum
+  action_bid_ashkal_en: Ashkal
+  action_escalation_decline: بس
+  action_escalation_double: دبل
+  action_escalation_triple: ثري
+  action_escalation_four: فور
+  action_escalation_gahwa: قهوة
+  action_escalation_decline_en: Decline
+  action_escalation_double_en: Double
+  action_escalation_triple_en: Triple
+  action_escalation_four_en: Four
+  action_escalation_gahwa_en: Gahwa
+  action_mode_open: مفتوح
+  action_mode_locked: مقفول
+  action_mode_open_en: Open
+  action_mode_locked_en: Locked
+  action_project_declare: إعلان {project}
+  action_project_declare_en: Declare {project}
+  action_project_siri: سرا
+  action_project_fifty: خمسين
+  action_project_hundred_sequence: مية
+  action_project_hundred_four_kind: مية
+  action_project_four_hundred: أربعمية
+  action_project_siri_en: Siri
+  action_project_fifty_en: Fifty
+  action_project_hundred_sequence_en: Hundred sequence
+  action_project_hundred_four_kind_en: Hundred four of a kind
+  action_project_four_hundred_en: Four hundred
+  proof_boundary_exact: إثبات كامل لكل الخيارات القانونية.
+  proof_boundary_bounded: الإثبات محدود بالأفق المحدد، ولا يثبت نتيجة بعده.
+  proof_boundary_policy_conditioned: النتيجة مشروطة بسياسات اللاعبين المحددة.
+  proof_boundary_exact_en: Exact proof over every legal choice.
+  proof_boundary_bounded_en: Proof is limited to the stated horizon and makes no claim
+    beyond it.
+  proof_boundary_policy_conditioned_en: The result is conditioned on the specified
+    player policies.
+  metric_round_margin: هامش اللفة {value}
+  metric_contract_success: نجاح الشراء {value}٪
+  metric_round_lead: تقدم اللفة {value}٪
+  reason_verified: التوصية اجتازت بوابات الثقة والثبات من منظور هذا المقعد.
+  reason_margin: يحافظ على أفضل هامش متوقع عبر توزيعات الأوراق المتوافقة.
+  reason_contract: يرفع فرصة نجاح الشراء مقارنة بأقرب بديل مدروس.
+  reason_ranked: تصدّر المقارنة على نفس توزيعات الأوراق المتوافقة.
+  no_statistics: لا توجد بيانات كافية بعد.
+  result_supported: اختيار مدعوم
+  result_different: الخيار الأقوى مختلف
+  result_recorded: تم تسجيل اختيارك
+  your_choice: اختيارك
+  recommendation: التوصية
+  note_multiple: هذه الحالة تدعم أكثر من خيار ضمن الفارق المعتمد.
+  note_single: تمت المقارنة باستخدام معلومات هذا المقعد فقط.
+  note_unavailable: التحليل الموثق غير متاح لهذه الحالة؛ لا ندّعي أن لعب المصدر هو
+    الحل الأمثل.
+  calibrating: قيد المعايرة
+  missing_code: رمز التحدّي غير موجود
+  unsupported_prompt: نوع هذا التحدّي غير متاح في مشغل الاختيار بعد
+  request_error: تعذر تنفيذ الطلب ({status})
+  brand_name: BalootX
+  brand_mark: ب
+  player_brand_aria: صكّة البلوت
+  player_brand_tagline: نفس الورق، من يلعبها أفضل؟
+  player_preparing: جارٍ التحضير…
+  player_optional_login: دخول اختياري
+  player_hero_eyebrow: تجربة عادلة بين الأصدقاء
+  player_hero_title_before: ابدأوا من نفس
+  player_hero_title_emphasis: الصكّة
+  player_hero_title_after: وقارنوا القرار والنتيجة
+  player_hero_body: نفس الخلط، نفس المشتري، نفس الورق، ونفس الخصوم الآليين. شارك الكود
+    والعب لفة واحدة أو صكّة كاملة.
+  player_create_sakka: أنشئ صكّة
+  player_join_code: ادخل بكود
+  player_feature_start_title: بداية متطابقة
+  player_feature_start_body: كل لاعب يستلم نفس الحالة واليد والسياسات.
+  player_feature_scope_title: لفة أو صكّة
+  player_feature_scope_body: شارك لفة قصيرة أو أكمل حتى حسم الصكّة.
+  player_feature_analysis_title: إعادة وتحليل
+  player_feature_analysis_body: ارجع للمسار وقارن قراراتك بعد انتهاء الصكّة.
+  player_back: رجوع
+  player_create_eyebrow: إنشاء جديد
+  player_create_title: جهّز الصكّة
+  player_create_body: الإعدادات البسيطة تكفي. التفاصيل الفنية تبقى داخل المحرك.
+  player_sakka_name: اسم الصكّة
+  player_sakka_name_placeholder: تحدّي الشباب
+  player_competition_type: نوع المنافسة
+  player_round_one: لفة واحدة
+  player_full_match: صكّة كاملة
+  player_play_type: نوع اللعب
+  player_sun_and_hokum: صن وحكم
+  player_sun_only: صن فقط
+  player_hokum_only: حكم فقط
+  player_seat: مقعدك
+  player_seat_bottom: أسفل الطاولة
+  player_seat_top: أعلى الطاولة
+  player_seat_left: يسار
+  player_seat_right: يمين
+  player_score_us: النقاط لنا
+  player_score_them: النقاط لهم
+  player_reproducible_seed: رقم التوليد القابل للإعادة
+  player_privacy: الخصوصية
+  player_by_code_only: بالكود فقط
+  player_private: خاصة
+  player_public: عامة
+  player_create_and_share: إنشاء ومشاركة
+  player_join_eyebrow: انضم لصكّة
+  player_join_title: أدخل كود المشاركة
+  player_join_body: الكود مصمم بدون أحرف متشابهة عشان يكون سهل بالإرسال والقراءة.
+  player_code_placeholder: 'مثال: 7K9P2HXRQM'
+  player_code_aria: كود الصكّة
+  player_open_sakka: افتح الصكّة
+  player_home: الرئيسية
+  player_lobby_eyebrow: الصكّة جاهزة
+  player_default_sakka_title: صكّة البلوت
+  player_share_code: كود المشاركة
+  player_copy: نسخ
+  player_verifying: جارٍ التحقق من الصكّة…
+  player_start_play: ابدأ اللعب
+  player_participants: المشاركون
+  player_results: النتائج
+  player_compare_top: قارن أفضل مسارين
+  player_refresh_aria: تحديث
+  player_no_results: ما فيه نتائج إلى الآن.
+  player_score_aria: النتيجة
+  player_waiting_purchase: بانتظار الشراء
+  player_round_label: لفة
+  player_sakka_code: رمز الصكّة
+  player_save_exit_aria: حفظ وخروج
+  player_your_turn: دورك
+  player_decision_play: وش بتلعب؟
+  player_play_card: العب الورقة
+  player_result_eyebrow: اكتملت الصكّة
+  player_result_recorded: تم تسجيل النتيجة
+  player_analyze_decisions: حلّل قراراتي
+  player_verify_replay: تحقق من الإعادة
+  player_view_friends: شاهد ترتيب الأصدقاء
+  player_close_aria: إغلاق
+  player_auth_title: احفظ اسمك ونتائجك
+  player_login: دخول
+  player_register: حساب جديد
+  player_username: اسم المستخدم
+  player_password: كلمة المرور
+  player_display_name: الاسم الظاهر
+  player_auth_note: تقدر تكمل كضيف بدون حساب، والحساب فقط لحفظ الصداقات والنتائج على
+    أجهزتك.
+  player_unexpected_error: صار خطأ غير متوقع
+  player_waiting_participants: بانتظار المشاركين.
+  player_role_you: أنت
+  player_won_match: فاز بالصكّة
+  player_did_not_win: ما فاز بالصكّة
+  player_compare_title: نفس البداية، مساران مختلفان
+  player_path_first: المسار الأول · {choice}
+  player_path_second: المسار الثاني · {choice}
+  player_versus: مقابل
+  player_compare_verified: تم التحقق من الصكّة ومن مساري القرارات بالكامل.
+  player_scope_match: صكّة كاملة
+  player_scope_round: لفة واحدة
+  player_seat_summary: 'المقعد: {seat}'
+  player_start_score: 'البداية: {score}'
+  player_board_verified: ✓ صكّة أصلية وموقعة وقابلة للإعادة
+  player_board_invalid: ⚠ تعذر التحقق من سلامة الصكّة
+  player_purchase_stage: مرحلة الشراء
+  player_purchase_card: 'ورقة الشراء: {card}'
+  player_turn_named: دور {player}
+  player_bid_pass: بس
+  player_bid_sun: صن
+  player_bid_ashkal: أشكل
+  player_bid_hokum: حكم {suit}
+  player_decision_buy: وش تشتري؟
+  player_playing: جاري اللعب…
+  player_result_excellent: نتيجة ممتازة
+  player_result_compared: تمت المقارنة
+  player_result_body: أكملت {rounds} لفة. افتح الترتيب أو حلّل كل قرار وقارن البدائل.
+  player_audit_quality: جودة القرارات
+  player_audit_regret: إجمالي الندم
+  player_audit_critical: قرارات حرجة
+  player_decision_bid: شراء
+  player_decision_card: لعب
+  player_quality_excellent: ممتاز
+  player_quality_good: جيد
+  player_quality_mistake: خطأ
+  player_quality_blunder: خسارة كبيرة
+  player_quality_forced: إجباري
+  player_quality_analysis: تحليل
+  player_your_play: لعبك
+  player_best_play: الأفضل
+  player_win_difference: فرق الفوز
+  player_analysis_fallback: تمت مقارنة هذا القرار بجميع البدائل القانونية المتاحة.
+  player_share_here: شارك من هنا
+  player_feedback: علّمني رأيك
+  player_no_comparable: ما فيه قرارات قابلة للمقارنة.
+  player_shared_sakka_label: صكّة من قرار مشترك
+  player_share_created: 'تم إنشاء صكّة: {code}'
+  player_feedback_prompt: اكتب سبب اختيارك أو ملاحظتك للمحرك
+  player_feedback_saved: تم حفظ رأيك للتعلّم والتحسين
+  player_code_copied: تم نسخ الكود
+  player_replay_verified: ✓ إعادة صحيحة · {actions} قرار
+  player_replay_failed: '⚠ فشل التحقق: {issues}'
+  player_analyzing: جارٍ التحليل…
+  player_login_success: تم تسجيل الدخول
+preview_copy:
+  page_title: BalootX — معاينة الفيديو
+  brand_name: BalootX
+  brand_mark: B
+  brand_aria: BalootX
+  artifact_switcher_aria: اختر نوع المقطع
+  flagship_label: اللفّة كاملة
+  decision_label: قرار واحد
+  viewer_aria: مشغّل فيديو BalootX
+  captions_label: العربية
+  captions_button: CC
+  still_alt: لقطة من فيديو BalootX
+  flagship_title: اللفّة كاملة، من أول ورقة للنتيجة
+  decision_title: قرار واحد، وبعده الكشف المختصر
+  playback_options_aria: خيارات التشغيل
+  speed_label: السرعة
+  speed_aria: سرعة التشغيل
+  fullscreen: ملء الشاشة
+  chapters_aria: فصول المقطع
+  qa_summary: أدوات التدقيق
+  scene_label: اللقطة
+  safe_area: المساحة الآمنة
+  disclosure: طبقات الإفصاح
+  resolution: المقاس
+  identity: هوية النسخة
+  chapter_hook: بداية التحدّي
+  chapter_replay: بداية اللفّة
+  chapter_context: قبل القرار
+  chapter_question: لحظة القرار
+  chapter_reveal: الكشف
+  chapter_continuation: تكملة اللعب
+  chapter_outcome: النتيجة
+  scene_video: الفيديو
+  scene_poster: لحظة القرار
+  scene_reveal: الكشف
+  scene_outcome: النتيجة
+renderer_plugin: premium_video
+render:
+  width: 1080
+  height: 1920
+  fps: 60
+  concurrency: 6
+  codec: libx264
+  preset: veryfast
+  crf: 18
+  pixel_format: yuv420p
+  audio_rate: 48000
+  locale: ar-SA
+  direction: rtl
+  font_family: Noto Sans Arabic
+  play_base_cache_entries: 8
+layout:
+  safe_margin: 54
+  table_center_y: 900
+  table_radius_x: 486
+  table_radius_y: 620
+  card_width: 208
+  card_height: 291
+  viewer_card_width: 224
+  viewer_card_height: 314
+  minimum_card_index_size: 48
+  orient_side_cards_to_table: true
+  keep_played_cards_upright: true
+  show_hidden_hand_counts: false
+  show_team_score: true
+  show_trick_counter: true
+  show_dealer_badge: true
+  show_buyer_badge: true
+  show_first_leader_badge: false
+  show_projects: true
+  project_announcement_trick: 1
+  project_reveal_trick: 2
+  persist_revealed_projects: false
+  show_score_breakdown: true
+  show_shuffle_commitment: false
+timeline:
+  intro_seconds: 1.6
+  shuffle_seconds: 4.8
+  initial_deal_seconds: 7.2
+  bidding_seconds: 10.0
+  final_deal_seconds: 4.8
+  project_seconds: 1.4
+  escalation_seconds: 1.8
+  card_flight_seconds: 0.34
+  between_cards_seconds: 0.3
+  trick_hold_seconds: 0.0
+  pause_seconds: 7.0
+  reveal_seconds: 3.2
+  shared_comparison_seconds: 0.8
+  final_seconds: 4.0
+  transition_seconds: 0.15
+  bid_call_seconds: 1.55
+  bid_gap_seconds: 0.45
+  bidding_result_seconds: 2.2
+  project_call_seconds: 6.0
+  project_reveal_seconds: 6.0
+  trick_collect_seconds: 0.72
+  continuation_seconds: 1.0
+  explanation_seconds: 5.0
+  contract_hold_seconds: 2.2
+  escalation_call_seconds: 1.55
+  public_callout_seconds: 1.65
+  winner_glow_seconds: 0.72
+  next_leader_seconds: 0.38
+motion:
+  mode: normal
+  reduced:
+    flight_steps: 2
+    card_arc_height_px: 0
+    card_scale_from: 0.98
+    collect_stagger: 0.0
+    collection_steps: 2
+    winner_glow: false
+  easing: cubic_bezier
+  shadow_strength: 0.26
+  card_scale_from: 0.78
+  flight_steps: 21
+  table_parallax: 0.0
+  winner_glow: true
+  transition_steps: 4
+  per_frame_interpolation: true
+  bezier_card_flight: true
+  card_arc_height_px: 28
+  physical_trick_collection: true
+  collect_stagger: 0.045
+  collection_steps: 22
+colors:
+  background: '#061614'
+  table: '#0A5A46'
+  table_dark: '#063B30'
+  rail: '#183C34'
+  gold: '#D9AF54'
+  text: '#F8F4E8'
+  muted: '#B5C5BD'
+  accent: '#F5C94C'
+  red: '#C8323E'
+  black: '#172027'
+audio:
+  enabled: true
+  ambience: false
+  card_clicks: true
+  countdown: true
+  reveal_chime: true
+  voice_callouts: true
+  voice_provider: offline_smooth_pack_v2
+  voice_pack_directory: assets/audio/voice_packs/ar_sa_baloot_v2_smooth
+  voice_pack_manifest: manifest.json
+  synthetic_callout_cues: false
+  table_foley: true
+  stereo_seat_pan: true
+  target_lufs: -18
+  normalization_true_peak_dbtp: -2.5
+  spoken_voice_pack: true
+  foley: true
+  one_piece_explanation: false
+  explanation_voice_mode: exact_transcript_only
+  explanation_voice_localization_key: video.audio.entry_control_explanation
+  explanation_voice_file: explanation.wav
+  explanation_voice_transcript: الخصم اليمين ما مشى على اللون. حفظ العشرة كان أفضل،
+    لأنه يعطيك فرصة تمسك اللعب في الأكلة الجاية.
+  explanation_voice_volume: 0.78
+themes:
+  emerald:
+    background: '#041411'
+    table: '#075B47'
+    table_dark: '#033D31'
+    rail: '#6A3D20'
+    gold: '#E0B653'
+    text: '#FFF8E8'
+    muted: '#B8C7C1'
+    accent: '#F7CE5B'
+    red: '#BE2438'
+    black: '#111B22'
+  noir:
+    background: '#080B0E'
+    table: '#20272A'
+    table_dark: '#111719'
+    rail: '#3A2F29'
+    gold: '#D2B574'
+    text: '#FAF6EA'
+    muted: '#A9B2B5'
+    accent: '#E7C56B'
+    red: '#C83642'
+    black: '#0B1115'
+  royal:
+    background: '#07131C'
+    table: '#0D4C67'
+    table_dark: '#082D3F'
+    rail: '#633A28'
+    gold: '#E2B85C'
+    text: '#FFF8E8'
+    muted: '#BCD1DB'
+    accent: '#F4C85A'
+    red: '#C93649'
+    black: '#0D1620'
+theme: emerald
+majlis:
+  theme: red
+  hud: plaque
+  id_box: number
+  score_target: 152
+  research_notice: false
+  social:
+    tiktok: ''
+    instagram: ''
+  theme_overrides: {}
+  themes:
+    red:
+      w1: '#5A3720'
+      w2: '#2E1C12'
+      w3: '#140B07'
+      rug: '#8E2626'
+      rug_line: '#A43A33'
+      rug_deep: '#6E1A1A'
+      accent: '#C8642A'
+      m1: '#A83232'
+      m2: '#6E1A1A'
+      c1: '#34443B'
+      c2: '#1F2A24'
+      wd1: '#402818'
+      wd2: '#23150C'
+    blue:
+      w1: '#2C3E5C'
+      w2: '#172238'
+      w3: '#0A0F1A'
+      rug: '#1F3D66'
+      rug_line: '#2F5A8F'
+      rug_deep: '#152B4A'
+      accent: '#C9A35B'
+      m1: '#2F5A8F'
+      m2: '#152B4A'
+      c1: '#5A2E2E'
+      c2: '#3A1C1C'
+      wd1: '#3A2A20'
+      wd2: '#1E1510'
+    emerald:
+      w1: '#2A4A3C'
+      w2: '#15281F'
+      w3: '#08120D'
+      rug: '#1D5C47'
+      rug_line: '#2C7A60'
+      rug_deep: '#123D2F'
+      accent: '#C8642A'
+      m1: '#237556'
+      m2: '#123D2F'
+      c1: '#5A3420'
+      c2: '#3A2214'
+      wd1: '#402818'
+      wd2: '#23150C'
+    charcoal:
+      w1: '#3E342A'
+      w2: '#201A15'
+      w3: '#0D0A08'
+      rug: '#241C17'
+      rug_line: '#4A3A2A'
+      rug_deep: '#15100C'
+      accent: '#C9A35B'
+      m1: '#3A302A'
+      m2: '#15100C'
+      c1: '#34443B'
+      c2: '#1F2A24'
+      wd1: '#402818'
+      wd2: '#23150C'
+  fixed:
+    sand: '#F4E9D2'
+    brass: '#C9A35B'
+    brass_light: '#D4AF6A'
+    card_red: '#C62828'
+    research_red: '#D62839'
+    research_tint: '#FFE3E6'
+    white: '#FFFFFF'
+    team_us: '#E8A93A'
+    team_us_text: '#F2C062'
+    team_them: '#7FB2D0'
+    team_them_text: '#A9CDE2'
+    ink: '#1B1210'
+    ink_warm: '#24160D'
+    cream: '#EAD9B5'
+    parchment: '#F1E4C8'
+    muted: '#D2BE9A'
+    brown: '#6B4A2A'
+    edge: '#6B5530'
+    pill_edge: '#B8955A'
+    tile: '#1A0F09'
+    meter: '#170D08'
+    hud_inner: '#2A190F'
+    pass_bg: '#2E2018'
+    pass_text: '#D9C7A4'
+    escalation_bg: '#FFF4E0'
+    escalation_red: '#B3242B'
+    escalation_ink: '#8E1B1B'
+    baloot_light: '#F7D27A'
+    baloot_edge: '#FFF4D6'
+    ledger_line: '#D9C49C'
+    ledger_plus: '#B5701C'
+    timer_track: '#E2CDA4'
+    decision_red: '#8E2626'
+    escalation_badge: '#7A1717'
+  decor:
+    ceiling: '#3A2416'
+    frond: '#6B5030'
+    frond_light: '#8E6E42'
+    frond_dark: '#5A4026'
+    mud: '#5A3B26'
+    vent: '#160D08'
+    lantern_body: '#3A2414'
+    lantern_metal: '#A9853F'
+    lantern_core: '#FFF1C9'
+    lantern_glow: '#F2C062'
+    floor_top: '#1A0F09'
+    floor_bottom: '#0D0704'
+    smoke: '#E8DCC4'
+    burner: '#6E4A2E'
+    tray_rim: '#8A6A35'
+    tray: '#B08A48'
+    tray_shadow: '#6E5229'
+    coffee: '#B5822E'
+    date_dark: '#5A2A14'
+    date: '#6B3418'
+    date_light: '#7A3E1C'
+approved_design:
+  source_head: 730500a25ec15c3f6ffa4cd4f7d8e25f01a13850
+  source_tree: 3a775aa0a6be8d06de83409c316793d3ef9f5f58
+  reference_run_id: '42040257975'
+  reference_artifact_id: '13421681354'
+  reference_mp4_sha256: 15492d3f389fcb07be423fc97a6e46fe0b8e385b5beb173f01073e6d11a87bf9
+  variant: public_v4_no_justification_no_notice
+audit:
+  show_quality_on_reveal: true
+  include_decision_timecodes: true
+  show_actual_intent_only_when_recorded: true
+card_assets:
+  provider: raster_pack_v1
+  pack_id: goodall_modern_baloot_32
+  manifest: assets/cards/packs/goodall_modern_baloot_32/manifest.json
+  back_id: 1B
+  fallback_provider: procedural_v1
+  freeze_in_shared_environment: true
+  license_status: CC0-1.0-public-domain
+callouts:
+  enabled: true
+  seat_attached: true
+  maximum_lines: 2
+  maximum_characters_per_line: 16
+  fade_in_ms: 110
+  fade_out_ms: 130
+  public_only_before_reveal: true
+safe_areas:
+  profile: vertical_social_v1
+  top_px: 180
+  right_px: 72
+  bottom_px: 300
+  left_px: 72
+  show_mask_in_player: false
+exports:
+  hooked_flagship:
+    minimum_seconds: 60
+    target_seconds: 72
+    maximum_seconds: 75
+    opening_hook_seconds: 1.8
+    rewind_seconds: 0.4
+    setup_end_seconds: 15.0
+    play_end_seconds: 48.0
+    reveal_end_seconds: 68.0
+    decision_seconds: 5.0
+    reveal_seconds: 5.0
+    continuation_seconds: 10.0
+    include_complete_replay: true
+  decision_clip:
+    fps: 30
+    minimum_seconds: 20
+    target_seconds: 20
+    maximum_seconds: 20
+    opening_hook_seconds: 1.8
+    rewind_seconds: 0.4
+    context_seconds: 2.0
+    decision_seconds: 5.0
+    reveal_seconds: 4.0
+    continuation_seconds: 3.6
+    outcome_seconds: 3.0
+    include_complete_replay: false
+typography:
+  interface_family: Noto Sans Arabic
+  display_family: Noto Kufi Arabic
+  maximum_reason_lines: 2
+  use_kufi_for_short_display_only: true
+texture:
+  kind: deterministic_svg_saudi_geometry
+  opacity: 0.035
+  pattern_id: professional_emerald_v1
+presentation:
+  mode: player
+  show_justification_text: false
+  keep_table_visible: true
+  large_text_panels_before_reveal: false
+  table_dominant_layout: true
+  show_avatar_initials: false
+  show_public_callouts: true
+  show_deep_analysis_only_after_reveal: true
+  show_justification: false
+  show_trick_winner_text: false
+  physical_trick_collection: true
+  winner_yellow_glow: true
+  show_micro_seat_markers: false
+  show_identity_pill: true
+  show_enrollment_qr: true
+  qr_size_px: 80
+  qr_quiet_zone_modules: 4
+  identity_position: score_center
+  show_state_locator: false
+  state_locator_characters: 8
+  show_developer_card_codes: false
+  contact_sheet_columns: 4
+  contact_sheet_labels: true
+  score_separator_style: vector
+pacing_profile: premium_motion_baloot_v19

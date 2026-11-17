@@ -1,0 +1,1899 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <title>استديو البلوت الذكي</title>
+    <style>
+      :root {
+        --bg: #071310;
+        --panel: #0c1f1a;
+        --panel2: #102a23;
+        --line: #24463d;
+        --soft: #16382f;
+        --text: #f8f5ea;
+        --muted: #aebdb7;
+        --accent: #f2c94c;
+        --accent2: #4dd5a3;
+        --danger: #ff7a76;
+        --ok: #65d394;
+        --shadow: 0 22px 70px rgba(0, 0, 0, 0.32);
+        --r: 24px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 75% 0, #12362c 0, transparent 34%),
+          linear-gradient(155deg, #071310, #081b17 55%, #071310);
+        color: var(--text);
+        font-family: "Noto Sans Arabic", "Tahoma", "Arial", sans-serif;
+        min-height: 100vh;
+      }
+      .app {
+        max-width: 1560px;
+        margin: auto;
+        padding: 24px;
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .brandmark {
+        width: 54px;
+        height: 54px;
+        border-radius: 18px;
+        background: linear-gradient(145deg, #f4d36a, #b88924);
+        display: grid;
+        place-items: center;
+        color: #12261f;
+        font:
+          800 27px/1 Georgia,
+          serif;
+        box-shadow: 0 10px 35px rgba(242, 201, 76, 0.22);
+      }
+      h1 {
+        font-size: 26px;
+        margin: 0 0 3px;
+      }
+      .subtitle {
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .status-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .chip {
+        border: 1px solid var(--line);
+        background: #0b211b;
+        border-radius: 999px;
+        padding: 8px 12px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .chip strong {
+        color: var(--text);
+      }
+      .chip.warn {
+        border-color: #6b5a25;
+        color: #e8cf7c;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 430px;
+        gap: 18px;
+        align-items: start;
+      }
+      .surface {
+        background: linear-gradient(
+          180deg,
+          rgba(15, 42, 35, 0.97),
+          rgba(8, 28, 23, 0.98)
+        );
+        border: 1px solid rgba(109, 150, 136, 0.24);
+        border-radius: var(--r);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+      .tabs {
+        display: flex;
+        gap: 6px;
+        padding: 10px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(4, 18, 15, 0.48);
+        position: sticky;
+        top: 0;
+        z-index: 8;
+      }
+      .tab {
+        flex: 1;
+        border: 0;
+        border-radius: 15px;
+        padding: 12px 10px;
+        background: transparent;
+        color: var(--muted);
+        font: 700 14px inherit;
+        cursor: pointer;
+      }
+      .tab.active {
+        background: var(--soft);
+        color: var(--text);
+        box-shadow: inset 0 0 0 1px #31584d;
+      }
+      .tab-panel {
+        display: none;
+        padding: 18px;
+      }
+      .tab-panel.active {
+        display: block;
+      }
+      .section {
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 18px;
+        margin-bottom: 14px;
+        background: rgba(6, 26, 21, 0.42);
+      }
+      .section:last-child {
+        margin-bottom: 0;
+      }
+      .section-head {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        margin-bottom: 16px;
+      }
+      .section-icon {
+        width: 38px;
+        height: 38px;
+        flex: 0 0 auto;
+        border-radius: 13px;
+        background: #173b31;
+        color: var(--accent);
+        display: grid;
+        place-items: center;
+        font-weight: 900;
+      }
+      .section h2 {
+        font-size: 18px;
+        margin: 0 0 4px;
+      }
+      .section p {
+        font-size: 12px;
+        line-height: 1.7;
+        color: var(--muted);
+        margin: 0;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .grid.three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        min-width: 0;
+      }
+      .field-title {
+        font-size: 13px;
+        color: #d8e1dd;
+        font-weight: 700;
+      }
+      .hint {
+        font-weight: 400;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .field input,
+      .field select,
+      .field textarea {
+        width: 100%;
+        border: 1px solid #31564d;
+        background: #071c17;
+        color: var(--text);
+        border-radius: 14px;
+        padding: 12px 13px;
+        font: 500 14px inherit;
+        outline: none;
+      }
+      .field input:focus,
+      .field select:focus,
+      .field textarea:focus {
+        border-color: var(--accent2);
+        box-shadow: 0 0 0 3px rgba(77, 213, 163, 0.12);
+      }
+      .field input:disabled,
+      .field select:disabled {
+        opacity: 0.45;
+      }
+      .range-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .range-row input {
+        padding: 0;
+        accent-color: var(--accent2);
+      }
+      .range-value {
+        min-width: 64px;
+        text-align: center;
+        background: #15372f;
+        border: 1px solid #31564d;
+        border-radius: 11px;
+        padding: 7px;
+        color: var(--text);
+        font-size: 13px;
+      }
+      .switch {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        background: #0a211b;
+        border: 1px solid #2b4d44;
+        padding: 12px 13px;
+        border-radius: 15px;
+      }
+      .switch input {
+        width: 42px;
+        height: 23px;
+        accent-color: var(--accent2);
+      }
+      .preset-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 9px;
+      }
+      .preset {
+        border: 1px solid var(--line);
+        background: #0a211b;
+        color: var(--muted);
+        border-radius: 15px;
+        padding: 12px 8px;
+        cursor: pointer;
+        text-align: center;
+      }
+      .preset::before {
+        content: "";
+        display: block;
+        width: 100%;
+        height: 44px;
+        border-radius: 10px;
+        margin-bottom: 8px;
+        background: linear-gradient(145deg, #0a5a46, #09271f);
+      }
+      .preset[data-value="noir"]::before {
+        background: linear-gradient(145deg, #30353c, #0b0d10);
+      }
+      .preset[data-value="royal"]::before {
+        background: linear-gradient(145deg, #174d68, #081624);
+      }
+      .preset.active {
+        border-color: var(--accent);
+        color: var(--text);
+        box-shadow: 0 0 0 2px rgba(242, 201, 76, 0.12);
+      }
+      .advanced-warning {
+        background: #322c16;
+        border: 1px solid #65582a;
+        color: #ead88f;
+        border-radius: 15px;
+        padding: 13px;
+        line-height: 1.7;
+        margin-bottom: 14px;
+        font-size: 13px;
+      }
+      .codebox {
+        direction: ltr;
+        text-align: left;
+        min-height: 340px;
+        font:
+          12px/1.7 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace !important;
+      }
+      .sidebar {
+        position: sticky;
+        top: 18px;
+      }
+      .preview-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 17px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+      .preview-head h2 {
+        font-size: 17px;
+        margin: 0;
+      }
+      .status {
+        font-size: 12px;
+        border-radius: 999px;
+        background: #17362e;
+        padding: 7px 11px;
+        color: var(--muted);
+      }
+      .status.running {
+        color: #f6d774;
+      }
+      .status.completed {
+        color: #7ce5a8;
+      }
+      .status.failed {
+        color: #ff9793;
+      }
+      .preview {
+        padding: 18px;
+      }
+      .phone {
+        width: 100%;
+        aspect-ratio: 9/16;
+        border-radius: 24px;
+        border: 1px solid #36594f;
+        background: linear-gradient(180deg, #0a2821, #061510);
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+        box-shadow: inset 0 0 0 5px #06110e;
+      }
+      .phone video,
+      .phone img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #020806;
+      }
+      .empty-preview {
+        text-align: center;
+        color: var(--muted);
+        padding: 24px;
+      }
+      .empty-preview .cards {
+        font:
+          38px/1.2 Georgia,
+          serif;
+        letter-spacing: 7px;
+        color: var(--accent);
+        margin-bottom: 15px;
+      }
+      .empty-preview strong {
+        display: block;
+        color: var(--text);
+        margin-bottom: 7px;
+      }
+      .progress {
+        height: 9px;
+        background: #132d27;
+        border-radius: 99px;
+        margin-top: 15px;
+        overflow: hidden;
+      }
+      .progress span {
+        display: block;
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, var(--accent2), var(--accent));
+        transition: width 0.3s;
+      }
+      .progress-text {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.7;
+        margin: 8px 2px 0;
+      }
+      .error {
+        display: none;
+        margin-top: 10px;
+        border: 1px solid #7b3735;
+        background: #321817;
+        color: #ffb5b2;
+        border-radius: 13px;
+        padding: 11px;
+        font-size: 12px;
+        line-height: 1.7;
+      }
+      .error.show {
+        display: block;
+      }
+      .checklist {
+        display: grid;
+        gap: 7px;
+        margin: 14px 0;
+      }
+      .check {
+        font-size: 12px;
+        color: #cad6d1;
+        background: #0a211b;
+        border: 1px solid #24443b;
+        border-radius: 12px;
+        padding: 8px 10px;
+      }
+      .check::before {
+        content: "✓";
+        color: var(--ok);
+        font-weight: 900;
+        margin-left: 7px;
+      }
+      .actions {
+        display: flex;
+        gap: 9px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+      }
+      .actions button {
+        border: 0;
+        border-radius: 14px;
+        padding: 12px 16px;
+        font: 800 14px inherit;
+        cursor: pointer;
+      }
+      .primary {
+        flex: 1;
+        background: linear-gradient(135deg, #f4d260, #c99b2b);
+        color: #14231e;
+        box-shadow: 0 10px 24px rgba(242, 201, 76, 0.16);
+      }
+      .secondary {
+        background: #17372f;
+        color: var(--text);
+        border: 1px solid #31564d !important;
+      }
+      .actions button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .downloads {
+        display: none;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-top: 11px;
+      }
+      .downloads.show {
+        display: grid;
+      }
+      .download {
+        display: block;
+        text-align: center;
+        background: #102d25;
+        border: 1px solid #31534a;
+        border-radius: 12px;
+        padding: 9px;
+        color: var(--text);
+        font-size: 12px;
+        text-decoration: none;
+      }
+      .notice {
+        border: 1px solid #31564d;
+        background: #0a211b;
+        border-radius: 14px;
+        padding: 12px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.8;
+      }
+      .notice strong {
+        color: var(--text);
+      }
+      .conditional.hidden {
+        display: none;
+      }
+      .mini-note {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.7;
+      }
+      .validation {
+        margin-top: 10px;
+        color: #f2cf70;
+        font-size: 12px;
+        line-height: 1.7;
+      }
+      .rules-source {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: #10261f;
+        border: 1px solid #2e4b42;
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+      .rules-source b {
+        color: #e4ece8;
+      }
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .toolbar input,
+      .toolbar select {
+        min-width: 160px;
+        flex: 1;
+        border: 1px solid #31564d;
+        background: #071c17;
+        color: var(--text);
+        border-radius: 12px;
+        padding: 10px 12px;
+        font: 500 13px inherit;
+      }
+      .toolbar button {
+        border: 1px solid #31564d;
+        background: #17372f;
+        color: var(--text);
+        border-radius: 12px;
+        padding: 10px 13px;
+        font: 700 12px inherit;
+        cursor: pointer;
+      }
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin: 10px 0;
+      }
+      .summary-item {
+        background: #0a211b;
+        border: 1px solid #294a41;
+        border-radius: 13px;
+        padding: 10px;
+      }
+      .summary-item b {
+        display: block;
+        color: var(--accent);
+        font-size: 12px;
+        margin-bottom: 3px;
+      }
+      .summary-item span {
+        font-size: 12px;
+        color: var(--text);
+      }
+      @media (max-width: 1100px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .sidebar {
+          position: static;
+        }
+        .phone {
+          max-width: 430px;
+          margin: auto;
+        }
+      }
+      @media (max-width: 680px) {
+        .app {
+          padding: 10px;
+        }
+        .topbar {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+        .status-row {
+          justify-content: flex-start;
+        }
+        .grid,
+        .grid.three {
+          grid-template-columns: 1fr;
+        }
+        .tab-panel {
+          padding: 10px;
+        }
+        .section {
+          padding: 14px;
+        }
+        .downloads {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brandmark">B</div>
+          <div>
+            <h1>استديو البلوت الذكي</h1>
+            <div class="subtitle">
+              محرك قواعد واحتمالات وفيديو كامل من الخلط حتى النتيجة
+            </div>
+          </div>
+        </div>
+        <div class="status-row">
+          <span class="chip"><strong>المحرك</strong> ٣٫٠</span
+          ><span id="ruleStatusChip" class="chip warn"
+            >ملف القواعد قيد الاعتماد</span
+          ><span id="bundleChip" class="chip">تحميل الحزمة</span>
+        </div>
+      </header>
+      <div class="layout">
+        <section class="surface">
+          <nav class="tabs">
+            <button class="tab active" data-tab="guided">إعداد سريع</button
+            ><button class="tab" data-tab="expert">ضبط متقدم</button
+            ><button class="tab" data-tab="advanced">للمطورين</button>
+          </nav>
+          <div
+            style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px"
+          >
+            <a
+              href="/challenges"
+              style="color: var(--gold); text-decoration: none"
+              >منجم التحديات</a
+            ><a href="/learn" style="color: var(--gold); text-decoration: none"
+              >التعلم والسجل</a
+            >
+          </div>
+
+          <div id="guided" class="tab-panel active">
+            <div class="toolbar" aria-label="إدارة الإعدادات">
+              <input
+                id="presetName"
+                placeholder="اسم إعدادك، مثل: تحديات الحكم"
+                maxlength="48"
+              />
+              <select id="savedPresets">
+                <option value="">الإعدادات المحفوظة</option>
+              </select>
+              <button id="savePreset" type="button">حفظ الإعداد</button
+              ><button id="loadPreset" type="button">تحميل</button
+              ><button id="deletePreset" type="button">حذف</button>
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div class="section-icon">١</div>
+                <div>
+                  <h2>نوع الجولة والشراء</h2>
+                  <p>
+                    اختر المنتج والعقد. المحرك ينشئ طلباً قانونياً، يحدد
+                    المشتري، ويوزع ورقة الشراء تلقائياً.
+                  </p>
+                </div>
+              </div>
+              <div class="grid">
+                <label class="field"
+                  ><span class="field-title">نطاق التصدير</span
+                  ><select id="scope">
+                    <option value="round" selected>جولة كاملة</option>
+                    <option value="match">صكة كاملة حتى الحسم</option>
+                  </select></label
+                >
+                <label id="maxRoundsWrap" class="field conditional hidden"
+                  ><span class="field-title">الحد الأقصى للجولات</span
+                  ><input
+                    id="maximumRounds"
+                    type="number"
+                    min="1"
+                    max="64"
+                    value="16"
+                  /><span class="hint"
+                    >يتوقف فور بلوغ نتيجة الحسم حتى لو كان الحد أكبر.</span
+                  ></label
+                >
+                <label class="field"
+                  ><span class="field-title">ملف اللعب</span
+                  ><select id="rulesProfile">
+                    <option value="full">القواعد الكاملة</option>
+                    <option value="sun_only">صن فقط</option>
+                    <option value="hokum_only">حكم فقط</option>
+                  </select></label
+                >
+                <label class="field"
+                  ><span class="field-title">نوع اللعب</span
+                  ><select id="contract">
+                    <option value="auto">يختاره المحرك</option>
+                    <option value="sun">صن</option>
+                    <option value="hokum" selected>حكم</option>
+                    <option value="ashkal">أشكل</option>
+                  </select></label
+                >
+                <label id="trumpWrap" class="field conditional"
+                  ><span class="field-title">لون الحكم</span
+                  ><select id="trumpSuit">
+                    <option value="auto">حسب المشترى أو الطلب الثاني</option>
+                    <option value="spades">سباتي</option>
+                    <option value="hearts">هاص</option>
+                    <option value="diamonds">دايمن</option>
+                    <option value="clubs">كلبس</option>
+                  </select></label
+                >
+                <label class="field"
+                  ><span class="field-title">المشتري</span
+                  ><select id="buyer">
+                    <option value="auto">يحدده الطلب</option>
+                    <option value="north">الخوي</option>
+                    <option value="west">الخصم الأيسر</option>
+                    <option value="south">أنت</option>
+                    <option value="east">الخصم الأيمن</option>
+                  </select></label
+                >
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-head">
+                <div class="section-icon">٢</div>
+                <div>
+                  <h2>التوزيع وسياق المباراة</h2>
+                  <p>
+                    الخلط والقص والتوزيع ٣ ثم ٢ وورقة المشترى ثم الإكمال كلها
+                    مسجلة وقابلة لإعادة التشغيل.
+                  </p>
+                </div>
+              </div>
+              <div class="grid three">
+                <label class="field"
+                  ><span class="field-title">الموزّع</span
+                  ><select id="dealer">
+                    <option value="north">الخوي</option>
+                    <option value="west">الخصم الأيسر</option>
+                    <option value="south">أنت</option>
+                    <option value="east" selected>الخصم الأيمن</option>
+                  </select></label
+                >
+                <label class="field"
+                  ><span class="field-title">القص</span
+                  ><select id="cutMode">
+                    <option value="auto">قص تلقائي</option>
+                    <option value="none">تمرير دون قص</option>
+                    <option value="fixed">موضع محدد</option>
+                  </select></label
+                >
+                <label id="cutPositionWrap" class="field conditional hidden"
+                  ><span class="field-title">موضع القص</span
+                  ><input
+                    id="cutPosition"
+                    type="number"
+                    min="1"
+                    max="31"
+                    value="16"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">نتيجتنا قبل الجولة</span
+                  ><input
+                    id="matchScoreUs"
+                    type="number"
+                    min="0"
+                    max="999"
+                    value="0"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">نتيجة الخصم قبل الجولة</span
+                  ><input
+                    id="matchScoreThem"
+                    type="number"
+                    min="0"
+                    max="999"
+                    value="0"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">هدف الصكّة</span
+                  ><input
+                    id="matchTarget"
+                    type="number"
+                    min="1"
+                    max="10000"
+                    value="152"
+                  /><span class="hint"
+                    >الافتراضي ١٥٢، ويمكن تغييره للتدريب والاختبار.</span
+                  ></label
+                >
+                <label class="field"
+                  ><span class="field-title">بذرة قابلة للإعادة</span
+                  ><input id="seed" type="number" min="0" value="917"
+                /></label>
+              </div>
+              <div class="mini-note">
+                الافتراضي البحثي يجعل أول لعب من يمين الموزّع. يمكن تغيير هذا في
+                الضبط المتقدم لأن بعض المنصات تستخدم المشتري.
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-head">
+                <div class="section-icon">٣</div>
+                <div>
+                  <h2>الموقف الحاسم</h2>
+                  <p>
+                    يبحث المحرك عن قرار حقيقي متعدد الخيارات، يتوقف عنده، ثم
+                    يكمل الجولة نفسها حتى النتيجة.
+                  </p>
+                </div>
+              </div>
+              <div class="grid">
+                <label class="switch"
+                  ><span
+                    ><b>اشتراط وجود مشروع</b><br /><span class="hint"
+                      >سِرى أو خمسين أو مئة أو أربعمئة</span
+                    ></span
+                  ><input id="requireProject" type="checkbox" checked
+                /></label>
+                <label class="field"
+                  ><span class="field-title">مدة السؤال</span>
+                  <div class="range-row">
+                    <input
+                      id="pauseSeconds"
+                      type="range"
+                      min="2"
+                      max="12"
+                      step=".5"
+                      value="5"
+                    /><output class="range-value" data-for="pauseSeconds"
+                      >٥ ث</output
+                    >
+                  </div></label
+                >
+                <label class="field"
+                  ><span class="field-title">عنوان الحلقة</span
+                  ><input id="titleAr" value="تحدّي البلوت"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">سؤال المشاهد</span
+                  ><input id="questionAr" value="وش بتلعب؟ وليه؟"
+                /></label>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-head">
+                <div class="section-icon">٤</div>
+                <div>
+                  <h2>شكل الفيديو</h2>
+                  <p>
+                    واجهة عمودية واضحة، أربعة مقاعد ثابتة، أوراق كبيرة، ونص عربي
+                    مشكّل بشكل صحيح.
+                  </p>
+                </div>
+              </div>
+              <div class="preset-grid">
+                <button
+                  class="preset active"
+                  data-value="emerald"
+                  type="button"
+                >
+                  زمردي</button
+                ><button class="preset" data-value="noir" type="button">
+                  أسود فاخر</button
+                ><button class="preset" data-value="royal" type="button">
+                  ملكي
+                </button>
+              </div>
+              <div style="height: 12px"></div>
+              <div class="grid">
+                <label class="field"
+                  ><span class="field-title">إيقاع الفيديو</span
+                  ><select id="pacing">
+                    <option value="fast">مختصر للمقاطع السريعة</option>
+                    <option value="broadcast">متوازن</option>
+                    <option value="authentic" selected>
+                      طبيعي مثل جلسة البلوت — موصى به
+                    </option>
+                    <option value="cinematic">تفصيلي أبطأ</option>
+                  </select></label
+                >
+                <label class="field"
+                  ><span class="field-title">اتجاه الأوراق</span
+                  ><select id="cardOrientation">
+                    <option value="upright" selected>
+                      مستقيمة لسهولة القراءة
+                    </option>
+                    <option value="table">باتجاه أصحاب المقاعد</option></select
+                  ><span class="hint"
+                    >أوراق الأكلة تبقى مقروءة في الوضعين، وتتغير رُزم المقاعد
+                    الجانبية فقط.</span
+                  ></label
+                >
+                <label class="field"
+                  ><span class="field-title">تصميم الورق</span
+                  ><select id="cardPack">
+                    <option value="goodall_modern_baloot_32" selected>
+                      Goodall الحديث — الافتراضي
+                    </option>
+                    <option value="procedural_v1">
+                      تصميم المحرك الاحتياطي
+                    </option></select
+                  ><span class="hint"
+                    >يُثبّت الاختيار داخل اللفة أو الصكّة المشتركة حتى تكون
+                    البيئة متطابقة.</span
+                  ></label
+                >
+                <label class="field"
+                  ><span class="field-title">ظهر الورق</span
+                  ><select id="cardBack">
+                    <option value="1B" selected>ظهر ١</option>
+                    <option value="2B">ظهر ٢</option>
+                  </select></label
+                >
+              </div>
+              <div style="height: 12px"></div>
+              <div class="grid">
+                <label class="switch"
+                  ><span
+                    ><b>نداءات بجانب اللاعب</b><br /><span class="hint"
+                      >بس، صن، حكم ثاني، المشاريع وبلوت في وقتها الصحيح</span
+                    ></span
+                  ><input id="seatCallouts" type="checkbox" checked
+                /></label>
+                <label class="switch"
+                  ><span
+                    ><b>أصوات الطاولة</b><br /><span class="hint"
+                      >خلط، توزيع، وضع الورقة وجمع الأكلة</span
+                    ></span
+                  ><input id="tableFoley" type="checkbox" checked
+                /></label>
+                <label class="switch"
+                  ><span
+                    ><b>صوت نداءات اللاعبين</b><br /><span class="hint"
+                      >يستخدم حزمة صوت معتمدة عند توفرها، وإلا يستخدم تنبيهًا
+                      أصليًا</span
+                    ></span
+                  ><input id="voiceCallouts" type="checkbox" checked
+                /></label>
+                <label class="switch"
+                  ><span
+                    ><b>الصوت الكامل</b><br /><span class="hint"
+                      >المؤثرات والعد التنازلي والتنبيه</span
+                    ></span
+                  ><input id="audio" type="checkbox" checked
+                /></label>
+              </div>
+            </div>
+          </div>
+
+          <div id="expert" class="tab-panel">
+            <div class="section">
+              <div class="section-head">
+                <div class="section-icon">ق</div>
+                <div>
+                  <h2>اختلافات القواعد والتصعيد</h2>
+                  <p>
+                    هذه الخيارات تنشئ فرع إعدادات جديداً بهوية مستقلة ولا تعدّل
+                    الملف المنشور.
+                  </p>
+                </div>
+              </div>
+              <div class="grid">
+                <label class="field"
+                  ><span class="field-title">من يبدأ أول أكلة</span
+                  ><select id="firstLeaderPolicy">
+                    <option value="dealer_right" selected>
+                      يمين الموزّع — الافتراضي البحثي
+                    </option>
+                    <option value="buyer">المشتري — اختلاف منصة</option>
+                    <option value="configured">مقعد محدد</option>
+                  </select></label
+                >
+                <label
+                  id="configuredFirstLeaderWrap"
+                  class="field conditional hidden"
+                  ><span class="field-title">المقعد الذي يبدأ</span
+                  ><select id="configuredFirstLeader">
+                    <option value="north">الشمال — الخوي</option>
+                    <option value="west">الغرب — الخصم الأيسر</option>
+                    <option value="south">الجنوب — اللاعب</option>
+                    <option value="east">الشرق — الخصم الأيمن</option>
+                  </select></label
+                >
+                <label class="field"
+                  ><span class="field-title">مستوى التصعيد</span
+                  ><select id="escalationLevel">
+                    <option value="normal">عادي</option>
+                    <option value="double">دبل</option>
+                    <option value="triple">تربل</option>
+                    <option value="four">فور</option>
+                    <option value="gahwa">قهوة</option>
+                  </select></label
+                >
+                <label id="escalationModeWrap" class="field conditional hidden"
+                  ><span class="field-title">نوع الدبل أو الفور</span
+                  ><select id="escalationMode">
+                    <option value="open">مفتوح</option>
+                    <option value="locked">مقفول</option>
+                  </select></label
+                >
+                <label class="field"
+                  ><span class="field-title">قراءة إشارات اللعب</span
+                  ><select id="conventionProfile">
+                    <option value="hard_facts_only" selected>
+                      حقائق قانونية فقط — موصى به
+                    </option>
+                    <option value="experimental_display">
+                      ملاحظات تجريبية للعرض دون تأثير
+                    </option>
+                    <option value="experimental_weighting">
+                      ترجيح تجريبي معلن — للبحث فقط
+                    </option>
+                  </select></label
+                >
+              </div>
+              <div style="height: 12px"></div>
+              <div class="grid">
+                <label class="switch"
+                  ><span
+                    ><b>المشاريع</b><br /><span class="hint"
+                      >سِرى وخمسين ومئة وأربعمئة</span
+                    ></span
+                  ><input id="projectsEnabled" type="checkbox" checked
+                /></label>
+                <label class="switch"
+                  ><span
+                    ><b>بلوت</b><br /><span class="hint"
+                      >ملك وبنت الحكم حسب التوقيت</span
+                    ></span
+                  ><input id="balootEnabled" type="checkbox" checked
+                /></label>
+                <label class="switch"
+                  ><span
+                    ><b>أشكل</b><br /><span class="hint"
+                      >طلب الجولة الأولى مع شراء الخوي</span
+                    ></span
+                  ><input id="ashkalEnabled" type="checkbox" checked
+                /></label>
+                <label class="switch"
+                  ><span
+                    ><b>كبوت</b><br /><span class="hint"
+                      >فوز فريق واحد بالأكلات الثماني</span
+                    ></span
+                  ><input id="kaboutEnabled" type="checkbox" checked
+                /></label>
+              </div>
+              <div style="height: 12px"></div>
+              <div class="grid">
+                <label class="switch"
+                  ><span
+                    ><b>القص عند عدم وجود اللون</b><br /><span class="hint"
+                      >في الحكم وفق ملف الالتزامات</span
+                    ></span
+                  ><input id="mustTrumpWhenVoid" type="checkbox" checked
+                /></label>
+                <label class="switch"
+                  ><span
+                    ><b>الترقية عند الإمكان</b><br /><span class="hint"
+                      >التجسير فوق حكم الخصم</span
+                    ></span
+                  ><input
+                    id="mustOvertrumpWhenPossible"
+                    type="checkbox"
+                    checked
+                /></label>
+                <label class="switch"
+                  ><span
+                    ><b>السماح بالرمي عند العجز عن الترقية</b><br /><span
+                      class="hint"
+                      >اختلاف قابل للتبديل</span
+                    ></span
+                  ><input
+                    id="allowDiscardWhenCannotOvertrump"
+                    type="checkbox"
+                    checked
+                /></label>
+                <label class="field"
+                  ><span class="field-title">استثناء فوز الخوي</span
+                  ><select id="partnerWinningException">
+                    <option value="position_aware_ace_or_ekka" selected>
+                      حسب الموقع والإكة أو الآص
+                    </option>
+                    <option value="always_allow_discard">
+                      السماح بالرمي دائماً
+                    </option>
+                    <option value="always_force_trump">
+                      إجبار الحكم دائماً
+                    </option>
+                  </select></label
+                >
+              </div>
+              <div class="rules-source">
+                <b>تنبيه:</b
+                ><span
+                  >التسلسل من الصغير للكبير أو العكس وعودة لون الخوي لا يملك
+                  معنى سعودياً موحداً منشوراً. لذلك لا يغيّر توزيع الاحتمالات في
+                  الملف الافتراضي.</span
+                >
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-head">
+                <div class="section-icon">∑</div>
+                <div>
+                  <h2>الاحتمالات والبحث</h2>
+                  <p>
+                    كل توزيع خفي يجب أن يعيد اللعب العلني قانونياً. الحصر الكامل
+                    يستخدم عندما تكون المساحة صغيرة، وإلا يستخدم أخذ عينات قابل
+                    للإعادة.
+                  </p>
+                </div>
+              </div>
+              <div class="grid">
+                <label class="field"
+                  ><span class="field-title">عدد التوزيعات المقبولة</span
+                  ><input
+                    id="samples"
+                    type="number"
+                    min="1"
+                    max="5000"
+                    value="80"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">حد الحصر الكامل</span
+                  ><input
+                    id="exactAllocationLimit"
+                    type="number"
+                    min="100"
+                    max="2000000"
+                    value="20000"
+                /></label>
+                <label class="field"
+                  ><span class="field-title"
+                    >حد البحث الدقيق للأوراق المتبقية</span
+                  >
+                  <div class="range-row">
+                    <input
+                      id="exactSearchRemaining"
+                      type="range"
+                      min="0"
+                      max="20"
+                      value="12"
+                    /><output
+                      class="range-value"
+                      data-for="exactSearchRemaining"
+                      >١٢</output
+                    >
+                  </div></label
+                >
+                <label class="field"
+                  ><span class="field-title">محاولات إيجاد موقف مناسب</span
+                  ><input
+                    id="maxSeedAttempts"
+                    type="number"
+                    min="1"
+                    max="10000"
+                    value="300"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">المواقف المحللة لكل توزيعة</span
+                  ><input
+                    id="maxCandidatesPerSeed"
+                    type="number"
+                    min="1"
+                    max="12"
+                    value="4"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">أقل عدد توزيعات خفية</span
+                  ><input
+                    id="minimumHiddenDeals"
+                    type="number"
+                    min="1"
+                    max="1000000"
+                    value="8"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">أقل فرق متوقع بين أفضل ورقتين</span
+                  ><input
+                    id="minimumExpectedMarginGap"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.25"
+                    value="0.5"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">أقل فرق لاحتمال الفوز</span
+                  ><input
+                    id="minimumWinProbabilityGap"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value="0.01"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">درجة الجدل المستهدفة</span>
+                  <div class="range-row">
+                    <input
+                      id="targetDebateScore"
+                      type="range"
+                      min="1"
+                      max="100"
+                      value="65"
+                    /><output class="range-value" data-for="targetDebateScore"
+                      >٦٥</output
+                    >
+                  </div></label
+                >
+                <label class="switch"
+                  ><span
+                    ><span class="field-title">اشترط بحثاً دقيقاً للموقف</span
+                    ><span class="hint"
+                      >قد يزيد زمن التوليد، لكنه يمنع استخدام الإكمال التقريبي
+                      عند نقطة التوقف.</span
+                    ></span
+                  ><input id="requireExactAnalysis" type="checkbox"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">أول أكلة مسموح التوقف فيها</span
+                  ><input
+                    id="pauseTrickMin"
+                    type="number"
+                    min="0"
+                    max="7"
+                    value="3"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">آخر أكلة مسموح التوقف فيها</span
+                  ><input
+                    id="pauseTrickMax"
+                    type="number"
+                    min="0"
+                    max="7"
+                    value="6"
+                /></label>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-head">
+                <div class="section-icon">ف</div>
+                <div>
+                  <h2>جودة التصدير</h2>
+                  <p>
+                    التصدير النهائي H.264 وAAC وBT.709. معدل ٣٠ إطاراً هو
+                    الافتراضي المتوازن.
+                  </p>
+                </div>
+              </div>
+              <div class="grid">
+                <label class="field"
+                  ><span class="field-title">دقة التصدير</span
+                  ><select id="resolution">
+                    <option value="1080x1920" selected>
+                      ١٠٨٠ × ١٩٢٠ — نهائي
+                    </option>
+                    <option value="720x1280">٧٢٠ × ١٢٨٠ — سريع</option>
+                  </select></label
+                >
+                <label class="field"
+                  ><span class="field-title">معدل الإطارات</span
+                  ><select id="fps">
+                    <option value="24">٢٤ — سينمائي</option>
+                    <option value="30" selected>٣٠ — موصى به</option>
+                    <option value="60">٦٠ — شديد السلاسة</option>
+                  </select></label
+                >
+                <label class="field"
+                  ><span class="field-title"
+                    >جودة الضغط
+                    <span class="hint">رقم أقل يعني جودة أعلى</span></span
+                  >
+                  <div class="range-row">
+                    <input
+                      id="crf"
+                      type="range"
+                      min="14"
+                      max="28"
+                      value="18"
+                    /><output class="range-value" data-for="crf">١٨</output>
+                  </div></label
+                >
+                <label class="switch"
+                  ><span
+                    ><b>النداءات الصوتية العربية</b><br /><span class="hint"
+                      >تستخدم الحزمة المحلية الحالية، ويمكن استبدالها بحزمة
+                      أصلية أو مرخصة من الإعدادات.</span
+                    ></span
+                  ><input id="spokenVoicePack" type="checkbox" checked
+                /></label>
+              </div>
+            </div>
+          </div>
+
+          <div id="advanced" class="tab-panel">
+            <div class="advanced-warning">
+              هذا القسم للمطورين والتكاملات فقط. جميع الإعدادات اليومية متاحة في
+              الوضعين السابقين دون الحاجة إلى JSON.
+            </div>
+            <div class="section">
+              <div class="section-head">
+                <div class="section-icon">API</div>
+                <div>
+                  <h2>الإضافة والطلب المحسوم</h2>
+                  <p>
+                    اختيار إضافة الفيديو، فحص هوية الحزمة، أو نسخ الطلب إلى
+                    تكامل خارجي.
+                  </p>
+                </div>
+              </div>
+              <label class="field"
+                ><span class="field-title">إضافة الفيديو</span
+                ><select id="rendererPlugin">
+                  <option value="premium_video" selected>Premium Video</option>
+                </select></label
+              >
+              <div style="height: 12px"></div>
+              <label class="field"
+                ><span class="field-title">JSON المتقدم</span
+                ><textarea
+                  id="advancedJson"
+                  class="codebox"
+                  spellcheck="false"
+                ></textarea>
+              </label>
+              <div class="actions">
+                <button id="syncAdvanced" type="button" class="secondary">
+                  تحديث من الحقول</button
+                ><button id="applyAdvanced" type="button" class="secondary">
+                  تطبيق JSON
+                </button>
+              </div>
+              <div id="resolvedSummary" class="summary-grid">
+                <div class="summary-item">
+                  <b>النطاق</b><span id="summaryScope">جولة</span>
+                </div>
+                <div class="summary-item">
+                  <b>العقد</b><span id="summaryContract">حكم</span>
+                </div>
+                <div class="summary-item">
+                  <b>التصدير</b><span id="summaryVideo">١٠٨٠ × ١٩٢٠</span>
+                </div>
+              </div>
+              <div id="bundleInfo" class="notice" style="margin-top: 14px">
+                تحميل هوية الحزمة والإضافات…
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="surface sidebar">
+          <div class="preview-head">
+            <h2>المعاينة والتصدير</h2>
+            <span id="status" class="status">جاهز</span>
+          </div>
+          <div class="preview">
+            <div class="phone" id="previewBox">
+              <div class="empty-preview">
+                <div class="cards">♠ ♥ ♦ ♣</div>
+                <strong>لفة كاملة موثقة</strong
+                ><span>الخلط والتوزيع والطلب والمشاريع واللعب والنتيجة</span>
+              </div>
+            </div>
+            <div class="progress"><span id="progressBar"></span></div>
+            <div id="progressText" class="progress-text">
+              اختر الإعدادات ثم ابدأ الإنشاء.
+            </div>
+            <div id="error" class="error"></div>
+            <div id="validation" class="validation"></div>
+            <div class="checklist">
+              <div class="check">خلط وقص والتزام رزمة قابل للتحقق</div>
+              <div class="check">توزيع ٣ ثم ٢ وورقة شراء وإكمال قانوني</div>
+              <div class="check">سجل طلب ومشتري وعقد وتصعيد</div>
+              <div class="check">بداية صحيحة ومشاريع بوقت الإعلان والعرض</div>
+              <div class="check">٣٢ ورقة و٨ أكلات دون تكرار</div>
+              <div class="check">توقف حاسم ثم إكمال اللفة نفسها</div>
+            </div>
+            <div class="actions">
+              <button id="generate" class="primary" type="button">
+                أنشئ اللفة والفيديو</button
+              ><button id="reset" class="secondary" type="button">إعادة</button>
+            </div>
+            <div id="downloads" class="downloads">
+              <a id="downloadVideo" class="download">MP4</a
+              ><a id="downloadPoster" class="download">الصورة</a
+              ><a id="downloadJson" class="download">التحليل</a
+              ><a id="downloadSrt" class="download">الترجمة</a
+              ><a id="downloadContact" class="download">المشاهد</a
+              ><a id="downloadManifest" class="download">البيان</a>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let theme = "emerald",
+        activeJob = null,
+        pollTimer = null,
+        optionsCache = null;
+      const num = (id) => Number($(id).value),
+        bool = (id) => $(id).checked;
+      const arDigits = (s) =>
+        String(s).replace(/[0-9]/g, (d) => "٠١٢٣٤٥٦٧٨٩"[d]);
+      function requestFromForm() {
+        const [width, height] = $("resolution").value.split("x").map(Number);
+        return {
+          scope: $("scope").value,
+          maximumRounds: num("maximumRounds"),
+          seed: num("seed"),
+          rulesProfile: $("rulesProfile").value,
+          dealer: $("dealer").value,
+          cutMode: $("cutMode").value,
+          cutPosition: num("cutPosition"),
+          contract: $("contract").value,
+          trumpSuit: $("trumpSuit").value,
+          buyer: $("buyer").value,
+          firstLeaderPolicy: $("firstLeaderPolicy").value,
+          configuredFirstLeader: $("configuredFirstLeader").value,
+          projectsEnabled: bool("projectsEnabled"),
+          balootEnabled: bool("balootEnabled"),
+          ashkalEnabled: bool("ashkalEnabled"),
+          kaboutEnabled: bool("kaboutEnabled"),
+          mustTrumpWhenVoid: bool("mustTrumpWhenVoid"),
+          mustOvertrumpWhenPossible: bool("mustOvertrumpWhenPossible"),
+          allowDiscardWhenCannotOvertrump: bool(
+            "allowDiscardWhenCannotOvertrump",
+          ),
+          partnerWinningException: $("partnerWinningException").value,
+          matchTarget: num("matchTarget"),
+          matchScoreUs: num("matchScoreUs"),
+          matchScoreThem: num("matchScoreThem"),
+          escalationLevel: $("escalationLevel").value,
+          escalationMode: $("escalationMode").value,
+          requireProject: bool("requireProject"),
+          pauseTrickMin: num("pauseTrickMin"),
+          pauseTrickMax: num("pauseTrickMax"),
+          samples: num("samples"),
+          exactAllocationLimit: num("exactAllocationLimit"),
+          exactSearchRemaining: num("exactSearchRemaining"),
+          maxSeedAttempts: num("maxSeedAttempts"),
+          maxCandidatesPerSeed: num("maxCandidatesPerSeed"),
+          minimumHiddenDeals: num("minimumHiddenDeals"),
+          minimumExpectedMarginGap: num("minimumExpectedMarginGap"),
+          minimumWinProbabilityGap: num("minimumWinProbabilityGap"),
+          requireExactAnalysis: bool("requireExactAnalysis"),
+          targetDebateScore: num("targetDebateScore"),
+          conventionProfile: $("conventionProfile").value,
+          rendererPlugin: $("rendererPlugin").value,
+          cardPack: $("cardPack").value,
+          cardBack: $("cardBack").value,
+          seatCallouts: bool("seatCallouts"),
+          voiceCallouts: bool("voiceCallouts"),
+          tableFoley: bool("tableFoley"),
+          spokenVoicePack: bool("spokenVoicePack"),
+          theme,
+          pacing: $("pacing").value,
+          cardOrientation: $("cardOrientation").value,
+          width,
+          height,
+          fps: num("fps"),
+          crf: num("crf"),
+          pauseSeconds: num("pauseSeconds"),
+          audio: bool("audio"),
+          titleAr: $("titleAr").value.trim(),
+          questionAr: $("questionAr").value.trim(),
+        };
+      }
+      function setField(id, value) {
+        const el = $(id);
+        if (!el) return;
+        if (el.type === "checkbox") el.checked = Boolean(value);
+        else el.value = String(value);
+      }
+      function applyObject(o) {
+        Object.entries(o).forEach(([k, v]) => {
+          if (k === "theme") {
+            theme = v;
+            document
+              .querySelectorAll(".preset")
+              .forEach((x) =>
+                x.classList.toggle("active", x.dataset.value === v),
+              );
+          } else if (k === "width" && o.height) {
+            setField("resolution", `${v}x${o.height}`);
+          } else if (k !== "height") setField(k, v);
+        });
+        syncRanges();
+        updateConstraints();
+        updateAdvanced();
+      }
+      function syncRanges() {
+        document.querySelectorAll("output[data-for]").forEach((o) => {
+          const input = $(o.dataset.for);
+          o.textContent =
+            arDigits(input.value) + (input.id === "pauseSeconds" ? " ث" : "");
+        });
+      }
+      function visible(id, show) {
+        $(id).classList.toggle("hidden", !show);
+      }
+      function updateConstraints() {
+        const profile = $("rulesProfile").value,
+          contract = $("contract");
+        [...contract.options].forEach(
+          (o) =>
+            (o.disabled =
+              (profile === "sun_only" && !["auto", "sun"].includes(o.value)) ||
+              (profile === "hokum_only" &&
+                !["auto", "hokum"].includes(o.value)) ||
+              (!bool("ashkalEnabled") && o.value === "ashkal")),
+        );
+        if (contract.selectedOptions[0]?.disabled) contract.value = "auto";
+        $("buyer").disabled = contract.value === "ashkal";
+        if (contract.value === "ashkal") $("buyer").value = "auto";
+        visible("trumpWrap", contract.value === "hokum");
+        if (contract.value !== "hokum") $("trumpSuit").value = "auto";
+        visible("cutPositionWrap", $("cutMode").value === "fixed");
+        visible("maxRoundsWrap", $("scope").value === "match");
+        visible(
+          "configuredFirstLeaderWrap",
+          $("firstLeaderPolicy").value === "configured",
+        );
+        const escalation = $("escalationLevel");
+        [...escalation.options].forEach(
+          (o) =>
+            (o.disabled =
+              ["sun", "ashkal"].includes(contract.value) &&
+              !["normal", "double"].includes(o.value)),
+        );
+        if (escalation.selectedOptions[0]?.disabled)
+          escalation.value = "normal";
+        visible(
+          "escalationModeWrap",
+          ["double", "four"].includes(escalation.value),
+        );
+        if (!["double", "four"].includes(escalation.value))
+          $("escalationMode").value = "open";
+        $("balootEnabled").disabled = !bool("projectsEnabled");
+        if (!bool("projectsEnabled")) $("balootEnabled").checked = false;
+        $("requireProject").disabled = !bool("projectsEnabled");
+        if (!bool("projectsEnabled")) $("requireProject").checked = false;
+        const plugins = [...$("rendererPlugin").options];
+        const desired = "premium_video";
+        if (plugins.some((x) => x.value === desired))
+          $("rendererPlugin").value = desired;
+        $("summaryScope").textContent =
+          $("scope").value === "match" ? "صكّة كاملة" : "لفة كاملة";
+        $("summaryContract").textContent =
+          { auto: "آلي", sun: "صن", hokum: "حكم", ashkal: "أشكل" }[
+            contract.value
+          ] || contract.value;
+        $("summaryVideo").textContent = $("resolution").value.replace(
+          "x",
+          " × ",
+        );
+        validateLocal();
+      }
+      function validateLocal() {
+        const msgs = [];
+        if (num("pauseTrickMin") > num("pauseTrickMax"))
+          msgs.push("أول أكلة للتوقف يجب أن تسبق آخر أكلة.");
+        if (num("matchTarget") < 1) msgs.push("هدف الصكّة يجب أن يكون موجباً.");
+        if ($("scope").value === "match" && num("maximumRounds") < 1)
+          msgs.push("حدد جولة واحدة على الأقل للصكّة.");
+        if (!$("titleAr").value.trim()) msgs.push("أدخل عنواناً للحلقة.");
+        if (!$("questionAr").value.trim()) msgs.push("أدخل سؤال المشاهد.");
+        $("validation").textContent = msgs.join(" ");
+        $("generate").disabled = msgs.length > 0;
+        return msgs.length === 0;
+      }
+      function updateAdvanced() {
+        $("advancedJson").value = JSON.stringify(requestFromForm(), null, 2);
+      }
+      function setStatus(text, kind = "") {
+        $("status").textContent = text;
+        $("status").className = `status ${kind}`;
+      }
+      function setProgress(p, text) {
+        $("progressBar").style.width = `${Math.max(0, Math.min(1, p)) * 100}%`;
+        $("progressText").textContent = text || "";
+      }
+      function showError(message = "") {
+        $("error").textContent = message;
+        $("error").classList.toggle("show", Boolean(message));
+      }
+      function showResult(result) {
+        const box = $("previewBox");
+        box.innerHTML = "";
+        const video = document.createElement("video");
+        video.src = result.video;
+        video.controls = true;
+        video.playsInline = true;
+        video.poster = result.poster;
+        video.preload = "metadata";
+        box.appendChild(video);
+        $("downloads").classList.add("show");
+        const map = {
+          downloadVideo: ["video", "baloot-premium.mp4"],
+          downloadPoster: ["poster", "baloot-poster.jpg"],
+          downloadJson: ["episode_json", "baloot-analysis.json"],
+          downloadSrt: ["captions", "baloot-ar.srt"],
+          downloadContact: ["contact_sheet", "baloot-scenes.jpg"],
+          downloadManifest: ["manifest", "baloot-render-manifest.json"],
+        };
+        Object.entries(map).forEach(([id, [key, name]]) => {
+          const el = $(id);
+          if (result[key]) {
+            el.href = result[key];
+            el.download = name;
+            el.style.display = "block";
+          } else el.style.display = "none";
+        });
+      }
+      async function poll(id) {
+        try {
+          const r = await fetch(`/api/v1/video-jobs/${id}`);
+          const job = await r.json();
+          if (!r.ok) throw new Error(job.detail || "تعذر قراءة حالة المهمة");
+          const labels = {
+            queued: "بانتظار عامل الفيديو…",
+            running: "إنشاء اللفة وتحليل القرار وتصدير الفيديو…",
+            completed: "اكتمل الفيديو بنجاح.",
+            failed: "توقف العمل.",
+            cancelled: "ألغيت المهمة.",
+          };
+          setProgress(job.progress, labels[job.status] || job.status);
+          if (job.status === "completed") {
+            clearInterval(pollTimer);
+            setStatus("اكتمل", "completed");
+            $("generate").disabled = false;
+            showResult(job.result);
+          } else if (job.status === "failed" || job.status === "cancelled") {
+            clearInterval(pollTimer);
+            setStatus(job.status === "cancelled" ? "ملغى" : "تعذّر", "failed");
+            $("generate").disabled = false;
+            if (job.status === "failed")
+              showError(job.error || "حدث خطأ غير متوقع");
+          }
+        } catch (e) {
+          showError(e.message);
+        }
+      }
+      async function validateServer(payload) {
+        const r = await fetch("/api/v1/configuration:validate", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ request: payload }),
+        });
+        const body = await r.json();
+        if (!r.ok) {
+          const detail = Array.isArray(body.detail)
+            ? body.detail.map((x) => x.msg).join(" ")
+            : body.detail;
+          throw new Error(detail || "الإعدادات غير متوافقة مع القواعد");
+        }
+        return body;
+      }
+      async function generate() {
+        if (!validateLocal()) return;
+        clearInterval(pollTimer);
+        showError("");
+        $("downloads").classList.remove("show");
+        $("generate").disabled = true;
+        setStatus("يتحقق", "running");
+        setProgress(0.01, "التحقق من توافق الإعدادات مع ملف القواعد…");
+        try {
+          const payload = requestFromForm();
+          const validation = await validateServer(payload);
+          $("bundleChip").textContent =
+            "الحزمة " + validation.bundleHash.slice(0, 8);
+          setStatus("يعمل", "running");
+          setProgress(0.02, "إرسال إعدادات اللفة…");
+          const r = await fetch("/api/v1/video-jobs", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const body = await r.json();
+          if (!r.ok) {
+            const detail = Array.isArray(body.detail)
+              ? body.detail.map((x) => x.msg).join(" ")
+              : body.detail;
+            throw new Error(detail || "لم يقبل الخادم الإعدادات");
+          }
+          activeJob = body.jobId;
+          await poll(activeJob);
+          pollTimer = setInterval(() => poll(activeJob), 1000);
+        } catch (e) {
+          setStatus("تعذّر", "failed");
+          $("generate").disabled = false;
+          showError(e.message);
+        }
+      }
+      function populateOptions(o) {
+        optionsCache = o;
+        const plugin = $("rendererPlugin");
+        plugin.innerHTML = "";
+        (o.plugins || [])
+          .filter((p) => p.kind === "video_renderer")
+          .forEach((p) => {
+            const opt = document.createElement("option");
+            opt.value = p.id;
+            opt.textContent = `${p.id} — ${p.version}`;
+            plugin.appendChild(opt);
+          });
+        const preferred = "premium_video";
+        if ([...plugin.options].some((x) => x.value === preferred))
+          plugin.value = preferred;
+        const packs = $("cardPack"),
+          currentPack = packs.value;
+        packs.innerHTML = "";
+        (o.cardPacks || []).forEach((p) => {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = p.labelAr || p.id;
+          opt.dataset.backs = JSON.stringify(p.backs || []);
+          packs.appendChild(opt);
+        });
+        if ([...packs.options].some((x) => x.value === currentPack))
+          packs.value = currentPack;
+        else if (
+          [...packs.options].some((x) => x.value === "goodall_modern_baloot_32")
+        )
+          packs.value = "goodall_modern_baloot_32";
+        function syncBacks() {
+          const selected = (o.cardPacks || []).find(
+              (p) => p.id === packs.value,
+            ),
+            backs = selected?.backs || ["1B"];
+          const el = $("cardBack"),
+            old = el.value;
+          el.innerHTML = "";
+          backs.forEach((back) => {
+            const opt = document.createElement("option");
+            opt.value = back;
+            opt.textContent = `ظهر ${back.replace("B", "")}`;
+            el.appendChild(opt);
+          });
+          el.value = backs.includes(old)
+            ? old
+            : selected?.defaultBack || backs[0];
+        }
+        syncBacks();
+        packs.addEventListener("change", () => {
+          syncBacks();
+          updateAdvanced();
+        });
+        const rules = o.bundle?.components?.rules || {};
+        $("bundleInfo").innerHTML =
+          `<strong>ملف القواعد:</strong> ${rules.id || "—"} ${rules.version || ""}<br><strong>حالة الاعتماد:</strong> ${o.rulesStatus?.expertRatified ? "معتمد" : "بحثي غير معتمد رسمياً"}<br><strong>هوية الحزمة:</strong> <span dir="ltr">${(o.bundle?.sha256 || "").slice(0, 28)}…</span><br><strong>الإضافات:</strong> ${(o.plugins || []).map((p) => p.id).join("، ")}`;
+        $("ruleStatusChip").textContent = o.rulesStatus?.expertRatified
+          ? "قواعد معتمدة"
+          : "قواعد بحثية قابلة للتبديل";
+        $("ruleStatusChip").classList.toggle(
+          "warn",
+          !o.rulesStatus?.expertRatified,
+        );
+        $("bundleChip").textContent =
+          "الحزمة " + (o.bundle?.sha256 || "").slice(0, 8);
+        updateAdvanced();
+      }
+      const PRESET_KEY = "baloot-studio-presets-v3";
+      function readPresets() {
+        try {
+          return JSON.parse(localStorage.getItem(PRESET_KEY) || "{}");
+        } catch {
+          return {};
+        }
+      }
+      function refreshPresets() {
+        const list = $("savedPresets"),
+          current = list.value,
+          presets = readPresets();
+        list.innerHTML = '<option value="">الإعدادات المحفوظة</option>';
+        Object.keys(presets)
+          .sort((a, b) => a.localeCompare(b, "ar"))
+          .forEach((name) => {
+            const o = document.createElement("option");
+            o.value = name;
+            o.textContent = name;
+            list.appendChild(o);
+          });
+        if (presets[current]) list.value = current;
+      }
+      function savePreset() {
+        const name = $("presetName").value.trim();
+        if (!name) {
+          showError("اكتب اسماً للإعداد قبل الحفظ.");
+          return;
+        }
+        const presets = readPresets();
+        presets[name] = requestFromForm();
+        localStorage.setItem(PRESET_KEY, JSON.stringify(presets));
+        refreshPresets();
+        $("savedPresets").value = name;
+        showError("");
+      }
+      function loadPreset() {
+        const name = $("savedPresets").value,
+          preset = readPresets()[name];
+        if (!preset) {
+          showError("اختر إعداداً محفوظاً.");
+          return;
+        }
+        applyObject(preset);
+        $("presetName").value = name;
+        showError("");
+      }
+      function deletePreset() {
+        const name = $("savedPresets").value;
+        if (!name) return;
+        const presets = readPresets();
+        delete presets[name];
+        localStorage.setItem(PRESET_KEY, JSON.stringify(presets));
+        refreshPresets();
+        $("presetName").value = "";
+      }
+      $("savePreset").addEventListener("click", savePreset);
+      $("loadPreset").addEventListener("click", loadPreset);
+      $("deletePreset").addEventListener("click", deletePreset);
+      refreshPresets();
+      document.querySelectorAll(".tab").forEach((t) =>
+        t.addEventListener("click", () => {
+          document
+            .querySelectorAll(".tab")
+            .forEach((x) => x.classList.remove("active"));
+          document
+            .querySelectorAll(".tab-panel")
+            .forEach((x) => x.classList.remove("active"));
+          t.classList.add("active");
+          $(t.dataset.tab).classList.add("active");
+          if (t.dataset.tab === "advanced") updateAdvanced();
+        }),
+      );
+      document.querySelectorAll(".preset").forEach((p) =>
+        p.addEventListener("click", () => {
+          theme = p.dataset.value;
+          document
+            .querySelectorAll(".preset")
+            .forEach((x) => x.classList.remove("active"));
+          p.classList.add("active");
+          updateAdvanced();
+        }),
+      );
+      document.querySelectorAll("input,select").forEach((el) =>
+        el.addEventListener("input", () => {
+          syncRanges();
+          updateConstraints();
+          updateAdvanced();
+        }),
+      );
+      $("syncAdvanced").addEventListener("click", updateAdvanced);
+      $("applyAdvanced").addEventListener("click", () => {
+        try {
+          applyObject(JSON.parse($("advancedJson").value));
+          showError("");
+        } catch (e) {
+          showError("JSON غير صالح: " + e.message);
+        }
+      });
+      $("generate").addEventListener("click", generate);
+      $("reset").addEventListener("click", () => location.reload());
+      fetch("/api/v1/options")
+        .then((r) => r.json())
+        .then(populateOptions)
+        .catch((e) => showError("تعذر تحميل خيارات المحرك: " + e.message));
+      syncRanges();
+      updateConstraints();
+      updateAdvanced();
+    </script>
+  </body>
+</html>

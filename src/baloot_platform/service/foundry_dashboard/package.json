@@ -1,0 +1,36 @@
+{
+  "name": "@balootx/foundry-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/check-generated-api.mjs && tsc --noEmit && vite build",
+    "check": "node scripts/check-generated-api.mjs && tsc --noEmit",
+    "check:api-generated": "node scripts/check-generated-api.mjs",
+    "generate:api": "openapi-ts --file openapi-ts.config.mjs --no-log-file",
+    "test:research": "vitest --root ../../../.. run tests/frontend/research_recipes.spec.ts tests/frontend/card_selector.spec.tsx tests/frontend/ortools_scenario_ui.spec.ts tests/frontend/ortools_scenario_predicate_capabilities.spec.ts tests/frontend/video_playback_state.spec.ts tests/frontend/video_qr_policy.spec.ts",
+    "test:operator-e2e": "playwright test --config e2e/playwright.config.cjs"
+  },
+  "overrides": {
+    "js-yaml": "4.3.1",
+    "nanoid": "3.3.18"
+  },
+  "dependencies": {
+    "@tanstack/react-table": "9.0.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0",
+    "@babel/parser": "8.0.4",
+    "@hey-api/openapi-ts": "0.97.3",
+    "@rolldown/plugin-babel": "0.2.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "6.0.5",
+    "babel-plugin-react-compiler": "1.0.0",
+    "typescript": "6.0.2",
+    "vite": "8.2.0",
+    "vitest": "4.1.10"
+  }
+}

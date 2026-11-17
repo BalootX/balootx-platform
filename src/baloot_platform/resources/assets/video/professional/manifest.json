@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "assetSet": "balootx_professional_video",
+  "licenseStatus": "BalootX-original",
+  "generation": "deterministic-authored-svg",
+  "assets": {
+    "card-back.svg": {
+      "bytes": 904,
+      "sha256": "7bf1973a07cdc396814200a8435779527d780c01d0a1905080e46b6bdec6dbd3",
+      "purpose": "professional observer-safe hidden-card back (Majlis Sadu)"
+    }
+  }
+}

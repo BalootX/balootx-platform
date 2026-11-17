@@ -1,0 +1,181 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/configuration.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "governance": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_hash_chain": {
+          "type": "boolean"
+        },
+        "automatic_production_apply": {
+          "type": "boolean"
+        },
+        "deterministic_rollout": {
+          "type": "boolean"
+        },
+        "maximum_payload_bytes": {
+          "type": "integer"
+        },
+        "publish_requires_scope": {
+          "type": "string"
+        },
+        "reject_requires_scope": {
+          "type": "string"
+        },
+        "retain_dissent": {
+          "type": "boolean"
+        },
+        "scheduled_activation": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "audit_hash_chain",
+        "automatic_production_apply",
+        "deterministic_rollout",
+        "maximum_payload_bytes",
+        "publish_requires_scope",
+        "reject_requires_scope",
+        "retain_dissent",
+        "scheduled_activation"
+      ],
+      "type": "object"
+    },
+    "lifecycle": {
+      "additionalProperties": false,
+      "properties": {
+        "bundle_statuses": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "immutable_after_publish": {
+          "type": "boolean"
+        },
+        "profile_statuses": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "semantic_version_required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "bundle_statuses",
+        "immutable_after_publish",
+        "profile_statuses",
+        "semantic_version_required"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "resolution": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_draft_preview": {
+          "type": "boolean"
+        },
+        "cache_entries": {
+          "type": "integer"
+        },
+        "cache_ttl_seconds": {
+          "type": "number"
+        },
+        "freeze_exact_revision_ids": {
+          "type": "boolean"
+        },
+        "precedence": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "require_published_for_runtime": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "allow_draft_preview",
+        "cache_entries",
+        "cache_ttl_seconds",
+        "freeze_exact_revision_ids",
+        "precedence",
+        "require_published_for_runtime"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "storage": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregate_head_locking": {
+          "type": "boolean"
+        },
+        "append_only_versions": {
+          "type": "boolean"
+        },
+        "authoritative": {
+          "type": "string"
+        },
+        "content_addressed": {
+          "type": "boolean"
+        },
+        "cross_node_invalidation": {
+          "type": "boolean"
+        },
+        "development": {
+          "type": "string"
+        },
+        "optimistic_concurrency": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "aggregate_head_locking",
+        "append_only_versions",
+        "authoritative",
+        "content_addressed",
+        "cross_node_invalidation",
+        "development",
+        "optimistic_concurrency"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "governance",
+    "lifecycle",
+    "profile",
+    "resolution",
+    "schema_version",
+    "storage"
+  ],
+  "type": "object"
+}

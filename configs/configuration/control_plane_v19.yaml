@@ -1,0 +1,42 @@
+schema_version: 1
+profile:
+  id: versioned_configuration_control_plane_v19
+  version: 19.0.0
+  status: production_candidate
+storage:
+  authoritative: postgresql
+  development: sqlite
+  append_only_versions: true
+  content_addressed: true
+  optimistic_concurrency: true
+resolution:
+  precedence:
+  - tenant_published
+  - global_published
+  - file_bundle_fallback
+  require_published_for_runtime: true
+  allow_draft_preview: true
+  cache_entries: 128
+  cache_ttl_seconds: 5.0
+governance:
+  publish_requires_scope: baloot.config.admin
+  reject_requires_scope: baloot.config.admin
+  automatic_production_apply: false
+  retain_dissent: true
+  audit_hash_chain: true
+  maximum_payload_bytes: 1048576
+lifecycle:
+  profile_statuses:
+  - draft
+  - published
+  - rejected
+  - retired
+  - superseded
+  bundle_statuses:
+  - draft
+  - published
+  - rejected
+  - retired
+  - superseded
+  immutable_after_publish: true
+  semantic_version_required: true

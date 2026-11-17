@@ -1,0 +1,51 @@
+{
+  "auctionActions": [
+    {"action": "pass", "actor": "north"},
+    {"action": "pass", "actor": "west"},
+    {"action": "sun", "actor": "south"},
+    {"action": "pass", "actor": "west"},
+    {"action": "pass", "actor": "north"}
+  ],
+  "dealer": "east",
+  "deckOrder": [28, 29, 22, 21, 23, 4, 16, 7, 27, 5, 6, 9, 8, 0, 10, 11, 3, 19, 13, 14, 12, 30, 15, 18, 20, 31, 24, 26, 25, 1, 2, 17],
+  "escalationActions": [],
+  "matchScore": [0, 0],
+  "playActions": [
+    {"actor": "north", "card": "HA", "ekka": false},
+    {"actor": "west", "card": "H9", "ekka": false},
+    {"actor": "south", "card": "HJ", "ekka": false},
+    {"actor": "east", "card": "H8", "ekka": false},
+    {"actor": "north", "card": "DK", "ekka": false},
+    {"actor": "west", "card": "DA", "ekka": false},
+    {"actor": "south", "card": "D7", "ekka": false},
+    {"actor": "east", "card": "D8", "ekka": false},
+    {"actor": "west", "card": "CA", "ekka": false},
+    {"actor": "south", "card": "C8", "ekka": false},
+    {"actor": "east", "card": "S8", "ekka": false},
+    {"actor": "north", "card": "CJ", "ekka": false},
+    {"actor": "west", "card": "H10", "ekka": false},
+    {"actor": "south", "card": "C9", "ekka": false},
+    {"actor": "east", "card": "HQ", "ekka": false},
+    {"actor": "north", "card": "H7", "ekka": false},
+    {"actor": "west", "card": "DQ", "ekka": false},
+    {"actor": "south", "card": "D10", "ekka": false},
+    {"actor": "east", "card": "S9", "ekka": false},
+    {"actor": "north", "card": "D9", "ekka": false},
+    {"actor": "south", "card": "SA", "ekka": false},
+    {"actor": "east", "card": "SQ", "ekka": false},
+    {"actor": "north", "card": "S7", "ekka": false},
+    {"actor": "west", "card": "SJ", "ekka": false}
+  ],
+  "projectActions": [
+    {"action": "declare", "actor": "north", "projectId": "PROJECT-14C6EB2E7E2C5540"},
+    {"action": "pass", "actor": "west"},
+    {"action": "pass", "actor": "south"},
+    {"action": "pass", "actor": "east"}
+  ],
+  "projectAssertions": [],
+  "projectDeclarations": [],
+  "roundNumber": 1,
+  "schemaVersion": 1,
+  "sha256": "1feddece29dbce2e5171148e0268e69c9e8ce1f7cf5c471899d71287c8d962d5",
+  "stateAssertions": {}
+}

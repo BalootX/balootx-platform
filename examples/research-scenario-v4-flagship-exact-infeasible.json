@@ -1,0 +1,244 @@
+{
+  "schemaVersion": 4,
+  "code": "RCP-FLAGSHIPINF",
+  "titleAr": "طلب صن مستحيل: تضحية آص ثم أخذ آصين في الثامنة",
+  "playingQuality": {
+    "schemaVersion": 1,
+    "mode": "budgeted",
+    "decisions": {
+      "bid": {"utility": "awarded_point_margin", "budgetProfile": "late_game_exact_v1", "horizon": {"unit": "plies", "value": 1}, "boundaryEvaluator": "current_raw_point_margin_v1"},
+      "escalation": {"utility": "awarded_point_margin", "budgetProfile": "late_game_exact_v1", "horizon": {"unit": "plies", "value": 1}, "boundaryEvaluator": "current_raw_point_margin_v1"},
+      "project": {"utility": "awarded_point_margin", "budgetProfile": "late_game_exact_v1", "horizon": {"unit": "plies", "value": 1}, "boundaryEvaluator": "current_raw_point_margin_v1"},
+      "play": {"utility": "awarded_point_margin", "budgetProfile": "late_game_exact_v1", "horizon": {"unit": "tricks", "value": 1}, "boundaryEvaluator": "current_raw_point_margin_v1"}
+    }
+  },
+  "output": {
+    "kind": "laffa",
+    "resultCount": 1
+  },
+  "configuration": {
+    "schemaVersion": 1,
+    "bundleRevisionId": "CBR-DEA77E8ECE755819DC7035C2"
+  },
+  "scenario": {
+    "schemaVersion": 1,
+    "origin": {
+      "kind": "search"
+    },
+    "constraints": {
+      "op": "all",
+      "children": [
+        {
+          "predicateId": "PRED-FLAGSHIP-CONTRACT-SUN",
+          "kind": "auction.contract",
+          "version": 1,
+          "hardness": "hard",
+          "arguments": {
+            "contract": "sun"
+          }
+        },
+        {
+          "predicateId": "PRED-FLAGSHIP-BUYER-NORTH",
+          "kind": "auction.buyer",
+          "version": 1,
+          "hardness": "hard",
+          "arguments": {
+            "seat": "north"
+          }
+        },
+        {
+          "predicateId": "PRED-FLAGSHIP-AWARDED-HUNDRED",
+          "kind": "project.exists",
+          "version": 1,
+          "hardness": "hard",
+          "arguments": {
+            "team": "north_south",
+            "owner": "north",
+            "kind": "hundred_sequence",
+            "value": 20,
+            "state": "awarded"
+          }
+        },
+        {
+          "predicateId": "PRED-FLAGSHIP-ACE-SACRIFICE",
+          "kind": "play.action_matches",
+          "version": 1,
+          "hardness": "hard",
+          "arguments": {
+            "trickIndex": 5,
+            "position": 3,
+            "actingSeat": "west",
+            "selector": {
+              "ranks": [
+                "ace"
+              ],
+              "owner": {
+                "relation": "actor"
+              }
+            }
+          }
+        },
+        {
+          "predicateId": "PRED-FLAGSHIP-OPPONENT-WINS-SIX",
+          "kind": "play.trick_winner_matches",
+          "version": 1,
+          "hardness": "hard",
+          "arguments": {
+            "trickIndex": 5,
+            "team": "north_south",
+            "selector": {
+              "ranks": [
+                "seven",
+                "eight",
+                "nine"
+              ]
+            }
+          }
+        },
+        {
+          "predicateId": "PRED-FLAGSHIP-TARGET-WINS-SEVEN",
+          "kind": "play.trick_winner_matches",
+          "version": 1,
+          "hardness": "hard",
+          "arguments": {
+            "trickIndex": 6,
+            "team": "west_east",
+            "selector": {
+              "ranks": [
+                "seven",
+                "eight",
+                "nine"
+              ]
+            }
+          }
+        },
+        {
+          "predicateId": "PRED-FLAGSHIP-TARGET-WINS-EIGHT",
+          "kind": "play.trick_winner_matches",
+          "version": 1,
+          "hardness": "hard",
+          "arguments": {
+            "trickIndex": 7,
+            "team": "west_east",
+            "selector": {
+              "ranks": [
+                "seven",
+                "eight",
+                "nine"
+              ]
+            }
+          }
+        },
+        {
+          "predicateId": "PRED-FLAGSHIP-TWO-OPPONENT-ACES-EIGHT",
+          "kind": "play.trick_card_count",
+          "version": 1,
+          "hardness": "hard",
+          "arguments": {
+            "trickIndex": 7,
+            "selector": {
+              "ranks": [
+                "ace"
+              ],
+              "owner": {
+                "relation": "team",
+                "team": "north_south"
+              }
+            },
+            "minimum": 2,
+            "maximum": 2
+          }
+        },
+        {
+          "predicateId": "PRED-FLAGSHIP-WINNING-ROOT-ACE",
+          "kind": "proof.winning_root_action_matches",
+          "version": 1,
+          "hardness": "hard",
+          "arguments": {
+            "selector": {
+              "ranks": [
+                "ace"
+              ],
+              "owner": {
+                "relation": "actor"
+              }
+            }
+          }
+        },
+        {
+          "predicateId": "PRED-FLAGSHIP-ONE-WINNING-ROOT",
+          "kind": "proof.winning_root_action_count",
+          "version": 1,
+          "hardness": "hard",
+          "arguments": {
+            "minimum": 1,
+            "maximum": 1
+          }
+        }
+      ]
+    },
+    "decisionPoint": {
+      "kind": "play",
+      "selector": {
+        "trickIndex": 5,
+        "position": 3,
+        "remainingCards": 3,
+        "actingSeat": "west"
+      }
+    },
+    "outcome": {
+      "predicateId": "PRED-FLAGSHIP-TARGET-WINS-ROUND",
+      "kind": "outcome.team_round",
+      "version": 1,
+      "hardness": "hard",
+      "arguments": {
+        "team": "west_east",
+        "status": "won"
+      }
+    }
+  },
+  "proof": {
+    "schemaVersion": 1,
+    "mode": "exact",
+    "visibility": "complete_state",
+    "claim": "winning_root_action_count",
+    "targetTeam": "west_east",
+    "utility": "round_win",
+    "successThreshold": 1,
+    "lineUniverse": "all_legal",
+    "budgetProfile": "late_game_exact_v1"
+  },
+  "qualification": {
+    "minimumTruth": "exact_optimal",
+    "minimumConfidence": 1.0,
+    "minimumSurroundingQuality": 0.0,
+    "requireObserverSafety": true,
+    "requireAllDecisionAudit": true,
+    "maximumRegret": 0.0
+  },
+  "resources": {
+    "generationLane": "ortools",
+    "generationPolicy": "ortools_cp_sat_v3",
+    "seedStart": 1,
+    "seedCount": 1,
+    "seedsPerShard": 1,
+    "solverTimeoutSeconds": 15.0,
+    "proofBudgetProfile": "late_game_exact_v1"
+  },
+  "diversity": {
+    "schemaVersion": 1,
+    "cellDimensions": [
+      "contract",
+      "project",
+      "decision_kind",
+      "proof_mode"
+    ],
+    "topKPerCell": 1,
+    "rejectedAuditModulus": 100
+  },
+  "renderPolicy": {
+    "mode": "disabled",
+    "videoCount": 0
+  },
+  "status": "published"
+}

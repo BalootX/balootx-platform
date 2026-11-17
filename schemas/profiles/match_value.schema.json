@@ -1,0 +1,143 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/match_value.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "compatibility": {
+      "additionalProperties": false,
+      "properties": {
+        "deprecated_expected_match_margin_alias": {
+          "type": "string"
+        },
+        "deprecated_win_probability_alias": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "deprecated_expected_match_margin_alias",
+        "deprecated_win_probability_alias"
+      ],
+      "type": "object"
+    },
+    "future_rounds": {
+      "additionalProperties": false,
+      "properties": {
+        "dealer_rotation": {
+          "type": "string"
+        },
+        "future_team_round_win_probability": {
+          "type": "number"
+        },
+        "increment_distribution": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "loser": {
+                "type": "integer"
+              },
+              "weight": {
+                "type": "number"
+              },
+              "winner": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "loser",
+              "weight",
+              "winner"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "maximum_cache_states": {
+          "type": "integer"
+        },
+        "maximum_rounds": {
+          "type": "integer"
+        },
+        "policy": {
+          "type": "string"
+        },
+        "solver": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "dealer_rotation",
+        "future_team_round_win_probability",
+        "increment_distribution",
+        "maximum_cache_states",
+        "maximum_rounds",
+        "policy",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "outputs": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_success_probability": {
+          "type": "boolean"
+        },
+        "expected_awarded_points": {
+          "type": "boolean"
+        },
+        "expected_round_margin": {
+          "type": "boolean"
+        },
+        "round_lead_probability": {
+          "type": "boolean"
+        },
+        "true_match_win_probability": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "contract_success_probability",
+        "expected_awarded_points",
+        "expected_round_margin",
+        "round_lead_probability",
+        "true_match_win_probability"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 2,
+      "type": "integer"
+    },
+    "target": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "compatibility",
+    "future_rounds",
+    "outputs",
+    "profile",
+    "schema_version",
+    "target"
+  ],
+  "type": "object"
+}

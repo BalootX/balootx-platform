@@ -1,0 +1,87 @@
+schema_version: 1
+profile:
+  id: adaptive_agent_lineup_v1
+  version: 1.0.0
+  status: production_candidate
+default_profile: strong
+profiles:
+  beginner:
+    display_name_ar: مبتدئ
+    skill: 0.3
+    buying_strength: 0.35
+    play_search_budget: 0
+    risk_tolerance: 0.55
+    mistake_probability: 0.18
+    deception_probability: 0.0
+    signal_discipline: 0.2
+    use_production_model: false
+    model_weight: 0.0
+    minimum_model_confidence: 0.5
+    bid_samples: 0
+    maximum_deception_regret: 0.0
+    maximum_deception_win_drop: 0.0
+  regular:
+    display_name_ar: لاعب عادي
+    skill: 0.52
+    buying_strength: 0.52
+    play_search_budget: 200
+    risk_tolerance: 0.5
+    mistake_probability: 0.08
+    deception_probability: 0.01
+    signal_discipline: 0.45
+    use_production_model: true
+    model_weight: 0.35
+    minimum_model_confidence: 0.42
+    bid_samples: 2
+    maximum_deception_regret: 0.75
+    maximum_deception_win_drop: 0.008
+  strong:
+    display_name_ar: لاعب قوي
+    skill: 0.75
+    buying_strength: 0.74
+    play_search_budget: 2000
+    risk_tolerance: 0.48
+    mistake_probability: 0.025
+    deception_probability: 0.025
+    signal_discipline: 0.72
+    use_production_model: true
+    model_weight: 0.6
+    minimum_model_confidence: 0.36
+    bid_samples: 6
+    maximum_deception_regret: 1.25
+    maximum_deception_win_drop: 0.012
+  expert:
+    display_name_ar: خبير
+    skill: 0.91
+    buying_strength: 0.9
+    play_search_budget: 12000
+    risk_tolerance: 0.46
+    mistake_probability: 0.005
+    deception_probability: 0.04
+    signal_discipline: 0.88
+    use_production_model: true
+    model_weight: 0.8
+    minimum_model_confidence: 0.3
+    bid_samples: 16
+    maximum_deception_regret: 1.75
+    maximum_deception_win_drop: 0.018
+  deceptive:
+    display_name_ar: قوي ومخادع
+    skill: 0.82
+    buying_strength: 0.79
+    play_search_budget: 6000
+    risk_tolerance: 0.62
+    mistake_probability: 0.015
+    deception_probability: 0.12
+    signal_discipline: 0.76
+    use_production_model: true
+    model_weight: 0.65
+    minimum_model_confidence: 0.34
+    bid_samples: 10
+    maximum_deception_regret: 2.25
+    maximum_deception_win_drop: 0.025
+default_lineup:
+  north: strong
+  west: strong
+  south: expert
+  east: strong

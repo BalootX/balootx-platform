@@ -1,0 +1,247 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/audit.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "analysis": {
+      "additionalProperties": false,
+      "properties": {
+        "compare_agent_trace": {
+          "type": "boolean"
+        },
+        "compare_production_model": {
+          "type": "boolean"
+        },
+        "compare_without_conventions": {
+          "type": "boolean"
+        },
+        "exact_allocation_limit": {
+          "type": "integer"
+        },
+        "exact_search_max_nodes": {
+          "type": "integer"
+        },
+        "exact_search_max_seconds": {
+          "type": "number"
+        },
+        "exact_search_remaining": {
+          "type": "integer"
+        },
+        "requested_samples": {
+          "type": "integer"
+        },
+        "use_conventions": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "compare_agent_trace",
+        "compare_production_model",
+        "compare_without_conventions",
+        "exact_allocation_limit",
+        "exact_search_max_nodes",
+        "exact_search_max_seconds",
+        "exact_search_remaining",
+        "requested_samples",
+        "use_conventions"
+      ],
+      "type": "object"
+    },
+    "batch": {
+      "additionalProperties": false,
+      "properties": {
+        "default_async": {
+          "type": "boolean"
+        },
+        "maximum_decisions_per_sync_request": {
+          "type": "integer"
+        },
+        "maximum_seconds": {
+          "type": "integer"
+        },
+        "worker_batch_size": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "default_async",
+        "maximum_decisions_per_sync_request",
+        "maximum_seconds",
+        "worker_batch_size"
+      ],
+      "type": "object"
+    },
+    "modes": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "allowed",
+        "default"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "quality": {
+      "additionalProperties": false,
+      "properties": {
+        "catastrophic_crossing": {
+          "type": "boolean"
+        },
+        "expected_margin_regret": {
+          "additionalProperties": false,
+          "properties": {
+            "excellent": {
+              "type": "number"
+            },
+            "good": {
+              "type": "number"
+            },
+            "inaccuracy": {
+              "type": "number"
+            },
+            "mistake": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "excellent",
+            "good",
+            "inaccuracy",
+            "mistake"
+          ],
+          "type": "object"
+        },
+        "forced_move_label": {
+          "type": "string"
+        },
+        "win_probability_drop": {
+          "additionalProperties": false,
+          "properties": {
+            "excellent": {
+              "type": "number"
+            },
+            "good": {
+              "type": "number"
+            },
+            "inaccuracy": {
+              "type": "number"
+            },
+            "mistake": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "excellent",
+            "good",
+            "inaccuracy",
+            "mistake"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "catastrophic_crossing",
+        "expected_margin_regret",
+        "forced_move_label",
+        "win_probability_drop"
+      ],
+      "type": "object"
+    },
+    "reasoning": {
+      "additionalProperties": false,
+      "properties": {
+        "include_counterfactual_branch": {
+          "type": "boolean"
+        },
+        "include_hard_facts": {
+          "type": "boolean"
+        },
+        "include_principal_variation": {
+          "type": "boolean"
+        },
+        "include_signal_hypotheses": {
+          "type": "boolean"
+        },
+        "label_unknown_human_intent": {
+          "type": "boolean"
+        },
+        "maximum_reasons": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "include_counterfactual_branch",
+        "include_hard_facts",
+        "include_principal_variation",
+        "include_signal_hypotheses",
+        "label_unknown_human_intent",
+        "maximum_reasons"
+      ],
+      "type": "object"
+    },
+    "retention": {
+      "additionalProperties": false,
+      "properties": {
+        "hash_reports": {
+          "type": "boolean"
+        },
+        "preserve_all_audits": {
+          "type": "boolean"
+        },
+        "preserve_superseded_rationales": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hash_reports",
+        "preserve_all_audits",
+        "preserve_superseded_rationales"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "analysis",
+    "batch",
+    "modes",
+    "profile",
+    "quality",
+    "reasoning",
+    "retention",
+    "schema_version"
+  ],
+  "type": "object"
+}

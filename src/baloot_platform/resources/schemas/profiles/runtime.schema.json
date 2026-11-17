@@ -1,0 +1,208 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/runtime.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "limits": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_analysis_samples": {
+          "type": "integer"
+        },
+        "maximum_video_seconds": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "maximum_analysis_samples",
+        "maximum_video_seconds"
+      ],
+      "type": "object"
+    },
+    "observability": {
+      "additionalProperties": false,
+      "properties": {
+        "json_logs": {
+          "type": "boolean"
+        },
+        "metrics": {
+          "type": "boolean"
+        },
+        "opentelemetry": {
+          "type": "boolean"
+        },
+        "profiles": {
+          "type": "boolean"
+        },
+        "prometheus": {
+          "type": "boolean"
+        },
+        "traces": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "json_logs",
+        "metrics",
+        "opentelemetry",
+        "profiles",
+        "prometheus",
+        "traces"
+      ],
+      "type": "object"
+    },
+    "plugin_host": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_isolation": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allowed_permissions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "host_api_version": {
+          "type": "string"
+        },
+        "maximum_cpu_seconds": {
+          "type": "integer"
+        },
+        "maximum_memory_mb": {
+          "type": "integer"
+        },
+        "maximum_response_bytes": {
+          "type": "integer"
+        },
+        "maximum_stderr_bytes": {
+          "type": "integer"
+        },
+        "maximum_timeout_seconds": {
+          "type": "integer"
+        },
+        "profile_schema_version": {
+          "type": "string"
+        },
+        "require_content_addressed_external": {
+          "type": "boolean"
+        },
+        "require_signed_external": {
+          "type": "boolean"
+        },
+        "wit_contract": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "allowed_isolation",
+        "allowed_permissions",
+        "host_api_version",
+        "maximum_cpu_seconds",
+        "maximum_memory_mb",
+        "maximum_response_bytes",
+        "maximum_stderr_bytes",
+        "maximum_timeout_seconds",
+        "profile_schema_version",
+        "require_content_addressed_external",
+        "require_signed_external",
+        "wit_contract"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "service": {
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "host",
+        "port"
+      ],
+      "type": "object"
+    },
+    "storage": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_root": {
+          "type": "string"
+        },
+        "metadata_backend": {
+          "type": "string"
+        },
+        "sqlite_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_root",
+        "metadata_backend",
+        "sqlite_path"
+      ],
+      "type": "object"
+    },
+    "workers": {
+      "additionalProperties": false,
+      "properties": {
+        "analysis_concurrency": {
+          "type": "integer"
+        },
+        "video_concurrency": {
+          "type": "integer"
+        },
+        "video_render_slots": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "analysis_concurrency",
+        "video_concurrency",
+        "video_render_slots"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "limits",
+    "observability",
+    "plugin_host",
+    "profile",
+    "schema_version",
+    "service",
+    "storage",
+    "workers"
+  ],
+  "type": "object"
+}

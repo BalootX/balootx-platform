@@ -1,0 +1,33 @@
+package baloot:plugin@2.0.0;
+
+interface host {
+  log: func(level: string, message: string);
+}
+
+interface strategy {
+  record request {
+    information-state-json: string,
+    legal-actions-json: string,
+    profile-hash: string,
+    seed: u64,
+  }
+  record response {
+    action-json: string,
+    explanation-json: string,
+  }
+  choose-action: func(value: request) -> result<response, string>;
+}
+
+interface renderer {
+  record request {
+    episode-json: string,
+    video-profile-json: string,
+    asset-pack-id: string,
+  }
+  render: func(value: request) -> result<string, string>;
+}
+
+world baloot-plugin {
+  import host;
+  export strategy;
+}

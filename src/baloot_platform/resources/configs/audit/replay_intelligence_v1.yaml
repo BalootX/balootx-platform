@@ -1,0 +1,47 @@
+schema_version: 1
+profile:
+  id: replay_intelligence_v1
+  version: 1.0.0
+  status: production_candidate
+modes:
+  default: observer_safe
+  allowed: [observer_safe, trusted_omniscient, consensus]
+analysis:
+  requested_samples: 96
+  exact_allocation_limit: 20000
+  exact_search_remaining: 10
+  exact_search_max_nodes: 120000
+  exact_search_max_seconds: 1.0
+  use_conventions: false
+  compare_without_conventions: true
+  compare_production_model: true
+  compare_agent_trace: true
+quality:
+  win_probability_drop:
+    excellent: 0.005
+    good: 0.020
+    inaccuracy: 0.050
+    mistake: 0.120
+  expected_margin_regret:
+    excellent: 0.75
+    good: 2.5
+    inaccuracy: 6.0
+    mistake: 14.0
+  forced_move_label: forced
+  catastrophic_crossing: true
+reasoning:
+  maximum_reasons: 5
+  include_hard_facts: true
+  include_signal_hypotheses: true
+  label_unknown_human_intent: true
+  include_principal_variation: true
+  include_counterfactual_branch: true
+batch:
+  maximum_decisions_per_sync_request: 12
+  default_async: true
+  worker_batch_size: 8
+  maximum_seconds: 7200
+retention:
+  preserve_all_audits: true
+  preserve_superseded_rationales: true
+  hash_reports: true

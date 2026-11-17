@@ -1,0 +1,189 @@
+{
+  "$id": "https://baloot.local/schemas/contracts/effective-runtime-config-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "contractVersion": {
+      "const": "2.0.0"
+    },
+    "bundle": {
+      "additionalProperties": false,
+      "properties": {
+        "revisionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "bundleId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+          "type": "string"
+        },
+        "mode": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "contentSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "revisionId",
+        "bundleId",
+        "version",
+        "mode",
+        "contentSha256"
+      ],
+      "type": "object"
+    },
+    "normalizedValues": {
+      "additionalProperties": {
+        "type": "object"
+      },
+      "minProperties": 1,
+      "type": "object"
+    },
+    "componentRevisions": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "revisionId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "profileId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "payloadSha256": {
+            "$ref": "#/$defs/sha256"
+          }
+        },
+        "required": [
+          "revisionId",
+          "profileId",
+          "version",
+          "payloadSha256"
+        ],
+        "type": "object"
+      },
+      "minProperties": 1,
+      "type": "object"
+    },
+    "pluginIdentities": {
+      "items": {
+        "$ref": "#/$defs/runtimeIdentity"
+      },
+      "type": "array"
+    },
+    "modelIdentities": {
+      "items": {
+        "$ref": "#/$defs/runtimeIdentity"
+      },
+      "type": "array"
+    },
+    "resolutionTrace": {
+      "items": {
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "compatibility": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "compatible"
+        },
+        "readAdapters": {
+          "items": {
+            "const": "EffectiveRuntimeConfigV1"
+          },
+          "maxItems": 1,
+          "minItems": 1,
+          "type": "array"
+        },
+        "writeContract": {
+          "const": "EffectiveRuntimeConfigV2"
+        }
+      },
+      "required": [
+        "status",
+        "readAdapters",
+        "writeContract"
+      ],
+      "type": "object"
+    },
+    "sourceEffectiveHash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "invalidationEpoch": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "contentSha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "contractVersion",
+    "bundle",
+    "normalizedValues",
+    "componentRevisions",
+    "pluginIdentities",
+    "modelIdentities",
+    "resolutionTrace",
+    "compatibility",
+    "sourceEffectiveHash",
+    "invalidationEpoch",
+    "contentSha256"
+  ],
+  "type": "object",
+  "$defs": {
+    "runtimeIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifactSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "configSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "type": "object"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  }
+}

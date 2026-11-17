@@ -1,0 +1,657 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/certification.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "adjudication_profile": {
+          "type": "string"
+        },
+        "automatic_activation": {
+          "type": "boolean"
+        },
+        "candidate_profile": {
+          "type": "string"
+        },
+        "golden_corpus": {
+          "type": "string"
+        },
+        "minimum_external_signatures": {
+          "type": "integer"
+        },
+        "profile": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        },
+        "required_signer_roles": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "software_conformance": {
+          "additionalProperties": false,
+          "properties": {
+            "external_certification_substitute": {
+              "type": "boolean"
+            },
+            "minimum_executable_fixtures": {
+              "type": "integer"
+            },
+            "minimum_invalid_input_fuzz_cases": {
+              "type": "integer"
+            },
+            "minimum_python_native_positions": {
+              "type": "integer"
+            },
+            "minimum_seeded_replay_rounds": {
+              "type": "integer"
+            },
+            "parity_claim": {
+              "type": "string"
+            },
+            "require_apply_undo_byte_identity": {
+              "type": "boolean"
+            },
+            "require_observer_noninterference": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "external_certification_substitute",
+            "minimum_executable_fixtures",
+            "minimum_invalid_input_fuzz_cases",
+            "minimum_python_native_positions",
+            "minimum_seeded_replay_rounds",
+            "parity_claim",
+            "require_apply_undo_byte_identity",
+            "require_observer_noninterference"
+          ],
+          "type": "object"
+        },
+        "trusted_signers": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "adjudication_profile",
+        "automatic_activation",
+        "candidate_profile",
+        "golden_corpus",
+        "minimum_external_signatures",
+        "profile",
+        "required_signer_roles",
+        "schema_version",
+        "software_conformance",
+        "trusted_signers"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "adjudication_authority_identity": {
+          "additionalProperties": false,
+          "properties": {
+            "authoring_catalog_sha256": {
+              "type": "string"
+            },
+            "authority_sha256": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "profile_sha256": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "authoring_catalog_sha256",
+            "authority_sha256",
+            "id",
+            "profile_sha256",
+            "version"
+          ],
+          "type": "object"
+        },
+        "adjudication_profile": {
+          "type": "string"
+        },
+        "automatic_activation": {
+          "type": "boolean"
+        },
+        "candidate_profile": {
+          "type": "string"
+        },
+        "candidate_profile_identity": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "sha256",
+            "version"
+          ],
+          "type": "object"
+        },
+        "certification_eligible": {
+          "type": "boolean"
+        },
+        "golden_corpus": {
+          "type": "string"
+        },
+        "minimum_external_signatures": {
+          "type": "integer"
+        },
+        "profile": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        },
+        "required_signer_roles": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rule_source_catalog": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "path",
+            "sha256",
+            "version"
+          ],
+          "type": "object"
+        },
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "software_conformance": {
+          "additionalProperties": false,
+          "properties": {
+            "external_certification_substitute": {
+              "type": "boolean"
+            },
+            "minimum_executable_fixtures": {
+              "type": "integer"
+            },
+            "minimum_invalid_input_fuzz_cases": {
+              "type": "integer"
+            },
+            "minimum_python_native_positions": {
+              "type": "integer"
+            },
+            "minimum_seeded_replay_rounds": {
+              "type": "integer"
+            },
+            "parity_claim": {
+              "type": "string"
+            },
+            "require_apply_undo_byte_identity": {
+              "type": "boolean"
+            },
+            "require_observer_noninterference": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "external_certification_substitute",
+            "minimum_executable_fixtures",
+            "minimum_invalid_input_fuzz_cases",
+            "minimum_python_native_positions",
+            "minimum_seeded_replay_rounds",
+            "parity_claim",
+            "require_apply_undo_byte_identity",
+            "require_observer_noninterference"
+          ],
+          "type": "object"
+        },
+        "trusted_signers": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "adjudication_authority_identity",
+        "adjudication_profile",
+        "automatic_activation",
+        "candidate_profile",
+        "candidate_profile_identity",
+        "certification_eligible",
+        "golden_corpus",
+        "minimum_external_signatures",
+        "profile",
+        "required_signer_roles",
+        "rule_source_catalog",
+        "schema_version",
+        "software_conformance",
+        "trusted_signers"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "adjudication_authority_identity": {
+          "additionalProperties": false,
+          "properties": {
+            "authoring_catalog_sha256": {
+              "type": "string"
+            },
+            "authority_sha256": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "profile_sha256": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "authoring_catalog_sha256",
+            "authority_sha256",
+            "id",
+            "profile_sha256",
+            "version"
+          ],
+          "type": "object"
+        },
+        "adjudication_profile": {
+          "type": "string"
+        },
+        "automatic_activation": {
+          "type": "boolean"
+        },
+        "candidate_profile": {
+          "type": "string"
+        },
+        "candidate_profile_identity": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "sha256",
+            "version"
+          ],
+          "type": "object"
+        },
+        "golden_corpus": {
+          "type": "string"
+        },
+        "minimum_external_signatures": {
+          "type": "integer"
+        },
+        "profile": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        },
+        "required_signer_roles": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rule_source_catalog": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "path",
+            "sha256",
+            "version"
+          ],
+          "type": "object"
+        },
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "software_conformance": {
+          "additionalProperties": false,
+          "properties": {
+            "external_certification_substitute": {
+              "type": "boolean"
+            },
+            "minimum_executable_fixtures": {
+              "type": "integer"
+            },
+            "minimum_invalid_input_fuzz_cases": {
+              "type": "integer"
+            },
+            "minimum_python_native_positions": {
+              "type": "integer"
+            },
+            "minimum_seeded_replay_rounds": {
+              "type": "integer"
+            },
+            "parity_claim": {
+              "type": "string"
+            },
+            "require_apply_undo_byte_identity": {
+              "type": "boolean"
+            },
+            "require_observer_noninterference": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "external_certification_substitute",
+            "minimum_executable_fixtures",
+            "minimum_invalid_input_fuzz_cases",
+            "minimum_python_native_positions",
+            "minimum_seeded_replay_rounds",
+            "parity_claim",
+            "require_apply_undo_byte_identity",
+            "require_observer_noninterference"
+          ],
+          "type": "object"
+        },
+        "trusted_signers": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "adjudication_authority_identity",
+        "adjudication_profile",
+        "automatic_activation",
+        "candidate_profile",
+        "candidate_profile_identity",
+        "golden_corpus",
+        "minimum_external_signatures",
+        "profile",
+        "required_signer_roles",
+        "rule_source_catalog",
+        "schema_version",
+        "software_conformance",
+        "trusted_signers"
+      ],
+      "type": "object"
+    }
+  ],
+  "properties": {
+    "adjudication_authority_identity": {
+      "additionalProperties": false,
+      "properties": {
+        "authoring_catalog_sha256": {
+          "type": "string"
+        },
+        "authority_sha256": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "profile_sha256": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoring_catalog_sha256",
+        "authority_sha256",
+        "id",
+        "profile_sha256",
+        "version"
+      ],
+      "type": "object"
+    },
+    "adjudication_profile": {
+      "type": "string"
+    },
+    "automatic_activation": {
+      "type": "boolean"
+    },
+    "candidate_profile": {
+      "type": "string"
+    },
+    "candidate_profile_identity": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sha256",
+        "version"
+      ],
+      "type": "object"
+    },
+    "certification_eligible": {
+      "type": "boolean"
+    },
+    "golden_corpus": {
+      "type": "string"
+    },
+    "minimum_external_signatures": {
+      "type": "integer"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "required_signer_roles": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "rule_source_catalog": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "sha256",
+        "version"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "software_conformance": {
+      "additionalProperties": false,
+      "properties": {
+        "external_certification_substitute": {
+          "type": "boolean"
+        },
+        "minimum_executable_fixtures": {
+          "type": "integer"
+        },
+        "minimum_invalid_input_fuzz_cases": {
+          "type": "integer"
+        },
+        "minimum_python_native_positions": {
+          "type": "integer"
+        },
+        "minimum_seeded_replay_rounds": {
+          "type": "integer"
+        },
+        "parity_claim": {
+          "type": "string"
+        },
+        "require_apply_undo_byte_identity": {
+          "type": "boolean"
+        },
+        "require_observer_noninterference": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "external_certification_substitute",
+        "minimum_executable_fixtures",
+        "minimum_invalid_input_fuzz_cases",
+        "minimum_python_native_positions",
+        "minimum_seeded_replay_rounds",
+        "parity_claim",
+        "require_apply_undo_byte_identity",
+        "require_observer_noninterference"
+      ],
+      "type": "object"
+    },
+    "trusted_signers": {
+      "type": "array"
+    }
+  },
+  "required": [
+    "adjudication_profile",
+    "automatic_activation",
+    "candidate_profile",
+    "golden_corpus",
+    "minimum_external_signatures",
+    "profile",
+    "required_signer_roles",
+    "schema_version",
+    "software_conformance",
+    "trusted_signers"
+  ],
+  "type": "object"
+}

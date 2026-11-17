@@ -1,0 +1,279 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/conventions.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "apply_to_probability": {
+      "type": "boolean"
+    },
+    "forcedness": {
+      "additionalProperties": false,
+      "properties": {
+        "forced": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "highly_optional": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "meaningful_choice": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "near_forced": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "forced",
+        "highly_optional",
+        "meaningful_choice",
+        "near_forced"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "relationship_reliability": {
+      "additionalProperties": false,
+      "properties": {
+        "left_opponent": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "partner": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "right_opponent": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "self": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "left_opponent",
+        "partner",
+        "right_opponent",
+        "self"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "signals": {
+      "additionalProperties": false,
+      "properties": {
+        "high_expenditure": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "likelihood_ratios": {
+              "additionalProperties": false,
+              "properties": {
+                "error_or_deception": {
+                  "exclusiveMinimum": 0.0,
+                  "maximum": 4.0,
+                  "type": "number"
+                },
+                "urgency_or_signal": {
+                  "exclusiveMinimum": 0.0,
+                  "maximum": 4.0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "error_or_deception",
+                "urgency_or_signal"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "enabled",
+            "likelihood_ratios"
+          ],
+          "type": "object"
+        },
+        "high_then_low": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "likelihood_ratios": {
+              "additionalProperties": false,
+              "properties": {
+                "discourage_suit": {
+                  "exclusiveMinimum": 0.0,
+                  "maximum": 4.0,
+                  "type": "number"
+                },
+                "short_suit": {
+                  "exclusiveMinimum": 0.0,
+                  "maximum": 4.0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "discourage_suit",
+                "short_suit"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "enabled",
+            "likelihood_ratios"
+          ],
+          "type": "object"
+        },
+        "low_then_high": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "likelihood_ratios": {
+              "additionalProperties": false,
+              "properties": {
+                "encourage_suit": {
+                  "exclusiveMinimum": 0.0,
+                  "maximum": 4.0,
+                  "type": "number"
+                },
+                "no_signal_or_deception": {
+                  "exclusiveMinimum": 0.0,
+                  "maximum": 4.0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "encourage_suit",
+                "no_signal_or_deception"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "enabled",
+            "likelihood_ratios"
+          ],
+          "type": "object"
+        },
+        "minimum_winner": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "likelihood_ratios": {
+              "additionalProperties": false,
+              "properties": {
+                "preserve_strength": {
+                  "exclusiveMinimum": 0.0,
+                  "maximum": 4.0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "preserve_strength"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "enabled",
+            "likelihood_ratios"
+          ],
+          "type": "object"
+        },
+        "partner_return": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "likelihood_ratios": {
+              "additionalProperties": false,
+              "properties": {
+                "support_partner_suit": {
+                  "exclusiveMinimum": 0.0,
+                  "maximum": 4.0,
+                  "type": "number"
+                },
+                "tactical_return": {
+                  "exclusiveMinimum": 0.0,
+                  "maximum": 4.0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "support_partner_suit",
+                "tactical_return"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "enabled",
+            "likelihood_ratios"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "high_expenditure",
+        "high_then_low",
+        "low_then_high",
+        "minimum_winner",
+        "partner_return"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "apply_to_probability",
+    "forcedness",
+    "profile",
+    "relationship_reliability",
+    "schema_version",
+    "signals"
+  ],
+  "type": "object"
+}

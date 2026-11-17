@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Build and local runtime
+build/
+dist/
+.runtime/
+.release-runtime/
+.local-state/
+.playwright-cli/
+node_modules/
+output/
+outputs/**/.baloot-remotion-*/
+studio-js*/
+test-lanes*/
+work/
+
+# Phase 0 local evidence attempts and retained wheel copies
+release/phase0-v20/
+release/reproducibility-build-*.whl
+
+# Local data and transient output
+*.log
+*.pid
+*.tmp
+*.sqlite
+*.sqlite3
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# External qualification datasets are private operator inputs.
+private-inputs/

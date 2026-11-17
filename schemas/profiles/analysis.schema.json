@@ -1,0 +1,74 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/analysis.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "conventions": {
+      "type": "string"
+    },
+    "exact_allocation_limit": {
+      "maximum": 100000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "exact_search_max_remaining": {
+      "maximum": 32,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "maximum_sampling_attempts": {
+      "maximum": 100000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "objective": {
+      "enum": [
+        "contract_success",
+        "cvar",
+        "low_volatility",
+        "match_point_margin",
+        "match_win_probability",
+        "round_margin"
+      ],
+      "type": "string"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "type": "object"
+    },
+    "requested_samples": {
+      "maximum": 100000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "conventions",
+    "exact_allocation_limit",
+    "exact_search_max_remaining",
+    "maximum_sampling_attempts",
+    "objective",
+    "profile",
+    "requested_samples",
+    "schema_version"
+  ],
+  "type": "object"
+}

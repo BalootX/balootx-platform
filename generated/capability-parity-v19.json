@@ -1,0 +1,285 @@
+{
+  "capabilities": {
+    "adjudication": {
+      "contract": {
+        "grpc": "baloot.v17.BalootOperations/OpenAdjudicationCase",
+        "mcp": "open_adjudication_case",
+        "rest": "POST /api/v1/adjudication/cases"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "analysis": {
+      "contract": {
+        "grpc": "baloot.v2.BalootPlatform/Analyze",
+        "mcp": "analyze_position",
+        "rest": "POST /api/v1/analyses"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "bid_submit": {
+      "contract": {
+        "grpc": "baloot.v2.BalootPlatform/SubmitBid",
+        "mcp": "submit_bid",
+        "rest": "POST /api/v1/games/{game_id}/bids"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "card_play": {
+      "contract": {
+        "grpc": "baloot.v2.BalootPlatform/PlayCard",
+        "mcp": "play_card",
+        "rest": "POST /api/v1/games/{game_id}/actions"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "configuration_bundle": {
+      "contract": {
+        "grpc": "baloot.v19.ConfigurationControl/CreateBundle",
+        "mcp": "create_configuration_bundle",
+        "rest": "POST /api/v1/configuration-registry/bundles"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "configuration_profile": {
+      "contract": {
+        "grpc": "baloot.v19.ConfigurationControl/CreateProfile",
+        "mcp": "create_configuration_profile",
+        "rest": "POST /api/v1/configuration-registry/profiles"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "configuration_resolve": {
+      "contract": {
+        "grpc": "baloot.v19.ConfigurationControl/ResolveBundle",
+        "mcp": "resolve_configuration_bundle",
+        "rest": "GET /api/v1/configuration-registry/resolve"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "game_create": {
+      "contract": {
+        "grpc": "baloot.v2.BalootPlatform/CreateGame",
+        "mcp": "create_game",
+        "rest": "POST /api/v1/games"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "game_read": {
+      "contract": {
+        "grpc": "baloot.v2.BalootPlatform/GetGame",
+        "mcp": "get_game",
+        "rest": "GET /api/v1/games/{game_id}"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "health": {
+      "contract": {
+        "grpc": "baloot.v2.BalootPlatform/HealthCheck",
+        "mcp": "health_check",
+        "rest": "GET /api/v1/health"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "hitl_case": {
+      "contract": {
+        "grpc": "baloot.v18.HumanLearning/CreateCase",
+        "mcp": "create_hitl_case",
+        "rest": "POST /api/v1/hitl/cases"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "hitl_review": {
+      "contract": {
+        "grpc": "baloot.v18.HumanLearning/SubmitReview",
+        "mcp": "submit_hitl_review",
+        "rest": "POST /api/v1/hitl/cases/{case_id}/submissions"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "intelligence_benchmark": {
+      "contract": {
+        "grpc": "baloot.v19.ConfigurationControl/EvaluateIntelligenceBenchmark",
+        "mcp": "evaluate_intelligence_benchmark",
+        "rest": "POST /api/v1/benchmark/evaluations"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "live_table": {
+      "contract": {
+        "grpc": "baloot.v17.BalootOperations/CreateLiveRoom",
+        "mcp": "create_live_room",
+        "rest": "POST /api/v1/live/rooms"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "operations_profile": {
+      "contract": {
+        "grpc": "baloot.v19.ConfigurationControl/GetOperationsProfile",
+        "mcp": "get_operations_profile",
+        "rest": "GET /api/v1/operations/profile"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "performance": {
+      "contract": {
+        "grpc": "baloot.v19.ConfigurationControl/RunPerformanceQuick",
+        "mcp": "run_performance_quick",
+        "rest": "POST /api/v1/performance/quick"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "plugin_registry": {
+      "contract": {
+        "grpc": "baloot.v19.ConfigurationControl/ListPlugins",
+        "mcp": "list_plugins",
+        "rest": "GET /api/v1/plugins"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "premium_video": {
+      "contract": {
+        "grpc": "baloot.v2.BalootPlatform/CreateVideo",
+        "mcp": "create_video",
+        "rest": "POST /api/v1/video-jobs"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "replay": {
+      "contract": {
+        "grpc": "baloot.v2.BalootPlatform/GetReplay",
+        "mcp": "get_replay_package",
+        "rest": "GET /api/v1/history/games/{identifier}/replay"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "rules_certification": {
+      "contract": {
+        "grpc": "baloot.v19.ConfigurationControl/VerifyCertificationCandidate",
+        "mcp": "verify_certification_candidate",
+        "rest": "POST /api/v1/certification/candidates:verify"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    },
+    "shared_round_match": {
+      "contract": {
+        "grpc": "baloot.v9.SharedPlatform/CreateBoard",
+        "mcp": "create_shared_board",
+        "rest": "POST /api/v1/shared/boards"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "rest": []
+      },
+      "passed": true
+    }
+  },
+  "declaredCapabilities": 21,
+  "grpcOperations": 118,
+  "manifestHash": "db5d3dcf03985dac87aa35f054dbc47e81fdeed933fd97b7a1e973a3b0a91926",
+  "mcpTools": 145,
+  "restOperations": 358,
+  "schemaVersion": 2,
+  "status": "passed",
+  "version": "21.1.0"
+}

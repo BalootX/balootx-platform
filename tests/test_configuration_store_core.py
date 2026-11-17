@@ -1,0 +1,647 @@
+from __future__ import annotations
+
+import copy
+import inspect
+import json
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Callable
+
+import pytest
+
+from baloot_platform.configuration.models import canonical, digest
+from baloot_platform.configuration.store import (
+    PostgresConfigurationStore,
+    SQLiteConfigurationStore,
+    _aggregate_identity,
+)
+
+
+class _Result:
+    def __init__(
+        self,
+        row: dict[str, Any] | None = None,
+        rows: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self._row = row
+        self._rows = rows or []
+
+    def fetchone(self) -> dict[str, Any] | None:
+        return self._row
+
+    def fetchall(self) -> list[dict[str, Any]]:
+        return list(self._rows)
+
+
+class _ScriptedConnection:
+    def __init__(self, handler: Callable[[str, Any], _Result]) -> None:
+        self.handler = handler
+        self.calls: list[tuple[str, Any]] = []
+
+    def execute(self, sql: str, args: Any = None) -> _Result:
+        normalized = " ".join(sql.split())
+        self.calls.append((normalized, args))
+        if normalized.startswith("SELECT set_config"):
+            return _Result()
+        return self.handler(normalized, args)
+
+
+class _Pool:
+    def __init__(self, connection: _ScriptedConnection) -> None:
+        self.connection_value = connection
+        self.commits = 0
+        self.rollbacks = 0
+
+    @contextmanager
+    def connection(self):
+        try:
+            yield self.connection_value
+        except Exception:
+            self.rollbacks += 1
+            raise
+        else:
+            self.commits += 1
+
+
+def _profile_row(**changes: Any) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "revision_id": "CPR-ONE",
+        "family": "rules",
+        "profile_id": "saudi",
+        "version": "1.0.0",
+        "scope": "global",
+        "scope_key": "*",
+        "tenant_id": None,
+        "environment": None,
+        "status": "draft",
+        "payload": {"profile": {"id": "saudi", "version": "1.0.0"}},
+        "payload_sha256": "a" * 64,
+        "sequence": 1,
+        "effective_from": None,
+        "effective_until": None,
+        "rollout_percentage": 100.0,
+        "rollout_seed": "default",
+        "created_by": "TEST",
+        "created_at": datetime(
+            2026, 1, 1, 3, 0, tzinfo=timezone(timedelta(hours=3))
+        ),
+        "updated_at": datetime(
+            2026, 1, 1, 3, 0, tzinfo=timezone(timedelta(hours=3))
+        ),
+        "published_by": None,
+        "published_at": None,
+        "supersedes_revision_id": None,
+        "etag": 1,
+    }
+    row.update(changes)
+    return row
+
+
+def _bundle_row(**changes: Any) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "revision_id": "CBR-ONE",
+        "bundle_id": "main",
+        "version": "1.0.0",
+        "mode": "full",
+        "scope": "global",
+        "scope_key": "*",
+        "tenant_id": None,
+        "environment": None,
+        "status": "draft",
+        "components": {"rules": "CPR-ONE"},
+        "content_sha256": "b" * 64,
+        "sequence": 1,
+        "effective_from": None,
+        "effective_until": None,
+        "rollout_percentage": 100.0,
+        "rollout_seed": "default",
+        "created_by": "TEST",
+        "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+        "updated_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+        "published_by": None,
+        "published_at": None,
+        "supersedes_revision_id": None,
+        "etag": 1,
+    }
+    row.update(changes)
+    return row
+
+
+def _postgres_store(connection: _ScriptedConnection) -> tuple[PostgresConfigurationStore, _Pool]:
+    store = PostgresConfigurationStore.__new__(PostgresConfigurationStore)
+    pool = _Pool(connection)
+    store.pool = pool
+    return store, pool
+
+
+def test_postgres_uses_migration_columns_named_rows_and_utc_timestamps() -> None:
+    profile = PostgresConfigurationStore._profile(_profile_row())
+    bundle = PostgresConfigurationStore._bundle(_bundle_row())
+    assert profile is not None and bundle is not None
+    assert profile.payload["profile"]["id"] == "saudi"
+    assert bundle.component_revisions == {"rules": "CPR-ONE"}
+    assert profile.created_at == "2026-01-01T00:00:00+00:00"
+
+    source = inspect.getsource(PostgresConfigurationStore)
+    assert "payload_json" not in source
+    assert "components_json" not in source
+    assert "aggregate_key" not in source
+    assert "SELECT *" not in source
+    assert "RETURNING *" not in source
+    assert "configuration.events" in source and "payload," in source
+
+
+def test_postgres_pool_installs_dict_row_factory(monkeypatch: pytest.MonkeyPatch) -> None:
+    marker = object()
+    captured: dict[str, Any] = {}
+
+    class FakeConnectionPool:
+        def __init__(self, dsn: str, **kwargs: Any) -> None:
+            captured.update({"dsn": dsn, **kwargs})
+
+        def close(self) -> None:
+            captured["closed"] = True
+
+    monkeypatch.setitem(sys.modules, "psycopg.rows", SimpleNamespace(dict_row=marker))
+    monkeypatch.setitem(
+        sys.modules, "psycopg_pool", SimpleNamespace(ConnectionPool=FakeConnectionPool)
+    )
+    store = PostgresConfigurationStore("postgresql://example")
+    assert captured["kwargs"]["row_factory"] is marker
+    store.close()
+    assert captured["closed"] is True
+
+
+def test_postgres_exact_dimension_and_bundle_identity_predicates() -> None:
+    def handler(sql: str, _args: Any) -> _Result:
+        if "LIMIT 1" in sql:
+            return _Result()
+        return _Result(rows=[])
+
+    connection = _ScriptedConnection(handler)
+    store, _ = _postgres_store(connection)
+    assert (
+        store.find_profile_by_content(
+            family="rules",
+            scope="global",
+            scope_key="*",
+            tenant_id=None,
+            environment=None,
+            payload_sha256="a" * 64,
+        )
+        is None
+    )
+    assert (
+        store.find_bundle_by_content(
+            bundle_id="main",
+            scope="global",
+            scope_key="*",
+            tenant_id=None,
+            environment=None,
+            content_sha256="b" * 64,
+        )
+        is None
+    )
+    store.list_profiles(tenant_id=None, environment=None, exact_dimensions=True)
+    store.list_bundles(tenant_id=None, environment=None, exact_dimensions=True)
+
+    statements = [sql for sql, _ in connection.calls if "set_config" not in sql]
+    assert all("IS NOT DISTINCT FROM" in sql for sql in statements)
+    assert "bundle_id=%s" in statements[1]
+    parameter = inspect.signature(
+        PostgresConfigurationStore.find_bundle_by_content
+    ).parameters["bundle_id"]
+    assert parameter.default is inspect.Parameter.empty
+
+
+@pytest.mark.parametrize("kind", ["profile", "bundle"])
+def test_postgres_supersession_exclusion_uses_one_typed_revision_parameter(
+    kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def ignore_event(
+        _cls: type[PostgresConfigurationStore],
+        _conn: Any,
+        _aggregate_type: str,
+        _aggregate_id: str,
+        _event_type: str,
+        _actor_id: str,
+        _payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {}
+
+    monkeypatch.setattr(
+        PostgresConfigurationStore,
+        "_append_event_tx",
+        classmethod(ignore_event),
+    )
+    if kind == "profile":
+        rows = [
+            _profile_row(revision_id="CPR-A", status="published"),
+            _profile_row(revision_id="CPR-B", status="published"),
+        ]
+        method = PostgresConfigurationStore._supersede_published_profiles_tx
+        method_kwargs = {
+            "family": "rules",
+            "profile_id": "saudi",
+            "scope": "tenant",
+            "scope_key": "TEN-1",
+            "tenant_id": "TEN-1",
+            "environment": "production",
+            "actor_id": "TEST",
+        }
+        expected_prefix = (
+            "rules",
+            "saudi",
+            "tenant",
+            "TEN-1",
+            "TEN-1",
+            "production",
+        )
+    else:
+        rows = [
+            _bundle_row(revision_id="CBR-A", status="published"),
+            _bundle_row(revision_id="CBR-B", status="published"),
+        ]
+        method = PostgresConfigurationStore._supersede_published_bundles_tx
+        method_kwargs = {
+            "bundle_id": "main",
+            "scope": "tenant",
+            "scope_key": "TEN-1",
+            "tenant_id": "TEN-1",
+            "environment": "production",
+            "actor_id": "TEST",
+        }
+        expected_prefix = (
+            "main",
+            "tenant",
+            "TEN-1",
+            "TEN-1",
+            "production",
+        )
+
+    revision_ids = [row["revision_id"] for row in rows]
+    cases = (
+        (None, revision_ids),
+        (revision_ids[0], revision_ids[1:]),
+        (f"{kind.upper()}-MISSING", revision_ids),
+    )
+    expected_suffix = (
+        "AND revision_id IS DISTINCT FROM %s ORDER BY revision_id FOR UPDATE"
+    )
+    for except_revision_id, expected_changed in cases:
+        select_calls: list[tuple[str, Any]] = []
+
+        def handler(sql: str, args: Any) -> _Result:
+            if sql.startswith("SELECT "):
+                select_calls.append((sql, args))
+                return _Result(
+                    rows=[
+                        dict(row)
+                        for row in rows
+                        if row["revision_id"] != except_revision_id
+                    ]
+                )
+            if sql.startswith("UPDATE "):
+                current = next(row for row in rows if row["revision_id"] == args[1])
+                return _Result(
+                    {
+                        **current,
+                        "status": "superseded",
+                        "updated_at": args[0],
+                        "etag": current["etag"] + 1,
+                    }
+                )
+            raise AssertionError(sql)
+
+        connection = _ScriptedConnection(handler)
+        changed = method(
+            connection,
+            except_revision_id=except_revision_id,
+            **method_kwargs,
+        )
+
+        assert changed == expected_changed
+        assert len(select_calls) == 1
+        sql, args = select_calls[0]
+        assert sql.endswith(expected_suffix)
+        assert "%s IS NULL" not in sql
+        assert args == (*expected_prefix, except_revision_id)
+        assert sql.count("%s") == len(args)
+
+
+def test_postgres_event_snapshot_is_one_named_select_and_hashes_utc() -> None:
+    created = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    body = {
+        "aggregateType": "profile",
+        "aggregateId": "CPR-ONE",
+        "sequence": 1,
+        "eventType": "created",
+        "actorId": "TEST",
+        "payload": {"value": 1},
+        "previousHash": "",
+        "createdAt": created.isoformat(),
+    }
+    row = {
+        "event_id": "CFE-ONE",
+        "aggregate_type": "profile",
+        "aggregate_id": "CPR-ONE",
+        "sequence": 1,
+        "event_type": "created",
+        "actor_id": "TEST",
+        "payload": {"value": 1},
+        "previous_hash": "",
+        "event_hash": digest(body),
+        "created_at": created,
+    }
+
+    def handler(sql: str, _args: Any) -> _Result:
+        assert "event_id,aggregate_type" in sql
+        return _Result(rows=[row])
+
+    connection = _ScriptedConnection(handler)
+    store, _ = _postgres_store(connection)
+    snapshot = store.events_with_verification("profile", "CPR-ONE")
+    assert snapshot["verification"] == {
+        "valid": True,
+        "issues": [],
+        "eventCount": 1,
+        "eventHead": row["event_hash"],
+    }
+    event_queries = [
+        sql
+        for sql, _ in connection.calls
+        if "FROM configuration.events" in sql
+    ]
+    assert len(event_queries) == 1
+
+
+def test_postgres_empty_event_stream_is_serialized_by_a_head_row() -> None:
+    head = {
+        "next_sequence": 1,
+        "etag": 1,
+        "updated_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+    }
+    inserted: list[tuple[str, Any]] = []
+
+    def handler(sql: str, args: Any) -> _Result:
+        if sql.startswith("INSERT INTO configuration.aggregate_heads"):
+            return _Result()
+        if "FROM configuration.aggregate_heads" in sql:
+            return _Result(dict(head))
+        if "SELECT sequence,event_hash" in sql:
+            return _Result()
+        if sql.startswith("UPDATE configuration.aggregate_heads"):
+            return _Result(
+                {
+                    "next_sequence": 2,
+                    "etag": 2,
+                    "updated_at": args[1],
+                }
+            )
+        if sql.startswith("INSERT INTO configuration.events"):
+            inserted.append((sql, args))
+            return _Result()
+        raise AssertionError(sql)
+
+    connection = _ScriptedConnection(handler)
+    event = PostgresConfigurationStore._append_event_tx(
+        connection, "profile", "CPR-ONE", "created", "TEST", {"value": 1}
+    )
+    assert event["sequence"] == 1
+    statements = [sql for sql, _ in connection.calls]
+    assert statements[0].startswith("INSERT INTO configuration.aggregate_heads")
+    assert statements[1].endswith("FOR UPDATE")
+    assert "payload,previous_hash" in inserted[0][0]
+    assert "payload_json" not in inserted[0][0]
+
+
+def test_postgres_sequence_reservation_reconciles_legacy_maximum() -> None:
+    head = {
+        "next_sequence": 1,
+        "etag": 4,
+        "updated_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+    }
+    update_args: list[Any] = []
+
+    def handler(sql: str, args: Any) -> _Result:
+        if sql.startswith("INSERT INTO configuration.aggregate_heads"):
+            return _Result()
+        if "FROM configuration.aggregate_heads" in sql:
+            return _Result(dict(head))
+        if sql.startswith("UPDATE configuration.aggregate_heads"):
+            update_args.extend(args)
+            return _Result(
+                {"sequence": 7, "etag": 5, "updated_at": args[1]}
+            )
+        raise AssertionError(sql)
+
+    connection = _ScriptedConnection(handler)
+    assert (
+        PostgresConfigurationStore._next_sequence(
+            connection,
+            "profile",
+            _aggregate_identity(("rules", "saudi", "global", "*", None, None)),
+            minimum_next_sequence=7,
+        )
+        == 7
+    )
+    assert update_args[0] == 8
+    assert update_args[2] == "profile"
+    assert update_args[4] == 4
+
+
+def _profile_payload(identifier: str, version: str, value: int) -> dict[str, Any]:
+    return {
+        "profile": {"id": identifier, "version": version, "status": "published"},
+        "value": value,
+    }
+
+
+def test_sqlite_exact_tenant_environment_identity_and_event_parity(
+    tmp_path: Path,
+) -> None:
+    store = SQLiteConfigurationStore(tmp_path / "configuration.sqlite3")
+    global_revision = store.create_profile(
+        family="rules",
+        profile_id="saudi",
+        version="1.0.0",
+        scope="global",
+        scope_key="*",
+        tenant_id=None,
+        environment=None,
+        payload=_profile_payload("saudi", "1.0.0", 1),
+        status="published",
+        created_by="TEST",
+    )
+    tenant_revision = store.create_profile(
+        family="rules",
+        profile_id="saudi",
+        version="1.0.0",
+        scope="tenant",
+        scope_key="TEN-1",
+        tenant_id="TEN-1",
+        environment=None,
+        payload=_profile_payload("saudi", "1.0.0", 1),
+        status="published",
+        created_by="TEST",
+    )
+    assert global_revision.revision_id != tenant_revision.revision_id
+    assert global_revision.sequence == tenant_revision.sequence == 1
+    assert (
+        store.find_profile_by_content(
+            family="rules",
+            scope="global",
+            scope_key="*",
+            tenant_id=None,
+            environment=None,
+            payload_sha256=global_revision.payload_sha256,
+        ).revision_id
+        == global_revision.revision_id
+    )
+    assert store.list_profiles(
+        tenant_id=None, environment=None, exact_dimensions=True
+    ) == [global_revision]
+    assert [
+        event["eventType"]
+        for event in store.events("profile", global_revision.revision_id)
+    ] == ["created", "published"]
+    assert store.verify_events("profile", global_revision.revision_id)["valid"] is True
+
+
+def test_sqlite_publication_supersession_is_atomic_and_bundle_id_is_exact(
+    tmp_path: Path,
+) -> None:
+    store = SQLiteConfigurationStore(tmp_path / "configuration.sqlite3")
+    first = store.create_profile(
+        family="rules",
+        profile_id="saudi",
+        version="1.0.0",
+        scope="global",
+        tenant_id=None,
+        payload=_profile_payload("saudi", "1.0.0", 1),
+        status="published",
+        created_by="TEST",
+    )
+    second = store.create_profile(
+        family="rules",
+        profile_id="saudi",
+        version="2.0.0",
+        scope="global",
+        tenant_id=None,
+        payload=_profile_payload("saudi", "2.0.0", 2),
+        status="published",
+        created_by="TEST",
+    )
+    assert store.get_profile(first.revision_id).status == "superseded"
+    assert store.get_profile(second.revision_id).status == "published"
+    assert [
+        event["eventType"] for event in store.events("profile", first.revision_id)
+    ] == ["created", "published", "superseded"]
+
+    components = {"rules": second.revision_id}
+    main = store.create_bundle(
+        bundle_id="main",
+        version="1.0.0",
+        mode="full",
+        scope="global",
+        tenant_id=None,
+        component_revisions=components,
+        status="published",
+        created_by="TEST",
+    )
+    alternate = store.create_bundle(
+        bundle_id="alternate",
+        version="1.0.0",
+        mode="full",
+        scope="global",
+        tenant_id=None,
+        component_revisions=components,
+        status="published",
+        created_by="TEST",
+    )
+    assert main.revision_id != alternate.revision_id
+    assert (
+        store.find_bundle_by_content(
+            bundle_id="main",
+            scope="global",
+            tenant_id=None,
+            content_sha256=main.content_sha256,
+        ).revision_id
+        == main.revision_id
+    )
+
+
+def test_sqlite_idempotent_create_is_serialized_under_concurrency(
+    tmp_path: Path,
+) -> None:
+    store = SQLiteConfigurationStore(tmp_path / "configuration.sqlite3")
+    kwargs = {
+        "family": "rules",
+        "profile_id": "saudi",
+        "version": "1.0.0",
+        "scope": "global",
+        "tenant_id": None,
+        "payload": _profile_payload("saudi", "1.0.0", 1),
+        "status": "draft",
+        "created_by": "TEST",
+    }
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: store.create_profile(**kwargs), range(2)))
+    assert len({result.revision_id for result in results}) == 1
+    revision_id = results[0].revision_id
+    assert [
+        event["eventType"] for event in store.events("profile", revision_id)
+    ] == ["created"]
+    assert store.get_invalidation_epoch() == 2
+
+
+def test_sqlite_revision_event_and_epoch_roll_back_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = SQLiteConfigurationStore(tmp_path / "configuration.sqlite3")
+
+    def fail_event(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("event write failed")
+
+    monkeypatch.setattr(
+        SQLiteConfigurationStore, "_append_event_tx", staticmethod(fail_event)
+    )
+    with pytest.raises(RuntimeError, match="event write failed"):
+        store.create_profile(
+            family="rules",
+            profile_id="saudi",
+            version="1.0.0",
+            scope="global",
+            tenant_id=None,
+            payload=_profile_payload("saudi", "1.0.0", 1),
+            status="draft",
+            created_by="TEST",
+        )
+    assert store.list_profiles() == []
+    assert store.get_invalidation_epoch() == 1
+
+
+def test_aggregate_identity_is_unambiguous() -> None:
+    assert _aggregate_identity(("a:b", "c", None, "")) != _aggregate_identity(
+        ("a", "b:c", "", None)
+    )
+    assert json.loads(_aggregate_identity(("a:b", None, ""))) == ["a:b", None, ""]
+    assert canonical(json.loads(_aggregate_identity(("a:b", None, "")))) == (
+        _aggregate_identity(("a:b", None, ""))
+    )
+
+
+def test_fake_pool_marks_transaction_rollback() -> None:
+    connection = _ScriptedConnection(
+        lambda sql, _args: (_ for _ in ()).throw(RuntimeError(sql))
+    )
+    store, pool = _postgres_store(connection)
+    with pytest.raises(RuntimeError):
+        store.get_invalidation_epoch()
+    assert pool.commits == 0
+    assert pool.rollbacks == 1
+    assert copy.deepcopy(connection.calls)

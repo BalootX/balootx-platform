@@ -1,0 +1,8 @@
+schema_version: 1
+profile: {id: deep_analysis_v1, version: 1.0.0}
+requested_samples: 160
+exact_allocation_limit: 25000
+exact_search_max_remaining: 12
+maximum_sampling_attempts: 80000
+objective: match_point_margin
+conventions: hard_facts_only

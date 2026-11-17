@@ -1,0 +1,665 @@
+{
+  "declaredOperations": 17,
+  "grpcOperations": 118,
+  "manifestHash": "fb4019d5d58a5d645dd95dc2bde4f05879285a230404e91e9fa5f21acd83bfc5",
+  "mcpTools": 145,
+  "operations": {
+    "analysis": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.analyze"
+          ]
+        },
+        "errors": [
+          "invalid_argument",
+          "budget_exceeded",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v2.BalootPlatform/Analyze",
+        "idempotency": "content_hash",
+        "mcp": "analyze_position",
+        "privacy": "observer_safe",
+        "rest": {
+          "method": "POST",
+          "path": "/api/v1/analyses"
+        },
+        "sdk": {
+          "go": "Analyze",
+          "python": "analyze",
+          "typescript": "analyze"
+        },
+        "task": "durable_optional"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "532c084a77de0e7b0b553607b95e8dc2efe2e9b9b763e3cf34e2c7a44e6b2e90"
+    },
+    "card_play": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.play"
+          ]
+        },
+        "errors": [
+          "illegal_action",
+          "conflict",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v2.BalootPlatform/PlayCard",
+        "idempotency": "expected_version",
+        "mcp": "play_card",
+        "privacy": "private",
+        "rest": {
+          "method": "POST",
+          "path": "/api/v1/games/{game_id}/actions"
+        },
+        "sdk": {
+          "go": "PlayCard",
+          "python": "play_card",
+          "typescript": "playCard"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "853cc1ef3ca3b27312000cbe346f259e9cb3c5819b7a8b5f8cad2836285d5fb2"
+    },
+    "configuration_publish": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.config.admin"
+          ]
+        },
+        "errors": [
+          "etag_conflict",
+          "unauthorized",
+          "invalid_state"
+        ],
+        "grpc": "baloot.v19.ConfigurationControl/PublishBundle",
+        "idempotency": "etag",
+        "mcp": "publish_configuration_bundle",
+        "privacy": "admin",
+        "rest": {
+          "method": "POST",
+          "path": "/api/v1/configuration-registry/bundles/{revision_id}:publish"
+        },
+        "sdk": {
+          "go": "PublishConfiguration",
+          "python": "publish_configuration",
+          "typescript": "publishConfiguration"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "2227d24b7470dbd76ce37e88090e0134593fefd60803cbb17da2de60139de94e"
+    },
+    "configuration_resolve": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.read"
+          ]
+        },
+        "errors": [
+          "not_found",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v19.ConfigurationControl/ResolveBundle",
+        "idempotency": "safe",
+        "mcp": "resolve_configuration_bundle",
+        "privacy": "tenant_scoped",
+        "rest": {
+          "method": "GET",
+          "path": "/api/v1/configuration-registry/resolve"
+        },
+        "sdk": {
+          "go": "ResolveConfiguration",
+          "python": "resolve_configuration",
+          "typescript": "resolveConfiguration"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "7025ff93dc868ee36582631b2e12d88a3de26e561c423e14ca2adc4958da7bc2"
+    },
+    "game_create": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.play"
+          ]
+        },
+        "errors": [
+          "invalid_argument",
+          "conflict",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v2.BalootPlatform/CreateGame",
+        "idempotency": "key_required",
+        "mcp": "create_game",
+        "privacy": "private",
+        "rest": {
+          "method": "POST",
+          "path": "/api/v1/games"
+        },
+        "sdk": {
+          "go": "CreateGame",
+          "python": "create_game",
+          "typescript": "createGame"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "4df785199c9e9622d036d1f6683e8ea118f8428f5ccfa7ffa5c776d53f228443"
+    },
+    "game_read": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.read"
+          ]
+        },
+        "errors": [
+          "not_found",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v2.BalootPlatform/GetGame",
+        "idempotency": "safe",
+        "mcp": "get_game",
+        "privacy": "observer_safe",
+        "rest": {
+          "method": "GET",
+          "path": "/api/v1/games/{game_id}"
+        },
+        "sdk": {
+          "go": "GetGame",
+          "python": "get_game",
+          "typescript": "getGame"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "987807b8859262adcb259c4b215dcbd67e898a71f075d50f06a32d4387e5d5b9"
+    },
+    "health": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.read"
+          ]
+        },
+        "errors": [
+          "unavailable"
+        ],
+        "grpc": "baloot.v2.BalootPlatform/HealthCheck",
+        "idempotency": "safe",
+        "mcp": "get_platform_health",
+        "privacy": "public",
+        "rest": {
+          "method": "GET",
+          "path": "/api/v1/health"
+        },
+        "sdk": {
+          "go": "Health",
+          "python": "health",
+          "typescript": "health"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "c042364676b374483a1a9b87124766d8181fe11711115fbab81169a75d3df3db"
+    },
+    "hitl_case": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.analyze"
+          ]
+        },
+        "errors": [
+          "invalid_argument",
+          "hidden_leakage",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v18.HumanLearning/CreateCase",
+        "idempotency": "key_required",
+        "mcp": "create_hitl_case",
+        "privacy": "observer_safe",
+        "rest": {
+          "method": "POST",
+          "path": "/api/v1/hitl/cases"
+        },
+        "sdk": {
+          "go": "CreateHitlCase",
+          "python": "create_hitl_case",
+          "typescript": "createHitlCase"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "3d34ccdc349353214a70713f27d06002f10800f82886a4c0ce9d6750737181fb"
+    },
+    "live_room_create": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.live"
+          ]
+        },
+        "errors": [
+          "conflict",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v17.BalootOperations/CreateLiveRoom",
+        "idempotency": "key_required",
+        "mcp": "create_live_room",
+        "privacy": "private",
+        "rest": {
+          "method": "POST",
+          "path": "/api/v1/live/rooms"
+        },
+        "sdk": {
+          "go": "CreateLiveRoom",
+          "python": "create_live_room",
+          "typescript": "createLiveRoom"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "d8149d1aaa35301b93d8fefc7cabd311acfcc12980ca9c42e3d9c6a12dcd46f1"
+    },
+    "plugin_registry": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.read"
+          ]
+        },
+        "errors": [
+          "unavailable"
+        ],
+        "grpc": "baloot.v19.ConfigurationControl/ListPlugins",
+        "idempotency": "safe",
+        "mcp": "list_plugins",
+        "privacy": "public_metadata",
+        "rest": {
+          "method": "GET",
+          "path": "/api/v1/plugins"
+        },
+        "sdk": {
+          "go": "ListPlugins",
+          "python": "list_plugins",
+          "typescript": "listPlugins"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "9caf67898307b5ae15c4b77ef7077d0858c0d42273268a3449492b0c39df43ed"
+    },
+    "premium_video": {
+      "contract": {
+        "authority": "research_v4",
+        "authorization": {
+          "scopes": [
+            "baloot.analyze"
+          ]
+        },
+        "errors": [
+          "invalid_argument",
+          "queue_full",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v2.BalootPlatform/CreateVideo",
+        "idempotency": "key_required",
+        "lifecycle": "deprecated",
+        "mcp": "create_video",
+        "output": "research_run",
+        "privacy": "observer_safe",
+        "renders_automatically": false,
+        "rest": {
+          "method": "POST",
+          "path": "/api/v1/video-jobs"
+        },
+        "sdk": {
+          "go": "CreateVideo",
+          "python": "create_video",
+          "typescript": "createVideo"
+        },
+        "successors": {
+          "author": "/api/v2/research-recipes",
+          "prepare_render": "/api/v2/research-results/{resultCode}:prepare-render",
+          "render": "/api/v2/render-batches",
+          "results": "/api/v2/research-results?runCode={runCode}",
+          "run": "/api/v2/research-runs"
+        },
+        "task": "durable_research_v4_compatibility"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "25e5a72d5cda8607497ab05792237d1cc3016425de591ba05fa6e169c74055a1"
+    },
+    "render_batch_cancel": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.config.admin",
+            "baloot.hidden.read"
+          ]
+        },
+        "errors": [
+          "not_found",
+          "invalid_state",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v2.BalootPlatform/CancelRenderBatch",
+        "idempotency": "cooperative",
+        "mcp": "cancel_render_batch",
+        "privacy": "observer_safe",
+        "rest": {
+          "method": "POST",
+          "path": "/api/v2/render-batches/{job_id}:cancel"
+        },
+        "sdk": {
+          "go": "CancelRenderBatch",
+          "python": "cancel_render_batch",
+          "typescript": "cancelRenderBatch"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "8e4c11b744e42ed56187a5f550fb508efacb7504f4de8a7b8afc6757d501f953"
+    },
+    "render_batch_create": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.config.admin",
+            "baloot.hidden.read"
+          ]
+        },
+        "errors": [
+          "invalid_argument",
+          "artifact_integrity",
+          "queue_full",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v2.BalootPlatform/CreateRenderBatch",
+        "idempotency": "key_required",
+        "mcp": "create_render_batch",
+        "privacy": "observer_safe",
+        "rest": {
+          "method": "POST",
+          "path": "/api/v2/render-batches"
+        },
+        "sdk": {
+          "go": "CreateRenderBatch",
+          "python": "create_render_batch",
+          "typescript": "createRenderBatch"
+        },
+        "task": "durable"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "0d9764caa489fd5b0c1867c4dd79a60918d608c53655101555c8e47de3a68874"
+    },
+    "render_batch_read": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.config.admin",
+            "baloot.hidden.read"
+          ]
+        },
+        "errors": [
+          "not_found",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v2.BalootPlatform/GetRenderBatch",
+        "idempotency": "safe",
+        "mcp": "get_render_batch",
+        "privacy": "observer_safe",
+        "rest": {
+          "method": "GET",
+          "path": "/api/v2/render-batches/{job_id}"
+        },
+        "sdk": {
+          "go": "RenderBatch",
+          "python": "render_batch",
+          "typescript": "renderBatch"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "e20a8099a7242e915543c5827e28a5f5f9a1bc3c198000c282e336b9cf3b9e69"
+    },
+    "shared_board_create": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.play"
+          ]
+        },
+        "errors": [
+          "invalid_argument",
+          "conflict",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v9.SharedPlatform/CreateBoard",
+        "idempotency": "key_required",
+        "mcp": "create_shared_board",
+        "privacy": "private",
+        "rest": {
+          "method": "POST",
+          "path": "/api/v1/shared/boards"
+        },
+        "sdk": {
+          "go": "CreateSharedBoard",
+          "python": "create_shared_board",
+          "typescript": "createSharedBoard"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "e28edee745409436cdae02ffeb78ded44d4eaa8df2c06ed64ef9ea5ea072e284"
+    },
+    "shared_run_compare": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.read"
+          ]
+        },
+        "errors": [
+          "incompatible_environment",
+          "not_found",
+          "unauthorized"
+        ],
+        "grpc": "baloot.v9.SharedPlatform/CompareRuns",
+        "idempotency": "content_hash",
+        "mcp": "compare_shared_runs",
+        "privacy": "reveal_policy",
+        "rest": {
+          "method": "POST",
+          "path": "/api/v1/shared/comparisons"
+        },
+        "sdk": {
+          "go": "CompareSharedRuns",
+          "python": "compare_shared_runs",
+          "typescript": "compareSharedRuns"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "1880bb629a21f4d82f1b25993b6f720a8ae65651373558b5ea1e8c3d8f432971"
+    },
+    "websocket_ticket": {
+      "contract": {
+        "authorization": {
+          "scopes": [
+            "baloot.live"
+          ]
+        },
+        "errors": [
+          "unauthorized",
+          "invalid_room"
+        ],
+        "grpc": "baloot.v17.BalootOperations/SecurityCapabilities",
+        "idempotency": "non_idempotent",
+        "mcp": "get_security_capabilities",
+        "privacy": "private",
+        "rest": {
+          "method": "POST",
+          "path": "/api/v1/security/websocket-tickets"
+        },
+        "sdk": {
+          "go": "WebSocketTicket",
+          "python": "websocket_ticket",
+          "typescript": "websocketTicket"
+        },
+        "task": "synchronous"
+      },
+      "missing": {
+        "grpc": [],
+        "mcp": [],
+        "mcpAnnotations": [],
+        "rest": [],
+        "sdk": [],
+        "semantics": []
+      },
+      "passed": true,
+      "semanticHash": "442564035f8d32a57754a8f293c065d3fb9553bf4ada5f22001da8966a6fbc26"
+    }
+  },
+  "restOperations": 358,
+  "schemaVersion": 3,
+  "semanticParity": true,
+  "status": "passed",
+  "version": "21.1.0"
+}

@@ -1,0 +1,777 @@
+{
+  "schemaVersion": 1,
+  "scope": "Editorial gate regression only: featured-decision projections of real receipts, not semantic proof or full-round qualification. Source hashes identify original bytes; projected documents are deliberately not rehashed proof artifacts.",
+  "cases": {
+    "7189": {
+      "provenance": {
+        "sourceDirectory": "actor-180280-history-explicit-tie-f39fd53c-20261012",
+        "sourceCommit": "f39fd53cbc59284dc141da897dd82f194a0b01f1",
+        "readback": "passed",
+        "sourceQualification": false,
+        "sourceFiles": {
+          "request.json.gz": {
+            "gzipSha256": "08abb7eb4cad30881984b593815bf28bf80b3f577f8917eafa4d5192bbe7e11b",
+            "jsonBytesSha256": "99c278705cef553b71f0e789b448db9f053d599cc9cd59290446736391a64073"
+          },
+          "exact-suffix.json.gz": {
+            "gzipSha256": "dd1d590355d1b6c1b3232f896f30eef70d1b9f20e4bad8a089d58e15af337855",
+            "jsonBytesSha256": "fef91fb79fd52dc5f5fb8c3cb3622305ceafef0293a5a264bf51c49b3d8187b8"
+          },
+          "terminal.json.gz": {
+            "gzipSha256": "177e6f5948d14f25dc71991c9b81c0f1d6e9eeffec2356dd14c2677cd1b88bc2",
+            "jsonBytesSha256": "10dff831667df4dd165068cb51b2f9d432eda67d7aaf3aa5d9ff67a9958816be"
+          },
+          "summary.json.gz": {
+            "gzipSha256": "7806efaa4d5480c5a348e6a369f17c0b026211b3696daed62303304143025492",
+            "jsonBytesSha256": "5cffd75dcc597cdfc73b2eac5f03fd9a25c0c3e2ee407e4c2bd3b7775933a4d3"
+          }
+        },
+        "sourceSuffixReceiptHash": "99032076991a002d1d52f1b4f3960643a11a9234b086f5d7c8aca80554f4a70a",
+        "sourceInterestVerdictHash": "0cb6b975c0be9416d2dd0f861e436366d7cb2064f87ee9116443b42cc2cfb448"
+      },
+      "policy": {
+        "allowTieRuleOnlyLessons": false,
+        "baselinePolicyId": "observer_safe_partner_feed_established_control_v1",
+        "maximumFeaturedTrick": 7,
+        "maximumFinalMargin": 40,
+        "minimumBaselineRegret": 20,
+        "minimumConsistentWorlds": 2,
+        "minimumMeaningfulDecisions": 1,
+        "minimumNextBestRegret": 20,
+        "minimumPointSwing": 20,
+        "schemaVersion": 4
+      },
+      "featuredStateId": "STATE-D24E566BBE164857E34B",
+      "terminalScore": {
+        "awardedPoints": [
+          0,
+          40
+        ]
+      },
+      "receipt": {
+        "postAuction": {
+          "projectPlay": {
+            "decisions": [
+              {
+                "exactStateId": "STATE-D24E566BBE164857E34B",
+                "playIndex": 24,
+                "action": "H9",
+                "proofArtifactHash": "a5a5926641a8c26b7ba20a3b691264a2239c20f176638afc9a5994da226fc2e5"
+              }
+            ],
+            "artifacts": {
+              "a5a5926641a8c26b7ba20a3b691264a2239c20f176638afc9a5994da226fc2e5": {
+                "request": {
+                  "mode": "exact",
+                  "visibility": "actor_information_set",
+                  "strategyClass": "pure_deterministic",
+                  "utility": "awarded_point_margin",
+                  "targetTeam": "west_east"
+                },
+                "proof": {
+                  "completionStatus": "exact_complete",
+                  "rootActions": [
+                    {
+                      "action": "H9",
+                      "value": 40
+                    },
+                    {
+                      "action": "S9",
+                      "value": 0
+                    }
+                  ],
+                  "hiddenWorlds": {
+                    "complete": true,
+                    "count": 3,
+                    "coverage": {
+                      "method": "exhaustive_cp_sat_hidden_allocations_v1",
+                      "observerInformationHash": "ab76ba2eeead4ee0ef075a796df48251d3baa37f865cc92c72aaf61aa800120e",
+                      "scopeHash": "3da88e0351709b56e4c70f823881ae29a698f8efd8ace550f71953bfbf7f1393"
+                    }
+                  }
+                }
+              }
+            },
+            "baselineEvidence": {
+              "a5a5926641a8c26b7ba20a3b691264a2239c20f176638afc9a5994da226fc2e5": {
+                "proofModel": {
+                  "kind": "observer_safe_play_policy_model_v1",
+                  "actionQuality": {
+                    "actionScores": [
+                      {
+                        "action": "H9",
+                        "value": 20912
+                      },
+                      {
+                        "action": "S9",
+                        "value": 20200
+                      }
+                    ],
+                    "actualAction": "H9",
+                    "actualActionOptimal": true,
+                    "actualValue": 20912,
+                    "authority": "cp_sat",
+                    "bestValue": 20912,
+                    "constraintCount": 4,
+                    "observerInformationHash": "ac988c88f0d2b863172b5ac62db09c9f898a2c0b2f046de2d313c128fd2ea39b",
+                    "optimalActions": [
+                      "H9"
+                    ],
+                    "policyId": "observer_safe_partner_feed_established_control_v1",
+                    "regret": 0,
+                    "rootActorRelation": "target",
+                    "schemaVersion": 1,
+                    "scope": "observer_safe_policy_conditioned",
+                    "selectedPolicyAction": "H9",
+                    "selectionTieBreak": null,
+                    "sha256": "d0d7253177b52427705eb78634ff45b3c0b9a935300ab91335a6fa5c23c86dc4",
+                    "solverStatus": "optimal",
+                    "variableCount": 5
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "expected": {
+        "passed": false,
+        "featured": {
+          "baselineRegret": 0,
+          "blockers": [
+            "interestingness_baseline_regret_insufficient",
+            "interestingness_winner_evidence_unavailable",
+            "interestingness_tie_rule_evidence_unavailable"
+          ],
+          "consistentWorlds": 3,
+          "exactStateId": "STATE-D24E566BBE164857E34B",
+          "interestScore": 40,
+          "outcomeChanged": false,
+          "playIndex": 24,
+          "pointSwing": 40,
+          "proofArtifactHash": "a5a5926641a8c26b7ba20a3b691264a2239c20f176638afc9a5994da226fc2e5",
+          "tieRuleSensitive": null
+        }
+      }
+    },
+    "cj": {
+      "provenance": {
+        "sourceDirectory": "actor-180238-history-explicit-tie-f39fd53c-20261012",
+        "sourceCommit": "f39fd53cbc59284dc141da897dd82f194a0b01f1",
+        "readback": "passed",
+        "sourceQualification": false,
+        "sourceFiles": {
+          "request.json.gz": {
+            "gzipSha256": "250fce973311d3cbc69d4eb8ccd47618e4416007aa8d759d7d4a41a5ce6418b6",
+            "jsonBytesSha256": "2bec3394f5237ff08b2da053343a9b1136a14607280f1d81b4c28dbd3944906c"
+          },
+          "exact-suffix.json.gz": {
+            "gzipSha256": "7b8c3e2ddd61b0c4247492ad0d12b3699e9f0eab241405ea00f01f2b0d4f2c2c",
+            "jsonBytesSha256": "865ab5932670f7161a355f8649f42ed2a36198c313927f8f9f8c84d93330fee5"
+          },
+          "terminal.json.gz": {
+            "gzipSha256": "7bab68ed6dad2703e8a5298cd5ea1748fb2e5745b5882384711fa3244b72f7f1",
+            "jsonBytesSha256": "b097c6e23d1fa5cfc2240ad30058d324a9c52c2bd50f323a13bfcd9234c0921a"
+          },
+          "summary.json.gz": {
+            "gzipSha256": "c7e47c81348aeacbdff89aa44ab33b5067d4581165e3c8a7d3e7a7337b7bdae8",
+            "jsonBytesSha256": "db5a94f2ed40b6fe9444ecc5bfcf7d79ca21ecc6133fafb528cf62b78588347a"
+          }
+        },
+        "sourceSuffixReceiptHash": "55d4f27b240f76c2d3c725ca64365207db8dcf939aa5feaa1c88b79918558c1a",
+        "sourceInterestVerdictHash": "79f8bb40c3e2e9ad7c7ea219d234a88e9077fff15d2245d998ea6b25607b6776"
+      },
+      "policy": {
+        "allowTieRuleOnlyLessons": false,
+        "baselinePolicyId": "observer_safe_partner_feed_established_control_v1",
+        "maximumFeaturedTrick": 7,
+        "maximumFinalMargin": 40,
+        "minimumBaselineRegret": 20,
+        "minimumConsistentWorlds": 2,
+        "minimumMeaningfulDecisions": 1,
+        "minimumNextBestRegret": 20,
+        "minimumPointSwing": 20,
+        "schemaVersion": 4
+      },
+      "featuredStateId": "STATE-F31F1BE2740BFF51B88D",
+      "terminalScore": {
+        "awardedPoints": [
+          0,
+          30
+        ]
+      },
+      "receipt": {
+        "postAuction": {
+          "projectPlay": {
+            "decisions": [
+              {
+                "exactStateId": "STATE-F31F1BE2740BFF51B88D",
+                "playIndex": 24,
+                "action": "CJ",
+                "proofArtifactHash": "a9c55f9ee695188a058c934fc726eec266a26bb13462b6cfd63fd6bccc5d8f90"
+              }
+            ],
+            "artifacts": {
+              "a9c55f9ee695188a058c934fc726eec266a26bb13462b6cfd63fd6bccc5d8f90": {
+                "request": {
+                  "mode": "exact",
+                  "visibility": "actor_information_set",
+                  "strategyClass": "pure_deterministic",
+                  "utility": "awarded_point_margin",
+                  "targetTeam": "west_east"
+                },
+                "proof": {
+                  "completionStatus": "exact_complete",
+                  "rootActions": [
+                    {
+                      "action": "CJ",
+                      "value": 30
+                    },
+                    {
+                      "action": "HJ",
+                      "value": -6
+                    }
+                  ],
+                  "hiddenWorlds": {
+                    "complete": true,
+                    "count": 2,
+                    "coverage": {
+                      "method": "exhaustive_cp_sat_hidden_allocations_v1",
+                      "observerInformationHash": "429a9b1499bae42d4627e45dc6643a8ded28d85426c3ce761da9b4519a67e3ee",
+                      "scopeHash": "656e79b23fd43f37ced4d15ffa0b926c6c9891d2492c89c85048b5746fee9a3b"
+                    }
+                  }
+                }
+              }
+            },
+            "baselineEvidence": {
+              "a9c55f9ee695188a058c934fc726eec266a26bb13462b6cfd63fd6bccc5d8f90": {
+                "proofModel": {
+                  "kind": "observer_safe_play_policy_model_v1",
+                  "actionQuality": {
+                    "actionScores": [
+                      {
+                        "action": "CJ",
+                        "value": 20302
+                      },
+                      {
+                        "action": "HJ",
+                        "value": 20302
+                      }
+                    ],
+                    "actualAction": "HJ",
+                    "actualActionOptimal": true,
+                    "actualValue": 20302,
+                    "authority": "cp_sat",
+                    "bestValue": 20302,
+                    "constraintCount": 4,
+                    "observerInformationHash": "3c0a21c51ae0202b01ace04b968457c3f5f6320033cb041be8b85d0404721a4b",
+                    "optimalActions": [
+                      "CJ",
+                      "HJ"
+                    ],
+                    "policyId": "observer_safe_partner_feed_established_control_v1",
+                    "regret": 0,
+                    "rootActorRelation": "target",
+                    "schemaVersion": 1,
+                    "scope": "observer_safe_policy_conditioned",
+                    "selectedPolicyAction": "HJ",
+                    "selectionTieBreak": "stable_action_id",
+                    "sha256": "fc68bbf7f5fd5a6ef105f871e50e666f3eae12e9dee731550699efcb65ac4ff3",
+                    "solverStatus": "optimal",
+                    "variableCount": 5
+                  }
+                }
+              }
+            },
+            "roundWinEvidence": {
+              "a9c55f9ee695188a058c934fc726eec266a26bb13462b6cfd63fd6bccc5d8f90": {
+                "request": {
+                  "mode": "exact",
+                  "visibility": "actor_information_set",
+                  "strategyClass": "pure_deterministic",
+                  "utility": "round_win",
+                  "targetTeam": "west_east"
+                },
+                "proof": {
+                  "completionStatus": "exact_complete",
+                  "rootActions": [
+                    {
+                      "action": "CJ",
+                      "value": 1
+                    },
+                    {
+                      "action": "HJ",
+                      "value": -1
+                    }
+                  ],
+                  "hiddenWorlds": {
+                    "complete": true,
+                    "count": 2,
+                    "coverage": {
+                      "method": "exhaustive_cp_sat_hidden_allocations_v1",
+                      "observerInformationHash": "429a9b1499bae42d4627e45dc6643a8ded28d85426c3ce761da9b4519a67e3ee",
+                      "scopeHash": "656e79b23fd43f37ced4d15ffa0b926c6c9891d2492c89c85048b5746fee9a3b"
+                    }
+                  }
+                }
+              }
+            },
+            "tieRuleEvidence": {
+              "a9c55f9ee695188a058c934fc726eec266a26bb13462b6cfd63fd6bccc5d8f90": {
+                "buyer_makes": {
+                  "margin": {
+                    "request": {
+                      "mode": "exact",
+                      "visibility": "actor_information_set",
+                      "strategyClass": "pure_deterministic",
+                      "utility": "awarded_point_margin",
+                      "targetTeam": "west_east"
+                    },
+                    "proof": {
+                      "completionStatus": "exact_complete",
+                      "rootActions": [
+                        {
+                          "action": "CJ",
+                          "value": 30
+                        },
+                        {
+                          "action": "HJ",
+                          "value": -6
+                        }
+                      ],
+                      "hiddenWorlds": {
+                        "complete": true,
+                        "count": 2,
+                        "coverage": {
+                          "method": "exhaustive_cp_sat_hidden_allocations_v1",
+                          "observerInformationHash": "429a9b1499bae42d4627e45dc6643a8ded28d85426c3ce761da9b4519a67e3ee",
+                          "scopeHash": "656e79b23fd43f37ced4d15ffa0b926c6c9891d2492c89c85048b5746fee9a3b"
+                        }
+                      }
+                    }
+                  },
+                  "roundWin": {
+                    "request": {
+                      "mode": "exact",
+                      "visibility": "actor_information_set",
+                      "strategyClass": "pure_deterministic",
+                      "utility": "round_win",
+                      "targetTeam": "west_east"
+                    },
+                    "proof": {
+                      "completionStatus": "exact_complete",
+                      "rootActions": [
+                        {
+                          "action": "CJ",
+                          "value": 1
+                        },
+                        {
+                          "action": "HJ",
+                          "value": -1
+                        }
+                      ],
+                      "hiddenWorlds": {
+                        "complete": true,
+                        "count": 2,
+                        "coverage": {
+                          "method": "exhaustive_cp_sat_hidden_allocations_v1",
+                          "observerInformationHash": "429a9b1499bae42d4627e45dc6643a8ded28d85426c3ce761da9b4519a67e3ee",
+                          "scopeHash": "656e79b23fd43f37ced4d15ffa0b926c6c9891d2492c89c85048b5746fee9a3b"
+                        }
+                      }
+                    }
+                  }
+                },
+                "buyer_loses": {
+                  "margin": {
+                    "request": {
+                      "mode": "exact",
+                      "visibility": "actor_information_set",
+                      "strategyClass": "pure_deterministic",
+                      "utility": "awarded_point_margin",
+                      "targetTeam": "west_east"
+                    },
+                    "proof": {
+                      "completionStatus": "exact_complete",
+                      "rootActions": [
+                        {
+                          "action": "CJ",
+                          "value": 30
+                        },
+                        {
+                          "action": "HJ",
+                          "value": -6
+                        }
+                      ],
+                      "hiddenWorlds": {
+                        "complete": true,
+                        "count": 2,
+                        "coverage": {
+                          "method": "exhaustive_cp_sat_hidden_allocations_v1",
+                          "observerInformationHash": "0f3e5d68f2001e9b21bf1b140adfd0f0f1f06b8f6527b75efd38cec3d041bce9",
+                          "scopeHash": "9928e5ffcdb5e595d8e9b30c24e45f88726588cad95ebfef7bf5e07873dea4dd"
+                        }
+                      }
+                    }
+                  },
+                  "roundWin": {
+                    "request": {
+                      "mode": "exact",
+                      "visibility": "actor_information_set",
+                      "strategyClass": "pure_deterministic",
+                      "utility": "round_win",
+                      "targetTeam": "west_east"
+                    },
+                    "proof": {
+                      "completionStatus": "exact_complete",
+                      "rootActions": [
+                        {
+                          "action": "CJ",
+                          "value": 1
+                        },
+                        {
+                          "action": "HJ",
+                          "value": -1
+                        }
+                      ],
+                      "hiddenWorlds": {
+                        "complete": true,
+                        "count": 2,
+                        "coverage": {
+                          "method": "exhaustive_cp_sat_hidden_allocations_v1",
+                          "observerInformationHash": "0f3e5d68f2001e9b21bf1b140adfd0f0f1f06b8f6527b75efd38cec3d041bce9",
+                          "scopeHash": "9928e5ffcdb5e595d8e9b30c24e45f88726588cad95ebfef7bf5e07873dea4dd"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "expected": {
+        "passed": true,
+        "featured": {
+          "baselineRegret": 36,
+          "consistentWorlds": 2,
+          "exactStateId": "STATE-F31F1BE2740BFF51B88D",
+          "interestScore": 72,
+          "outcomeChanged": true,
+          "playIndex": 24,
+          "pointSwing": 36,
+          "proofArtifactHash": "a9c55f9ee695188a058c934fc726eec266a26bb13462b6cfd63fd6bccc5d8f90",
+          "tieRuleSensitive": false
+        }
+      }
+    },
+    "gap2": {
+      "provenance": {
+        "sourceDirectory": "actor-180315-history-explicit-tie-f39fd53c-20261012",
+        "sourceCommit": "f39fd53cbc59284dc141da897dd82f194a0b01f1",
+        "readback": "passed",
+        "sourceQualification": false,
+        "sourceFiles": {
+          "request.json.gz": {
+            "gzipSha256": "cdec31e68910ac6375c4456534f106d8e35a6b795c756255dfb65fe5585d2b87",
+            "jsonBytesSha256": "15f69b751ee8f26e957ea97aa99d4f7973d5add83800d45f2d0e2941b76b01d2"
+          },
+          "exact-suffix.json.gz": {
+            "gzipSha256": "4c6ac67f69c8b85ef873b6466671c599def8d5463e732357fb5d917f1ebbbf4f",
+            "jsonBytesSha256": "e1386bdbc6a2aa998259cec0b7d57c4ac0a4d22615e59a6fbc7a464ead471ada"
+          },
+          "terminal.json.gz": {
+            "gzipSha256": "55b89cf3c847c14edc5b5605f66b8ebcb859a0f28e52089804719eb279ea118b",
+            "jsonBytesSha256": "3542ee6f776996d45750c77ce06218197517af57f2b8157b099fc859627fa9c5"
+          },
+          "summary.json.gz": {
+            "gzipSha256": "5d1466ed4eebae71a6b543f2d42088c403cc094d4a6e8a012cfde06c246a4571",
+            "jsonBytesSha256": "59f07f4fda7eeb13b01c30b6dff13d7190555c732ab112add09dbfa44a77d56c"
+          }
+        },
+        "sourceSuffixReceiptHash": "dd7e18e8b20c76d0ba00989ece477c57ece1e7e1a9a7244b46549ac20c93b870",
+        "sourceInterestVerdictHash": "ff0bf48b8a27d96fd56281bfeb2c21c83a1e3e318142b8cbcf74f2df93aef55d"
+      },
+      "policy": {
+        "allowTieRuleOnlyLessons": false,
+        "baselinePolicyId": "observer_safe_partner_feed_established_control_v1",
+        "maximumFeaturedTrick": 7,
+        "maximumFinalMargin": 40,
+        "minimumBaselineRegret": 20,
+        "minimumConsistentWorlds": 2,
+        "minimumMeaningfulDecisions": 1,
+        "minimumNextBestRegret": 20,
+        "minimumPointSwing": 20,
+        "schemaVersion": 4
+      },
+      "featuredStateId": "STATE-3487E42D3719383FAC7E",
+      "terminalScore": {
+        "awardedPoints": [
+          18,
+          18
+        ]
+      },
+      "receipt": {
+        "postAuction": {
+          "projectPlay": {
+            "decisions": [
+              {
+                "exactStateId": "STATE-3487E42D3719383FAC7E",
+                "playIndex": 26,
+                "action": "H10",
+                "proofArtifactHash": "4f9c718c5edb8d52c3ef87a1d62fb75d1d1fb59fb3559e252ea69f2f4072cbee"
+              }
+            ],
+            "artifacts": {
+              "4f9c718c5edb8d52c3ef87a1d62fb75d1d1fb59fb3559e252ea69f2f4072cbee": {
+                "request": {
+                  "mode": "exact",
+                  "visibility": "actor_information_set",
+                  "strategyClass": "pure_deterministic",
+                  "utility": "awarded_point_margin",
+                  "targetTeam": "west_east"
+                },
+                "proof": {
+                  "completionStatus": "exact_complete",
+                  "rootActions": [
+                    {
+                      "action": "CK",
+                      "value": -2
+                    },
+                    {
+                      "action": "H10",
+                      "value": 0
+                    }
+                  ],
+                  "hiddenWorlds": {
+                    "complete": true,
+                    "count": 3,
+                    "coverage": {
+                      "method": "exhaustive_cp_sat_hidden_allocations_v1",
+                      "observerInformationHash": "bb9618a69ef1b576ca802079e2bfea97acd01c16fc1ee9e60b6bc0868a89ba43",
+                      "scopeHash": "b57e11abe70f63b3431b4712ddc8a7c96e283999bd20c48abdd3fd1f4d4199dc"
+                    }
+                  }
+                }
+              }
+            },
+            "baselineEvidence": {
+              "4f9c718c5edb8d52c3ef87a1d62fb75d1d1fb59fb3559e252ea69f2f4072cbee": {
+                "proofModel": {
+                  "kind": "observer_safe_play_policy_model_v1",
+                  "actionQuality": {
+                    "actionScores": [
+                      {
+                        "action": "CK",
+                        "value": 40395
+                      },
+                      {
+                        "action": "H10",
+                        "value": 40994
+                      }
+                    ],
+                    "actualAction": "H10",
+                    "actualActionOptimal": true,
+                    "actualValue": 40994,
+                    "authority": "cp_sat",
+                    "bestValue": 40994,
+                    "constraintCount": 4,
+                    "observerInformationHash": "f214af2338bfdf8f4d93dedc8fbe65bc7a29e13ace3112951521219171050c4b",
+                    "optimalActions": [
+                      "H10"
+                    ],
+                    "policyId": "observer_safe_partner_feed_established_control_v1",
+                    "regret": 0,
+                    "rootActorRelation": "target",
+                    "schemaVersion": 1,
+                    "scope": "observer_safe_policy_conditioned",
+                    "selectedPolicyAction": "H10",
+                    "selectionTieBreak": null,
+                    "sha256": "dc470845e93f0eebb327a70409aec734b4b944e4139063478d4fa61eb89107a0",
+                    "solverStatus": "optimal",
+                    "variableCount": 5
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "expected": {
+        "passed": false,
+        "featured": {
+          "baselineRegret": 0,
+          "blockers": [
+            "interestingness_next_best_regret_insufficient",
+            "interestingness_baseline_regret_insufficient",
+            "interestingness_winner_evidence_unavailable",
+            "interestingness_outcome_or_margin_swing_insufficient",
+            "interestingness_tie_rule_evidence_unavailable"
+          ],
+          "consistentWorlds": 3,
+          "exactStateId": "STATE-3487E42D3719383FAC7E",
+          "interestScore": 2,
+          "outcomeChanged": false,
+          "playIndex": 26,
+          "pointSwing": 2,
+          "proofArtifactHash": "4f9c718c5edb8d52c3ef87a1d62fb75d1d1fb59fb3559e252ea69f2f4072cbee",
+          "tieRuleSensitive": null
+        }
+      }
+    },
+    "a3": {
+      "provenance": {
+        "sourceDirectory": "a3-schema4-production-3a99e372-20261012",
+        "sourceCommit": "3a99e3721322002e4f3113892beb2ac44ad59e1c",
+        "readback": "passed",
+        "sourceQualification": false,
+        "sourceFiles": {
+          "request.json.gz": {
+            "gzipSha256": "4cce6395dfb27553508272eddca39cb8c3721c70c2d4ac17e0b4c4dacfe02cd0",
+            "jsonBytesSha256": "c92dd4f23f53ca29f066f9ab6afc5572705e907896180cb446ebc1337a68f61a"
+          },
+          "exact-suffix.json.gz": {
+            "gzipSha256": "b6f808da20b03de35c484aee150c7f8aa6ab2e54113d686bed6f6084d2a3da36",
+            "jsonBytesSha256": "172d259fa13a1fbe332f2ec1cce0ec1ca1f66e7cfc7847d6fd04248e8ca3055c"
+          },
+          "terminal.json.gz": {
+            "gzipSha256": "a7031c18ac49ea6535e8aac98a2bac38a05f29f022f61977a0a6a1215a2248cb",
+            "jsonBytesSha256": "51740d602bf2f2c1848f7fc2c1790a541c1fd177341424ee688876c089084bff"
+          },
+          "summary.json.gz": {
+            "gzipSha256": "291d9591f7825dcfb956d2d77fdc2cacecb3a8fe246c8297cdf0f387847b16de",
+            "jsonBytesSha256": "aa3ca7f9aec26b817d3daae860c28572fc353946c3f6346fc0acd91760aa5842"
+          }
+        },
+        "sourceSuffixReceiptHash": "4afb3e493ee371e4c0ae646ff6ee69a15ce660973e2f57a09116591f7487977d",
+        "sourceInterestVerdictHash": "60116ca21313a59717ce34605536e15ba823e721ce6bed1231b00020ccd88816"
+      },
+      "policy": {
+        "allowTieRuleOnlyLessons": false,
+        "baselinePolicyId": "observer_safe_trick_control_v1",
+        "maximumFeaturedTrick": 7,
+        "maximumFinalMargin": 40,
+        "minimumBaselineRegret": 20,
+        "minimumConsistentWorlds": 2,
+        "minimumMeaningfulDecisions": 1,
+        "minimumNextBestRegret": 20,
+        "minimumPointSwing": 20,
+        "schemaVersion": 4
+      },
+      "featuredStateId": "STATE-BD9B3DDCB2401592D150",
+      "terminalScore": {
+        "awardedPoints": [
+          28,
+          8
+        ]
+      },
+      "receipt": {
+        "postAuction": {
+          "projectPlay": {
+            "decisions": [
+              {
+                "exactStateId": "STATE-BD9B3DDCB2401592D150",
+                "playIndex": 27,
+                "action": "DK",
+                "proofArtifactHash": "eb55c8522bd7df847948f20d6abaea319c2e274aa3b4c391aa992f69152f0560"
+              }
+            ],
+            "artifacts": {
+              "eb55c8522bd7df847948f20d6abaea319c2e274aa3b4c391aa992f69152f0560": {
+                "request": {
+                  "mode": "exact",
+                  "visibility": "actor_information_set",
+                  "strategyClass": "pure_deterministic",
+                  "utility": "awarded_point_margin",
+                  "targetTeam": "west_east"
+                },
+                "proof": {
+                  "completionStatus": "exact_complete",
+                  "rootActions": [
+                    {
+                      "action": "CA",
+                      "value": -54
+                    },
+                    {
+                      "action": "DK",
+                      "value": -20
+                    }
+                  ],
+                  "hiddenWorlds": {
+                    "complete": true,
+                    "count": 6,
+                    "coverage": {
+                      "method": "exhaustive_cp_sat_hidden_allocations_v1",
+                      "observerInformationHash": "12c0482458b9694d1d7961494b25dd95ec4b04a9c7feeced465edacd88fe58b8",
+                      "scopeHash": "7cc53f4d9acb8c09b409d71e8c9628513bc661660b5cb6b985616c0f3fb9bd8d"
+                    }
+                  }
+                }
+              }
+            },
+            "baselineEvidence": {
+              "eb55c8522bd7df847948f20d6abaea319c2e274aa3b4c391aa992f69152f0560": {
+                "proofModel": {
+                  "kind": "observer_safe_play_policy_model_v1",
+                  "actionQuality": {
+                    "actionScores": [
+                      {
+                        "action": "CA",
+                        "value": 28893
+                      },
+                      {
+                        "action": "DK",
+                        "value": 29595
+                      }
+                    ],
+                    "actualAction": "DK",
+                    "actualActionOptimal": true,
+                    "actualValue": 29595,
+                    "authority": "cp_sat",
+                    "bestValue": 29595,
+                    "constraintCount": 4,
+                    "observerInformationHash": "99c6183dfeac16d99bd202067ea63336f8e0783550c9d22c63aa1d68646b44a3",
+                    "optimalActions": [
+                      "DK"
+                    ],
+                    "policyId": "observer_safe_trick_control_v1",
+                    "regret": 0,
+                    "rootActorRelation": "target",
+                    "schemaVersion": 1,
+                    "scope": "observer_safe_policy_conditioned",
+                    "selectedPolicyAction": "DK",
+                    "selectionTieBreak": null,
+                    "sha256": "3c3f4a9450775995609d42a72dec1f55bf348e1c4138ed4a7ba7ed4ba339e94e",
+                    "solverStatus": "optimal",
+                    "variableCount": 5
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "expected": {
+        "passed": false,
+        "featured": {
+          "baselineRegret": 0,
+          "blockers": [
+            "interestingness_baseline_regret_insufficient",
+            "interestingness_winner_evidence_unavailable",
+            "interestingness_tie_rule_evidence_unavailable"
+          ],
+          "consistentWorlds": 6,
+          "exactStateId": "STATE-BD9B3DDCB2401592D150",
+          "interestScore": 34,
+          "outcomeChanged": false,
+          "playIndex": 27,
+          "pointSwing": 34,
+          "proofArtifactHash": "eb55c8522bd7df847948f20d6abaea319c2e274aa3b4c391aa992f69152f0560",
+          "tieRuleSensitive": null
+        }
+      }
+    }
+  }
+}

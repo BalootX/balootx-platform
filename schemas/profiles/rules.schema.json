@@ -1,0 +1,4496 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/rules.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "bidding": {
+          "additionalProperties": false,
+          "properties": {
+            "ashkal": {
+              "additionalProperties": false,
+              "properties": {
+                "eligible_priority_positions": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "resolves_to": {
+                  "type": "string"
+                },
+                "taker": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "eligible_priority_positions",
+                "enabled",
+                "resolves_to",
+                "taker"
+              ],
+              "type": "object"
+            },
+            "first_round": {
+              "additionalProperties": false,
+              "properties": {
+                "allowed": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "hokum_uses_purchase_suit": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "allowed",
+                "hokum_uses_purchase_suit"
+              ],
+              "type": "object"
+            },
+            "heuristics": {
+              "additionalProperties": false,
+              "properties": {
+                "ashkal_partner_threshold": {
+                  "type": "number"
+                },
+                "hokum_extra_trump_card_after": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "hokum_extra_trump_card_weight": {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "hokum_off_trump_ace_ten_weight": {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "hokum_threshold": {
+                  "type": "number"
+                },
+                "hokum_trump_rank_weights": {
+                  "items": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "maxItems": 8,
+                  "minItems": 8,
+                  "type": "array"
+                },
+                "second_hokum_threshold": {
+                  "type": "number"
+                },
+                "second_sun_threshold": {
+                  "type": "number"
+                },
+                "sun_extra_suit_card_after": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sun_extra_suit_card_weight": {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "sun_rank_weights": {
+                  "items": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "maxItems": 8,
+                  "minItems": 8,
+                  "type": "array"
+                },
+                "sun_threshold": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "ashkal_partner_threshold",
+                "hokum_extra_trump_card_after",
+                "hokum_extra_trump_card_weight",
+                "hokum_off_trump_ace_ten_weight",
+                "hokum_threshold",
+                "hokum_trump_rank_weights",
+                "second_hokum_threshold",
+                "second_sun_threshold",
+                "sun_extra_suit_card_after",
+                "sun_extra_suit_card_weight",
+                "sun_rank_weights",
+                "sun_threshold"
+              ],
+              "type": "object"
+            },
+            "pass_allowed": {
+              "type": "boolean"
+            },
+            "rounds": {
+              "type": "integer"
+            },
+            "second_round": {
+              "additionalProperties": false,
+              "properties": {
+                "allowed": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "hokum_must_differ_from_purchase_suit": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "allowed",
+                "hokum_must_differ_from_purchase_suit"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "ashkal",
+            "first_round",
+            "heuristics",
+            "pass_allowed",
+            "rounds",
+            "second_round"
+          ],
+          "type": "object"
+        },
+        "card_rules": {
+          "additionalProperties": false,
+          "properties": {
+            "hokum_non_trump_points": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "hokum_non_trump_strength": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "hokum_trump_points": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "hokum_trump_strength": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "sequence_strength": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "sun_points": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "sun_strength": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "hokum_non_trump_points",
+            "hokum_non_trump_strength",
+            "hokum_trump_points",
+            "hokum_trump_strength",
+            "sequence_strength",
+            "sun_points",
+            "sun_strength"
+          ],
+          "type": "object"
+        },
+        "contracts": {
+          "additionalProperties": false,
+          "properties": {
+            "allowed": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "default": {
+              "type": [
+                "null",
+                "string",
+                "number",
+                "integer",
+                "boolean",
+                "object",
+                "array"
+              ]
+            },
+            "require_preselected": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "allowed",
+            "default",
+            "require_preselected"
+          ],
+          "type": "object"
+        },
+        "dealing": {
+          "additionalProperties": false,
+          "properties": {
+            "all_pass_redeal": {
+              "type": "boolean"
+            },
+            "allow_no_cut": {
+              "type": "boolean"
+            },
+            "annulling": {
+              "additionalProperties": false,
+              "properties": {
+                "dealer_advances": {
+                  "type": "boolean"
+                },
+                "declaration_window": {
+                  "type": "string"
+                },
+                "eligible_ranks": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "names": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "dealer_advances",
+                "declaration_window",
+                "eligible_ranks",
+                "enabled",
+                "names"
+              ],
+              "type": "object"
+            },
+            "cut_enabled": {
+              "type": "boolean"
+            },
+            "cutter": {
+              "type": "string"
+            },
+            "exposed_purchase_cards": {
+              "type": "integer"
+            },
+            "final_cards_for_buyer": {
+              "type": "integer"
+            },
+            "final_cards_for_others": {
+              "type": "integer"
+            },
+            "first_recipient": {
+              "type": "string"
+            },
+            "initial_packets": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "shuffle_algorithm": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "all_pass_redeal",
+            "allow_no_cut",
+            "annulling",
+            "cut_enabled",
+            "cutter",
+            "exposed_purchase_cards",
+            "final_cards_for_buyer",
+            "final_cards_for_others",
+            "first_recipient",
+            "initial_packets",
+            "shuffle_algorithm"
+          ],
+          "type": "object"
+        },
+        "deck": {
+          "additionalProperties": false,
+          "properties": {
+            "cards_per_player": {
+              "type": "integer"
+            },
+            "players": {
+              "type": "integer"
+            },
+            "ranks": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "suits": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "cards_per_player",
+            "players",
+            "ranks",
+            "suits"
+          ],
+          "type": "object"
+        },
+        "disputed_options": {
+          "additionalProperties": false,
+          "properties": {
+            "double_unspecified_mode": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "alternatives"
+              ],
+              "type": "object"
+            },
+            "equal_hokum_sequence_trump_priority": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "items": {
+                    "type": "boolean"
+                  },
+                  "type": "array"
+                },
+                "selected": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "alternatives",
+                "selected"
+              ],
+              "type": "object"
+            },
+            "first_leader": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "alternatives"
+              ],
+              "type": "object"
+            },
+            "hints_have_universal_meaning": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "type": "array"
+                }
+              },
+              "required": [
+                "alternatives"
+              ],
+              "type": "object"
+            },
+            "kawesh_saneen": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "items": {
+                    "type": "boolean"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "alternatives"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "double_unspecified_mode",
+            "equal_hokum_sequence_trump_priority",
+            "first_leader",
+            "hints_have_universal_meaning",
+            "kawesh_saneen"
+          ],
+          "type": "object"
+        },
+        "escalation": {
+          "additionalProperties": false,
+          "properties": {
+            "closure_policy": {
+              "const": "advance_to_projects_without_announcement",
+              "type": "string"
+            },
+            "default_level": {
+              "type": "string"
+            },
+            "default_mode": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "hokum_chain": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "opening_actor_policy": {
+              "const": "opponent_team_any_seat",
+              "type": "string"
+            },
+            "response_actor_policy": {
+              "type": "string"
+            },
+            "sun_chain": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "sun_double_requires_split_score": {
+              "type": "boolean"
+            },
+            "sun_score_threshold": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "closure_policy",
+            "default_level",
+            "default_mode",
+            "enabled",
+            "hokum_chain",
+            "opening_actor_policy",
+            "response_actor_policy",
+            "sun_chain",
+            "sun_double_requires_split_score",
+            "sun_score_threshold"
+          ],
+          "type": "object"
+        },
+        "play": {
+          "additionalProperties": false,
+          "properties": {
+            "allow_discard_when_cannot_overtrump": {
+              "type": "boolean"
+            },
+            "configured_first_leader": {
+              "type": "string"
+            },
+            "ekka_enabled": {
+              "type": "boolean"
+            },
+            "first_leader": {
+              "type": "string"
+            },
+            "locked_hokum_blocks_trump_lead": {
+              "type": "boolean"
+            },
+            "must_follow_suit": {
+              "type": "boolean"
+            },
+            "must_overtrump_when_possible": {
+              "type": "boolean"
+            },
+            "must_trump_when_void": {
+              "type": "boolean"
+            },
+            "partner_winning_exception": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "allow_discard_when_cannot_overtrump",
+            "configured_first_leader",
+            "ekka_enabled",
+            "first_leader",
+            "locked_hokum_blocks_trump_lead",
+            "must_follow_suit",
+            "must_overtrump_when_possible",
+            "must_trump_when_void",
+            "partner_winning_exception"
+          ],
+          "type": "object"
+        },
+        "profile": {
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "expert_ratified": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "locale": {
+              "type": "string"
+            },
+            "source_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "status": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "description",
+            "expert_ratified",
+            "id",
+            "locale",
+            "source_ids",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        },
+        "projects": {
+          "additionalProperties": false,
+          "properties": {
+            "baloot": {
+              "additionalProperties": false,
+              "properties": {
+                "declare_on_second_card": {
+                  "type": "boolean"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "hundred_inclusion": {
+                  "type": "string"
+                },
+                "only_hokum": {
+                  "type": "boolean"
+                },
+                "single_card_in_other_project": {
+                  "type": "string"
+                },
+                "siri_or_fifty_inclusion": {
+                  "type": "string"
+                },
+                "value_game_points": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "declare_on_second_card",
+                "enabled",
+                "hundred_inclusion",
+                "only_hokum",
+                "single_card_in_other_project",
+                "siri_or_fifty_inclusion",
+                "value_game_points"
+              ],
+              "type": "object"
+            },
+            "cards_may_overlap": {
+              "type": "boolean"
+            },
+            "comparison_timing": {
+              "type": "string"
+            },
+            "declaration_timing": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "four_of_kind": {
+              "additionalProperties": false,
+              "properties": {
+                "eligible_ranks": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "values_game_points": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "hokum": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "ace": {
+                          "type": "integer"
+                        },
+                        "jack": {
+                          "type": "integer"
+                        },
+                        "king": {
+                          "type": "integer"
+                        },
+                        "queen": {
+                          "type": "integer"
+                        },
+                        "ten": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "ace",
+                        "jack",
+                        "king",
+                        "queen",
+                        "ten"
+                      ],
+                      "type": "object"
+                    },
+                    "sun": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "ace": {
+                          "type": "integer"
+                        },
+                        "jack": {
+                          "type": "integer"
+                        },
+                        "king": {
+                          "type": "integer"
+                        },
+                        "queen": {
+                          "type": "integer"
+                        },
+                        "ten": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "ace",
+                        "jack",
+                        "king",
+                        "queen",
+                        "ten"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "hokum",
+                    "sun"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "eligible_ranks",
+                "enabled",
+                "values_game_points"
+              ],
+              "type": "object"
+            },
+            "max_scoring_projects_per_player": {
+              "type": "integer"
+            },
+            "only_winning_team_scores": {
+              "type": "boolean"
+            },
+            "reveal_scope": {
+              "enum": [
+                "scoring_team",
+                "comparison_winner"
+              ],
+              "type": "string"
+            },
+            "reveal_timing": {
+              "type": "string"
+            },
+            "sequences": {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "minimum_length": {
+                  "type": "integer"
+                },
+                "values_game_points": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "hokum": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "five_plus": {
+                          "type": "integer"
+                        },
+                        "four": {
+                          "type": "integer"
+                        },
+                        "three": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "five_plus",
+                        "four",
+                        "three"
+                      ],
+                      "type": "object"
+                    },
+                    "sun": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "five_plus": {
+                          "type": "integer"
+                        },
+                        "four": {
+                          "type": "integer"
+                        },
+                        "three": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "five_plus",
+                        "four",
+                        "three"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "hokum",
+                    "sun"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "enabled",
+                "minimum_length",
+                "values_game_points"
+              ],
+              "type": "object"
+            },
+            "tie_break_order": {
+              "enum": [
+                "declaration",
+                "second_trick_reveal"
+              ],
+              "type": "string"
+            },
+            "top_rank_visibility": {
+              "enum": [
+                "declared",
+                "comparison_only"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "baloot",
+            "cards_may_overlap",
+            "comparison_timing",
+            "declaration_timing",
+            "enabled",
+            "four_of_kind",
+            "max_scoring_projects_per_player",
+            "only_winning_team_scores",
+            "reveal_timing",
+            "sequences"
+          ],
+          "type": "object"
+        },
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "scoring": {
+          "additionalProperties": false,
+          "properties": {
+            "card_game_point_totals": {
+              "additionalProperties": false,
+              "properties": {
+                "hokum": {
+                  "type": "integer"
+                },
+                "sun": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "hokum",
+                "sun"
+              ],
+              "type": "object"
+            },
+            "contract": {
+              "additionalProperties": false,
+              "properties": {
+                "buyer_team_must_win": {
+                  "type": "boolean"
+                },
+                "buyer_tie_outcome": {
+                  "anyOf": [
+                    {
+                      "const": "buyer_makes",
+                      "title": "المشتري ينجح عند التعادل"
+                    },
+                    {
+                      "const": "buyer_loses",
+                      "title": "المشتري يخسر عند التعادل"
+                    }
+                  ],
+                  "default": "buyer_makes",
+                  "description": "إذا تعادلت نقاط الفريقين في الصن: هل ينجح المشتري أو يخسر؟ ترك الإعداد بدون قيمة يحافظ على قاعدة النسخة المحفوظة؛ الاختيار الصريح ينشئ قاعدة جديدة.",
+                  "title": "تعادل نقاط الصن",
+                  "type": "string"
+                },
+                "loss_transfers_all": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "buyer_team_must_win",
+                "loss_transfers_all"
+              ],
+              "type": "object"
+            },
+            "conversion": {
+              "additionalProperties": false,
+              "properties": {
+                "hokum": {
+                  "type": "string"
+                },
+                "sun": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "hokum",
+                "sun"
+              ],
+              "type": "object"
+            },
+            "escalation": {
+              "additionalProperties": false,
+              "properties": {
+                "baloot_multiplier_cap": {
+                  "type": "integer"
+                },
+                "project_multiplier_cap": {
+                  "type": "integer"
+                },
+                "winner_takes_all_when_multiplied": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "baloot_multiplier_cap",
+                "project_multiplier_cap",
+                "winner_takes_all_when_multiplied"
+              ],
+              "type": "object"
+            },
+            "kabout": {
+              "additionalProperties": false,
+              "properties": {
+                "base_game_points": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "hokum": {
+                      "type": "integer"
+                    },
+                    "sun": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "hokum",
+                    "sun"
+                  ],
+                  "type": "object"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "winner": {
+                  "const": "trick_sweeper",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "base_game_points",
+                "enabled"
+              ],
+              "type": "object"
+            },
+            "last_trick_bonus_raw": {
+              "type": "integer"
+            },
+            "match": {
+              "additionalProperties": false,
+              "properties": {
+                "dealer_rotates_right": {
+                  "type": "boolean"
+                },
+                "target": {
+                  "type": "integer"
+                },
+                "tie_above_target_continues": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "dealer_rotates_right",
+                "target",
+                "tie_above_target_continues"
+              ],
+              "type": "object"
+            },
+            "raw_card_totals": {
+              "additionalProperties": false,
+              "properties": {
+                "hokum": {
+                  "type": "integer"
+                },
+                "sun": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "hokum",
+                "sun"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "card_game_point_totals",
+            "contract",
+            "conversion",
+            "escalation",
+            "kabout",
+            "last_trick_bonus_raw",
+            "match",
+            "raw_card_totals"
+          ],
+          "type": "object"
+        },
+        "seating": {
+          "additionalProperties": false,
+          "properties": {
+            "dealer_rotation": {
+              "type": "string"
+            },
+            "partnerships": {
+              "additionalProperties": false,
+              "properties": {
+                "east": {
+                  "type": "string"
+                },
+                "north": {
+                  "type": "string"
+                },
+                "south": {
+                  "type": "string"
+                },
+                "west": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "east",
+                "north",
+                "south",
+                "west"
+              ],
+              "type": "object"
+            },
+            "play_order": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "dealer_rotation",
+            "partnerships",
+            "play_order"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "bidding",
+        "card_rules",
+        "contracts",
+        "dealing",
+        "deck",
+        "disputed_options",
+        "escalation",
+        "play",
+        "profile",
+        "projects",
+        "schema_version",
+        "scoring",
+        "seating"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "bidding": {
+          "additionalProperties": false,
+          "properties": {
+            "ashkal": {
+              "additionalProperties": false,
+              "properties": {
+                "contract_owner": {
+                  "type": "string"
+                },
+                "eligible_priority_positions": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "resolves_to": {
+                  "type": "string"
+                },
+                "taker": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "contract_owner",
+                "eligible_priority_positions",
+                "enabled",
+                "resolves_to",
+                "taker"
+              ],
+              "type": "object"
+            },
+            "first_round": {
+              "additionalProperties": false,
+              "properties": {
+                "allowed": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "exposed_ace_hokum_sun_overcall": {
+                  "type": "string"
+                },
+                "hokum_uses_purchase_suit": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "allowed",
+                "exposed_ace_hokum_sun_overcall",
+                "hokum_uses_purchase_suit"
+              ],
+              "type": "object"
+            },
+            "heuristics": {
+              "additionalProperties": false,
+              "properties": {
+                "ashkal_partner_threshold": {
+                  "type": "number"
+                },
+                "hokum_extra_trump_card_after": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "hokum_extra_trump_card_weight": {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "hokum_off_trump_ace_ten_weight": {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "hokum_threshold": {
+                  "type": "number"
+                },
+                "hokum_trump_rank_weights": {
+                  "items": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "maxItems": 8,
+                  "minItems": 8,
+                  "type": "array"
+                },
+                "second_hokum_threshold": {
+                  "type": "number"
+                },
+                "second_sun_threshold": {
+                  "type": "number"
+                },
+                "sun_extra_suit_card_after": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sun_extra_suit_card_weight": {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "sun_rank_weights": {
+                  "items": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "maxItems": 8,
+                  "minItems": 8,
+                  "type": "array"
+                },
+                "sun_threshold": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "ashkal_partner_threshold",
+                "hokum_extra_trump_card_after",
+                "hokum_extra_trump_card_weight",
+                "hokum_off_trump_ace_ten_weight",
+                "hokum_threshold",
+                "hokum_trump_rank_weights",
+                "second_hokum_threshold",
+                "second_sun_threshold",
+                "sun_extra_suit_card_after",
+                "sun_extra_suit_card_weight",
+                "sun_rank_weights",
+                "sun_threshold"
+              ],
+              "type": "object"
+            },
+            "pass_allowed": {
+              "type": "boolean"
+            },
+            "rounds": {
+              "type": "integer"
+            },
+            "second_round": {
+              "additionalProperties": false,
+              "properties": {
+                "allowed": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "hokum_must_differ_from_purchase_suit": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "allowed",
+                "hokum_must_differ_from_purchase_suit"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "ashkal",
+            "first_round",
+            "heuristics",
+            "pass_allowed",
+            "rounds",
+            "second_round"
+          ],
+          "type": "object"
+        },
+        "card_rules": {
+          "additionalProperties": false,
+          "properties": {
+            "hokum_non_trump_points": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "hokum_non_trump_strength": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "hokum_trump_points": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "hokum_trump_strength": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "sequence_strength": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "sun_points": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "sun_strength": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "hokum_non_trump_points",
+            "hokum_non_trump_strength",
+            "hokum_trump_points",
+            "hokum_trump_strength",
+            "sequence_strength",
+            "sun_points",
+            "sun_strength"
+          ],
+          "type": "object"
+        },
+        "contracts": {
+          "additionalProperties": false,
+          "properties": {
+            "allowed": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "default": {
+              "type": [
+                "null",
+                "string",
+                "number",
+                "integer",
+                "boolean",
+                "object",
+                "array"
+              ]
+            },
+            "require_preselected": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "allowed",
+            "default",
+            "require_preselected"
+          ],
+          "type": "object"
+        },
+        "dealing": {
+          "additionalProperties": false,
+          "properties": {
+            "all_pass_redeal": {
+              "type": "boolean"
+            },
+            "allow_no_cut": {
+              "type": "boolean"
+            },
+            "annulling": {
+              "additionalProperties": false,
+              "properties": {
+                "dealer_advances": {
+                  "type": "boolean"
+                },
+                "declaration_window": {
+                  "type": "string"
+                },
+                "eligible_ranks": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "names": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "dealer_advances",
+                "declaration_window",
+                "eligible_ranks",
+                "enabled",
+                "names"
+              ],
+              "type": "object"
+            },
+            "cut_enabled": {
+              "type": "boolean"
+            },
+            "cutter": {
+              "type": "string"
+            },
+            "exposed_purchase_cards": {
+              "type": "integer"
+            },
+            "final_cards_for_buyer": {
+              "type": "integer"
+            },
+            "final_cards_for_others": {
+              "type": "integer"
+            },
+            "first_recipient": {
+              "type": "string"
+            },
+            "initial_packets": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "shuffle_algorithm": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "all_pass_redeal",
+            "allow_no_cut",
+            "annulling",
+            "cut_enabled",
+            "cutter",
+            "exposed_purchase_cards",
+            "final_cards_for_buyer",
+            "final_cards_for_others",
+            "first_recipient",
+            "initial_packets",
+            "shuffle_algorithm"
+          ],
+          "type": "object"
+        },
+        "deck": {
+          "additionalProperties": false,
+          "properties": {
+            "cards_per_player": {
+              "type": "integer"
+            },
+            "players": {
+              "type": "integer"
+            },
+            "ranks": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "suits": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "cards_per_player",
+            "players",
+            "ranks",
+            "suits"
+          ],
+          "type": "object"
+        },
+        "disputed_options": {
+          "additionalProperties": false,
+          "properties": {
+            "double_unspecified_mode": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "alternatives"
+              ],
+              "type": "object"
+            },
+            "equal_hokum_sequence_trump_priority": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "items": {
+                    "type": "boolean"
+                  },
+                  "type": "array"
+                },
+                "selected": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "alternatives",
+                "selected"
+              ],
+              "type": "object"
+            },
+            "first_leader": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "alternatives"
+              ],
+              "type": "object"
+            },
+            "hints_have_universal_meaning": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "type": "array"
+                }
+              },
+              "required": [
+                "alternatives"
+              ],
+              "type": "object"
+            },
+            "kawesh_saneen": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "items": {
+                    "type": "boolean"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "alternatives"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "double_unspecified_mode",
+            "equal_hokum_sequence_trump_priority",
+            "first_leader",
+            "hints_have_universal_meaning",
+            "kawesh_saneen"
+          ],
+          "type": "object"
+        },
+        "escalation": {
+          "additionalProperties": false,
+          "properties": {
+            "closure_policy": {
+              "const": "advance_to_projects_without_announcement",
+              "type": "string"
+            },
+            "default_level": {
+              "type": "string"
+            },
+            "default_mode": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "hokum_chain": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "opening_actor_policy": {
+              "const": "opponent_team_any_seat",
+              "type": "string"
+            },
+            "response_actor_policy": {
+              "type": "string"
+            },
+            "sun_chain": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "sun_double_requires_split_score": {
+              "type": "boolean"
+            },
+            "sun_lower_score_inclusive": {
+              "type": "boolean"
+            },
+            "sun_score_threshold": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "closure_policy",
+            "default_level",
+            "default_mode",
+            "enabled",
+            "hokum_chain",
+            "opening_actor_policy",
+            "response_actor_policy",
+            "sun_chain",
+            "sun_double_requires_split_score",
+            "sun_lower_score_inclusive",
+            "sun_score_threshold"
+          ],
+          "type": "object"
+        },
+        "play": {
+          "additionalProperties": false,
+          "properties": {
+            "allow_discard_when_cannot_overtrump": {
+              "type": "boolean"
+            },
+            "configured_first_leader": {
+              "type": "string"
+            },
+            "ekka_enabled": {
+              "type": "boolean"
+            },
+            "first_leader": {
+              "type": "string"
+            },
+            "locked_hokum_blocks_trump_lead": {
+              "type": "boolean"
+            },
+            "must_follow_suit": {
+              "type": "boolean"
+            },
+            "must_overtrump_when_possible": {
+              "type": "boolean"
+            },
+            "must_trump_when_void": {
+              "type": "boolean"
+            },
+            "partner_winning_exception": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "allow_discard_when_cannot_overtrump",
+            "configured_first_leader",
+            "ekka_enabled",
+            "first_leader",
+            "locked_hokum_blocks_trump_lead",
+            "must_follow_suit",
+            "must_overtrump_when_possible",
+            "must_trump_when_void",
+            "partner_winning_exception"
+          ],
+          "type": "object"
+        },
+        "profile": {
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "expert_ratified": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "locale": {
+              "type": "string"
+            },
+            "source_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "status": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "description",
+            "expert_ratified",
+            "id",
+            "locale",
+            "source_ids",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        },
+        "projects": {
+          "additionalProperties": false,
+          "properties": {
+            "baloot": {
+              "additionalProperties": false,
+              "properties": {
+                "declare_on_second_card": {
+                  "type": "boolean"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "hundred_inclusion": {
+                  "type": "string"
+                },
+                "only_hokum": {
+                  "type": "boolean"
+                },
+                "single_card_in_other_project": {
+                  "type": "string"
+                },
+                "siri_or_fifty_inclusion": {
+                  "type": "string"
+                },
+                "value_game_points": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "declare_on_second_card",
+                "enabled",
+                "hundred_inclusion",
+                "only_hokum",
+                "single_card_in_other_project",
+                "siri_or_fifty_inclusion",
+                "value_game_points"
+              ],
+              "type": "object"
+            },
+            "cards_may_overlap": {
+              "type": "boolean"
+            },
+            "comparison": {
+              "additionalProperties": false,
+              "properties": {
+                "category_priorities": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fifty": {
+                      "type": "integer"
+                    },
+                    "four_hundred": {
+                      "type": "integer"
+                    },
+                    "hundred_four_kind": {
+                      "type": "integer"
+                    },
+                    "hundred_sequence": {
+                      "type": "integer"
+                    },
+                    "siri": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "fifty",
+                    "four_hundred",
+                    "hundred_four_kind",
+                    "hundred_sequence",
+                    "siri"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "category_priorities"
+              ],
+              "type": "object"
+            },
+            "comparison_timing": {
+              "type": "string"
+            },
+            "declaration_mode": {
+              "enum": [
+                "mandatory",
+                "optional"
+              ],
+              "type": "string"
+            },
+            "declaration_timing": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "four_of_kind": {
+              "additionalProperties": false,
+              "properties": {
+                "eligible_ranks": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "values_game_points": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "hokum": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "ace": {
+                          "type": "integer"
+                        },
+                        "jack": {
+                          "type": "integer"
+                        },
+                        "king": {
+                          "type": "integer"
+                        },
+                        "queen": {
+                          "type": "integer"
+                        },
+                        "ten": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "ace",
+                        "jack",
+                        "king",
+                        "queen",
+                        "ten"
+                      ],
+                      "type": "object"
+                    },
+                    "sun": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "ace": {
+                          "type": "integer"
+                        },
+                        "jack": {
+                          "type": "integer"
+                        },
+                        "king": {
+                          "type": "integer"
+                        },
+                        "queen": {
+                          "type": "integer"
+                        },
+                        "ten": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "ace",
+                        "jack",
+                        "king",
+                        "queen",
+                        "ten"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "hokum",
+                    "sun"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "eligible_ranks",
+                "enabled",
+                "values_game_points"
+              ],
+              "type": "object"
+            },
+            "max_scoring_projects_per_player": {
+              "type": "integer"
+            },
+            "only_winning_team_scores": {
+              "type": "boolean"
+            },
+            "reveal_scope": {
+              "enum": [
+                "scoring_team",
+                "comparison_winner"
+              ],
+              "type": "string"
+            },
+            "reveal_timing": {
+              "type": "string"
+            },
+            "sequences": {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "minimum_length": {
+                  "type": "integer"
+                },
+                "values_game_points": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "hokum": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "five_plus": {
+                          "type": "integer"
+                        },
+                        "four": {
+                          "type": "integer"
+                        },
+                        "three": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "five_plus",
+                        "four",
+                        "three"
+                      ],
+                      "type": "object"
+                    },
+                    "sun": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "five_plus": {
+                          "type": "integer"
+                        },
+                        "four": {
+                          "type": "integer"
+                        },
+                        "three": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "five_plus",
+                        "four",
+                        "three"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "hokum",
+                    "sun"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "enabled",
+                "minimum_length",
+                "values_game_points"
+              ],
+              "type": "object"
+            },
+            "tie_break_order": {
+              "enum": [
+                "declaration",
+                "second_trick_reveal"
+              ],
+              "type": "string"
+            },
+            "top_rank_visibility": {
+              "enum": [
+                "declared",
+                "comparison_only"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "baloot",
+            "cards_may_overlap",
+            "comparison",
+            "comparison_timing",
+            "declaration_mode",
+            "declaration_timing",
+            "enabled",
+            "four_of_kind",
+            "max_scoring_projects_per_player",
+            "only_winning_team_scores",
+            "reveal_timing",
+            "sequences"
+          ],
+          "type": "object"
+        },
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "scoring": {
+          "additionalProperties": false,
+          "properties": {
+            "card_game_point_totals": {
+              "additionalProperties": false,
+              "properties": {
+                "hokum": {
+                  "type": "integer"
+                },
+                "sun": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "hokum",
+                "sun"
+              ],
+              "type": "object"
+            },
+            "contract": {
+              "additionalProperties": false,
+              "properties": {
+                "buyer_team_must_win": {
+                  "type": "boolean"
+                },
+                "buyer_tie_outcome": {
+                  "anyOf": [
+                    {
+                      "const": "buyer_makes",
+                      "title": "المشتري ينجح عند التعادل"
+                    },
+                    {
+                      "const": "buyer_loses",
+                      "title": "المشتري يخسر عند التعادل"
+                    }
+                  ],
+                  "default": "buyer_makes",
+                  "description": "إذا تعادلت نقاط الفريقين في الصن: هل ينجح المشتري أو يخسر؟ ترك الإعداد بدون قيمة يحافظ على قاعدة النسخة المحفوظة؛ الاختيار الصريح ينشئ قاعدة جديدة.",
+                  "title": "تعادل نقاط الصن",
+                  "type": "string"
+                },
+                "loss_transfers_all": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "buyer_team_must_win",
+                "loss_transfers_all"
+              ],
+              "type": "object"
+            },
+            "conversion": {
+              "additionalProperties": false,
+              "properties": {
+                "hokum": {
+                  "type": "string"
+                },
+                "sun": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "hokum",
+                "sun"
+              ],
+              "type": "object"
+            },
+            "escalation": {
+              "additionalProperties": false,
+              "properties": {
+                "baloot_multiplier_cap": {
+                  "type": "integer"
+                },
+                "project_multiplier_cap": {
+                  "type": "integer"
+                },
+                "winner_takes_all_when_multiplied": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "baloot_multiplier_cap",
+                "project_multiplier_cap",
+                "winner_takes_all_when_multiplied"
+              ],
+              "type": "object"
+            },
+            "kabout": {
+              "additionalProperties": false,
+              "properties": {
+                "base_game_points": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "hokum": {
+                      "type": "integer"
+                    },
+                    "sun": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "hokum",
+                    "sun"
+                  ],
+                  "type": "object"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "multiplier_cap": {
+                  "type": "integer"
+                },
+                "winner": {
+                  "const": "trick_sweeper",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "base_game_points",
+                "enabled",
+                "multiplier_cap"
+              ],
+              "type": "object"
+            },
+            "last_trick_bonus_raw": {
+              "type": "integer"
+            },
+            "match": {
+              "additionalProperties": false,
+              "properties": {
+                "dealer_rotates_right": {
+                  "type": "boolean"
+                },
+                "target": {
+                  "type": "integer"
+                },
+                "tie_above_target_continues": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "dealer_rotates_right",
+                "target",
+                "tie_above_target_continues"
+              ],
+              "type": "object"
+            },
+            "raw_card_totals": {
+              "additionalProperties": false,
+              "properties": {
+                "hokum": {
+                  "type": "integer"
+                },
+                "sun": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "hokum",
+                "sun"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "card_game_point_totals",
+            "contract",
+            "conversion",
+            "escalation",
+            "kabout",
+            "last_trick_bonus_raw",
+            "match",
+            "raw_card_totals"
+          ],
+          "type": "object"
+        },
+        "seating": {
+          "additionalProperties": false,
+          "properties": {
+            "dealer_rotation": {
+              "type": "string"
+            },
+            "partnerships": {
+              "additionalProperties": false,
+              "properties": {
+                "east": {
+                  "type": "string"
+                },
+                "north": {
+                  "type": "string"
+                },
+                "south": {
+                  "type": "string"
+                },
+                "west": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "east",
+                "north",
+                "south",
+                "west"
+              ],
+              "type": "object"
+            },
+            "play_order": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "dealer_rotation",
+            "partnerships",
+            "play_order"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "bidding",
+        "card_rules",
+        "contracts",
+        "dealing",
+        "deck",
+        "disputed_options",
+        "escalation",
+        "play",
+        "profile",
+        "projects",
+        "schema_version",
+        "scoring",
+        "seating"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "bidding": {
+          "additionalProperties": false,
+          "properties": {
+            "ashkal": {
+              "additionalProperties": false,
+              "properties": {
+                "contract_owner": {
+                  "type": "string"
+                },
+                "eligible_priority_positions": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "resolves_to": {
+                  "type": "string"
+                },
+                "taker": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "contract_owner",
+                "eligible_priority_positions",
+                "enabled",
+                "resolves_to",
+                "taker"
+              ],
+              "type": "object"
+            },
+            "first_round": {
+              "additionalProperties": false,
+              "properties": {
+                "allowed": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "exposed_ace_hokum_sun_overcall": {
+                  "type": "string"
+                },
+                "hokum_uses_purchase_suit": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "allowed",
+                "exposed_ace_hokum_sun_overcall",
+                "hokum_uses_purchase_suit"
+              ],
+              "type": "object"
+            },
+            "heuristics": {
+              "additionalProperties": false,
+              "properties": {
+                "ashkal_partner_threshold": {
+                  "type": "number"
+                },
+                "hokum_extra_trump_card_after": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "hokum_extra_trump_card_weight": {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "hokum_off_trump_ace_ten_weight": {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "hokum_threshold": {
+                  "type": "number"
+                },
+                "hokum_trump_rank_weights": {
+                  "items": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "maxItems": 8,
+                  "minItems": 8,
+                  "type": "array"
+                },
+                "second_hokum_threshold": {
+                  "type": "number"
+                },
+                "second_sun_threshold": {
+                  "type": "number"
+                },
+                "sun_extra_suit_card_after": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sun_extra_suit_card_weight": {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "sun_rank_weights": {
+                  "items": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "maxItems": 8,
+                  "minItems": 8,
+                  "type": "array"
+                },
+                "sun_threshold": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "ashkal_partner_threshold",
+                "hokum_extra_trump_card_after",
+                "hokum_extra_trump_card_weight",
+                "hokum_off_trump_ace_ten_weight",
+                "hokum_threshold",
+                "hokum_trump_rank_weights",
+                "second_hokum_threshold",
+                "second_sun_threshold",
+                "sun_extra_suit_card_after",
+                "sun_extra_suit_card_weight",
+                "sun_rank_weights",
+                "sun_threshold"
+              ],
+              "type": "object"
+            },
+            "pass_allowed": {
+              "type": "boolean"
+            },
+            "rounds": {
+              "type": "integer"
+            },
+            "second_round": {
+              "additionalProperties": false,
+              "properties": {
+                "allowed": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "hokum_must_differ_from_purchase_suit": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "allowed",
+                "hokum_must_differ_from_purchase_suit"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "ashkal",
+            "first_round",
+            "heuristics",
+            "pass_allowed",
+            "rounds",
+            "second_round"
+          ],
+          "type": "object"
+        },
+        "card_rules": {
+          "additionalProperties": false,
+          "properties": {
+            "hokum_non_trump_points": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "hokum_non_trump_strength": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "hokum_trump_points": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "hokum_trump_strength": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "sequence_strength": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "sun_points": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "sun_strength": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "hokum_non_trump_points",
+            "hokum_non_trump_strength",
+            "hokum_trump_points",
+            "hokum_trump_strength",
+            "sequence_strength",
+            "sun_points",
+            "sun_strength"
+          ],
+          "type": "object"
+        },
+        "contracts": {
+          "additionalProperties": false,
+          "properties": {
+            "allowed": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "default": {
+              "type": [
+                "null",
+                "string",
+                "number",
+                "integer",
+                "boolean",
+                "object",
+                "array"
+              ]
+            },
+            "require_preselected": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "allowed",
+            "default",
+            "require_preselected"
+          ],
+          "type": "object"
+        },
+        "dealing": {
+          "additionalProperties": false,
+          "properties": {
+            "all_pass_redeal": {
+              "type": "boolean"
+            },
+            "allow_no_cut": {
+              "type": "boolean"
+            },
+            "annulling": {
+              "additionalProperties": false,
+              "properties": {
+                "dealer_advances": {
+                  "type": "boolean"
+                },
+                "declaration_window": {
+                  "type": "string"
+                },
+                "eligible_ranks": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "names": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "dealer_advances",
+                "declaration_window",
+                "eligible_ranks",
+                "enabled",
+                "names"
+              ],
+              "type": "object"
+            },
+            "cut_enabled": {
+              "type": "boolean"
+            },
+            "cutter": {
+              "type": "string"
+            },
+            "exposed_purchase_cards": {
+              "type": "integer"
+            },
+            "final_cards_for_buyer": {
+              "type": "integer"
+            },
+            "final_cards_for_others": {
+              "type": "integer"
+            },
+            "first_recipient": {
+              "type": "string"
+            },
+            "initial_packets": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "shuffle_algorithm": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "all_pass_redeal",
+            "allow_no_cut",
+            "annulling",
+            "cut_enabled",
+            "cutter",
+            "exposed_purchase_cards",
+            "final_cards_for_buyer",
+            "final_cards_for_others",
+            "first_recipient",
+            "initial_packets",
+            "shuffle_algorithm"
+          ],
+          "type": "object"
+        },
+        "deck": {
+          "additionalProperties": false,
+          "properties": {
+            "cards_per_player": {
+              "type": "integer"
+            },
+            "players": {
+              "type": "integer"
+            },
+            "ranks": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "suits": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "cards_per_player",
+            "players",
+            "ranks",
+            "suits"
+          ],
+          "type": "object"
+        },
+        "disputed_options": {
+          "additionalProperties": false,
+          "properties": {
+            "double_unspecified_mode": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "alternatives"
+              ],
+              "type": "object"
+            },
+            "equal_hokum_sequence_trump_priority": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "items": {
+                    "type": "boolean"
+                  },
+                  "type": "array"
+                },
+                "selected": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "alternatives",
+                "selected"
+              ],
+              "type": "object"
+            },
+            "first_leader": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "alternatives"
+              ],
+              "type": "object"
+            },
+            "hints_have_universal_meaning": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "type": "array"
+                }
+              },
+              "required": [
+                "alternatives"
+              ],
+              "type": "object"
+            },
+            "kawesh_saneen": {
+              "additionalProperties": false,
+              "properties": {
+                "alternatives": {
+                  "items": {
+                    "type": "boolean"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "alternatives"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "double_unspecified_mode",
+            "equal_hokum_sequence_trump_priority",
+            "first_leader",
+            "hints_have_universal_meaning",
+            "kawesh_saneen"
+          ],
+          "type": "object"
+        },
+        "escalation": {
+          "additionalProperties": false,
+          "properties": {
+            "closure_policy": {
+              "const": "advance_to_projects_without_announcement",
+              "type": "string"
+            },
+            "default_level": {
+              "type": "string"
+            },
+            "default_mode": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "hokum_chain": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "opening_actor_policy": {
+              "const": "opponent_team_any_seat",
+              "type": "string"
+            },
+            "response_actor_policy": {
+              "type": "string"
+            },
+            "sun_chain": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "sun_double_requires_split_score": {
+              "type": "boolean"
+            },
+            "sun_lower_score_inclusive": {
+              "type": "boolean"
+            },
+            "sun_score_threshold": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "closure_policy",
+            "default_level",
+            "default_mode",
+            "enabled",
+            "hokum_chain",
+            "opening_actor_policy",
+            "response_actor_policy",
+            "sun_chain",
+            "sun_double_requires_split_score",
+            "sun_lower_score_inclusive",
+            "sun_score_threshold"
+          ],
+          "type": "object"
+        },
+        "play": {
+          "additionalProperties": false,
+          "properties": {
+            "allow_discard_when_cannot_overtrump": {
+              "type": "boolean"
+            },
+            "configured_first_leader": {
+              "type": "string"
+            },
+            "ekka_enabled": {
+              "type": "boolean"
+            },
+            "first_leader": {
+              "type": "string"
+            },
+            "locked_hokum_blocks_trump_lead": {
+              "type": "boolean"
+            },
+            "must_follow_suit": {
+              "type": "boolean"
+            },
+            "must_overtrump_when_possible": {
+              "type": "boolean"
+            },
+            "must_trump_when_void": {
+              "type": "boolean"
+            },
+            "partner_winning_exception": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "allow_discard_when_cannot_overtrump",
+            "configured_first_leader",
+            "ekka_enabled",
+            "first_leader",
+            "locked_hokum_blocks_trump_lead",
+            "must_follow_suit",
+            "must_overtrump_when_possible",
+            "must_trump_when_void",
+            "partner_winning_exception"
+          ],
+          "type": "object"
+        },
+        "profile": {
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "expert_ratified": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "locale": {
+              "type": "string"
+            },
+            "source_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "status": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "description",
+            "expert_ratified",
+            "id",
+            "locale",
+            "source_ids",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        },
+        "projects": {
+          "additionalProperties": false,
+          "properties": {
+            "baloot": {
+              "additionalProperties": false,
+              "properties": {
+                "declare_on_second_card": {
+                  "type": "boolean"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "hundred_inclusion": {
+                  "type": "string"
+                },
+                "only_hokum": {
+                  "type": "boolean"
+                },
+                "single_card_in_other_project": {
+                  "type": "string"
+                },
+                "siri_or_fifty_inclusion": {
+                  "type": "string"
+                },
+                "value_game_points": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "declare_on_second_card",
+                "enabled",
+                "hundred_inclusion",
+                "only_hokum",
+                "single_card_in_other_project",
+                "siri_or_fifty_inclusion",
+                "value_game_points"
+              ],
+              "type": "object"
+            },
+            "cards_may_overlap": {
+              "type": "boolean"
+            },
+            "comparison": {
+              "additionalProperties": false,
+              "properties": {
+                "category_priorities": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fifty": {
+                      "type": "integer"
+                    },
+                    "four_hundred": {
+                      "type": "integer"
+                    },
+                    "hundred_four_kind": {
+                      "type": "integer"
+                    },
+                    "hundred_sequence": {
+                      "type": "integer"
+                    },
+                    "siri": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "fifty",
+                    "four_hundred",
+                    "hundred_four_kind",
+                    "hundred_sequence",
+                    "siri"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "category_priorities"
+              ],
+              "type": "object"
+            },
+            "comparison_timing": {
+              "type": "string"
+            },
+            "declaration_timing": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "four_of_kind": {
+              "additionalProperties": false,
+              "properties": {
+                "eligible_ranks": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "values_game_points": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "hokum": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "ace": {
+                          "type": "integer"
+                        },
+                        "jack": {
+                          "type": "integer"
+                        },
+                        "king": {
+                          "type": "integer"
+                        },
+                        "queen": {
+                          "type": "integer"
+                        },
+                        "ten": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "ace",
+                        "jack",
+                        "king",
+                        "queen",
+                        "ten"
+                      ],
+                      "type": "object"
+                    },
+                    "sun": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "ace": {
+                          "type": "integer"
+                        },
+                        "jack": {
+                          "type": "integer"
+                        },
+                        "king": {
+                          "type": "integer"
+                        },
+                        "queen": {
+                          "type": "integer"
+                        },
+                        "ten": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "ace",
+                        "jack",
+                        "king",
+                        "queen",
+                        "ten"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "hokum",
+                    "sun"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "eligible_ranks",
+                "enabled",
+                "values_game_points"
+              ],
+              "type": "object"
+            },
+            "max_scoring_projects_per_player": {
+              "type": "integer"
+            },
+            "only_winning_team_scores": {
+              "type": "boolean"
+            },
+            "reveal_scope": {
+              "enum": [
+                "scoring_team",
+                "comparison_winner"
+              ],
+              "type": "string"
+            },
+            "reveal_timing": {
+              "type": "string"
+            },
+            "sequences": {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "minimum_length": {
+                  "type": "integer"
+                },
+                "values_game_points": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "hokum": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "five_plus": {
+                          "type": "integer"
+                        },
+                        "four": {
+                          "type": "integer"
+                        },
+                        "three": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "five_plus",
+                        "four",
+                        "three"
+                      ],
+                      "type": "object"
+                    },
+                    "sun": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "five_plus": {
+                          "type": "integer"
+                        },
+                        "four": {
+                          "type": "integer"
+                        },
+                        "three": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "five_plus",
+                        "four",
+                        "three"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "hokum",
+                    "sun"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "enabled",
+                "minimum_length",
+                "values_game_points"
+              ],
+              "type": "object"
+            },
+            "tie_break_order": {
+              "enum": [
+                "declaration",
+                "second_trick_reveal"
+              ],
+              "type": "string"
+            },
+            "top_rank_visibility": {
+              "enum": [
+                "declared",
+                "comparison_only"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "baloot",
+            "cards_may_overlap",
+            "comparison",
+            "comparison_timing",
+            "declaration_timing",
+            "enabled",
+            "four_of_kind",
+            "max_scoring_projects_per_player",
+            "only_winning_team_scores",
+            "reveal_timing",
+            "sequences"
+          ],
+          "type": "object"
+        },
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "scoring": {
+          "additionalProperties": false,
+          "properties": {
+            "card_game_point_totals": {
+              "additionalProperties": false,
+              "properties": {
+                "hokum": {
+                  "type": "integer"
+                },
+                "sun": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "hokum",
+                "sun"
+              ],
+              "type": "object"
+            },
+            "contract": {
+              "additionalProperties": false,
+              "properties": {
+                "buyer_team_must_win": {
+                  "type": "boolean"
+                },
+                "buyer_tie_outcome": {
+                  "anyOf": [
+                    {
+                      "const": "buyer_makes",
+                      "title": "المشتري ينجح عند التعادل"
+                    },
+                    {
+                      "const": "buyer_loses",
+                      "title": "المشتري يخسر عند التعادل"
+                    }
+                  ],
+                  "default": "buyer_makes",
+                  "description": "إذا تعادلت نقاط الفريقين في الصن: هل ينجح المشتري أو يخسر؟ ترك الإعداد بدون قيمة يحافظ على قاعدة النسخة المحفوظة؛ الاختيار الصريح ينشئ قاعدة جديدة.",
+                  "title": "تعادل نقاط الصن",
+                  "type": "string"
+                },
+                "loss_transfers_all": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "buyer_team_must_win",
+                "loss_transfers_all"
+              ],
+              "type": "object"
+            },
+            "conversion": {
+              "additionalProperties": false,
+              "properties": {
+                "hokum": {
+                  "type": "string"
+                },
+                "sun": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "hokum",
+                "sun"
+              ],
+              "type": "object"
+            },
+            "escalation": {
+              "additionalProperties": false,
+              "properties": {
+                "baloot_multiplier_cap": {
+                  "type": "integer"
+                },
+                "project_multiplier_cap": {
+                  "type": "integer"
+                },
+                "winner_takes_all_when_multiplied": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "baloot_multiplier_cap",
+                "project_multiplier_cap",
+                "winner_takes_all_when_multiplied"
+              ],
+              "type": "object"
+            },
+            "kabout": {
+              "additionalProperties": false,
+              "properties": {
+                "base_game_points": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "hokum": {
+                      "type": "integer"
+                    },
+                    "sun": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "hokum",
+                    "sun"
+                  ],
+                  "type": "object"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "multiplier_cap": {
+                  "type": "integer"
+                },
+                "winner": {
+                  "const": "trick_sweeper",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "base_game_points",
+                "enabled",
+                "multiplier_cap"
+              ],
+              "type": "object"
+            },
+            "last_trick_bonus_raw": {
+              "type": "integer"
+            },
+            "match": {
+              "additionalProperties": false,
+              "properties": {
+                "dealer_rotates_right": {
+                  "type": "boolean"
+                },
+                "target": {
+                  "type": "integer"
+                },
+                "tie_above_target_continues": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "dealer_rotates_right",
+                "target",
+                "tie_above_target_continues"
+              ],
+              "type": "object"
+            },
+            "raw_card_totals": {
+              "additionalProperties": false,
+              "properties": {
+                "hokum": {
+                  "type": "integer"
+                },
+                "sun": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "hokum",
+                "sun"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "card_game_point_totals",
+            "contract",
+            "conversion",
+            "escalation",
+            "kabout",
+            "last_trick_bonus_raw",
+            "match",
+            "raw_card_totals"
+          ],
+          "type": "object"
+        },
+        "seating": {
+          "additionalProperties": false,
+          "properties": {
+            "dealer_rotation": {
+              "type": "string"
+            },
+            "partnerships": {
+              "additionalProperties": false,
+              "properties": {
+                "east": {
+                  "type": "string"
+                },
+                "north": {
+                  "type": "string"
+                },
+                "south": {
+                  "type": "string"
+                },
+                "west": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "east",
+                "north",
+                "south",
+                "west"
+              ],
+              "type": "object"
+            },
+            "play_order": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "dealer_rotation",
+            "partnerships",
+            "play_order"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "bidding",
+        "card_rules",
+        "contracts",
+        "dealing",
+        "deck",
+        "disputed_options",
+        "escalation",
+        "play",
+        "profile",
+        "projects",
+        "schema_version",
+        "scoring",
+        "seating"
+      ],
+      "type": "object"
+    }
+  ],
+  "properties": {
+    "bidding": {
+      "additionalProperties": false,
+      "properties": {
+        "ashkal": {
+          "additionalProperties": false,
+          "properties": {
+            "contract_owner": {
+              "type": "string"
+            },
+            "eligible_priority_positions": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "resolves_to": {
+              "type": "string"
+            },
+            "taker": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "eligible_priority_positions",
+            "enabled",
+            "resolves_to",
+            "taker"
+          ],
+          "type": "object"
+        },
+        "first_round": {
+          "additionalProperties": false,
+          "properties": {
+            "allowed": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "exposed_ace_hokum_sun_overcall": {
+              "type": "string"
+            },
+            "hokum_uses_purchase_suit": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "allowed",
+            "hokum_uses_purchase_suit"
+          ],
+          "type": "object"
+        },
+        "heuristics": {
+          "additionalProperties": false,
+          "properties": {
+            "ashkal_partner_threshold": {
+              "type": "number"
+            },
+            "hokum_extra_trump_card_after": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "hokum_extra_trump_card_weight": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "hokum_off_trump_ace_ten_weight": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "hokum_threshold": {
+              "type": "number"
+            },
+            "hokum_trump_rank_weights": {
+              "items": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "maxItems": 8,
+              "minItems": 8,
+              "type": "array"
+            },
+            "second_hokum_threshold": {
+              "type": "number"
+            },
+            "second_sun_threshold": {
+              "type": "number"
+            },
+            "sun_extra_suit_card_after": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sun_extra_suit_card_weight": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "sun_rank_weights": {
+              "items": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "maxItems": 8,
+              "minItems": 8,
+              "type": "array"
+            },
+            "sun_threshold": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "ashkal_partner_threshold",
+            "hokum_extra_trump_card_after",
+            "hokum_extra_trump_card_weight",
+            "hokum_off_trump_ace_ten_weight",
+            "hokum_threshold",
+            "hokum_trump_rank_weights",
+            "second_hokum_threshold",
+            "second_sun_threshold",
+            "sun_extra_suit_card_after",
+            "sun_extra_suit_card_weight",
+            "sun_rank_weights",
+            "sun_threshold"
+          ],
+          "type": "object"
+        },
+        "pass_allowed": {
+          "type": "boolean"
+        },
+        "rounds": {
+          "type": "integer"
+        },
+        "second_round": {
+          "additionalProperties": false,
+          "properties": {
+            "allowed": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hokum_must_differ_from_purchase_suit": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "allowed",
+            "hokum_must_differ_from_purchase_suit"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "ashkal",
+        "first_round",
+        "heuristics",
+        "pass_allowed",
+        "rounds",
+        "second_round"
+      ],
+      "type": "object"
+    },
+    "card_rules": {
+      "additionalProperties": false,
+      "properties": {
+        "hokum_non_trump_points": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "hokum_non_trump_strength": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "hokum_trump_points": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "hokum_trump_strength": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "sequence_strength": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "sun_points": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "sun_strength": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "hokum_non_trump_points",
+        "hokum_non_trump_strength",
+        "hokum_trump_points",
+        "hokum_trump_strength",
+        "sequence_strength",
+        "sun_points",
+        "sun_strength"
+      ],
+      "type": "object"
+    },
+    "contracts": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default": {
+          "type": [
+            "null",
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array"
+          ]
+        },
+        "require_preselected": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "allowed",
+        "default",
+        "require_preselected"
+      ],
+      "type": "object"
+    },
+    "dealing": {
+      "additionalProperties": false,
+      "properties": {
+        "all_pass_redeal": {
+          "type": "boolean"
+        },
+        "allow_no_cut": {
+          "type": "boolean"
+        },
+        "annulling": {
+          "additionalProperties": false,
+          "properties": {
+            "dealer_advances": {
+              "type": "boolean"
+            },
+            "declaration_window": {
+              "type": "string"
+            },
+            "eligible_ranks": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "names": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "dealer_advances",
+            "declaration_window",
+            "eligible_ranks",
+            "enabled",
+            "names"
+          ],
+          "type": "object"
+        },
+        "cut_enabled": {
+          "type": "boolean"
+        },
+        "cutter": {
+          "type": "string"
+        },
+        "exposed_purchase_cards": {
+          "type": "integer"
+        },
+        "final_cards_for_buyer": {
+          "type": "integer"
+        },
+        "final_cards_for_others": {
+          "type": "integer"
+        },
+        "first_recipient": {
+          "type": "string"
+        },
+        "initial_packets": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "shuffle_algorithm": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "all_pass_redeal",
+        "allow_no_cut",
+        "annulling",
+        "cut_enabled",
+        "cutter",
+        "exposed_purchase_cards",
+        "final_cards_for_buyer",
+        "final_cards_for_others",
+        "first_recipient",
+        "initial_packets",
+        "shuffle_algorithm"
+      ],
+      "type": "object"
+    },
+    "deck": {
+      "additionalProperties": false,
+      "properties": {
+        "cards_per_player": {
+          "type": "integer"
+        },
+        "players": {
+          "type": "integer"
+        },
+        "ranks": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "suits": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cards_per_player",
+        "players",
+        "ranks",
+        "suits"
+      ],
+      "type": "object"
+    },
+    "disputed_options": {
+      "additionalProperties": false,
+      "properties": {
+        "double_unspecified_mode": {
+          "additionalProperties": false,
+          "properties": {
+            "alternatives": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "alternatives"
+          ],
+          "type": "object"
+        },
+        "equal_hokum_sequence_trump_priority": {
+          "additionalProperties": false,
+          "properties": {
+            "alternatives": {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            },
+            "selected": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "alternatives",
+            "selected"
+          ],
+          "type": "object"
+        },
+        "first_leader": {
+          "additionalProperties": false,
+          "properties": {
+            "alternatives": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "alternatives"
+          ],
+          "type": "object"
+        },
+        "hints_have_universal_meaning": {
+          "additionalProperties": false,
+          "properties": {
+            "alternatives": {
+              "type": "array"
+            }
+          },
+          "required": [
+            "alternatives"
+          ],
+          "type": "object"
+        },
+        "kawesh_saneen": {
+          "additionalProperties": false,
+          "properties": {
+            "alternatives": {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "alternatives"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "double_unspecified_mode",
+        "equal_hokum_sequence_trump_priority",
+        "first_leader",
+        "hints_have_universal_meaning",
+        "kawesh_saneen"
+      ],
+      "type": "object"
+    },
+    "escalation": {
+      "additionalProperties": false,
+      "properties": {
+        "closure_policy": {
+          "const": "advance_to_projects_without_announcement",
+          "type": "string"
+        },
+        "default_level": {
+          "type": "string"
+        },
+        "default_mode": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "hokum_chain": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "opening_actor_policy": {
+          "const": "opponent_team_any_seat",
+          "type": "string"
+        },
+        "response_actor_policy": {
+          "type": "string"
+        },
+        "sun_chain": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sun_double_requires_split_score": {
+          "type": "boolean"
+        },
+        "sun_lower_score_inclusive": {
+          "type": "boolean"
+        },
+        "sun_score_threshold": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "closure_policy",
+        "default_level",
+        "default_mode",
+        "enabled",
+        "hokum_chain",
+        "opening_actor_policy",
+        "response_actor_policy",
+        "sun_chain",
+        "sun_double_requires_split_score",
+        "sun_score_threshold"
+      ],
+      "type": "object"
+    },
+    "play": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_discard_when_cannot_overtrump": {
+          "type": "boolean"
+        },
+        "configured_first_leader": {
+          "type": "string"
+        },
+        "ekka_enabled": {
+          "type": "boolean"
+        },
+        "first_leader": {
+          "type": "string"
+        },
+        "locked_hokum_blocks_trump_lead": {
+          "type": "boolean"
+        },
+        "must_follow_suit": {
+          "type": "boolean"
+        },
+        "must_overtrump_when_possible": {
+          "type": "boolean"
+        },
+        "must_trump_when_void": {
+          "type": "boolean"
+        },
+        "partner_winning_exception": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "allow_discard_when_cannot_overtrump",
+        "configured_first_leader",
+        "ekka_enabled",
+        "first_leader",
+        "locked_hokum_blocks_trump_lead",
+        "must_follow_suit",
+        "must_overtrump_when_possible",
+        "must_trump_when_void",
+        "partner_winning_exception"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "expert_ratified": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "locale": {
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "expert_ratified",
+        "id",
+        "locale",
+        "source_ids",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "projects": {
+      "additionalProperties": false,
+      "properties": {
+        "baloot": {
+          "additionalProperties": false,
+          "properties": {
+            "declare_on_second_card": {
+              "type": "boolean"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "hundred_inclusion": {
+              "type": "string"
+            },
+            "only_hokum": {
+              "type": "boolean"
+            },
+            "single_card_in_other_project": {
+              "type": "string"
+            },
+            "siri_or_fifty_inclusion": {
+              "type": "string"
+            },
+            "value_game_points": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "declare_on_second_card",
+            "enabled",
+            "hundred_inclusion",
+            "only_hokum",
+            "single_card_in_other_project",
+            "siri_or_fifty_inclusion",
+            "value_game_points"
+          ],
+          "type": "object"
+        },
+        "cards_may_overlap": {
+          "type": "boolean"
+        },
+        "comparison": {
+          "additionalProperties": false,
+          "properties": {
+            "category_priorities": {
+              "additionalProperties": false,
+              "properties": {
+                "fifty": {
+                  "type": "integer"
+                },
+                "four_hundred": {
+                  "type": "integer"
+                },
+                "hundred_four_kind": {
+                  "type": "integer"
+                },
+                "hundred_sequence": {
+                  "type": "integer"
+                },
+                "siri": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "fifty",
+                "four_hundred",
+                "hundred_four_kind",
+                "hundred_sequence",
+                "siri"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "category_priorities"
+          ],
+          "type": "object"
+        },
+        "comparison_timing": {
+          "type": "string"
+        },
+        "declaration_mode": {
+          "enum": [
+            "mandatory",
+            "optional"
+          ],
+          "type": "string"
+        },
+        "declaration_timing": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "four_of_kind": {
+          "additionalProperties": false,
+          "properties": {
+            "eligible_ranks": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "values_game_points": {
+              "additionalProperties": false,
+              "properties": {
+                "hokum": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "ace": {
+                      "type": "integer"
+                    },
+                    "jack": {
+                      "type": "integer"
+                    },
+                    "king": {
+                      "type": "integer"
+                    },
+                    "queen": {
+                      "type": "integer"
+                    },
+                    "ten": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "ace",
+                    "jack",
+                    "king",
+                    "queen",
+                    "ten"
+                  ],
+                  "type": "object"
+                },
+                "sun": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "ace": {
+                      "type": "integer"
+                    },
+                    "jack": {
+                      "type": "integer"
+                    },
+                    "king": {
+                      "type": "integer"
+                    },
+                    "queen": {
+                      "type": "integer"
+                    },
+                    "ten": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "ace",
+                    "jack",
+                    "king",
+                    "queen",
+                    "ten"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "hokum",
+                "sun"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "eligible_ranks",
+            "enabled",
+            "values_game_points"
+          ],
+          "type": "object"
+        },
+        "max_scoring_projects_per_player": {
+          "type": "integer"
+        },
+        "only_winning_team_scores": {
+          "type": "boolean"
+        },
+        "reveal_scope": {
+          "enum": [
+            "scoring_team",
+            "comparison_winner"
+          ],
+          "type": "string"
+        },
+        "reveal_timing": {
+          "type": "string"
+        },
+        "sequences": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minimum_length": {
+              "type": "integer"
+            },
+            "values_game_points": {
+              "additionalProperties": false,
+              "properties": {
+                "hokum": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "five_plus": {
+                      "type": "integer"
+                    },
+                    "four": {
+                      "type": "integer"
+                    },
+                    "three": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "five_plus",
+                    "four",
+                    "three"
+                  ],
+                  "type": "object"
+                },
+                "sun": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "five_plus": {
+                      "type": "integer"
+                    },
+                    "four": {
+                      "type": "integer"
+                    },
+                    "three": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "five_plus",
+                    "four",
+                    "three"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "hokum",
+                "sun"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "enabled",
+            "minimum_length",
+            "values_game_points"
+          ],
+          "type": "object"
+        },
+        "tie_break_order": {
+          "enum": [
+            "declaration",
+            "second_trick_reveal"
+          ],
+          "type": "string"
+        },
+        "top_rank_visibility": {
+          "enum": [
+            "declared",
+            "comparison_only"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "baloot",
+        "cards_may_overlap",
+        "comparison_timing",
+        "declaration_timing",
+        "enabled",
+        "four_of_kind",
+        "max_scoring_projects_per_player",
+        "only_winning_team_scores",
+        "reveal_timing",
+        "sequences"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "scoring": {
+      "additionalProperties": false,
+      "properties": {
+        "card_game_point_totals": {
+          "additionalProperties": false,
+          "properties": {
+            "hokum": {
+              "type": "integer"
+            },
+            "sun": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "hokum",
+            "sun"
+          ],
+          "type": "object"
+        },
+        "contract": {
+          "additionalProperties": false,
+          "properties": {
+            "buyer_team_must_win": {
+              "type": "boolean"
+            },
+            "buyer_tie_outcome": {
+              "anyOf": [
+                {
+                  "const": "buyer_makes",
+                  "title": "المشتري ينجح عند التعادل"
+                },
+                {
+                  "const": "buyer_loses",
+                  "title": "المشتري يخسر عند التعادل"
+                }
+              ],
+              "default": "buyer_makes",
+              "description": "إذا تعادلت نقاط الفريقين في الصن: هل ينجح المشتري أو يخسر؟ ترك الإعداد بدون قيمة يحافظ على قاعدة النسخة المحفوظة؛ الاختيار الصريح ينشئ قاعدة جديدة.",
+              "title": "تعادل نقاط الصن",
+              "type": "string"
+            },
+            "loss_transfers_all": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "buyer_team_must_win",
+            "loss_transfers_all"
+          ],
+          "type": "object"
+        },
+        "conversion": {
+          "additionalProperties": false,
+          "properties": {
+            "hokum": {
+              "type": "string"
+            },
+            "sun": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "hokum",
+            "sun"
+          ],
+          "type": "object"
+        },
+        "escalation": {
+          "additionalProperties": false,
+          "properties": {
+            "baloot_multiplier_cap": {
+              "type": "integer"
+            },
+            "project_multiplier_cap": {
+              "type": "integer"
+            },
+            "winner_takes_all_when_multiplied": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "baloot_multiplier_cap",
+            "project_multiplier_cap",
+            "winner_takes_all_when_multiplied"
+          ],
+          "type": "object"
+        },
+        "kabout": {
+          "additionalProperties": false,
+          "properties": {
+            "base_game_points": {
+              "additionalProperties": false,
+              "properties": {
+                "hokum": {
+                  "type": "integer"
+                },
+                "sun": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "hokum",
+                "sun"
+              ],
+              "type": "object"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "multiplier_cap": {
+              "type": "integer"
+            },
+            "winner": {
+              "const": "trick_sweeper",
+              "type": "string"
+            }
+          },
+          "required": [
+            "base_game_points",
+            "enabled"
+          ],
+          "type": "object"
+        },
+        "last_trick_bonus_raw": {
+          "type": "integer"
+        },
+        "match": {
+          "additionalProperties": false,
+          "properties": {
+            "dealer_rotates_right": {
+              "type": "boolean"
+            },
+            "target": {
+              "type": "integer"
+            },
+            "tie_above_target_continues": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "dealer_rotates_right",
+            "target",
+            "tie_above_target_continues"
+          ],
+          "type": "object"
+        },
+        "raw_card_totals": {
+          "additionalProperties": false,
+          "properties": {
+            "hokum": {
+              "type": "integer"
+            },
+            "sun": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "hokum",
+            "sun"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "card_game_point_totals",
+        "contract",
+        "conversion",
+        "escalation",
+        "kabout",
+        "last_trick_bonus_raw",
+        "match",
+        "raw_card_totals"
+      ],
+      "type": "object"
+    },
+    "seating": {
+      "additionalProperties": false,
+      "properties": {
+        "dealer_rotation": {
+          "type": "string"
+        },
+        "partnerships": {
+          "additionalProperties": false,
+          "properties": {
+            "east": {
+              "type": "string"
+            },
+            "north": {
+              "type": "string"
+            },
+            "south": {
+              "type": "string"
+            },
+            "west": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "east",
+            "north",
+            "south",
+            "west"
+          ],
+          "type": "object"
+        },
+        "play_order": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "dealer_rotation",
+        "partnerships",
+        "play_order"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "bidding",
+    "card_rules",
+    "contracts",
+    "dealing",
+    "deck",
+    "disputed_options",
+    "escalation",
+    "play",
+    "profile",
+    "projects",
+    "schema_version",
+    "scoring",
+    "seating"
+  ],
+  "type": "object"
+}

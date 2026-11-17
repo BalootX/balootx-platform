@@ -1,0 +1,31 @@
+schema_version: 2
+profile:
+  id: match_to_152_exact_dynamic_v2
+  version: 2.0.0
+  status: governed_candidate
+target: 152
+future_rounds:
+  solver: exact_dynamic_program_v2
+  maximum_cache_states: 250000
+  maximum_rounds: 48
+  dealer_rotation: counter_clockwise
+  policy: balanced_heuristic_v1
+  future_team_round_win_probability: 0.5
+  increment_distribution:
+  - {winner: 14, loser: 12, weight: 0.16}
+  - {winner: 16, loser: 10, weight: 0.16}
+  - {winner: 18, loser: 8, weight: 0.15}
+  - {winner: 20, loser: 6, weight: 0.13}
+  - {winner: 25, loser: 0, weight: 0.12}
+  - {winner: 26, loser: 0, weight: 0.12}
+  - {winner: 32, loser: 0, weight: 0.08}
+  - {winner: 44, loser: 0, weight: 0.08}
+outputs:
+  contract_success_probability: true
+  round_lead_probability: true
+  expected_round_margin: true
+  expected_awarded_points: true
+  true_match_win_probability: true
+compatibility:
+  deprecated_win_probability_alias: round_lead_probability
+  deprecated_expected_match_margin_alias: expected_round_margin

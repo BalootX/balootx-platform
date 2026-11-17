@@ -1,0 +1,13 @@
+profile:
+  id: sun_only_v1
+  version: 1.0.0
+contracts:
+  allowed: [sun]
+  default: sun
+  require_preselected: true
+bidding:
+  first_round: {allowed: [pass, sun], hokum_uses_purchase_suit: false}
+  second_round: {allowed: [pass, sun], hokum_must_differ_from_purchase_suit: false}
+escalation:
+  hokum_chain: []
+  sun_chain: [double]

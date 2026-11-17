@@ -1,0 +1,13 @@
+schema_version: 1
+profile:
+  id: rules_certification_v18
+  version: 18.0.0
+  status: candidate
+required_signer_roles:
+- certified_referee
+- rules_authority
+minimum_external_signatures: 2
+golden_corpus: examples/rules-certification-golden-v18.json
+automatic_activation: false
+candidate_profile: rules/saudi_common_v1.yaml
+adjudication_profile: adjudication/saudi_researched_v1.yaml

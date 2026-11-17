@@ -1,0 +1,13 @@
+schemaVersion: baloot.agent.projects/v4
+profileId: rules_first_information_aware_projects_v4
+version: 4.0.0
+pluginId: project_information_aware_v4
+defaultPolicy: rule_compliant
+mandatoryDeclarationsCannotBeSuppressed: true
+optionalModes:
+  - maximize_score
+  - information_aware
+  - deceptive_optional
+minimumOptionalNetValue: 0.0
+deceptionProbability: 0.0
+mistakeProbability: 0.0

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "kind": "research_scenario_v4_rejected_audit_media",
+  "fixtureId": "sun-hundred-ace-sacrifice-rejected-audit-v1",
+  "baseFixture": "examples/research-scenario-v4-ace-sacrifice-two-aces.json",
+  "proofOverrides": {
+    "selectedAction": "D7"
+  },
+  "resultDisposition": {
+    "classification": "scenario_v4",
+    "disposition": "rejected",
+    "qualification": {
+      "qualified": false,
+      "failures": [
+        "scenario_claim_not_satisfied"
+      ]
+    },
+    "truthLabel": "proof_false",
+    "score": 0.0,
+    "confidence": 1.0
+  },
+  "expected": {
+    "completionStatus": "proof_failed",
+    "claimSatisfied": false,
+    "selectedAction": "D7",
+    "winningRootActionCount": 1,
+    "publicationEligible": false,
+    "renderPurpose": "research_audit",
+    "qualificationStatus": "rejected"
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 2,
+  "packId": "ar_sa_baloot_v2_smooth",
+  "provider": "offline_smooth_pack_v2",
+  "provenance": "project_generated_offline_fallback",
+  "copiedReferenceAudio": false,
+  "publicDeploymentNote": "Replace through VoiceProvider with reviewed Saudi human recordings or an approved Saudi Arabic neural voice.",
+  "clips": {
+    "ashkal": {
+      "file": "ashkal.wav",
+      "durationSeconds": 0.877,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "baloot": {
+      "file": "baloot.wav",
+      "durationSeconds": 0.87,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "double": {
+      "file": "double.wav",
+      "durationSeconds": 0.567,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "fifty": {
+      "file": "fifty.wav",
+      "durationSeconds": 0.979,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "four": {
+      "file": "four.wav",
+      "durationSeconds": 0.792,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "four_hundred": {
+      "file": "four_hundred.wav",
+      "durationSeconds": 1.232,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "gahwa": {
+      "file": "gahwa.wav",
+      "durationSeconds": 0.782,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "hokum": {
+      "file": "hokum.wav",
+      "durationSeconds": 0.72,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "hokum_second": {
+      "file": "hokum_second.wav",
+      "durationSeconds": 1.259,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "hundred": {
+      "file": "hundred.wav",
+      "durationSeconds": 0.658,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "pass": {
+      "file": "pass.wav",
+      "durationSeconds": 0.616,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "siri": {
+      "file": "siri.wav",
+      "durationSeconds": 0.898,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "sun": {
+      "file": "sun.wav",
+      "durationSeconds": 0.66,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "triple": {
+      "file": "triple.wav",
+      "durationSeconds": 0.786,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "wala": {
+      "file": "wala.wav",
+      "durationSeconds": 0.789,
+      "sampleRate": 48000,
+      "channels": 1
+    },
+    "explanation": {
+      "file": "explanation.wav",
+      "textAr": "الخصم اليمين ما مشى على اللون. حفظ العشرة كان أفضل، لأنه يعطيك فرصة تمسك اللعب في الأكلة الجاية.",
+      "durationSeconds": 11.856,
+      "sampleRate": 48000,
+      "channels": 1
+    }
+  }
+}

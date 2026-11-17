@@ -1,0 +1,550 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/hitl.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "properties": {
+              "version": {
+                "pattern": "^21\\."
+              }
+            },
+            "required": [
+              "version"
+            ]
+          }
+        },
+        "required": [
+          "profile"
+        ]
+      },
+      "then": {
+        "properties": {
+          "review_clip": {
+            "properties": {
+              "height": {
+                "const": 1920
+              },
+              "width": {
+                "const": 1080
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "consent_defaults": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_identity_attribution": {
+          "type": "boolean"
+        },
+        "allow_private_coaching": {
+          "type": "boolean"
+        },
+        "allow_public_challenge": {
+          "type": "boolean"
+        },
+        "allow_research": {
+          "type": "boolean"
+        },
+        "allow_training": {
+          "type": "boolean"
+        },
+        "allow_voice": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "allow_identity_attribution",
+        "allow_private_coaching",
+        "allow_public_challenge",
+        "allow_research",
+        "allow_training",
+        "allow_voice"
+      ],
+      "type": "object"
+    },
+    "improvement": {
+      "additionalProperties": false,
+      "properties": {
+        "automatic_production_apply": {
+          "type": "boolean"
+        },
+        "minimum_independent_validators": {
+          "type": "integer"
+        },
+        "require_canary": {
+          "type": "boolean"
+        },
+        "require_expert_approval": {
+          "type": "boolean"
+        },
+        "require_regression": {
+          "type": "boolean"
+        },
+        "require_rollback_manifest": {
+          "type": "boolean"
+        },
+        "require_shadow": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "automatic_production_apply",
+        "minimum_independent_validators",
+        "require_canary",
+        "require_expert_approval",
+        "require_regression",
+        "require_rollback_manifest",
+        "require_shadow"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "review": {
+      "additionalProperties": false,
+      "properties": {
+        "blind_until_submission": {
+          "type": "boolean"
+        },
+        "expert_opposition_blocks": {
+          "type": "boolean"
+        },
+        "maximum_rationale_similarity": {
+          "type": "number"
+        },
+        "minimum_independent_clusters": {
+          "type": "integer"
+        },
+        "minimum_independent_reviewers": {
+          "type": "integer"
+        },
+        "minimum_weighted_support": {
+          "type": "number"
+        },
+        "minimum_wilson_lower": {
+          "type": "number"
+        },
+        "require_verified_expert_or_two_trusted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "blind_until_submission",
+        "expert_opposition_blocks",
+        "maximum_rationale_similarity",
+        "minimum_independent_clusters",
+        "minimum_independent_reviewers",
+        "minimum_weighted_support",
+        "minimum_wilson_lower",
+        "require_verified_expert_or_two_trusted"
+      ],
+      "type": "object"
+    },
+    "review_clip": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "width": {
+                "const": 720
+              }
+            },
+            "required": [
+              "width"
+            ]
+          },
+          "then": {
+            "properties": {
+              "height": {
+                "const": 1280
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "width": {
+                "const": 1080
+              }
+            },
+            "required": [
+              "width"
+            ]
+          },
+          "then": {
+            "properties": {
+              "height": {
+                "const": 1920
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "presentation_mode": {
+                "const": "player"
+              }
+            },
+            "required": [
+              "presentation_mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "show_developer_card_codes": {
+                "const": false
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "answer_reveal_seconds": {
+          "type": "number"
+        },
+        "case_locator_characters": {
+          "type": "integer"
+        },
+        "choice_card_height": {
+          "type": "integer"
+        },
+        "choice_card_width": {
+          "type": "integer"
+        },
+        "copy": {
+          "additionalProperties": false,
+          "properties": {
+            "actor_east": {
+              "type": "string"
+            },
+            "actor_fallback": {
+              "type": "string"
+            },
+            "actor_north": {
+              "type": "string"
+            },
+            "actor_south": {
+              "type": "string"
+            },
+            "actor_west": {
+              "type": "string"
+            },
+            "context_actor": {
+              "type": "string"
+            },
+            "footer_blind": {
+              "type": "string"
+            },
+            "footer_submitted": {
+              "type": "string"
+            },
+            "header_title": {
+              "type": "string"
+            },
+            "phase_bidding": {
+              "type": "string"
+            },
+            "phase_buying": {
+              "type": "string"
+            },
+            "phase_decision": {
+              "type": "string"
+            },
+            "phase_play": {
+              "type": "string"
+            },
+            "phase_playing": {
+              "type": "string"
+            },
+            "phase_projects": {
+              "type": "string"
+            },
+            "phase_scoring": {
+              "type": "string"
+            },
+            "rank_10": {
+              "type": "string"
+            },
+            "rank_7": {
+              "type": "string"
+            },
+            "rank_8": {
+              "type": "string"
+            },
+            "rank_9": {
+              "type": "string"
+            },
+            "rank_a": {
+              "type": "string"
+            },
+            "rank_j": {
+              "type": "string"
+            },
+            "rank_k": {
+              "type": "string"
+            },
+            "rank_q": {
+              "type": "string"
+            },
+            "reason_main": {
+              "type": "string"
+            },
+            "reason_secondary": {
+              "type": "string"
+            },
+            "reveal_fallback": {
+              "type": "string"
+            },
+            "stage_answer_reveal": {
+              "type": "string"
+            },
+            "stage_blind_choice": {
+              "type": "string"
+            },
+            "stage_intro": {
+              "type": "string"
+            },
+            "stage_reason_prompt": {
+              "type": "string"
+            },
+            "stage_selection_confirmed": {
+              "type": "string"
+            },
+            "suit_clubs": {
+              "type": "string"
+            },
+            "suit_diamonds": {
+              "type": "string"
+            },
+            "suit_hearts": {
+              "type": "string"
+            },
+            "suit_spades": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "actor_east",
+            "actor_fallback",
+            "actor_north",
+            "actor_south",
+            "actor_west",
+            "context_actor",
+            "footer_blind",
+            "footer_submitted",
+            "header_title",
+            "phase_bidding",
+            "phase_buying",
+            "phase_decision",
+            "phase_play",
+            "phase_playing",
+            "phase_projects",
+            "phase_scoring",
+            "rank_10",
+            "rank_7",
+            "rank_8",
+            "rank_9",
+            "rank_a",
+            "rank_j",
+            "rank_k",
+            "rank_q",
+            "reason_main",
+            "reason_secondary",
+            "reveal_fallback",
+            "stage_answer_reveal",
+            "stage_blind_choice",
+            "stage_intro",
+            "stage_reason_prompt",
+            "stage_selection_confirmed",
+            "suit_clubs",
+            "suit_diamonds",
+            "suit_hearts",
+            "suit_spades"
+          ],
+          "type": "object"
+        },
+        "countdown_seconds": {
+          "type": "number"
+        },
+        "duration_seconds": {
+          "type": "number"
+        },
+        "fps": {
+          "type": "integer"
+        },
+        "height": {
+          "enum": [
+            1280,
+            1920
+          ],
+          "type": "integer"
+        },
+        "intro_seconds": {
+          "type": "number"
+        },
+        "maximum_choices": {
+          "type": "integer"
+        },
+        "observer_safe": {
+          "type": "boolean"
+        },
+        "presentation_mode": {
+          "enum": [
+            "player",
+            "expert"
+          ],
+          "type": "string"
+        },
+        "selection_seconds": {
+          "type": "number"
+        },
+        "show_case_locator": {
+          "type": "boolean"
+        },
+        "show_correct_after_submission": {
+          "type": "boolean"
+        },
+        "show_developer_card_codes": {
+          "type": "boolean"
+        },
+        "width": {
+          "enum": [
+            720,
+            1080
+          ],
+          "type": "integer"
+        }
+      },
+      "required": [
+        "answer_reveal_seconds",
+        "case_locator_characters",
+        "choice_card_height",
+        "choice_card_width",
+        "copy",
+        "countdown_seconds",
+        "duration_seconds",
+        "fps",
+        "height",
+        "intro_seconds",
+        "maximum_choices",
+        "observer_safe",
+        "presentation_mode",
+        "selection_seconds",
+        "show_case_locator",
+        "show_correct_after_submission",
+        "show_developer_card_codes",
+        "width"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "training": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_candidate_states": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "automatic_model_promotion": {
+          "type": "boolean"
+        },
+        "minimum_independent_challenger_evaluations": {
+          "type": "integer"
+        },
+        "separate_label_provenance": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "allowed_candidate_states",
+        "automatic_model_promotion",
+        "minimum_independent_challenger_evaluations",
+        "separate_label_provenance"
+      ],
+      "type": "object"
+    },
+    "validation": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_view_modes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "block_final_result_seen": {
+          "type": "boolean"
+        },
+        "block_hidden_cards_seen": {
+          "type": "boolean"
+        },
+        "require_legal_action": {
+          "type": "boolean"
+        },
+        "require_structured_reasons": {
+          "type": "boolean"
+        },
+        "safe_disclosure_timings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "allowed_view_modes",
+        "block_final_result_seen",
+        "block_hidden_cards_seen",
+        "require_legal_action",
+        "require_structured_reasons",
+        "safe_disclosure_timings"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "consent_defaults",
+    "improvement",
+    "profile",
+    "review",
+    "review_clip",
+    "schema_version",
+    "training",
+    "validation"
+  ],
+  "type": "object"
+}

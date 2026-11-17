@@ -1,0 +1,38 @@
+schema_version: 1
+profile:
+  id: rules_certification_saudi_federation_2023
+  version: 1.0.0
+  status: candidate_external_review_required
+required_signer_roles:
+- certified_referee
+- rules_authority
+minimum_external_signatures: 2
+trusted_signers: []
+golden_corpus: examples/rule-fixtures-saudi-federation-2023.json
+automatic_activation: false
+candidate_profile: rules/saudi_federation_2023.yaml
+candidate_profile_identity:
+  id: saudi_federation_2023
+  version: 1.0.0
+  sha256: e642194ae6fd31573a1c75d2c9a7ffc471d57a844c44011a388ae0c33df9346f
+rule_source_catalog:
+  path: rules/source_catalog_v1.yaml
+  id: saudi_federation_2023_sources
+  version: 1.0.0
+  sha256: fdcdbb515ea9754ef0ba6178937f907f88328a021c6fc2e7f3a37a8b65046473
+adjudication_profile: adjudication/research_events_v1.yaml
+adjudication_authority_identity:
+  id: gea_baloot_2023_adjudication_research_v1
+  version: 1.0.0
+  authority_sha256: 685a24c8c51e0b099d5dda5fd080cbdb4bd45608c8b05382c5ed97c64fdc0b21
+  authoring_catalog_sha256: 721c547cb0918b8832f70a9418f00f4f6c1e44fb88d0a7993648569c45335aaa
+  profile_sha256: 907521b240349b4761bedbb6ab25e9454ad654a0ff1286795d38cbedffdc190c
+software_conformance:
+  minimum_executable_fixtures: 250
+  minimum_seeded_replay_rounds: 10000
+  minimum_python_native_positions: 100000
+  minimum_invalid_input_fuzz_cases: 10000
+  require_apply_undo_byte_identity: true
+  require_observer_noninterference: true
+  parity_claim: semantic_equivalence
+  external_certification_substitute: false

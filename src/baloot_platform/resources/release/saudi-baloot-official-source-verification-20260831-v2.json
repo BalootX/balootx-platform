@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "evidenceId": "saudi-baloot-official-source-verification-20260831-v2",
+  "supersedesEvidenceId": "saudi-baloot-official-source-verification-20260831",
+  "retrievedAt": "2026-08-31T00:19:00.9389699+03:00",
+  "status": "verified_primary_source_not_redistributed",
+  "source": {
+    "title": "اللائحة العامة للعبة البلوت",
+    "authorityClass": "official_tournament_regulation",
+    "originalUrl": "https://enjoy.sa/media/j1ofreng/baloot.pdf",
+    "snapshotUrl": "https://web.archive.org/web/20230314050221id_/https://enjoy.sa/media/j1ofreng/baloot.pdf",
+    "snapshotCapturedAt": "2023-03-14T05:02:21Z",
+    "pdfMetadataCreatedAt": "2023-03-01T01:21:28+03:00",
+    "pdfMetadataModifiedAt": "2023-03-01T01:21:28+03:00",
+    "byteLength": 3035758,
+    "sha256": "9a7c67046549c5013f10e31069e6feba70e20eb1d47b27c7a2ba8abaa3e848c2",
+    "pageCount": 1,
+    "pageSizePoints": [540.0, 7328.84],
+    "printedRevision": null,
+    "retention": "external_snapshot_not_copied_to_repository",
+    "nonRetentionReason": "No redistribution license was located. The exact immutable archive URL, byte hash, byte length, metadata, locators, and render hashes are retained instead."
+  },
+  "renderVerification": {
+    "renderer": "pdftoppm 26.05.0",
+    "scaleWidthPixels": 1080,
+    "fullPageRenderSha256": "06b4519ea3f5cdfa1f8bf63e3615db01e1d7f8acd93f99abe07e790094dded52",
+    "sectionFourCropSha256": "166173461868cbe42237ea8198ac1477df0117a5ca907eeab02f01e70c9c3993",
+    "projectsCropSha256": "e468174f0da3c5f5b901aedb09edf5589a89f077b169e7d35bd854042a57a9ea",
+    "scoringEscalationCropSha256": "73a00c95685f034e71cd93962ac96b5011c2e627719333368674f216ca16484c",
+    "adjudicationCropSha256": "69844fbb23ccc08dabe8b3e2f11813d7aaa2ff589f62e59cefc82aa2acd3a2f5",
+    "retention": "hash_only_due_to_source_license_boundary"
+  },
+  "verifiedClauses": [
+    {
+      "claim": "sequential_hundred_outranks_four_of_kind_hundred",
+      "locator": "section 5, clause 5-2",
+      "status": "confirmed"
+    },
+    {
+      "claim": "baloot_inside_sequential_project_counts_automatically",
+      "locator": "section 5, clauses 5-6 and 5-8",
+      "status": "confirmed_with_separate_declaration_violation"
+    },
+    {
+      "claim": "doubled_kabout_base_is_44_sun_25_hokum",
+      "locator": "section 7, clause 7-7",
+      "status": "confirmed"
+    },
+    {
+      "claim": "sun_double_allows_lower_side_at_exactly_100",
+      "locator": "section 7, clause 7-2",
+      "status": "confirmed"
+    },
+    {
+      "claim": "exposed_ace_auction_restriction_is_rank_aware",
+      "locator": "section 4, clause 4-1; section 3, clause 3-5",
+      "status": "confirmed"
+    },
+    {
+      "claim": "ashkal_caller_is_buyer_not_card_taker",
+      "locator": "important general points, item 2",
+      "status": "confirmed_declarer_term_not_defined"
+    },
+    {
+      "claim": "incorrect_highest_card_naming_has_official_opponent_choice_remedy",
+      "locator": "section 9, registration table, highest-card naming row",
+      "status": "confirmed_text_only_interpretation_not_false_ekka",
+      "manualNormalizedClause": "أكه بورقة على أنها أكبر ورقة لعب في الجولة ولم تكن كذلك.",
+      "manualNormalizedClauseSha256": "77809f24d6c1fe414133a7d35ddacb8ad78073ae140e5fe3f771cb4f5e8f17cc",
+      "manualNormalizedRemedy": "للفريق المقابل حق طلب التسجيل بالمشاريع، أو الاستمرار في اللعب.",
+      "manualNormalizedRemedySha256": "c771af1e98b7c2cc040a1f3fbf74cf25f2e5f1ed725c9f274ca00810842b4b9e",
+      "interpretationBoundary": "The text proves an adjudicated highest-card naming event and its remedy. It does not by itself prove a general false-Ekka declaration rule."
+    },
+    {
+      "claim": "out_of_turn_play_has_official_opponent_choice_remedy",
+      "locator": "section 9, registration table, out-of-turn row",
+      "status": "confirmed"
+    },
+    {
+      "claim": "exposed_card_has_official_opponent_choice_remedy",
+      "locator": "section 9, takweesh table, exposed-card row",
+      "status": "confirmed"
+    },
+    {
+      "claim": "invalid_bids_have_case_specific_official_remedies",
+      "locator": "section 9, registration and takweesh tables",
+      "status": "confirmed_not_one_generic_replay_action"
+    },
+    {
+      "claim": "signalling_is_prohibited_and_has_warning_escalation_or_referee_override",
+      "locator": "section 2, clause 2-2; section 9, registration table",
+      "status": "confirmed"
+    }
+  ],
+  "currentAuthorityContext": {
+    "federationUrl": "https://sfms.sa/ar",
+    "spaNoticeUrl": "https://www.spa.gov.sa/N2495561",
+    "spaNoticePublishedAt": "2026-01-22",
+    "finding": "The SPA notice says a 2026 tournament follows the federation-approved general Baloot regulation but does not identify or link a revision.",
+    "boundary": "The byte-identical 2023 PDF is not proven to be the current 2026 revision. External identity-bound federation or referee ratification remains required for official certification."
+  }
+}

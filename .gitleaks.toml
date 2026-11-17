@@ -1,0 +1,30 @@
+title = "Exact non-secret contexts reviewed for the frozen source"
+[extend]
+useDefault = true
+
+# Python callable annotations, not credential values. Four lines/two contexts.
+[[allowlists]]
+description = "NOT A SECRET: callable type annotations for campaign identity functions; A/B PART1 semantic findings, A PART2 six-row disposition"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(?:^|/)src/baloot_platform/research/campaign_coordinator\.py$''']
+regexTarget = "line"
+regexes = ['''^\n?    (?:    )?duplicate_key: CampaignVariantKeyV1 = _semantic_key,\r?$''', '''^\n?    (?:    )?symmetry_key: CampaignVariantKeyV1 \| None = None,\r?$''']
+
+# Exact SQL table/policy expectation, not a password/passkey.
+[[allowlists]]
+description = "NOT A SECRET: fixed SQL row-level policy identifier expected by the idempotent migration inventory test"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(?:^|/)tests/test_live_postgres_research_proof\.py$''']
+regexTarget = "line"
+regexes = ['''^\n?        \("security\.passkey_credentials", "passkey_owner_v20"\),\r?$''']
+
+# Exact synthetic idempotency label for a forbidden comparison request.
+[[allowlists]]
+description = "NOT A SECRET: synthetic negative-test idempotency label; test must still reject the unsupported comparison"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(?:^|/)tests/test_research_ortools_backend_service\.py$''']
+regexTarget = "line"
+regexes = ['''^\n?                idempotency_key="v4-comparison-forbidden",\r?$''']

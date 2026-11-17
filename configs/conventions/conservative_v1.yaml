@@ -1,0 +1,32 @@
+schema_version: 1
+profile:
+  id: conservative_v1
+  version: 1.0.0
+  status: research_default
+apply_to_probability: false
+relationship_reliability:
+  self: 1.0
+  partner: 1.0
+  left_opponent: 0.8
+  right_opponent: 0.8
+forcedness:
+  forced: 0.0
+  near_forced: 0.15
+  meaningful_choice: 0.45
+  highly_optional: 0.70
+signals:
+  low_then_high:
+    enabled: true
+    likelihood_ratios: {encourage_suit: 1.12, no_signal_or_deception: 0.98}
+  high_then_low:
+    enabled: true
+    likelihood_ratios: {short_suit: 1.10, discourage_suit: 1.08}
+  partner_return:
+    enabled: true
+    likelihood_ratios: {support_partner_suit: 1.12, tactical_return: 1.03}
+  minimum_winner:
+    enabled: true
+    likelihood_ratios: {preserve_strength: 1.08}
+  high_expenditure:
+    enabled: true
+    likelihood_ratios: {urgency_or_signal: 1.06, error_or_deception: 0.99}

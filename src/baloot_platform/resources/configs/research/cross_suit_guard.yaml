@@ -1,0 +1,51 @@
+# Authoring draft only; activation requires a new frozen bundle revision.
+# Capability tags target candidates; proof and the strict interest gate still decide admission.
+schemaVersion: 1
+id: cross_suit_guard
+revision: 2
+families:
+  - id: stopper_guard
+    name: Cross-suit guard preservation
+    enabled: true
+    weight: 1
+    minimumAllocation: 0.05
+    contracts: [sun]
+    capabilityTags:
+      impact: [round-flip, points-only]
+      technique: [guard/protect]
+      level: [intermediate, advanced]
+      mode: [sun]
+      trickBand: [trick-7]
+    parameters:
+      suits: [spades, hearts, diamonds, clubs]
+      seats: [north, west, south, east]
+      # Required legacy binding slots, not additional constraints in this template.
+      ranks: [seven]
+      projectTypes: [siri]
+      playIndex: {minimum: 24, maximum: 27}
+    template:
+      kind: scenario_predicates_v1
+      expression:
+        op: all
+        children:
+          - predicateId: PRED-CONTRACT
+            kind: auction.contract
+            version: 1
+            hardness: hard
+            arguments: {contract: {$parameter: contract}}
+          - predicateId: PRED-CROSS-SUIT-GUARD
+            kind: deal.remaining_suit_count
+            version: 1
+            hardness: hard
+            arguments: {seat: {$parameter: seat}, suit: {$parameter: suit}, minimum: 1, maximum: 1}
+          - predicateId: PRED-GUARD-CHOICES
+            kind: state.legal_action_count
+            version: 1
+            hardness: hard
+            arguments: {minimum: 2, maximum: 16}
+          # Target a contested awarded-score witness, not a proven root-action gap.
+          - predicateId: PRED-CONTESTED-WITNESS
+            kind: outcome.round_margin
+            version: 1
+            hardness: hard
+            arguments: {team: north_south, minimum: -10, maximum: 10}

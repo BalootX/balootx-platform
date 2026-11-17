@@ -1,0 +1,800 @@
+{
+  "bundles": {
+    "full": {
+      "components": {
+        "adjudication": {
+          "family": "adjudication",
+          "id": "saudi_adjudication_researched_v1",
+          "path": "configs/adjudication/saudi_researched_v1.yaml",
+          "sha256": "ff99a5ace5ce970028210ab5fa911af3dae11fd92ac5eb9f08262f4d4ed3979f",
+          "status": "researched_default_unratified",
+          "version": "1.0.0"
+        },
+        "agents": {
+          "family": "agents",
+          "id": "default_agent_lineup",
+          "path": "configs/agents/default.yaml",
+          "sha256": "b754d263566def18b71b69714d5ca90a108dca03eac0a64b831416976f0c4b95",
+          "status": "governed_candidate",
+          "version": "2.9.0"
+        },
+        "analysis": {
+          "family": "analysis",
+          "id": "deep_analysis_v1",
+          "path": "configs/analysis/deep.yaml",
+          "sha256": "cf44f3b5314f74d2270c67a89b8d292f5b904e73a15f4da5d975c1431fab8d91",
+          "status": null,
+          "version": "1.0.0"
+        },
+        "audit": {
+          "family": "audit",
+          "id": "replay_intelligence_v1",
+          "path": "configs/audit/replay_intelligence_v1.yaml",
+          "sha256": "4c7015962ecc67e7204a04be1c4a30fb61f4dc17466775761309538f3e473228",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "belief": {
+          "family": "belief",
+          "id": "constrained_particle_belief_v1",
+          "path": "configs/belief/particle_v1.yaml",
+          "sha256": "abb6f4eb2a327940b6b2db5034a1273db49dda09afc5b0205e6723dff2d619d3",
+          "status": "production_default",
+          "version": "1.0.0"
+        },
+        "benchmark": {
+          "family": "benchmark",
+          "id": "intelligence_benchmark",
+          "path": "configs/benchmark/strength.yaml",
+          "sha256": "26ed79f40820c4a392e5623f2c96d9899c700412e86720059090029bdd1598fe",
+          "status": "governed_candidate",
+          "version": "21.2.0"
+        },
+        "certification": {
+          "family": "certification",
+          "id": "rules_certification",
+          "path": "configs/certification/rules.yaml",
+          "sha256": "2d0b0383eb16bf10044d348b51eb1d7a1be19eac1d3f8818180477cbb6ace96a",
+          "status": "candidate",
+          "version": "21.0.0"
+        },
+        "challenge": {
+          "family": "challenge",
+          "id": "progressive_challenge_mining_v2",
+          "path": "configs/challenge/progressive_mining_v2.yaml",
+          "sha256": "512c9ccedbcfdda0897d9f0978961dce531e418949c87345113ea079c474380e",
+          "status": "governed_candidate",
+          "version": "2.8.4"
+        },
+        "challenge_contracts": {
+          "family": "challenge_contracts",
+          "id": "challenge_truth_contracts_v1",
+          "path": "configs/challenge_contracts/truth_v1.yaml",
+          "sha256": "6b8309298b6cffc160e46fddc386f471cf12929c703b90eb24cdea8b3d783bae",
+          "status": "production_default",
+          "version": "1.0.0"
+        },
+        "configuration": {
+          "family": "configuration",
+          "id": "configuration_control_plane",
+          "path": "configs/configuration/control-plane.yaml",
+          "sha256": "ee0e5eef5fd6419e02b3daa29c2986429c1ba40689946b6a866c6bc180154c75",
+          "status": "production_candidate",
+          "version": "20.0.0"
+        },
+        "conventions": {
+          "family": "conventions",
+          "id": "conservative_v1",
+          "path": "configs/conventions/conservative_v1.yaml",
+          "sha256": "2ceaf4e22225f59f47b6fae6ba23fc7b84d497e683943b7bacea6fcbba34847b",
+          "status": "research_default",
+          "version": "1.0.0"
+        },
+        "database": {
+          "family": "database",
+          "id": "postgresql_event_store_v1",
+          "path": "configs/database/postgresql_v1.yaml",
+          "sha256": "294518659f13f31299561ba282eef63ad0684a3fab83aa3ecb5a3960222eaa67",
+          "status": "production_default",
+          "version": "1.0.0"
+        },
+        "difficulty": {
+          "family": "difficulty",
+          "id": "online_irt_difficulty_v1",
+          "path": "configs/difficulty/online_irt_v1.yaml",
+          "sha256": "1e06cacb5d1f9997ffc8e9e76bffd6af9c2f93e0e044e30c12a17c97b37fe78c",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "duplicate": {
+          "family": "duplicate",
+          "id": "sakka_competitive_v2",
+          "path": "configs/duplicate/competitive_v1.yaml",
+          "sha256": "3eb4f7c19e6dbda1782f245b2ce821ded35bbe16a8ddc69265f52167028e45e5",
+          "status": "production_default",
+          "version": "2.0.0"
+        },
+        "game": {
+          "family": "game",
+          "id": "authoritative_server_v1",
+          "path": "configs/game/authoritative_server_v1.yaml",
+          "sha256": "d06e35bdf5bf82a50a04c03223c5f0dfb16da57944e7a3c66a7c3617e323ce71",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "history": {
+          "family": "history",
+          "id": "immutable_history_v1",
+          "path": "configs/history/immutable_v1.yaml",
+          "sha256": "fa6c84eb4d9b4e8b434e1b0452009004c8499ae32a9981b3281080c9bcedc6c0",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "hitl": {
+          "family": "hitl",
+          "id": "governed_hitl_v18",
+          "path": "configs/hitl/governance_v18.yaml",
+          "sha256": "f8a08e50f3a291a5309e765597086149ffb5ac4a36d47d363d31d4a5fecf32b8",
+          "status": "production_candidate",
+          "version": "18.0.0"
+        },
+        "identity": {
+          "family": "identity",
+          "id": "optional_simple_identity_v1",
+          "path": "configs/identity/optional_simple_v1.yaml",
+          "sha256": "34837b75da8270f4e1b32aaf0c9ec167eebb504daf92f7cf47acb591b0d88d96",
+          "status": "production_default",
+          "version": "2.0.0"
+        },
+        "learning": {
+          "family": "learning",
+          "id": "continuous_learning_v1",
+          "path": "configs/learning/continuous_v1.yaml",
+          "sha256": "bf57f1c30829846602886f8ff9b0ef08a00c410238ce35d1354ce638d08441f0",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "live": {
+          "family": "live",
+          "id": "synchronous_four_human_v1",
+          "path": "configs/live/four_human_v1.yaml",
+          "sha256": "e64e451a59caef035a3bbd2dfe9eb8e19ac14bead11b5dc6912ba4ce9e04cb59",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "match_value": {
+          "family": "match_value",
+          "id": "match_to_152_exact_dynamic_v2",
+          "path": "configs/match_value/exact_dynamic_v2.yaml",
+          "sha256": "3d03cdf66ce8a9d6acf5dc2ad7dbe7b2e2d3572c198ae9168a51981ef3244c95",
+          "status": "governed_candidate",
+          "version": "2.0.0"
+        },
+        "ml": {
+          "family": "ml",
+          "id": "ml_selfplay_promotion_v17",
+          "path": "configs/ml/contracts_v1.yaml",
+          "sha256": "aee529e4adbf8a65816c36f3c82f2332d12fa5c1b33432c2bd1df44e06a21773",
+          "status": "production_candidate",
+          "version": "18.0.0"
+        },
+        "operations": {
+          "family": "operations",
+          "id": "production_slo_v18",
+          "path": "configs/operations/slo_v18.yaml",
+          "sha256": "657d9b60ec38b2ff085c02351ec60e148c20b2779b2bfca263cf204d5d72c627",
+          "status": "production_candidate",
+          "version": "18.0.0"
+        },
+        "performance": {
+          "family": "performance",
+          "id": "performance_budgets",
+          "path": "configs/performance/budgets.yaml",
+          "sha256": "803107c52b5b426e7001ed1fea142ce1bf810a515ddd1fc0be631a0beff30131",
+          "status": "production_candidate",
+          "version": "20.0.1"
+        },
+        "product": {
+          "family": "product",
+          "id": "studio_v1",
+          "path": "configs/product/studio_v1.yaml",
+          "sha256": "125d3224464ce8ca3fd54a240b76cbd391d81a71d781cb66864307c345acc459",
+          "status": "production_candidate",
+          "version": "1.1.21"
+        },
+        "rules": {
+          "id": "saudi_common_v1",
+          "sha256": "fba7103ff611e8ee132751350a77bc5045be096994751244a28a3c60f036b994",
+          "status": "researched_default_unratified",
+          "version": "1.4.0"
+        },
+        "runtime": {
+          "family": "runtime",
+          "id": "docker_v1",
+          "path": "configs/runtime/docker_v1.yaml",
+          "sha256": "3259ff89484bfba7c6a8d8dc9715a4f14d6456dc3148beeee82a4b21eb88d789",
+          "status": "production_candidate",
+          "version": "22.0.0"
+        },
+        "security": {
+          "family": "security",
+          "id": "security_optional_oidc_passkeys_v2",
+          "path": "configs/security/local_secure_v1.yaml",
+          "sha256": "27746e4585eea5a81dbffa4a3077aebfb2bc75fa653b17b701be95d5d5d3ea02",
+          "status": "production_candidate",
+          "version": "2.0.0"
+        },
+        "shared": {
+          "family": "shared",
+          "id": "standardized_shared_environment_v1",
+          "path": "configs/shared/standardized_v1.yaml",
+          "sha256": "290c9ab4713f8435e513e74efa1cdfdf86175c551031da5f1518a9cf37326739",
+          "status": "production_default",
+          "version": "1.0.0"
+        },
+        "storage": {
+          "family": "storage",
+          "id": "local_v1",
+          "path": "configs/storage/local_v1.yaml",
+          "sha256": "690fd9f82e21d07162b7c979644645b9979b1cc6067c696bf0c053ea369cf6af",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "strategy": {
+          "family": "strategy",
+          "id": "balanced_v1",
+          "path": "configs/strategies/balanced_v1.yaml",
+          "sha256": "a18e91e126ad397a08d3e2f9b1923184e913cac51918ee455e88ffec6632e3f2",
+          "status": "deterministic_baseline",
+          "version": "1.0.0"
+        },
+        "video": {
+          "family": "video",
+          "id": "premium_video",
+          "path": "configs/video/premium.yaml",
+          "sha256": "ed267ea6d82ff91a0a173d97a4c07ac5da3b87c6cd7963b882090a27062a7994",
+          "status": "governed_candidate",
+          "version": "21.3.5"
+        }
+      },
+      "mode": "full",
+      "profile": {
+        "id": "baloot_default",
+        "status": "governed_candidate",
+        "version": "21.1.22"
+      },
+      "sha256": "2506c0ff997054c814b6366d46dbe523b3e1e796e230ebe8132d1aa0243b2428"
+    },
+    "hokum_only": {
+      "components": {
+        "adjudication": {
+          "family": "adjudication",
+          "id": "saudi_adjudication_researched_v1",
+          "path": "configs/adjudication/saudi_researched_v1.yaml",
+          "sha256": "ff99a5ace5ce970028210ab5fa911af3dae11fd92ac5eb9f08262f4d4ed3979f",
+          "status": "researched_default_unratified",
+          "version": "1.0.0"
+        },
+        "agents": {
+          "family": "agents",
+          "id": "default_agent_lineup",
+          "path": "configs/agents/default.yaml",
+          "sha256": "b754d263566def18b71b69714d5ca90a108dca03eac0a64b831416976f0c4b95",
+          "status": "governed_candidate",
+          "version": "2.9.0"
+        },
+        "analysis": {
+          "family": "analysis",
+          "id": "deep_analysis_v1",
+          "path": "configs/analysis/deep.yaml",
+          "sha256": "cf44f3b5314f74d2270c67a89b8d292f5b904e73a15f4da5d975c1431fab8d91",
+          "status": null,
+          "version": "1.0.0"
+        },
+        "audit": {
+          "family": "audit",
+          "id": "replay_intelligence_v1",
+          "path": "configs/audit/replay_intelligence_v1.yaml",
+          "sha256": "4c7015962ecc67e7204a04be1c4a30fb61f4dc17466775761309538f3e473228",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "belief": {
+          "family": "belief",
+          "id": "constrained_particle_belief_v1",
+          "path": "configs/belief/particle_v1.yaml",
+          "sha256": "abb6f4eb2a327940b6b2db5034a1273db49dda09afc5b0205e6723dff2d619d3",
+          "status": "production_default",
+          "version": "1.0.0"
+        },
+        "benchmark": {
+          "family": "benchmark",
+          "id": "intelligence_benchmark",
+          "path": "configs/benchmark/strength.yaml",
+          "sha256": "26ed79f40820c4a392e5623f2c96d9899c700412e86720059090029bdd1598fe",
+          "status": "governed_candidate",
+          "version": "21.2.0"
+        },
+        "certification": {
+          "family": "certification",
+          "id": "rules_certification",
+          "path": "configs/certification/rules.yaml",
+          "sha256": "2d0b0383eb16bf10044d348b51eb1d7a1be19eac1d3f8818180477cbb6ace96a",
+          "status": "candidate",
+          "version": "21.0.0"
+        },
+        "challenge": {
+          "family": "challenge",
+          "id": "progressive_challenge_mining_v2",
+          "path": "configs/challenge/progressive_mining_v2.yaml",
+          "sha256": "512c9ccedbcfdda0897d9f0978961dce531e418949c87345113ea079c474380e",
+          "status": "governed_candidate",
+          "version": "2.8.4"
+        },
+        "challenge_contracts": {
+          "family": "challenge_contracts",
+          "id": "challenge_truth_contracts_v1",
+          "path": "configs/challenge_contracts/truth_v1.yaml",
+          "sha256": "6b8309298b6cffc160e46fddc386f471cf12929c703b90eb24cdea8b3d783bae",
+          "status": "production_default",
+          "version": "1.0.0"
+        },
+        "configuration": {
+          "family": "configuration",
+          "id": "configuration_control_plane",
+          "path": "configs/configuration/control-plane.yaml",
+          "sha256": "ee0e5eef5fd6419e02b3daa29c2986429c1ba40689946b6a866c6bc180154c75",
+          "status": "production_candidate",
+          "version": "20.0.0"
+        },
+        "conventions": {
+          "family": "conventions",
+          "id": "conservative_v1",
+          "path": "configs/conventions/conservative_v1.yaml",
+          "sha256": "2ceaf4e22225f59f47b6fae6ba23fc7b84d497e683943b7bacea6fcbba34847b",
+          "status": "research_default",
+          "version": "1.0.0"
+        },
+        "database": {
+          "family": "database",
+          "id": "postgresql_event_store_v1",
+          "path": "configs/database/postgresql_v1.yaml",
+          "sha256": "294518659f13f31299561ba282eef63ad0684a3fab83aa3ecb5a3960222eaa67",
+          "status": "production_default",
+          "version": "1.0.0"
+        },
+        "difficulty": {
+          "family": "difficulty",
+          "id": "online_irt_difficulty_v1",
+          "path": "configs/difficulty/online_irt_v1.yaml",
+          "sha256": "1e06cacb5d1f9997ffc8e9e76bffd6af9c2f93e0e044e30c12a17c97b37fe78c",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "duplicate": {
+          "family": "duplicate",
+          "id": "sakka_competitive_v2",
+          "path": "configs/duplicate/competitive_v1.yaml",
+          "sha256": "3eb4f7c19e6dbda1782f245b2ce821ded35bbe16a8ddc69265f52167028e45e5",
+          "status": "production_default",
+          "version": "2.0.0"
+        },
+        "game": {
+          "family": "game",
+          "id": "authoritative_server_v1",
+          "path": "configs/game/authoritative_server_v1.yaml",
+          "sha256": "d06e35bdf5bf82a50a04c03223c5f0dfb16da57944e7a3c66a7c3617e323ce71",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "history": {
+          "family": "history",
+          "id": "immutable_history_v1",
+          "path": "configs/history/immutable_v1.yaml",
+          "sha256": "fa6c84eb4d9b4e8b434e1b0452009004c8499ae32a9981b3281080c9bcedc6c0",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "hitl": {
+          "family": "hitl",
+          "id": "governed_hitl_v18",
+          "path": "configs/hitl/governance_v18.yaml",
+          "sha256": "f8a08e50f3a291a5309e765597086149ffb5ac4a36d47d363d31d4a5fecf32b8",
+          "status": "production_candidate",
+          "version": "18.0.0"
+        },
+        "identity": {
+          "family": "identity",
+          "id": "optional_simple_identity_v1",
+          "path": "configs/identity/optional_simple_v1.yaml",
+          "sha256": "34837b75da8270f4e1b32aaf0c9ec167eebb504daf92f7cf47acb591b0d88d96",
+          "status": "production_default",
+          "version": "2.0.0"
+        },
+        "learning": {
+          "family": "learning",
+          "id": "continuous_learning_v1",
+          "path": "configs/learning/continuous_v1.yaml",
+          "sha256": "bf57f1c30829846602886f8ff9b0ef08a00c410238ce35d1354ce638d08441f0",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "live": {
+          "family": "live",
+          "id": "synchronous_four_human_v1",
+          "path": "configs/live/four_human_v1.yaml",
+          "sha256": "e64e451a59caef035a3bbd2dfe9eb8e19ac14bead11b5dc6912ba4ce9e04cb59",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "match_value": {
+          "family": "match_value",
+          "id": "match_to_152_exact_dynamic_v2",
+          "path": "configs/match_value/exact_dynamic_v2.yaml",
+          "sha256": "3d03cdf66ce8a9d6acf5dc2ad7dbe7b2e2d3572c198ae9168a51981ef3244c95",
+          "status": "governed_candidate",
+          "version": "2.0.0"
+        },
+        "ml": {
+          "family": "ml",
+          "id": "ml_selfplay_promotion_v17",
+          "path": "configs/ml/contracts_v1.yaml",
+          "sha256": "aee529e4adbf8a65816c36f3c82f2332d12fa5c1b33432c2bd1df44e06a21773",
+          "status": "production_candidate",
+          "version": "18.0.0"
+        },
+        "operations": {
+          "family": "operations",
+          "id": "production_slo_v18",
+          "path": "configs/operations/slo_v18.yaml",
+          "sha256": "657d9b60ec38b2ff085c02351ec60e148c20b2779b2bfca263cf204d5d72c627",
+          "status": "production_candidate",
+          "version": "18.0.0"
+        },
+        "performance": {
+          "family": "performance",
+          "id": "performance_budgets",
+          "path": "configs/performance/budgets.yaml",
+          "sha256": "803107c52b5b426e7001ed1fea142ce1bf810a515ddd1fc0be631a0beff30131",
+          "status": "production_candidate",
+          "version": "20.0.1"
+        },
+        "product": {
+          "family": "product",
+          "id": "studio_v1",
+          "path": "configs/product/studio_v1.yaml",
+          "sha256": "125d3224464ce8ca3fd54a240b76cbd391d81a71d781cb66864307c345acc459",
+          "status": "production_candidate",
+          "version": "1.1.21"
+        },
+        "rules": {
+          "id": "hokum_only_v1",
+          "sha256": "5db499bf931c44e8f11a1d93911f88f003c9a548644b703a5a75be67486640c8",
+          "status": "researched_default_unratified",
+          "version": "1.0.0"
+        },
+        "runtime": {
+          "family": "runtime",
+          "id": "docker_v1",
+          "path": "configs/runtime/docker_v1.yaml",
+          "sha256": "3259ff89484bfba7c6a8d8dc9715a4f14d6456dc3148beeee82a4b21eb88d789",
+          "status": "production_candidate",
+          "version": "22.0.0"
+        },
+        "security": {
+          "family": "security",
+          "id": "security_optional_oidc_passkeys_v2",
+          "path": "configs/security/local_secure_v1.yaml",
+          "sha256": "27746e4585eea5a81dbffa4a3077aebfb2bc75fa653b17b701be95d5d5d3ea02",
+          "status": "production_candidate",
+          "version": "2.0.0"
+        },
+        "shared": {
+          "family": "shared",
+          "id": "standardized_shared_environment_v1",
+          "path": "configs/shared/standardized_v1.yaml",
+          "sha256": "290c9ab4713f8435e513e74efa1cdfdf86175c551031da5f1518a9cf37326739",
+          "status": "production_default",
+          "version": "1.0.0"
+        },
+        "storage": {
+          "family": "storage",
+          "id": "local_v1",
+          "path": "configs/storage/local_v1.yaml",
+          "sha256": "690fd9f82e21d07162b7c979644645b9979b1cc6067c696bf0c053ea369cf6af",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "strategy": {
+          "family": "strategy",
+          "id": "balanced_v1",
+          "path": "configs/strategies/balanced_v1.yaml",
+          "sha256": "a18e91e126ad397a08d3e2f9b1923184e913cac51918ee455e88ffec6632e3f2",
+          "status": "deterministic_baseline",
+          "version": "1.0.0"
+        },
+        "video": {
+          "family": "video",
+          "id": "premium_video",
+          "path": "configs/video/premium.yaml",
+          "sha256": "ed267ea6d82ff91a0a173d97a4c07ac5da3b87c6cd7963b882090a27062a7994",
+          "status": "governed_candidate",
+          "version": "21.3.5"
+        }
+      },
+      "mode": "hokum_only",
+      "profile": {
+        "id": "baloot_default",
+        "status": "governed_candidate",
+        "version": "21.1.22"
+      },
+      "sha256": "60f3a67be1d3b2d20539c331c397f6c2f34a8dc5cb4f553eb21fda12d2535c90"
+    },
+    "sun_only": {
+      "components": {
+        "adjudication": {
+          "family": "adjudication",
+          "id": "saudi_adjudication_researched_v1",
+          "path": "configs/adjudication/saudi_researched_v1.yaml",
+          "sha256": "ff99a5ace5ce970028210ab5fa911af3dae11fd92ac5eb9f08262f4d4ed3979f",
+          "status": "researched_default_unratified",
+          "version": "1.0.0"
+        },
+        "agents": {
+          "family": "agents",
+          "id": "default_agent_lineup",
+          "path": "configs/agents/default.yaml",
+          "sha256": "b754d263566def18b71b69714d5ca90a108dca03eac0a64b831416976f0c4b95",
+          "status": "governed_candidate",
+          "version": "2.9.0"
+        },
+        "analysis": {
+          "family": "analysis",
+          "id": "deep_analysis_v1",
+          "path": "configs/analysis/deep.yaml",
+          "sha256": "cf44f3b5314f74d2270c67a89b8d292f5b904e73a15f4da5d975c1431fab8d91",
+          "status": null,
+          "version": "1.0.0"
+        },
+        "audit": {
+          "family": "audit",
+          "id": "replay_intelligence_v1",
+          "path": "configs/audit/replay_intelligence_v1.yaml",
+          "sha256": "4c7015962ecc67e7204a04be1c4a30fb61f4dc17466775761309538f3e473228",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "belief": {
+          "family": "belief",
+          "id": "constrained_particle_belief_v1",
+          "path": "configs/belief/particle_v1.yaml",
+          "sha256": "abb6f4eb2a327940b6b2db5034a1273db49dda09afc5b0205e6723dff2d619d3",
+          "status": "production_default",
+          "version": "1.0.0"
+        },
+        "benchmark": {
+          "family": "benchmark",
+          "id": "intelligence_benchmark",
+          "path": "configs/benchmark/strength.yaml",
+          "sha256": "26ed79f40820c4a392e5623f2c96d9899c700412e86720059090029bdd1598fe",
+          "status": "governed_candidate",
+          "version": "21.2.0"
+        },
+        "certification": {
+          "family": "certification",
+          "id": "rules_certification",
+          "path": "configs/certification/rules.yaml",
+          "sha256": "2d0b0383eb16bf10044d348b51eb1d7a1be19eac1d3f8818180477cbb6ace96a",
+          "status": "candidate",
+          "version": "21.0.0"
+        },
+        "challenge": {
+          "family": "challenge",
+          "id": "progressive_challenge_mining_v2",
+          "path": "configs/challenge/progressive_mining_v2.yaml",
+          "sha256": "512c9ccedbcfdda0897d9f0978961dce531e418949c87345113ea079c474380e",
+          "status": "governed_candidate",
+          "version": "2.8.4"
+        },
+        "challenge_contracts": {
+          "family": "challenge_contracts",
+          "id": "challenge_truth_contracts_v1",
+          "path": "configs/challenge_contracts/truth_v1.yaml",
+          "sha256": "6b8309298b6cffc160e46fddc386f471cf12929c703b90eb24cdea8b3d783bae",
+          "status": "production_default",
+          "version": "1.0.0"
+        },
+        "configuration": {
+          "family": "configuration",
+          "id": "configuration_control_plane",
+          "path": "configs/configuration/control-plane.yaml",
+          "sha256": "ee0e5eef5fd6419e02b3daa29c2986429c1ba40689946b6a866c6bc180154c75",
+          "status": "production_candidate",
+          "version": "20.0.0"
+        },
+        "conventions": {
+          "family": "conventions",
+          "id": "conservative_v1",
+          "path": "configs/conventions/conservative_v1.yaml",
+          "sha256": "2ceaf4e22225f59f47b6fae6ba23fc7b84d497e683943b7bacea6fcbba34847b",
+          "status": "research_default",
+          "version": "1.0.0"
+        },
+        "database": {
+          "family": "database",
+          "id": "postgresql_event_store_v1",
+          "path": "configs/database/postgresql_v1.yaml",
+          "sha256": "294518659f13f31299561ba282eef63ad0684a3fab83aa3ecb5a3960222eaa67",
+          "status": "production_default",
+          "version": "1.0.0"
+        },
+        "difficulty": {
+          "family": "difficulty",
+          "id": "online_irt_difficulty_v1",
+          "path": "configs/difficulty/online_irt_v1.yaml",
+          "sha256": "1e06cacb5d1f9997ffc8e9e76bffd6af9c2f93e0e044e30c12a17c97b37fe78c",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "duplicate": {
+          "family": "duplicate",
+          "id": "sakka_competitive_v2",
+          "path": "configs/duplicate/competitive_v1.yaml",
+          "sha256": "3eb4f7c19e6dbda1782f245b2ce821ded35bbe16a8ddc69265f52167028e45e5",
+          "status": "production_default",
+          "version": "2.0.0"
+        },
+        "game": {
+          "family": "game",
+          "id": "authoritative_server_v1",
+          "path": "configs/game/authoritative_server_v1.yaml",
+          "sha256": "d06e35bdf5bf82a50a04c03223c5f0dfb16da57944e7a3c66a7c3617e323ce71",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "history": {
+          "family": "history",
+          "id": "immutable_history_v1",
+          "path": "configs/history/immutable_v1.yaml",
+          "sha256": "fa6c84eb4d9b4e8b434e1b0452009004c8499ae32a9981b3281080c9bcedc6c0",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "hitl": {
+          "family": "hitl",
+          "id": "governed_hitl_v18",
+          "path": "configs/hitl/governance_v18.yaml",
+          "sha256": "f8a08e50f3a291a5309e765597086149ffb5ac4a36d47d363d31d4a5fecf32b8",
+          "status": "production_candidate",
+          "version": "18.0.0"
+        },
+        "identity": {
+          "family": "identity",
+          "id": "optional_simple_identity_v1",
+          "path": "configs/identity/optional_simple_v1.yaml",
+          "sha256": "34837b75da8270f4e1b32aaf0c9ec167eebb504daf92f7cf47acb591b0d88d96",
+          "status": "production_default",
+          "version": "2.0.0"
+        },
+        "learning": {
+          "family": "learning",
+          "id": "continuous_learning_v1",
+          "path": "configs/learning/continuous_v1.yaml",
+          "sha256": "bf57f1c30829846602886f8ff9b0ef08a00c410238ce35d1354ce638d08441f0",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "live": {
+          "family": "live",
+          "id": "synchronous_four_human_v1",
+          "path": "configs/live/four_human_v1.yaml",
+          "sha256": "e64e451a59caef035a3bbd2dfe9eb8e19ac14bead11b5dc6912ba4ce9e04cb59",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "match_value": {
+          "family": "match_value",
+          "id": "match_to_152_exact_dynamic_v2",
+          "path": "configs/match_value/exact_dynamic_v2.yaml",
+          "sha256": "3d03cdf66ce8a9d6acf5dc2ad7dbe7b2e2d3572c198ae9168a51981ef3244c95",
+          "status": "governed_candidate",
+          "version": "2.0.0"
+        },
+        "ml": {
+          "family": "ml",
+          "id": "ml_selfplay_promotion_v17",
+          "path": "configs/ml/contracts_v1.yaml",
+          "sha256": "aee529e4adbf8a65816c36f3c82f2332d12fa5c1b33432c2bd1df44e06a21773",
+          "status": "production_candidate",
+          "version": "18.0.0"
+        },
+        "operations": {
+          "family": "operations",
+          "id": "production_slo_v18",
+          "path": "configs/operations/slo_v18.yaml",
+          "sha256": "657d9b60ec38b2ff085c02351ec60e148c20b2779b2bfca263cf204d5d72c627",
+          "status": "production_candidate",
+          "version": "18.0.0"
+        },
+        "performance": {
+          "family": "performance",
+          "id": "performance_budgets",
+          "path": "configs/performance/budgets.yaml",
+          "sha256": "803107c52b5b426e7001ed1fea142ce1bf810a515ddd1fc0be631a0beff30131",
+          "status": "production_candidate",
+          "version": "20.0.1"
+        },
+        "product": {
+          "family": "product",
+          "id": "studio_v1",
+          "path": "configs/product/studio_v1.yaml",
+          "sha256": "125d3224464ce8ca3fd54a240b76cbd391d81a71d781cb66864307c345acc459",
+          "status": "production_candidate",
+          "version": "1.1.21"
+        },
+        "rules": {
+          "id": "sun_only_v1",
+          "sha256": "8992c85e5ad73d8a28dfdde8f18bccf22403c35e26f8d016ee6d5c2a45bcdc93",
+          "status": "researched_default_unratified",
+          "version": "1.0.0"
+        },
+        "runtime": {
+          "family": "runtime",
+          "id": "docker_v1",
+          "path": "configs/runtime/docker_v1.yaml",
+          "sha256": "3259ff89484bfba7c6a8d8dc9715a4f14d6456dc3148beeee82a4b21eb88d789",
+          "status": "production_candidate",
+          "version": "22.0.0"
+        },
+        "security": {
+          "family": "security",
+          "id": "security_optional_oidc_passkeys_v2",
+          "path": "configs/security/local_secure_v1.yaml",
+          "sha256": "27746e4585eea5a81dbffa4a3077aebfb2bc75fa653b17b701be95d5d5d3ea02",
+          "status": "production_candidate",
+          "version": "2.0.0"
+        },
+        "shared": {
+          "family": "shared",
+          "id": "standardized_shared_environment_v1",
+          "path": "configs/shared/standardized_v1.yaml",
+          "sha256": "290c9ab4713f8435e513e74efa1cdfdf86175c551031da5f1518a9cf37326739",
+          "status": "production_default",
+          "version": "1.0.0"
+        },
+        "storage": {
+          "family": "storage",
+          "id": "local_v1",
+          "path": "configs/storage/local_v1.yaml",
+          "sha256": "690fd9f82e21d07162b7c979644645b9979b1cc6067c696bf0c053ea369cf6af",
+          "status": "production_candidate",
+          "version": "1.0.0"
+        },
+        "strategy": {
+          "family": "strategy",
+          "id": "balanced_v1",
+          "path": "configs/strategies/balanced_v1.yaml",
+          "sha256": "a18e91e126ad397a08d3e2f9b1923184e913cac51918ee455e88ffec6632e3f2",
+          "status": "deterministic_baseline",
+          "version": "1.0.0"
+        },
+        "video": {
+          "family": "video",
+          "id": "premium_video",
+          "path": "configs/video/premium.yaml",
+          "sha256": "ed267ea6d82ff91a0a173d97a4c07ac5da3b87c6cd7963b882090a27062a7994",
+          "status": "governed_candidate",
+          "version": "21.3.5"
+        }
+      },
+      "mode": "sun_only",
+      "profile": {
+        "id": "baloot_default",
+        "status": "governed_candidate",
+        "version": "21.1.22"
+      },
+      "sha256": "aa0e9a4b5ed232efe21571bb77ac7be2fa65d2038e23e3869113cfa6c60a2a3c"
+    }
+  },
+  "schemaVersion": 1
+}

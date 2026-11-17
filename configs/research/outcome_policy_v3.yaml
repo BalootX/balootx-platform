@@ -1,0 +1,61 @@
+schemaVersion: 1
+id: outcome_policy_v3
+informed:
+  particles: 8
+  iterations: 64
+  maximumSamplingAttempts: 2000
+  bidSamples: 4
+  deliberateMistakes: false
+  bidTieBreak: [sun, hokum, ashkal, pass]
+construction:
+  sunOpeningAces: 3
+  hokumOpeningHonors: [jack, nine]
+optimal:
+  maximumConflicts: 250000
+  executionBudget:
+    schemaVersion: 1
+    maximumWallSeconds: 5
+    maximumEvidenceBytes: 67108864
+    maximumEscalationDecisions: 20
+  proofBudget:
+    maximumNodes: 50000
+    maximumDepth: 64
+    maximumHorizonActions: 64
+    maximumHiddenWorlds: 1
+    maximumWallSeconds: 5
+    maximumCpuSeconds: 5
+    maximumCacheEntries: 10000
+    maximumCacheBytes: 67108864
+    cancellationCheckIntervalNodes: 16
+    maximumWorkers: 1
+    maximumLineCountNodes: 50000
+    maximumStateSpace: 1000000
+    nativeObserved:
+      schemaVersion: 2
+      counterexampleObjective: minimum_utility
+      maximumIterations: 64
+      maximumQueries: 256
+      maximumObservations: 1024
+      maximumBoundPrefixes: 64
+      maximumCachedPrefixesPerBranch: 256
+  onIncomplete: reject
+cardPolicy:
+  method: native_dd_pimc_batch_v1
+  particles: 32
+  maximumSamplingAttempts: 2000
+  maximumWallSeconds: 40
+  maximumCpuSeconds: 40
+  maximumNodes: 25000000
+  maximumCacheEntries: 1000000
+  maximumThreads: 4
+  samplingSeed: 0
+  tieBreak: stable_action_id
+opportunityOrder: [north, west, south, east]
+metadata:
+  meaning: Sampled PIMC with exact values for every legal action in every consistent sampled world; all 32 worlds must complete. Perfect-information cards retain the five-second/ten-million-node limits.
+  decisionBudgetJustification: Sun seed 20261025 completed 32 worlds single-threaded in 14.770 wall/14.031 CPU seconds, largest world 9131667 nodes. Forty seconds and 25 million nodes exceed twice these measurements. v1 and v2 remain unchanged.
+  calibrationConditions: Windows local_cpu 5 percent, affinity 1 of 24 CPUs; 4 native threads are not 4 physical CPUs. Initial single-thread cohort was 14.770 seconds. Hokum completed in 9.724 seconds before the cache-aging repair.
+  latencyTargetSeconds: 2
+  latencyTargetStatus: Unmet locally; no four-core p95 claim.
+  exactCohortRule: Enumerate all allocations when the constrained upper bound fits maximumSamplingAttempts; otherwise require all 32 distinct sampled worlds. This prevents a tiny late cohort from being mistaken for failed sampling.
+  maturity: Local prototype awaiting full-round and volume measurements; incomplete means reject without fallback or no-good.

@@ -1,0 +1,30 @@
+schema_version: 1
+profile:
+  id: optional_simple_identity_v1
+  version: 2.0.0
+  status: production_default
+mode: optional
+guest:
+  enabled: true
+  session_hours: 168
+  default_display_name: ضيف البلوت
+local_accounts:
+  enabled: true
+  password_minimum: 8
+  session_hours: 720
+cookies:
+  name: baloot_session
+  same_site: lax
+  secure_in_production: true
+  http_only: true
+csrf:
+  enabled_in_production: true
+friends:
+  enabled: true
+providers:
+  default: local_optional
+  plugins:
+  - guest
+  - local_password
+  - oidc_pkce
+  - passkey_webauthn

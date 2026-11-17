@@ -1,0 +1,185 @@
+schema_version: 1
+profile:
+  id: saudi_federation_2023_sweep
+  version: 3.0.0
+  status: draft_unratified_mixed_authority
+  expert_ratified: false
+  locale: ar-SA
+  description: >-
+    Draft successor correcting the Kabout recipient to the trick-sweeping team.
+    Saudi organized-play baseline derived from the public 2020/2023
+    federation regulation with explicit mandatory project declarations. Leaves
+    not fully specified by that regulation retain explicit configured-variant status in the rule source catalog and require
+    referee ratification before official certification.
+  source_ids: [saudi_federation_gameplay_2020_archive, gea_baloot_regulation_2023, sfms_approved_regulation_2026]
+
+contracts:
+  allowed: [sun, hokum, ashkal]
+  default: null
+  require_preselected: false
+
+seating:
+  play_order: [north, west, south, east]
+  dealer_rotation: right
+  partnerships: {north: south, west: east, south: north, east: west}
+
+deck:
+  suits: [spades, hearts, diamonds, clubs]
+  ranks: [seven, eight, nine, ten, jack, queen, king, ace]
+  players: 4
+  cards_per_player: 8
+
+card_rules:
+  sequence_strength: [0, 1, 2, 3, 4, 5, 6, 7]
+  sun_strength: [0, 1, 2, 6, 3, 4, 5, 7]
+  hokum_non_trump_strength: [0, 1, 2, 6, 3, 4, 5, 7]
+  hokum_trump_strength: [0, 1, 6, 4, 7, 2, 3, 5]
+  sun_points: [0, 0, 0, 10, 2, 3, 4, 11]
+  hokum_non_trump_points: [0, 0, 0, 10, 2, 3, 4, 11]
+  hokum_trump_points: [0, 0, 14, 10, 20, 3, 4, 11]
+
+dealing:
+  shuffle_algorithm: splitmix64_fisher_yates_v1
+  cut_enabled: true
+  cutter: dealer_left
+  allow_no_cut: true
+  initial_packets: [3, 2]
+  exposed_purchase_cards: 1
+  final_cards_for_buyer: 2
+  final_cards_for_others: 3
+  first_recipient: dealer_right
+  all_pass_redeal: true
+  annulling:
+    enabled: false
+    names: [kawesh, saneen]
+    eligible_ranks: [nine, eight, seven]
+    declaration_window: first_round_own_turn
+    dealer_advances: true
+
+bidding:
+  rounds: 2
+  pass_allowed: true
+  first_round:
+    allowed: [pass, sun, hokum, ashkal]
+    hokum_uses_purchase_suit: true
+    exposed_ace_hokum_sun_overcall: dealer_right_only
+  second_round:
+    allowed: [pass, sun, hokum]
+    hokum_must_differ_from_purchase_suit: true
+  ashkal:
+    enabled: true
+    eligible_priority_positions: [3, 4]
+    taker: bidder_partner
+    contract_owner: bidder
+    resolves_to: sun
+  heuristics:
+    sun_rank_weights: [0.0, 0.1, 0.3, 2.7, 0.8, 1.0, 1.3, 3.2]
+    sun_extra_suit_card_weight: 0.35
+    sun_extra_suit_card_after: 2
+    hokum_trump_rank_weights: [0.1, 0.2, 3.9, 2.0, 5.2, 0.8, 1.1, 2.4]
+    hokum_extra_trump_card_weight: 0.6
+    hokum_extra_trump_card_after: 2
+    hokum_off_trump_ace_ten_weight: 0.35
+    sun_threshold: 10.5
+    hokum_threshold: 9.0
+    ashkal_partner_threshold: 12.0
+    second_sun_threshold: 9.8
+    second_hokum_threshold: 9.3
+
+escalation:
+  enabled: true
+  hokum_chain: [double, triple, four, gahwa]
+  sun_chain: [double]
+  default_level: normal
+  default_mode: open
+  opening_actor_policy: opponent_team_any_seat
+  closure_policy: advance_to_projects_without_announcement
+  response_actor_policy: declarer_and_original_doubler
+  sun_score_threshold: 100
+  sun_double_requires_split_score: true
+  sun_lower_score_inclusive: true
+
+play:
+  first_leader: dealer_right
+  configured_first_leader: north
+  must_follow_suit: true
+  must_trump_when_void: true
+  must_overtrump_when_possible: true
+  allow_discard_when_cannot_overtrump: true
+  partner_winning_exception: position_aware_ace_or_ekka
+  locked_hokum_blocks_trump_lead: true
+  ekka_enabled: true
+
+projects:
+  enabled: true
+  declaration_mode: mandatory
+  declaration_timing: first_trick_turn
+  comparison_timing: after_first_trick
+  reveal_timing: during_second_trick
+  max_scoring_projects_per_player: 2
+  cards_may_overlap: false
+  only_winning_team_scores: true
+  comparison:
+    category_priorities:
+      siri: 0
+      fifty: 0
+      hundred_sequence: 2
+      hundred_four_kind: 1
+      four_hundred: 3
+  sequences:
+    enabled: true
+    minimum_length: 3
+    values_game_points:
+      sun: {three: 4, four: 10, five_plus: 20}
+      hokum: {three: 2, four: 5, five_plus: 10}
+  four_of_kind:
+    enabled: true
+    eligible_ranks: [ten, jack, queen, king, ace]
+    values_game_points:
+      sun: {ten: 20, jack: 20, queen: 20, king: 20, ace: 40}
+      hokum: {ten: 10, jack: 10, queen: 10, king: 10, ace: 10}
+  baloot:
+    enabled: true
+    only_hokum: true
+    value_game_points: 2
+    declare_on_second_card: true
+    siri_or_fifty_inclusion: automatic
+    hundred_inclusion: automatic
+    single_card_in_other_project: blocked
+
+scoring:
+  raw_card_totals: {sun: 130, hokum: 162}
+  last_trick_bonus_raw: 10
+  card_game_point_totals: {sun: 26, hokum: 16}
+  conversion:
+    sun: nearest_ten_except_exact_five_then_divide_by_five
+    hokum: nearest_ten_half_down_then_divide_by_ten
+  contract:
+    buyer_team_must_win: true
+    loss_transfers_all: true
+  escalation:
+    winner_takes_all_when_multiplied: true
+    project_multiplier_cap: 2
+    baloot_multiplier_cap: 1
+  kabout:
+    enabled: true
+    base_game_points: {sun: 44, hokum: 25}
+    multiplier_cap: 1
+    winner: trick_sweeper
+  match:
+    target: 152
+    tie_above_target_continues: true
+    dealer_rotates_right: true
+
+disputed_options:
+  first_leader:
+    alternatives: [buyer]
+  double_unspecified_mode:
+    alternatives: [locked]
+  equal_hokum_sequence_trump_priority:
+    selected: false
+    alternatives: [true]
+  hints_have_universal_meaning:
+    alternatives: []
+  kawesh_saneen:
+    alternatives: [true]

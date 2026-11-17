@@ -1,0 +1,13 @@
+.trick img {
+  position: absolute;
+  width: 52px;
+  height: 78px;
+  object-fit: contain;
+  border-radius: 7px;
+  box-shadow: 0 8px 18px #0006;
+}
+
+.trick img:nth-child(1) { left: 47px; top: 0; }
+.trick img:nth-child(2) { left: 0; top: 38px; transform: rotate(90deg); }
+.trick img:nth-child(3) { left: 47px; bottom: 0; }
+.trick img:nth-child(4) { right: 0; top: 38px; transform: rotate(90deg); }

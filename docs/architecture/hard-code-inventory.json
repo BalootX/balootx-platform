@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "version": "21.1.0",
+  "scope": {
+    "kind": "active-constructor-defaults",
+    "packages": [
+      "baloot_platform.configuration",
+      "baloot_platform.core",
+      "baloot_platform.analysis",
+      "baloot_platform.video",
+      "baloot_platform.plugins"
+    ]
+  },
+  "allowedClassifications": [
+    "protocol_or_mathematical_invariant",
+    "safety_bound",
+    "governed_tuning",
+    "localization_resource",
+    "hashed_content_asset"
+  ],
+  "entries": [
+    {
+      "key": "src/baloot_platform/analysis/double_dummy.py:DoubleDummySolver.library",
+      "default": "None",
+      "classification": "hashed_content_asset",
+      "behaviorApplied": false,
+      "status": "compliant",
+      "owner": "baloot_platform.native.accelerator.NativeAccelerator._locate_library",
+      "rationale": "None delegates to the canonical native-library locator; DD validates the ABI and records the selected binary's SHA-256. This selects no scoring, policy, search limit or benchmark tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/engine.py:BalootEngine.play_domain",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "behaviorApplied": false,
+      "status": "compliant",
+      "owner": "baloot_platform.core.play_ir.PlayDomainIRV1",
+      "rationale": "None compiles the exact active rules into the canonical play domain; an injected domain must match that authority."
+    },
+    {
+      "key": "src/baloot_platform/core/engine.py:BalootEngine.structural_domain",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "behaviorApplied": false,
+      "status": "compliant",
+      "owner": "baloot_platform.core.rules.RuleBook.structural_domain",
+      "rationale": "None consumes the integrity-checked structural domain already owned by the active RuleBook; an injected domain must match that authority."
+    },
+    {
+      "key": "src/baloot_platform/video/batch_executor.py:RenderBatchExecutorV1.maximum_render_slots",
+      "default": "None",
+      "classification": "governed_tuning",
+      "behaviorApplied": true,
+      "status": "compliant",
+      "owner": "runtime.workers.video_render_slots",
+      "rationale": "None preserves the caller's explicit concurrency ceiling for isolated tests; the composition root injects the frozen bundle's total Remotion-tab budget."
+    },
+    {
+      "key": "src/baloot_platform/video/card_assets.py:RasterCardArt.root",
+      "default": "None",
+      "classification": "hashed_content_asset",
+      "behaviorApplied": false,
+      "status": "compliant",
+      "owner": "baloot_platform.config.platform_root",
+      "rationale": "None delegates only to the canonical packaged-resource locator and does not select product behavior."
+    },
+    {
+      "key": "src/baloot_platform/video/multi_angle_composer.py:MultiAngleComposerV1.repository_root",
+      "default": "None",
+      "classification": "hashed_content_asset",
+      "behaviorApplied": false,
+      "status": "compliant",
+      "owner": "baloot_platform.config.platform_root",
+      "rationale": "None delegates only to the canonical source-or-packaged runtime locator; it does not select video behavior."
+    },
+    {
+      "key": "src/baloot_platform/video/remotion_renderer.py:RemotionProfessionalRenderer.repository_root",
+      "default": "None",
+      "classification": "hashed_content_asset",
+      "behaviorApplied": false,
+      "status": "compliant",
+      "owner": "baloot_platform.config.platform_root",
+      "rationale": "None delegates only to the canonical source-or-packaged runtime locator; it does not select video behavior."
+    },
+    {
+      "key": "src/baloot_platform/video/remotion_renderer.py:RemotionProfessionalRenderer.timeout_seconds",
+      "default": "None",
+      "classification": "governed_tuning",
+      "behaviorApplied": true,
+      "status": "compliant",
+      "owner": "runtime.plugin_host.maximum_timeout_seconds",
+      "rationale": "None preserves the renderer descriptor default for standalone use; the composition root injects the exact governed runtime ceiling."
+    },
+    {
+      "key": "src/baloot_platform/plugins/host.py:SubprocessPluginHost.environment",
+      "default": "None",
+      "classification": "safety_bound",
+      "behaviorApplied": false,
+      "status": "compliant",
+      "owner": "baloot_platform.plugins.host",
+      "rationale": "None adds no caller environment to the fixed deny-by-default process environment."
+    }
+  ]
+}

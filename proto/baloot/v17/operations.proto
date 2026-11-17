@@ -1,0 +1,24 @@
+syntax = "proto3";
+package baloot.v17;
+
+message Empty {}
+message Identifier { string value = 1; }
+message JsonRequest { bytes canonical_json = 1; }
+message JsonResponse { bytes canonical_json = 1; }
+message Health { string status = 1; string version = 2; }
+
+service BalootOperations {
+  rpc HealthCheck(Empty) returns (Health);
+  rpc CreateLiveRoom(JsonRequest) returns (JsonResponse);
+  rpc GetLiveRoom(Identifier) returns (JsonResponse);
+  rpc ClaimLiveSeat(JsonRequest) returns (JsonResponse);
+  rpc SetLiveReady(JsonRequest) returns (JsonResponse);
+  rpc StartLiveTable(Identifier) returns (JsonResponse);
+  rpc SubmitLiveAction(JsonRequest) returns (JsonResponse);
+  rpc VerifyLiveRoom(Identifier) returns (JsonResponse);
+  rpc OpenAdjudicationCase(JsonRequest) returns (JsonResponse);
+  rpc GetAdjudicationCase(Identifier) returns (JsonResponse);
+  rpc ListAdjudicationCases(JsonRequest) returns (JsonResponse);
+  rpc RecommendAdjudicationRuling(Identifier) returns (JsonResponse);
+  rpc SecurityCapabilities(Empty) returns (JsonResponse);
+}

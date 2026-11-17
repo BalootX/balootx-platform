@@ -1,0 +1,19 @@
+schema_version: 1
+profile:
+  id: balanced_v1
+  version: 1.0.0
+  status: deterministic_baseline
+bidding_plugin: deterministic_two_round_v1
+play_plugin: balanced_heuristic_v1
+analysis_plugin: legal_hidden_deals_v1
+search_plugin: hybrid_team_public_v2
+available_search_plugins: [exact_then_rollout_v1, information_set_mcts_v1, hybrid_team_public_v2]
+information_set_mcts:
+  status: bounded_baseline
+  iterations: 2000
+  particles: 256
+  exploration: 1.15
+  maximum_tree_depth: 32
+  guarantee: shared_strategy_by_information_set_not_equilibrium
+objective: match_point_margin
+seed_policy: deterministic

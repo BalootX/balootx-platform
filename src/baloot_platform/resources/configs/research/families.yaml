@@ -1,0 +1,786 @@
+# Disabled target catalog: backward adapters and causal qualification are not implemented here.
+{
+  "schemaVersion": 1,
+  "id": "research_families",
+  "revision": 1,
+  "families": [
+    {
+      "id": "negative-project",
+      "capabilityTags": {"impact": ["round-flip", "project-swing"], "technique": ["project-inference"], "level": ["intermediate", "advanced"], "mode": ["sun", "hokum"], "trickBand": ["trick-5", "trick-6", "trick-7"]},
+      "name": "Negative project absence",
+      "enabled": false,
+      "weight": 1,
+      "minimumAllocation": 0.05,
+      "contracts": [
+        "sun",
+        "hokum"
+      ],
+      "parameters": {
+        "suits": [
+          "spades",
+          "hearts",
+          "diamonds",
+          "clubs"
+        ],
+        "seats": [
+          "north",
+          "west",
+          "south",
+          "east"
+        ],
+        "ranks": [
+          "seven",
+          "eight",
+          "nine",
+          "ten",
+          "jack",
+          "queen",
+          "king",
+          "ace"
+        ],
+        "projectTypes": [
+          "siri",
+          "fifty",
+          "hundred_sequence",
+          "hundred_four_kind"
+        ],
+        "playIndex": {
+          "minimum": 16,
+          "maximum": 27
+        }
+      },
+      "template": {
+        "kind": "scenario_predicates_v1",
+        "expression": {
+          "op": "all",
+          "children": [
+            {
+              "predicateId": "PRED-CONTRACT",
+              "kind": "auction.contract",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "contract": {
+                  "$parameter": "contract"
+                }
+              }
+            },
+            {
+              "predicateId": "PRED-TARGET",
+              "kind": "project.count",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "team": "west_east",
+                "minimum": 0,
+                "maximum": 0,
+                "state": "declared"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "positive-project",
+      "capabilityTags": {"impact": ["round-flip", "project-swing"], "technique": ["project-inference"], "level": ["intermediate", "advanced"], "mode": ["sun", "hokum"], "trickBand": ["trick-5", "trick-6", "trick-7"]},
+      "name": "Positive project evidence",
+      "enabled": false,
+      "weight": 1,
+      "minimumAllocation": 0.05,
+      "contracts": [
+        "sun",
+        "hokum"
+      ],
+      "parameters": {
+        "suits": [
+          "spades",
+          "hearts",
+          "diamonds",
+          "clubs"
+        ],
+        "seats": [
+          "north",
+          "west",
+          "south",
+          "east"
+        ],
+        "ranks": [
+          "seven",
+          "eight",
+          "nine",
+          "ten",
+          "jack",
+          "queen",
+          "king",
+          "ace"
+        ],
+        "projectTypes": [
+          "siri",
+          "fifty",
+          "hundred_sequence",
+          "hundred_four_kind"
+        ],
+        "playIndex": {
+          "minimum": 16,
+          "maximum": 27
+        }
+      },
+      "template": {
+        "kind": "scenario_predicates_v1",
+        "expression": {
+          "op": "all",
+          "children": [
+            {
+              "predicateId": "PRED-CONTRACT",
+              "kind": "auction.contract",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "contract": {
+                  "$parameter": "contract"
+                }
+              }
+            },
+            {
+              "predicateId": "PRED-TARGET",
+              "kind": "project.count",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "team": "west_east",
+                "minimum": 1,
+                "maximum": 4,
+                "state": "declared"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "stopper_guard",
+      "capabilityTags": {"impact": ["round-flip", "points-only"], "technique": ["guard/protect"], "level": ["beginner", "intermediate", "advanced"], "mode": ["sun", "hokum"], "trickBand": ["trick-5", "trick-6", "trick-7"]},
+      "name": "Stopper guard precursor",
+      "enabled": false,
+      "weight": 1,
+      "minimumAllocation": 0.05,
+      "contracts": [
+        "sun",
+        "hokum"
+      ],
+      "parameters": {
+        "suits": [
+          "spades",
+          "hearts",
+          "diamonds",
+          "clubs"
+        ],
+        "seats": [
+          "north",
+          "west",
+          "south",
+          "east"
+        ],
+        "ranks": [
+          "seven",
+          "eight",
+          "nine",
+          "ten",
+          "jack",
+          "queen",
+          "king",
+          "ace"
+        ],
+        "projectTypes": [
+          "siri",
+          "fifty",
+          "hundred_sequence",
+          "hundred_four_kind"
+        ],
+        "playIndex": {
+          "minimum": 16,
+          "maximum": 27
+        }
+      },
+      "template": {
+        "kind": "scenario_predicates_v1",
+        "expression": {
+          "op": "all",
+          "children": [
+            {
+              "predicateId": "PRED-CONTRACT",
+              "kind": "auction.contract",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "contract": {
+                  "$parameter": "contract"
+                }
+              }
+            },
+            {
+              "predicateId": "PRED-TARGET",
+              "kind": "deal.remaining_suit_count",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "seat": {
+                  "$parameter": "seat"
+                },
+                "suit": {
+                  "$parameter": "suit"
+                },
+                "minimum": 2,
+                "maximum": 4
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "overtake_unblock",
+      "capabilityTags": {"impact": ["round-flip", "points-only"], "technique": ["unblock", "partner-entry"], "level": ["intermediate", "advanced"], "mode": ["sun", "hokum"], "trickBand": ["trick-5", "trick-6", "trick-7"]},
+      "name": "Overtake and unblock",
+      "enabled": false,
+      "weight": 1,
+      "minimumAllocation": 0.05,
+      "contracts": [
+        "sun",
+        "hokum"
+      ],
+      "parameters": {
+        "suits": [
+          "spades",
+          "hearts",
+          "diamonds",
+          "clubs"
+        ],
+        "seats": [
+          "north",
+          "west",
+          "south",
+          "east"
+        ],
+        "ranks": [
+          "seven",
+          "eight",
+          "nine",
+          "ten",
+          "jack",
+          "queen",
+          "king",
+          "ace"
+        ],
+        "projectTypes": [
+          "siri",
+          "fifty",
+          "hundred_sequence",
+          "hundred_four_kind"
+        ],
+        "playIndex": {
+          "minimum": 16,
+          "maximum": 27
+        }
+      },
+      "template": {
+        "kind": "scenario_predicates_v1",
+        "expression": {
+          "op": "all",
+          "children": [
+            {
+              "predicateId": "PRED-CONTRACT",
+              "kind": "auction.contract",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "contract": {
+                  "$parameter": "contract"
+                }
+              }
+            },
+            {
+              "predicateId": "PRED-TARGET",
+              "kind": "tactic.verified",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "kind": "entry_unblocking",
+                "actingSeat": {
+                  "$parameter": "seat"
+                },
+                "minimumScore": 1,
+                "minimumEvidence": 1,
+                "causalRequired": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "kaboot_prevention",
+      "capabilityTags": {"impact": ["kaboot-swing"], "technique": ["guard/protect"], "level": ["beginner", "intermediate", "advanced"], "mode": ["sun", "hokum"], "trickBand": ["trick-5", "trick-6", "trick-7"]},
+      "name": "Kaboot prevention",
+      "enabled": false,
+      "weight": 1,
+      "minimumAllocation": 0.05,
+      "contracts": [
+        "sun",
+        "hokum"
+      ],
+      "parameters": {
+        "suits": [
+          "spades",
+          "hearts",
+          "diamonds",
+          "clubs"
+        ],
+        "seats": [
+          "north",
+          "west",
+          "south",
+          "east"
+        ],
+        "ranks": [
+          "seven",
+          "eight",
+          "nine",
+          "ten",
+          "jack",
+          "queen",
+          "king",
+          "ace"
+        ],
+        "projectTypes": [
+          "siri",
+          "fifty",
+          "hundred_sequence",
+          "hundred_four_kind"
+        ],
+        "playIndex": {
+          "minimum": 16,
+          "maximum": 27
+        }
+      },
+      "template": {
+        "kind": "scenario_predicates_v1",
+        "expression": {
+          "op": "all",
+          "children": [
+            {
+              "predicateId": "PRED-CONTRACT",
+              "kind": "auction.contract",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "contract": {
+                  "$parameter": "contract"
+                }
+              }
+            },
+            {
+              "predicateId": "PRED-TARGET",
+              "kind": "tactic.verified",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "kind": "kabout_prevention",
+                "actingSeat": {
+                  "$parameter": "seat"
+                },
+                "minimumScore": 1,
+                "minimumEvidence": 1,
+                "causalRequired": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "trump_management",
+      "capabilityTags": {"impact": ["round-flip", "kaboot-swing", "points-only"], "technique": ["trump-control"], "level": ["beginner", "intermediate", "advanced"], "mode": ["hokum"], "trickBand": ["trick-5", "trick-6", "trick-7"]},
+      "name": "Trump management",
+      "enabled": false,
+      "weight": 1,
+      "minimumAllocation": 0.05,
+      "contracts": [
+        "hokum"
+      ],
+      "parameters": {
+        "suits": [
+          "spades",
+          "hearts",
+          "diamonds",
+          "clubs"
+        ],
+        "seats": [
+          "north",
+          "west",
+          "south",
+          "east"
+        ],
+        "ranks": [
+          "seven",
+          "eight",
+          "nine",
+          "ten",
+          "jack",
+          "queen",
+          "king",
+          "ace"
+        ],
+        "projectTypes": [
+          "siri",
+          "fifty",
+          "hundred_sequence",
+          "hundred_four_kind"
+        ],
+        "playIndex": {
+          "minimum": 16,
+          "maximum": 27
+        }
+      },
+      "template": {
+        "kind": "scenario_predicates_v1",
+        "expression": {
+          "op": "all",
+          "children": [
+            {
+              "predicateId": "PRED-CONTRACT",
+              "kind": "auction.contract",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "contract": {
+                  "$parameter": "contract"
+                }
+              }
+            },
+            {
+              "predicateId": "PRED-TARGET",
+              "kind": "tactic.verified",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "kind": "trump_control",
+                "actingSeat": {
+                  "$parameter": "seat"
+                },
+                "minimumScore": 1,
+                "minimumEvidence": 1,
+                "causalRequired": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "void_count",
+      "capabilityTags": {"impact": ["round-flip", "points-only"], "technique": ["count/void-inference"], "level": ["beginner", "intermediate", "advanced"], "mode": ["sun", "hokum"], "trickBand": ["trick-5", "trick-6", "trick-7"]},
+      "name": "Void count",
+      "enabled": false,
+      "weight": 1,
+      "minimumAllocation": 0.05,
+      "contracts": [
+        "sun",
+        "hokum"
+      ],
+      "parameters": {
+        "suits": [
+          "spades",
+          "hearts",
+          "diamonds",
+          "clubs"
+        ],
+        "seats": [
+          "north",
+          "west",
+          "south",
+          "east"
+        ],
+        "ranks": [
+          "seven",
+          "eight",
+          "nine",
+          "ten",
+          "jack",
+          "queen",
+          "king",
+          "ace"
+        ],
+        "projectTypes": [
+          "siri",
+          "fifty",
+          "hundred_sequence",
+          "hundred_four_kind"
+        ],
+        "playIndex": {
+          "minimum": 16,
+          "maximum": 27
+        }
+      },
+      "template": {
+        "kind": "scenario_predicates_v1",
+        "expression": {
+          "op": "all",
+          "children": [
+            {
+              "predicateId": "PRED-CONTRACT",
+              "kind": "auction.contract",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "contract": {
+                  "$parameter": "contract"
+                }
+              }
+            },
+            {
+              "predicateId": "PRED-TARGET",
+              "kind": "deal.remaining_suit_count",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "seat": {
+                  "$parameter": "seat"
+                },
+                "suit": {
+                  "$parameter": "suit"
+                },
+                "minimum": 0,
+                "maximum": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "endplay",
+      "capabilityTags": {"impact": ["round-flip", "points-only"], "technique": ["endplay"], "level": ["advanced"], "mode": ["sun", "hokum"], "trickBand": ["trick-5", "trick-6", "trick-7"]},
+      "name": "Endplay precursor",
+      "enabled": false,
+      "weight": 1,
+      "minimumAllocation": 0.05,
+      "contracts": [
+        "sun",
+        "hokum"
+      ],
+      "parameters": {
+        "suits": [
+          "spades",
+          "hearts",
+          "diamonds",
+          "clubs"
+        ],
+        "seats": [
+          "north",
+          "west",
+          "south",
+          "east"
+        ],
+        "ranks": [
+          "seven",
+          "eight",
+          "nine",
+          "ten",
+          "jack",
+          "queen",
+          "king",
+          "ace"
+        ],
+        "projectTypes": [
+          "siri",
+          "fifty",
+          "hundred_sequence",
+          "hundred_four_kind"
+        ],
+        "playIndex": {
+          "minimum": 16,
+          "maximum": 27
+        }
+      },
+      "template": {
+        "kind": "scenario_predicates_v1",
+        "expression": {
+          "op": "all",
+          "children": [
+            {
+              "predicateId": "PRED-CONTRACT",
+              "kind": "auction.contract",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "contract": {
+                  "$parameter": "contract"
+                }
+              }
+            },
+            {
+              "predicateId": "PRED-TARGET",
+              "kind": "tactic.verified",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "kind": "only_winning_move",
+                "actingSeat": {
+                  "$parameter": "seat"
+                },
+                "minimumScore": 1,
+                "minimumEvidence": 1,
+                "causalRequired": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "baloot_timing",
+      "capabilityTags": {"impact": ["round-flip", "project-swing", "points-only"], "technique": ["baloot-timing"], "level": ["intermediate", "advanced"], "mode": ["hokum"], "trickBand": ["trick-5", "trick-6", "trick-7"]},
+      "name": "Baloot timing precursor",
+      "enabled": false,
+      "weight": 1,
+      "minimumAllocation": 0.05,
+      "contracts": [
+        "hokum"
+      ],
+      "parameters": {
+        "suits": [
+          "spades",
+          "hearts",
+          "diamonds",
+          "clubs"
+        ],
+        "seats": [
+          "north",
+          "west",
+          "south",
+          "east"
+        ],
+        "ranks": [
+          "seven",
+          "eight",
+          "nine",
+          "ten",
+          "jack",
+          "queen",
+          "king",
+          "ace"
+        ],
+        "projectTypes": [
+          "siri",
+          "fifty",
+          "hundred_sequence",
+          "hundred_four_kind"
+        ],
+        "playIndex": {
+          "minimum": 16,
+          "maximum": 27
+        }
+      },
+      "template": {
+        "kind": "scenario_predicates_v1",
+        "expression": {
+          "op": "all",
+          "children": [
+            {
+              "predicateId": "PRED-CONTRACT",
+              "kind": "auction.contract",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "contract": {
+                  "$parameter": "contract"
+                }
+              }
+            },
+            {
+              "predicateId": "PRED-TARGET",
+              "kind": "project.baloot",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "team": "north_south",
+                "achieved": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ekka_timing",
+      "capabilityTags": {"impact": ["round-flip", "points-only"], "technique": ["ace-timing"], "level": ["intermediate", "advanced"], "mode": ["sun", "hokum"], "trickBand": ["trick-5", "trick-6", "trick-7"]},
+      "name": "Ekka timing precursor",
+      "enabled": false,
+      "weight": 1,
+      "minimumAllocation": 0.05,
+      "contracts": [
+        "sun",
+        "hokum"
+      ],
+      "parameters": {
+        "suits": [
+          "spades"
+        ],
+        "seats": [
+          "north",
+          "west",
+          "south",
+          "east"
+        ],
+        "ranks": [
+          "ace"
+        ],
+        "projectTypes": [
+          "siri",
+          "fifty",
+          "hundred_sequence",
+          "hundred_four_kind"
+        ],
+        "playIndex": {
+          "minimum": 16,
+          "maximum": 27
+        }
+      },
+      "template": {
+        "kind": "scenario_predicates_v1",
+        "expression": {
+          "op": "all",
+          "children": [
+            {
+              "predicateId": "PRED-CONTRACT",
+              "kind": "auction.contract",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "contract": {
+                  "$parameter": "contract"
+                }
+              }
+            },
+            {
+              "predicateId": "PRED-TARGET",
+              "kind": "state.legal_play_actions_include",
+              "version": 1,
+              "hardness": "hard",
+              "arguments": {
+                "actions": [
+                  {
+                    "card": 7,
+                    "ekka": true
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

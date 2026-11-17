@@ -1,0 +1,234 @@
+{
+  "schemaVersion": 1,
+  "deckOrder": [
+    1,
+    2,
+    3,
+    9,
+    10,
+    11,
+    16,
+    17,
+    18,
+    24,
+    26,
+    28,
+    6,
+    8,
+    12,
+    14,
+    19,
+    22,
+    29,
+    31,
+    5,
+    4,
+    7,
+    13,
+    15,
+    25,
+    20,
+    21,
+    23,
+    0,
+    27,
+    30
+  ],
+  "dealer": "east",
+  "matchScore": [
+    0,
+    0
+  ],
+  "auctionActions": [
+    {
+      "action": "sun",
+      "actor": "north"
+    }
+  ],
+  "escalationActions": [],
+  "projectDeclarations": [],
+  "projectActions": [
+    {
+      "actor": "north",
+      "action": "declare",
+      "projectId": "PROJECT-7CA4C38B00EABA58"
+    },
+    {
+      "actor": "west",
+      "action": "declare",
+      "projectId": "PROJECT-E9A827C59F733971"
+    },
+    {
+      "actor": "south",
+      "action": "declare",
+      "projectId": "PROJECT-B43E2D84A908CD14"
+    },
+    {
+      "actor": "east",
+      "action": "declare",
+      "projectId": "PROJECT-1025ACAFE6D7C1B2"
+    }
+  ],
+  "playActions": [
+    {
+      "actor": "north",
+      "card": "H7",
+      "ekka": false
+    },
+    {
+      "actor": "west",
+      "card": "HA",
+      "ekka": false
+    },
+    {
+      "actor": "south",
+      "card": "D8",
+      "ekka": false
+    },
+    {
+      "actor": "east",
+      "card": "CA",
+      "ekka": false
+    },
+    {
+      "actor": "west",
+      "card": "H10",
+      "ekka": false
+    },
+    {
+      "actor": "south",
+      "card": "D7",
+      "ekka": false
+    },
+    {
+      "actor": "east",
+      "card": "C10",
+      "ekka": false
+    },
+    {
+      "actor": "north",
+      "card": "SJ",
+      "ekka": false
+    },
+    {
+      "actor": "west",
+      "card": "HK",
+      "ekka": false
+    },
+    {
+      "actor": "south",
+      "card": "D9",
+      "ekka": false
+    },
+    {
+      "actor": "east",
+      "card": "CK",
+      "ekka": false
+    },
+    {
+      "actor": "north",
+      "card": "S9",
+      "ekka": false
+    },
+    {
+      "actor": "west",
+      "card": "HQ",
+      "ekka": false
+    },
+    {
+      "actor": "south",
+      "card": "DJ",
+      "ekka": false
+    },
+    {
+      "actor": "east",
+      "card": "CQ",
+      "ekka": false
+    },
+    {
+      "actor": "north",
+      "card": "S8",
+      "ekka": false
+    },
+    {
+      "actor": "west",
+      "card": "HJ",
+      "ekka": false
+    },
+    {
+      "actor": "south",
+      "card": "DQ",
+      "ekka": false
+    },
+    {
+      "actor": "east",
+      "card": "CJ",
+      "ekka": false
+    },
+    {
+      "actor": "north",
+      "card": "SQ",
+      "ekka": false
+    },
+    {
+      "actor": "west",
+      "card": "H9",
+      "ekka": false
+    },
+    {
+      "actor": "south",
+      "card": "DK",
+      "ekka": false
+    },
+    {
+      "actor": "east",
+      "card": "S7",
+      "ekka": false
+    },
+    {
+      "actor": "north",
+      "card": "SK",
+      "ekka": false
+    },
+    {
+      "actor": "west",
+      "card": "H8",
+      "ekka": false
+    },
+    {
+      "actor": "south",
+      "card": "D10",
+      "ekka": false
+    },
+    {
+      "actor": "east",
+      "card": "C7",
+      "ekka": false
+    },
+    {
+      "actor": "north",
+      "card": "S10",
+      "ekka": false
+    },
+    {
+      "actor": "west",
+      "card": "C8",
+      "ekka": false
+    },
+    {
+      "actor": "south",
+      "card": "DA",
+      "ekka": false
+    },
+    {
+      "actor": "east",
+      "card": "C9",
+      "ekka": false
+    },
+    {
+      "actor": "north",
+      "card": "SA",
+      "ekka": false
+    }
+  ]
+}

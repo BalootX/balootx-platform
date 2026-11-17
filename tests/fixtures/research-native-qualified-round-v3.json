@@ -1,0 +1,28 @@
+{
+  "sourceTraceHash": "2e090a5b9190e31aecffa701343f2f085278fc0a2474d7b73bfeb7dfccadcd88",
+  "qualityReceiptHash": "ae789e99c750084ed749bc131e56b9eed2a986ce027470e2d545c03a2e340265",
+  "rulesHash": "bbc97b44e0705cad859bb512dde5f6bf08e9cb63d0e2cc42eaa167a09b1984e5",
+  "exactTracePrefix": {
+    "schemaVersion": 1,
+    "dealer": "east",
+    "deckOrder": [25,19,26,31,7,9,18,23,30,24,29,17,0,15,27,3,16,1,28,21,8,11,14,10,12,5,6,2,4,13,20,22],
+    "matchScore": [0,0],
+    "roundNumber": 1,
+    "auctionActions": [{"action":"pass","actor":"north"},{"action":"sun","actor":"west"},{"action":"pass","actor":"north"}],
+    "escalationActions": [],
+    "projectActions": [{"action":"pass","actor":"north"},{"action":"pass","actor":"west"},{"action":"pass","actor":"south"},{"action":"declare","actor":"east","projectId":"PROJECT-42151093764901E1"}],
+    "projectAssertions": [],
+    "projectDeclarations": [],
+    "stateAssertions": {},
+    "playActions": [
+      {"actor":"north","card":19,"ekka":false}, {"actor":"west","card":8,"ekka":false}, {"actor":"south","card":23,"ekka":false}, {"actor":"east","card":17,"ekka":false},
+      {"actor":"south","card":2,"ekka":false}, {"actor":"east","card":24,"ekka":false}, {"actor":"north","card":0,"ekka":false}, {"actor":"west","card":7,"ekka":false},
+      {"actor":"west","card":3,"ekka":false}, {"actor":"south","card":1,"ekka":false}, {"actor":"east","card":22,"ekka":false}, {"actor":"north","card":10,"ekka":false},
+      {"actor":"west","card":31,"ekka":false}, {"actor":"south","card":30,"ekka":false}, {"actor":"east","card":29,"ekka":false}, {"actor":"north","card":26,"ekka":false},
+      {"actor":"west","card":12,"ekka":false}, {"actor":"south","card":6,"ekka":false}, {"actor":"east","card":13,"ekka":false}, {"actor":"north","card":15,"ekka":false},
+      {"actor":"north","card":11,"ekka":false}, {"actor":"west","card":9,"ekka":false}, {"actor":"south","card":4,"ekka":false}, {"actor":"east","card":28,"ekka":false},
+      {"actor":"north","card":14,"ekka":false}, {"actor":"west","card":5,"ekka":false}, {"actor":"south","card":18,"ekka":false}, {"actor":"east","card":20,"ekka":false},
+      {"actor":"north","card":25,"ekka":false}, {"actor":"west","card":27,"ekka":false}, {"actor":"south","card":16,"ekka":false}, {"actor":"east","card":21,"ekka":false}
+    ]
+  }
+}

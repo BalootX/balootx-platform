@@ -1,0 +1,40 @@
+schema_version: 1
+profile:
+  id: online_irt_difficulty_v1
+  version: 1.0.0
+  status: production_candidate
+model:
+  type: hybrid_elo_2pl
+  ability_initial: 0.0
+  difficulty_initial: 0.0
+  discrimination_initial: 1.0
+  discrimination_min: 0.35
+  discrimination_max: 3.0
+  learning_rate_ability: 0.035
+  learning_rate_difficulty: 0.025
+  learning_rate_discrimination: 0.004
+  l2_shrinkage: 0.001
+  response_time_weight: 0.12
+  confidence_weight: 0.15
+  minimum_seconds: 1.0
+  maximum_seconds: 180.0
+calibration:
+  minimum_responses_for_public_label: 20
+  minimum_distinct_players: 8
+  confidence_z: 1.96
+  cold_start_engine_weight: 0.75
+  mature_engine_weight: 0.20
+  mature_response_count: 250
+labels:
+  easy_max: 29
+  medium_max: 54
+  hard_max: 74
+  expert_max: 89
+adaptive_delivery:
+  target_success_probability: 0.62
+  exploration_fraction: 0.12
+  maximum_recent_repeat: 0
+privacy:
+  allow_anonymous_players: true
+  hash_external_player_ids: true
+  retain_raw_explanations: false

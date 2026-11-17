@@ -1,0 +1,38 @@
+package baloot:plugin@1.0.0;
+
+interface types {
+  record request-context {
+    request-id: string,
+    tenant-id: option<string>,
+    bundle-hash: string,
+    engine-version: string,
+    observer-seat: option<string>,
+  }
+
+  record plugin-result {
+    media-type: string,
+    payload: list<u8>,
+    provenance-sha256: string,
+  }
+}
+
+interface analyzer {
+  use types.{request-context, plugin-result};
+  analyze: func(context: request-context, information-state: list<u8>, options: list<u8>) -> result<plugin-result, string>;
+}
+
+interface strategy {
+  use types.{request-context, plugin-result};
+  choose-action: func(context: request-context, information-state: list<u8>, legal-actions: list<u8>) -> result<plugin-result, string>;
+}
+
+interface renderer {
+  use types.{request-context, plugin-result};
+  render: func(context: request-context, episode-spec: list<u8>, video-profile: list<u8>) -> result<plugin-result, string>;
+}
+
+world baloot-plugin {
+  export analyzer;
+  export strategy;
+  export renderer;
+}

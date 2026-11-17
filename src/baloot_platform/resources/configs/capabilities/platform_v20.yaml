@@ -1,0 +1,196 @@
+schema_version: 3
+profile:
+  id: canonical_operation_registry_v20
+  version: 20.0.0
+  status: production_candidate
+operations:
+  health:
+    rest: {method: GET, path: "/api/v1/health"}
+    grpc: baloot.v2.BalootPlatform/HealthCheck
+    mcp: get_platform_health
+    sdk: {python: health, typescript: health, go: Health}
+    authorization: {scopes: [baloot.read]}
+    idempotency: safe
+    privacy: public
+    task: synchronous
+    errors: [unavailable]
+  game_create:
+    rest: {method: POST, path: "/api/v1/games"}
+    grpc: baloot.v2.BalootPlatform/CreateGame
+    mcp: create_game
+    sdk: {python: create_game, typescript: createGame, go: CreateGame}
+    authorization: {scopes: [baloot.play]}
+    idempotency: key_required
+    privacy: private
+    task: synchronous
+    errors: [invalid_argument, conflict, unauthorized]
+  game_read:
+    rest: {method: GET, path: "/api/v1/games/{game_id}"}
+    grpc: baloot.v2.BalootPlatform/GetGame
+    mcp: get_game
+    sdk: {python: get_game, typescript: getGame, go: GetGame}
+    authorization: {scopes: [baloot.read]}
+    idempotency: safe
+    privacy: observer_safe
+    task: synchronous
+    errors: [not_found, unauthorized]
+  card_play:
+    rest: {method: POST, path: "/api/v1/games/{game_id}/actions"}
+    grpc: baloot.v2.BalootPlatform/PlayCard
+    mcp: play_card
+    sdk: {python: play_card, typescript: playCard, go: PlayCard}
+    authorization: {scopes: [baloot.play]}
+    idempotency: expected_version
+    privacy: private
+    task: synchronous
+    errors: [illegal_action, conflict, unauthorized]
+  analysis:
+    rest: {method: POST, path: "/api/v1/analyses"}
+    grpc: baloot.v2.BalootPlatform/Analyze
+    mcp: analyze_position
+    sdk: {python: analyze, typescript: analyze, go: Analyze}
+    authorization: {scopes: [baloot.analyze]}
+    idempotency: content_hash
+    privacy: observer_safe
+    task: durable_optional
+    errors: [invalid_argument, budget_exceeded, unauthorized]
+  shared_board_create:
+    rest: {method: POST, path: "/api/v1/shared/boards"}
+    grpc: baloot.v9.SharedPlatform/CreateBoard
+    mcp: create_shared_board
+    sdk: {python: create_shared_board, typescript: createSharedBoard, go: CreateSharedBoard}
+    authorization: {scopes: [baloot.play]}
+    idempotency: key_required
+    privacy: private
+    task: synchronous
+    errors: [invalid_argument, conflict, unauthorized]
+  shared_run_compare:
+    rest: {method: POST, path: "/api/v1/shared/comparisons"}
+    grpc: baloot.v9.SharedPlatform/CompareRuns
+    mcp: compare_shared_runs
+    sdk: {python: compare_shared_runs, typescript: compareSharedRuns, go: CompareSharedRuns}
+    authorization: {scopes: [baloot.read]}
+    idempotency: content_hash
+    privacy: reveal_policy
+    task: synchronous
+    errors: [incompatible_environment, not_found, unauthorized]
+  live_room_create:
+    rest: {method: POST, path: "/api/v1/live/rooms"}
+    grpc: baloot.v17.BalootOperations/CreateLiveRoom
+    mcp: create_live_room
+    sdk: {python: create_live_room, typescript: createLiveRoom, go: CreateLiveRoom}
+    authorization: {scopes: [baloot.live]}
+    idempotency: key_required
+    privacy: private
+    task: synchronous
+    errors: [conflict, unauthorized]
+  websocket_ticket:
+    rest: {method: POST, path: "/api/v1/security/websocket-tickets"}
+    grpc: baloot.v17.BalootOperations/SecurityCapabilities
+    mcp: get_security_capabilities
+    sdk: {python: websocket_ticket, typescript: websocketTicket, go: WebSocketTicket}
+    authorization: {scopes: [baloot.live]}
+    idempotency: non_idempotent
+    privacy: private
+    task: synchronous
+    errors: [unauthorized, invalid_room]
+  hitl_case:
+    rest: {method: POST, path: "/api/v1/hitl/cases"}
+    grpc: baloot.v18.HumanLearning/CreateCase
+    mcp: create_hitl_case
+    sdk: {python: create_hitl_case, typescript: createHitlCase, go: CreateHitlCase}
+    authorization: {scopes: [baloot.analyze]}
+    idempotency: key_required
+    privacy: observer_safe
+    task: synchronous
+    errors: [invalid_argument, hidden_leakage, unauthorized]
+  configuration_resolve:
+    rest: {method: GET, path: "/api/v1/configuration-registry/resolve"}
+    grpc: baloot.v19.ConfigurationControl/ResolveBundle
+    mcp: resolve_configuration_bundle
+    sdk: {python: resolve_configuration, typescript: resolveConfiguration, go: ResolveConfiguration}
+    authorization: {scopes: [baloot.read]}
+    idempotency: safe
+    privacy: tenant_scoped
+    task: synchronous
+    errors: [not_found, unauthorized]
+  configuration_publish:
+    rest: {method: POST, path: "/api/v1/configuration-registry/bundles/{revision_id}:publish"}
+    grpc: baloot.v19.ConfigurationControl/PublishBundle
+    mcp: publish_configuration_bundle
+    sdk: {python: publish_configuration, typescript: publishConfiguration, go: PublishConfiguration}
+    authorization: {scopes: [baloot.config.admin]}
+    idempotency: etag
+    privacy: admin
+    task: synchronous
+    errors: [etag_conflict, unauthorized, invalid_state]
+  plugin_registry:
+    rest: {method: GET, path: "/api/v1/plugins"}
+    grpc: baloot.v19.ConfigurationControl/ListPlugins
+    mcp: list_plugins
+    sdk: {python: list_plugins, typescript: listPlugins, go: ListPlugins}
+    authorization: {scopes: [baloot.read]}
+    idempotency: safe
+    privacy: public_metadata
+    task: synchronous
+    errors: [unavailable]
+  premium_video:
+    rest: {method: POST, path: "/api/v1/video-jobs"}
+    grpc: baloot.v2.BalootPlatform/CreateVideo
+    mcp: create_video
+    sdk: {python: create_video, typescript: createVideo, go: CreateVideo}
+    authorization: {scopes: [baloot.analyze]}
+    idempotency: key_required
+    privacy: observer_safe
+    task: durable_research_v4_compatibility
+    lifecycle: deprecated
+    authority: research_v4
+    output: research_run
+    renders_automatically: false
+    successors:
+      author: "/api/v2/research-recipes"
+      run: "/api/v2/research-runs"
+      results: "/api/v2/research-results?runCode={runCode}"
+      prepare_render: "/api/v2/research-results/{resultCode}:prepare-render"
+      render: "/api/v2/render-batches"
+    errors: [invalid_argument, queue_full, unauthorized]
+  render_batch_create:
+    rest: {method: POST, path: "/api/v2/render-batches"}
+    grpc: baloot.v2.BalootPlatform/CreateRenderBatch
+    mcp: create_render_batch
+    sdk: {python: create_render_batch, typescript: createRenderBatch, go: CreateRenderBatch}
+    authorization: {scopes: [baloot.config.admin, baloot.hidden.read]}
+    idempotency: key_required
+    privacy: observer_safe
+    task: durable
+    errors: [invalid_argument, artifact_integrity, queue_full, unauthorized]
+  render_batch_read:
+    rest: {method: GET, path: "/api/v2/render-batches/{job_id}"}
+    grpc: baloot.v2.BalootPlatform/GetRenderBatch
+    mcp: get_render_batch
+    sdk: {python: render_batch, typescript: renderBatch, go: RenderBatch}
+    authorization: {scopes: [baloot.config.admin, baloot.hidden.read]}
+    idempotency: safe
+    privacy: observer_safe
+    task: synchronous
+    errors: [not_found, unauthorized]
+  render_batch_cancel:
+    rest: {method: POST, path: "/api/v2/render-batches/{job_id}:cancel"}
+    grpc: baloot.v2.BalootPlatform/CancelRenderBatch
+    mcp: cancel_render_batch
+    sdk: {python: cancel_render_batch, typescript: cancelRenderBatch, go: CancelRenderBatch}
+    authorization: {scopes: [baloot.config.admin, baloot.hidden.read]}
+    idempotency: cooperative
+    privacy: observer_safe
+    task: synchronous
+    errors: [not_found, invalid_state, unauthorized]
+requirements:
+  semantic_fields_required: [authorization, idempotency, privacy, task, errors, sdk]
+  every_operation_has_rest: true
+  every_operation_has_grpc: true
+  every_operation_has_mcp: true
+  every_stable_capability_has_mcp: true
+  every_stable_capability_has_rest: true
+  every_stable_capability_has_grpc: true
+  canonical_payload_hash: true
+  conformance_tests: true

@@ -1,0 +1,37 @@
+syntax = "proto3";
+package baloot.v9;
+message Identifier { string value = 1; }
+message JsonPayload { bytes canonical_json = 1; }
+message ListBoardsRequest { uint32 limit = 1; }
+message RunActionRequest { string run_id = 1; bytes canonical_json = 2; }
+message RunReviewRequest { string run_id = 1; bool ensure_audit = 2; }
+message DecisionRequest { string run_id = 1; string decision_id = 2; }
+message ExplainDecisionRequest {
+  string run_id = 1; string decision_id = 2; string level = 3;
+  string surface = 4; bool challenge_revealed = 5; bool ensure_audit = 6;
+  string view_mode = 7;
+}
+message ReviewDecisionRequest { string run_id = 1; string decision_id = 2; bytes canonical_json = 3; }
+message ShareDecisionRequest { string run_id = 1; uint32 sequence = 2; bytes canonical_json = 3; }
+message CompareRunsRequest { string run_a = 1; string run_b = 2; }
+message JsonResult { bytes canonical_json = 1; }
+service SharedPlatform {
+  rpc ListBoards(ListBoardsRequest) returns (JsonResult);
+  rpc CreateBoard(JsonPayload) returns (JsonResult);
+  rpc GetBoard(Identifier) returns (JsonResult);
+  rpc VerifyBoard(Identifier) returns (JsonResult);
+  rpc CreateRoom(JsonPayload) returns (JsonResult);
+  rpc GetRoom(Identifier) returns (JsonResult);
+  rpc JoinRoom(Identifier) returns (JsonResult);
+  rpc StartRun(Identifier) returns (JsonResult);
+  rpc GetRun(Identifier) returns (JsonResult);
+  rpc VerifyRun(Identifier) returns (JsonResult);
+  rpc PlayAction(RunActionRequest) returns (JsonResult);
+  rpc GetRunReview(RunReviewRequest) returns (JsonResult);
+  rpc ExplainDecision(ExplainDecisionRequest) returns (JsonResult);
+  rpc GetDecisionReviews(DecisionRequest) returns (JsonResult);
+  rpc SubmitDecisionReview(ReviewDecisionRequest) returns (JsonResult);
+  rpc ShareDecision(ShareDecisionRequest) returns (JsonResult);
+  rpc GetLeaderboard(Identifier) returns (JsonResult);
+  rpc CompareRuns(CompareRunsRequest) returns (JsonResult);
+}

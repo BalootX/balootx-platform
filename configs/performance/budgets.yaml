@@ -1,0 +1,45 @@
+schema_version: 1
+profile:
+  id: performance_budgets
+  version: 20.0.1
+  status: production_candidate
+budgets:
+  legal_moves_p95_ms: 0.3
+  apply_action_p95_ms: 0.5
+  observer_state_p95_ms: 2.0
+  api_health_p95_ms: 25.0
+  api_game_action_p95_ms: 80.0
+  shallow_analysis_p95_ms: 750.0
+  deep_analysis_p95_ms: 10000.0
+  mcp_tool_dispatch_p95_ms: 100.0
+  video_frame_p95_ms: 30.0
+  configuration_resolve_p95_ms: 20.0
+  native_apply_undo_p95_ms: 0.3
+  operation_registry_p95_ms: 2.0
+  live_cas_p95_ms: 20.0
+  research_live_result_visibility_p95_ms: 1000.0
+throughput:
+  native_legal_positions_per_second_min: 50000
+  api_read_requests_per_second_min: 250
+  live_actions_per_second_min: 100
+search:
+  preferred_backend: native_exact_v3_python_fallback_v1
+  fallback_backend: python_reference_exact_search_v1
+  require_preferred: false
+  minimum_kernel_speedup: 5.0
+  minimum_trace_speedup: 2.0
+measurement:
+  warmup_iterations: 25
+  measured_iterations: 200
+  percentile: 95
+  fail_on_regression_percent: 20.0
+  record_environment: true
+  sqlite_live_synchronous: NORMAL
+observability:
+  enabled: true
+  semantic_conventions: opentelemetry
+  traces: true
+  metrics: true
+  structured_logs: true
+  include_profile_hashes: true
+  include_engine_version: true

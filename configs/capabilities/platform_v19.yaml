@@ -1,0 +1,96 @@
+schema_version: 1
+profile:
+  id: canonical_capability_matrix_v19
+  version: 19.0.0
+  status: production_candidate
+capabilities:
+  health:
+    rest: GET /api/v1/health
+    grpc: baloot.v2.BalootPlatform/HealthCheck
+    mcp: health_check
+  game_create:
+    rest: POST /api/v1/games
+    grpc: baloot.v2.BalootPlatform/CreateGame
+    mcp: create_game
+  game_read:
+    rest: GET /api/v1/games/{game_id}
+    grpc: baloot.v2.BalootPlatform/GetGame
+    mcp: get_game
+  bid_submit:
+    rest: POST /api/v1/games/{game_id}/bids
+    grpc: baloot.v2.BalootPlatform/SubmitBid
+    mcp: submit_bid
+  card_play:
+    rest: POST /api/v1/games/{game_id}/actions
+    grpc: baloot.v2.BalootPlatform/PlayCard
+    mcp: play_card
+  analysis:
+    rest: POST /api/v1/analyses
+    grpc: baloot.v2.BalootPlatform/Analyze
+    mcp: analyze_position
+  replay:
+    rest: GET /api/v1/history/games/{identifier}/replay
+    grpc: baloot.v2.BalootPlatform/GetReplay
+    mcp: get_replay_package
+  shared_round_match:
+    rest: POST /api/v1/shared/boards
+    grpc: baloot.v9.SharedPlatform/CreateBoard
+    mcp: create_shared_board
+  live_table:
+    rest: POST /api/v1/live/rooms
+    grpc: baloot.v17.BalootOperations/CreateLiveRoom
+    mcp: create_live_room
+  hitl_case:
+    rest: POST /api/v1/hitl/cases
+    grpc: baloot.v18.HumanLearning/CreateCase
+    mcp: create_hitl_case
+  hitl_review:
+    rest: POST /api/v1/hitl/cases/{case_id}/submissions
+    grpc: baloot.v18.HumanLearning/SubmitReview
+    mcp: submit_hitl_review
+  configuration_profile:
+    rest: POST /api/v1/configuration-registry/profiles
+    grpc: baloot.v19.ConfigurationControl/CreateProfile
+    mcp: create_configuration_profile
+  configuration_bundle:
+    rest: POST /api/v1/configuration-registry/bundles
+    grpc: baloot.v19.ConfigurationControl/CreateBundle
+    mcp: create_configuration_bundle
+  configuration_resolve:
+    rest: GET /api/v1/configuration-registry/resolve
+    grpc: baloot.v19.ConfigurationControl/ResolveBundle
+    mcp: resolve_configuration_bundle
+  plugin_registry:
+    rest: GET /api/v1/plugins
+    grpc: baloot.v19.ConfigurationControl/ListPlugins
+    mcp: list_plugins
+  performance:
+    rest: POST /api/v1/performance/quick
+    grpc: baloot.v19.ConfigurationControl/RunPerformanceQuick
+    mcp: run_performance_quick
+  premium_video:
+    rest: POST /api/v1/video-jobs
+    grpc: baloot.v2.BalootPlatform/CreateVideo
+    mcp: create_video
+  adjudication:
+    rest: POST /api/v1/adjudication/cases
+    grpc: baloot.v17.BalootOperations/OpenAdjudicationCase
+    mcp: open_adjudication_case
+  rules_certification:
+    rest: POST /api/v1/certification/candidates:verify
+    grpc: baloot.v19.ConfigurationControl/VerifyCertificationCandidate
+    mcp: verify_certification_candidate
+  intelligence_benchmark:
+    rest: POST /api/v1/benchmark/evaluations
+    grpc: baloot.v19.ConfigurationControl/EvaluateIntelligenceBenchmark
+    mcp: evaluate_intelligence_benchmark
+  operations_profile:
+    rest: GET /api/v1/operations/profile
+    grpc: baloot.v19.ConfigurationControl/GetOperationsProfile
+    mcp: get_operations_profile
+requirements:
+  every_stable_capability_has_rest: true
+  every_stable_capability_has_grpc: true
+  every_stable_capability_has_mcp: true
+  canonical_payload_hash: true
+  conformance_tests: true

@@ -1,0 +1,41 @@
+schema_version: 1
+profile:
+  id: challenge_truth_contracts_v1
+  version: 1.0.0
+  status: production_default
+contracts:
+  outcome_flip:
+    best_match_win_probability_min: 0.55
+    alternative_match_win_probability_max: 0.45
+    probability_swing_min: 0.20
+    expected_round_margin_swing_min: 8.0
+    require_robustness: true
+  actual_deal_flip:
+    best_actual_margin_min: 0.1
+    alternative_actual_margin_max: -0.1
+    require_exact: true
+  big_win_small_win:
+    best_match_win_probability_min: 0.60
+    alternative_match_win_probability_min: 0.55
+    expected_round_margin_swing_min: 10.0
+  comeback:
+    opponent_bought: true
+    best_match_win_probability_min: 0.55
+    alternative_match_win_probability_max: 0.45
+  debate:
+    maximum_utility_gap: 0.08
+    minimum_hidden_deal_disagreement: 0.25
+  damage_control:
+    prohibit_winning_language: true
+    maximum_best_match_win_probability: 0.49
+  buy_or_pass:
+    probability_swing_min: 0.15
+publication:
+  require_verified_contract: true
+  prohibit_untyped_challenges: true
+  require_confidence_intervals: true
+  require_provenance: true
+copy_policy:
+  winning_language_allowed_for: [outcome_flip, actual_deal_flip, comeback]
+  comparative_language_for: [big_win_small_win, debate, buy_or_pass]
+  damage_control_label: تقليل الخسارة

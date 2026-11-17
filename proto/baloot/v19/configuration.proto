@@ -1,0 +1,59 @@
+syntax = "proto3";
+package baloot.v19;
+
+message Empty {}
+message Identifier { string value = 1; uint64 expected_etag = 2; }
+message TransitionRequest { string value = 1; uint64 expected_etag = 2; string reason = 3; }
+message ProfileQuery {
+  string family = 1; string profile_id = 2; string status = 3; uint32 limit = 4;
+  string scope = 5; string tenant_id = 6;
+}
+message ProfileDraft {
+  string family = 1; bytes canonical_json = 2; string scope = 3; string tenant_id = 4;
+  string supersedes_revision_id = 5; bool publish = 6;
+}
+message ProfileResolution { string family = 1; string profile_id = 2; string tenant_id = 3; }
+message ProfileCompare { string left = 1; string right = 2; }
+message BundleQuery {
+  string bundle_id = 1; string status = 2; uint32 limit = 3; string scope = 4; string tenant_id = 5;
+}
+message BundleDraft {
+  string bundle_id = 1; string version = 2; map<string,string> components = 3;
+  string mode = 4; string scope = 5; string tenant_id = 6;
+  string supersedes_revision_id = 7; bool publish = 8; bool allow_drafts = 9;
+}
+message BundleResolution {
+  string revision_id = 1; string bundle_id = 2; string tenant_id = 3; bool allow_draft = 4;
+}
+message BundleRollback { string revision_id = 1; string new_version = 2; }
+message PluginQuery { string kind = 1; }
+message JsonPayload { bytes canonical_json = 1; }
+message JsonResult { bytes canonical_json = 1; string sha256 = 2; }
+
+service ConfigurationControl {
+  rpc GetCapabilities(Empty) returns (JsonResult);
+  rpc ListProfiles(ProfileQuery) returns (JsonResult);
+  rpc CreateProfile(ProfileDraft) returns (JsonResult);
+  rpc PublishProfile(Identifier) returns (JsonResult);
+  rpc RejectProfile(TransitionRequest) returns (JsonResult);
+  rpc RetireProfile(TransitionRequest) returns (JsonResult);
+  rpc ResolveProfile(ProfileResolution) returns (JsonResult);
+  rpc CompareProfiles(ProfileCompare) returns (JsonResult);
+  rpc ListBundles(BundleQuery) returns (JsonResult);
+  rpc CreateBundle(BundleDraft) returns (JsonResult);
+  rpc PublishBundle(Identifier) returns (JsonResult);
+  rpc RejectBundle(TransitionRequest) returns (JsonResult);
+  rpc RetireBundle(TransitionRequest) returns (JsonResult);
+  rpc ResolveBundle(BundleResolution) returns (JsonResult);
+  rpc ResolveEffectiveRuntimeConfigV2(BundleResolution) returns (JsonResult);
+  rpc RollbackBundle(BundleRollback) returns (JsonResult);
+  rpc ListPlugins(PluginQuery) returns (JsonResult);
+  rpc GetPerformanceProfile(Empty) returns (JsonResult);
+  rpc RunPerformanceQuick(Empty) returns (JsonResult);
+  rpc GetCapabilityMatrix(Empty) returns (JsonResult);
+  rpc GetCertificationProfile(Empty) returns (JsonResult);
+  rpc VerifyCertificationCandidate(JsonPayload) returns (JsonResult);
+  rpc GetBenchmarkProfile(Empty) returns (JsonResult);
+  rpc EvaluateIntelligenceBenchmark(JsonPayload) returns (JsonResult);
+  rpc GetOperationsProfile(Empty) returns (JsonResult);
+}

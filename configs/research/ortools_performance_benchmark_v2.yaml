@@ -1,0 +1,31 @@
+schemaVersion: 1
+profile:
+  id: ortools_research_v4_reference_benchmark
+  version: 2.0.0
+  status: governed_candidate
+bundle:
+  id: baloot_ortools_research_native_v3
+  source: configs/bundle_intelligent_research.yaml
+  backend: ortools_cp_sat_v3
+originalFlagshipRequest:
+  source: examples/research-scenario-v4-flagship-exact-infeasible.json
+  expectedStatus: exact_structural_contradiction
+  theoremId: FLAGSHIP-TWO-ACES-TRICK7-LEAD-V1
+alternateVariantRecipe:
+  source: examples/research-scenario-v4-flagship-alternate-target-wins-six-search-five.json
+  relationToOriginal: target_team_wins_trick_six
+measurement:
+  coldSamples: 5
+  warmSamples: 5
+  warmupIterations: 1
+  percentileMethod: linear_interpolation_v1
+  coldDefinition: fresh_operation_instance_same_process_v1
+  warmDefinition: reused_operation_instance_after_warmup_v1
+budgets:
+  validationEstimateP95Ms: 250
+  originalFlagshipContradictionP95Ms: 1000
+  exactNormalizationP95Ms: 1000
+  fixedAlternateProofP95Ms: 2000
+  alternateFirstQualifiedResultP95Ms: 15000
+  alternateFiveVariantsP95Ms: 60000
+  cancellationAcknowledgementP95Ms: 250

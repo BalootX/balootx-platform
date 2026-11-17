@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "sun-hundred-project-ace-sacrifice-seven-v1",
+  "titleAr": "مشروع مية في الصن وتضحية الآص للفوز بسبعة",
+  "rulesMeaning": {
+    "contract": "sun",
+    "buyer": "north",
+    "projectKind": "hundred_sequence",
+    "projectDisplayValue": 100,
+    "projectGovernedGamePoints": 20,
+    "projectState": "awarded",
+    "actingSeat": "west",
+    "partnerSeat": "east",
+    "sacrificeCard": "DA",
+    "partnerWinningCard": "C7",
+    "finalWinningCard": "H10",
+    "successMeaning": "west_east finishes with an awarded-point margin of at least one",
+    "successThreshold": 1
+  },
+  "exactTracePrefix": {
+    "schemaVersion": 1,
+    "deckOrder": [3, 4, 5, 23, 11, 1, 16, 9, 0, 24, 8, 26, 6, 7, 13, 15, 2, 12, 27, 28, 25, 17, 10, 19, 20, 22, 14, 18, 21, 29, 30, 31],
+    "dealer": "east",
+    "roundNumber": 1,
+    "matchScore": [0, 0],
+    "auctionActions": [
+      {"actor": "north", "action": "sun"}
+    ],
+    "escalationActions": [],
+    "projectDeclarations": [
+      {
+        "owner": "north",
+        "kind": "hundred_sequence",
+        "value": 20,
+        "highRank": 7,
+        "declarationOrder": 1
+      },
+      {
+        "owner": "east",
+        "kind": "hundred_sequence",
+        "value": 20,
+        "highRank": 7,
+        "declarationOrder": 2
+      }
+    ],
+    "projectAssertions": [
+      {
+        "owner": "north",
+        "team": "north_south",
+        "kind": "hundred_sequence",
+        "value": 20,
+        "state": "awarded"
+      }
+    ],
+    "playActions": [
+      {"actor": "north", "card": "C8"},
+      {"actor": "west", "card": "HA"},
+      {"actor": "south", "card": "HJ"},
+      {"actor": "east", "card": "CA"},
+      {"actor": "east", "card": "CK"},
+      {"actor": "north", "card": "S10"},
+      {"actor": "west", "card": "S8"},
+      {"actor": "south", "card": "S7"},
+      {"actor": "east", "card": "CQ"},
+      {"actor": "north", "card": "SJ"},
+      {"actor": "west", "card": "HQ"},
+      {"actor": "south", "card": "S9"},
+      {"actor": "east", "card": "CJ"},
+      {"actor": "north", "card": "SQ"},
+      {"actor": "west", "card": "D10"},
+      {"actor": "south", "card": "HK"},
+      {"actor": "east", "card": "C10"},
+      {"actor": "north", "card": "SK"},
+      {"actor": "west", "card": "DJ"},
+      {"actor": "south", "card": "D9"},
+      {"actor": "east", "card": "C9"},
+      {"actor": "north", "card": "SA"},
+      {"actor": "west", "card": "DK"},
+      {"actor": "south", "card": "DQ"},
+      {"actor": "east", "card": "C7"},
+      {"actor": "north", "card": "D8"}
+    ],
+    "stateAssertions": {"phase": "playing"}
+  },
+  "proof": {
+    "schemaVersion": 1,
+    "mode": "exact",
+    "visibility": "complete_state",
+    "claim": "selected_action_is_unique_winner",
+    "targetTeam": "west_east",
+    "utility": "awarded_point_margin",
+    "successThreshold": 1,
+    "selectedAction": "DA",
+    "lineUniverse": "all_legal",
+    "budgetProfile": "late_game_exact_v1"
+  },
+  "expected": {
+    "phase": "playing",
+    "buyer": "north",
+    "contract": "sun",
+    "actingSeat": "west",
+    "legalRootActionCount": 2,
+    "legalRootActions": ["DA", "H10"],
+    "selectedAction": "DA",
+    "winningRootActionCount": 1,
+    "winningContinuationLineCount": "2",
+    "completionStatus": "exact_complete",
+    "claimSatisfied": true,
+    "rootValues": {"DA": 44, "H10": -2},
+    "principalVariation": ["DA", "H8", "H7", "H9", "H10", "D7"]
+  }
+}

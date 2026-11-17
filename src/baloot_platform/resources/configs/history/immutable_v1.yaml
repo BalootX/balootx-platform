@@ -1,0 +1,23 @@
+schema_version: 1
+profile:
+  id: immutable_history_v1
+  version: 1.0.0
+  status: production_candidate
+retention:
+  retain_all_passed_deals: true
+  retain_annulled_deals: true
+  retain_intermediate_versions: true
+  retain_original_after_correction: true
+integrity:
+  canonical_json: true
+  sha256_hash_chain: true
+  verify_on_read: true
+  serial_prefix: BLT
+reanalysis:
+  preserve_previous_analyses: true
+  allow_branch_from_any_version: true
+  schedule_after_engine_upgrade: true
+video:
+  embed_game_serial: true
+  embed_short_hash: true
+  preserve_render_manifest: true

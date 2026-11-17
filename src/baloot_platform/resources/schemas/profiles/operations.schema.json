@@ -1,0 +1,168 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/operations.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "automatic_production_change": {
+      "type": "boolean"
+    },
+    "objectives": {
+      "additionalProperties": false,
+      "properties": {
+        "action_ack_p95_ms": {
+          "additionalProperties": false,
+          "properties": {
+            "comparator": {
+              "type": "string"
+            },
+            "target": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "comparator",
+            "target"
+          ],
+          "type": "object"
+        },
+        "analysis_standard_p95_ms": {
+          "additionalProperties": false,
+          "properties": {
+            "comparator": {
+              "type": "string"
+            },
+            "target": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "comparator",
+            "target"
+          ],
+          "type": "object"
+        },
+        "data_durability": {
+          "additionalProperties": false,
+          "properties": {
+            "comparator": {
+              "type": "string"
+            },
+            "target": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "comparator",
+            "target"
+          ],
+          "type": "object"
+        },
+        "job_success_rate": {
+          "additionalProperties": false,
+          "properties": {
+            "comparator": {
+              "type": "string"
+            },
+            "target": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "comparator",
+            "target"
+          ],
+          "type": "object"
+        },
+        "replay_availability": {
+          "additionalProperties": false,
+          "properties": {
+            "comparator": {
+              "type": "string"
+            },
+            "target": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "comparator",
+            "target"
+          ],
+          "type": "object"
+        },
+        "room_event_p95_ms": {
+          "additionalProperties": false,
+          "properties": {
+            "comparator": {
+              "type": "string"
+            },
+            "target": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "comparator",
+            "target"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "action_ack_p95_ms",
+        "analysis_standard_p95_ms",
+        "data_durability",
+        "job_success_rate",
+        "replay_availability",
+        "room_event_p95_ms"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "recovery": {
+      "additionalProperties": false,
+      "properties": {
+        "rpo_seconds": {
+          "type": "integer"
+        },
+        "rto_seconds": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rpo_seconds",
+        "rto_seconds"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "automatic_production_change",
+    "objectives",
+    "profile",
+    "recovery",
+    "schema_version"
+  ],
+  "type": "object"
+}

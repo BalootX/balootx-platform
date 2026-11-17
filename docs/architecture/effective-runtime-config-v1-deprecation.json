@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "contract": "EffectiveRuntimeConfigV1",
+  "replacement": "EffectiveRuntimeConfigV2",
+  "status": "read_compatibility_only",
+  "adapterMode": "read_only_no_dual_write",
+  "introducedIn": "21.0.0",
+  "minimumSupportThrough": "22.0.0",
+  "removalGate": {
+    "earliestMajor": 23,
+    "requires": [
+      "published consumer inventory",
+      "zero V1 writes",
+      "two stable releases with V2 as the default",
+      "migration replay proof",
+      "explicit release approval"
+    ]
+  },
+  "proofBoundary": "This policy does not assert that external consumers have migrated."
+}

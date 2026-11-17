@@ -1,0 +1,118 @@
+{
+  "$id": "https://baloot.local/schemas/contracts/scene-document-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "direction": {
+      "const": "rtl"
+    },
+    "fieldDisclosures": {
+      "additionalProperties": {
+        "enum": [
+          "public",
+          "observer_private",
+          "post_reveal_analysis"
+        ]
+      },
+      "type": "object"
+    },
+    "layers": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "object"
+          },
+          "disclosure": {
+            "enum": [
+              "public",
+              "observer_private",
+              "post_reveal_analysis"
+            ]
+          },
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "disclosure",
+          "id",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "minItems": 4,
+      "type": "array"
+    },
+    "locale": {
+      "const": "ar-SA"
+    },
+    "observer": {
+      "enum": [
+        "north",
+        "east",
+        "south",
+        "west"
+      ]
+    },
+    "sceneId": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "source": {
+      "additionalProperties": false,
+      "properties": {
+        "effectiveConfigSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "observerViewSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "publicEventLineageSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "effectiveConfigSha256",
+        "observerViewSha256",
+        "publicEventLineageSha256"
+      ],
+      "type": "object"
+    },
+    "stage": {
+      "enum": [
+        "context",
+        "question",
+        "selection",
+        "reveal",
+        "explanation",
+        "continuation",
+        "outcome"
+      ]
+    }
+  },
+  "required": [
+    "direction",
+    "fieldDisclosures",
+    "layers",
+    "locale",
+    "observer",
+    "sceneId",
+    "schemaVersion",
+    "source",
+    "stage"
+  ],
+  "type": "object"
+}

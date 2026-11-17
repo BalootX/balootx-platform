@@ -1,0 +1,214 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/benchmark.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "automatic_promotion": {
+      "type": "boolean"
+    },
+    "group_split_by_game_hash": {
+      "type": "boolean"
+    },
+    "local_preanalysis": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_expected_regret": {
+          "type": "number"
+        },
+        "maximum_illegal_action_rate": {
+          "type": "number"
+        },
+        "maximum_p95_latency_ms": {
+          "type": "number"
+        },
+        "minimum_policy_accuracy": {
+          "type": "number"
+        },
+        "minimum_positions": {
+          "type": "integer"
+        },
+        "qualification_eligible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "maximum_expected_regret",
+        "maximum_illegal_action_rate",
+        "maximum_p95_latency_ms",
+        "minimum_policy_accuracy",
+        "minimum_positions",
+        "qualification_eligible"
+      ],
+      "type": "object"
+    },
+    "metrics": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "paired_comparison": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_profile_id": {
+          "type": "string"
+        },
+        "candidate_profile_id": {
+          "type": "string"
+        },
+        "maximum_seconds": {
+          "type": "number"
+        },
+        "minimum_pairs": {
+          "type": "integer"
+        },
+        "minimum_regret_improvement": {
+          "type": "number"
+        },
+        "minimum_win_rate": {
+          "type": "number"
+        },
+        "minimum_win_rate_lower_bound": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "baseline_profile_id",
+        "candidate_profile_id",
+        "maximum_seconds",
+        "minimum_pairs",
+        "minimum_regret_improvement",
+        "minimum_win_rate",
+        "minimum_win_rate_lower_bound"
+      ],
+      "type": "object"
+    },
+    "permanent_holdout": {
+      "additionalProperties": false,
+      "properties": {
+        "calibration_bins": {
+          "type": "integer"
+        },
+        "minimum_adjudication_agreement": {
+          "type": "number"
+        },
+        "minimum_independent_authorities": {
+          "type": "integer"
+        },
+        "minimum_per_archetype": {
+          "type": "integer"
+        },
+        "minimum_positions": {
+          "type": "integer"
+        },
+        "require_full_candidate_coverage": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "calibration_bins",
+        "minimum_adjudication_agreement",
+        "minimum_independent_authorities",
+        "minimum_per_archetype",
+        "minimum_positions",
+        "require_full_candidate_coverage"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "promotion_thresholds": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_expected_regret": {
+          "type": "number"
+        },
+        "maximum_illegal_action_rate": {
+          "type": "number"
+        },
+        "minimum_examples": {
+          "type": "integer"
+        },
+        "minimum_policy_accuracy": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "maximum_expected_regret",
+        "maximum_illegal_action_rate",
+        "minimum_examples",
+        "minimum_policy_accuracy"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "strata": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "symmetry": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_cases": {
+          "type": "integer"
+        },
+        "required_transforms": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "seed_start": {
+          "type": "integer"
+        },
+        "tolerance": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "maximum_cases",
+        "required_transforms",
+        "seed_start",
+        "tolerance"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "automatic_promotion",
+    "group_split_by_game_hash",
+    "local_preanalysis",
+    "metrics",
+    "paired_comparison",
+    "permanent_holdout",
+    "profile",
+    "promotion_thresholds",
+    "schema_version",
+    "strata",
+    "symmetry"
+  ],
+  "type": "object"
+}

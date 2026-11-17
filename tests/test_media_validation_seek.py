@@ -1,0 +1,119 @@
+from pathlib import Path
+import json
+from types import SimpleNamespace
+
+from PIL import Image
+import pytest
+
+from baloot_platform.video import media_validation
+from scripts import generate_media_probe
+
+
+def test_video_reexports_the_shared_media_boundary():
+    from baloot_platform.video import media_probe as shared_media
+
+    for name in ("run_media_command", "probe_media", "validate_media_probe"):
+        assert getattr(media_validation, name) is getattr(shared_media, name)
+
+
+@pytest.mark.parametrize("ci", [None, "false", "true"])
+def test_ci_media_threads_cap_each_decoder_filters_and_encoder(monkeypatch, ci):
+    if ci is None:
+        monkeypatch.delenv("CI", raising=False)
+    else:
+        monkeypatch.setenv("CI", ci)
+    commands = []
+    monkeypatch.setattr(media_validation.subprocess, "run", lambda command, **kwargs: commands.append(command))
+    command = ["ffmpeg", "-i", "video.mp4", "-i", "audio.wav", "-c:v", "copy", "finished.mp4"]
+    media_validation.run_media_command(command)
+    expected = [
+        "ffmpeg", "-filter_threads", "4", "-filter_complex_threads", "4",
+        "-threads", "4", "-i", "video.mp4", "-threads", "4", "-i", "audio.wav",
+        "-c:v", "copy", "-threads", "4", "finished.mp4",
+    ]
+    assert commands == [expected if ci == "true" else command]
+    assert command == ["ffmpeg", "-i", "video.mp4", "-i", "audio.wav", "-c:v", "copy", "finished.mp4"]
+
+
+def test_ci_frame_count_decoder_is_capped_without_changing_version_commands(monkeypatch):
+    monkeypatch.setenv("CI", "true")
+    commands = []
+    monkeypatch.setattr(media_validation.subprocess, "run", lambda command, **kwargs: commands.append(command))
+    media_validation.run_media_command(["ffprobe", "-count_frames", "video.mp4"])
+    media_validation.run_media_command(["ffmpeg", "-version"])
+    assert commands == [
+        ["ffprobe", "-threads", "4", "-count_frames", "video.mp4"],
+        ["ffmpeg", "-version"],
+    ]
+
+
+def test_playback_checkpoint_seeks_to_exact_frame_time(tmp_path, monkeypatch):
+    source = tmp_path / "source.png"
+    Image.new("RGB", (4, 4), "red").save(source)
+    commands = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        Image.new("RGB", (4, 4), "red").save(command[-1])
+
+    monkeypatch.setattr(media_validation, "run_media_command", fake_run)
+    result = media_validation.compare_source_frame(
+        tmp_path / "video.mp4", source, frame=4079, fps=60,
+        ffmpeg=Path("ffmpeg.exe"),
+    )
+
+    command = commands[0]
+    assert command.index("-ss") < command.index("-i")
+    assert command[command.index("-ss") + 1] == "67.983333333333"
+    assert result["frame"] == 4079
+    assert result["meanAbsoluteError"] == 0
+
+
+@pytest.mark.parametrize("fps", [24, 60])
+def test_verify_media_compares_checkpoints_at_frozen_bundle_fps(tmp_path, monkeypatch, fps):
+    module = generate_media_probe
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"encoded media stand-in")
+    bundle_path = tmp_path / "bundle.json"
+    bundle_path.write_text("{}", encoding="utf-8")
+    value = {
+        "render": {"width": 4, "height": 4, "fps": fps},
+        "renderer": {},
+        "timeline": {"totalFrames": 100, "segments": [{"stage": "reveal", "startFrame": 48}]},
+    }
+    monkeypatch.setattr(module, "RenderBundleV1", lambda _: SimpleNamespace(
+        value=value, bundle_sha256="frozen-bundle", verify=lambda: True,
+    ))
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({
+        "bundleSha256": "frozen-bundle",
+        "video": {"sha256": module.sha256(video), "bytes": video.stat().st_size},
+    }), encoding="utf-8")
+    source = tmp_path / "reveal.png"
+    Image.new("RGB", (4, 4), "red").save(source)
+    probe = {"video": {
+        "codec": "h264", "width": 4, "height": 4, "frameRate": f"{fps}/1",
+        "pixelFormat": "yuv420p", "colorSpace": "bt709", "colorPrimaries": "bt709",
+        "colorTransfer": "bt709", "decodedFrames": 100,
+    }, "audio": {"codec": "aac", "sampleRate": 48000, "channels": 2}}
+    monkeypatch.setattr(module, "probe_media", lambda *_args, **_kwargs: probe)
+    monkeypatch.setattr(module, "probe_loudness", lambda *_args, **_kwargs: {
+        "integratedLufs": -16, "targetLufs": -16, "truePeakDbtp": -2,
+    })
+    commands = []
+
+    def fake_ffmpeg(command, **_kwargs):
+        commands.append(command)
+        Image.new("RGB", (4, 4), "red").save(command[-1])
+
+    monkeypatch.setattr(media_validation, "run_media_command", fake_ffmpeg)
+    result = module.verify_media({
+        "video": video, "bundle": bundle_path, "manifest": manifest,
+        "checkpoints": ((source.name, "reveal", 3),),
+    }, ffmpeg=Path("ffmpeg"), ffprobe=Path("ffprobe"), target_lufs=-16)
+
+    assert len(commands) == 1
+    assert commands[0][commands[0].index("-ss") + 1] == f"{51 / fps:.12f}"
+    assert result["sourceComparisons"][0]["frame"] == 51
+    assert result["sourceComparisons"][0]["meanAbsoluteError"] == 0

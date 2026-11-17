@@ -1,0 +1,93 @@
+schema_version: 1
+profile:
+  id: saudi_adjudication_researched_v1
+  version: 1.0.0
+  status: researched_default_unratified
+violations:
+  misdeal:
+    default_outcome: redeal_round
+    points_delta: [0, 0]
+    requires_referee: true
+    requires_video_review: false
+    notes_ar: يعاد توزيع اللفة بعد تثبيت سبب الخلل وحفظ السجل الأصلي.
+  exposed_card:
+    default_outcome: replay_from_event
+    points_delta: [0, 0]
+    requires_referee: true
+    requires_video_review: true
+    notes_ar: يراجع وقت ظهور الورقة والأثر على المعلومات المتاحة قبل إعادة المسار.
+  illegal_card:
+    default_outcome: correct_action
+    points_delta: [0, 0]
+    requires_referee: true
+    requires_video_review: true
+    notes_ar: يعاد القرار من الحالة السابقة إذا أمكن دون حذف السجل الأصلي.
+  out_of_turn:
+    default_outcome: correct_action
+    points_delta: [0, 0]
+    requires_referee: true
+    requires_video_review: true
+    notes_ar: يثبت ترتيب الدور وتصحح الحالة من الحدث السابق.
+  wrong_bid:
+    default_outcome: replay_from_event
+    points_delta: [0, 0]
+    requires_referee: true
+    requires_video_review: true
+    notes_ar: يعاد الطلب من آخر حالة عامة سليمة.
+  communication:
+    default_outcome: warning
+    points_delta: [0, 0]
+    requires_referee: true
+    requires_video_review: true
+    notes_ar: لا تعتمد عقوبة تلقائية قبل مراجعة التسجيل والسياق.
+  timeout:
+    default_outcome: warning
+    points_delta: [0, 0]
+    requires_referee: false
+    requires_video_review: false
+    notes_ar: يطبق التسلسل المحدد في سياسة الوقت مع حق الحكم في الاستثناء الفني.
+  disconnect:
+    default_outcome: replay_from_event
+    points_delta: [0, 0]
+    requires_referee: false
+    requires_video_review: false
+    notes_ar: تحفظ الحالة ويعطى اللاعب مهلة العودة ثم يطبق بديل أو حكم فني.
+  claim:
+    default_outcome: custom
+    points_delta: [0, 0]
+    requires_referee: true
+    requires_video_review: false
+    notes_ar: يراجع الادعاء من الحالة الكاملة ولا يقبل تلقائيا.
+  concession:
+    default_outcome: custom
+    points_delta: [0, 0]
+    requires_referee: true
+    requires_video_review: false
+    notes_ar: تثبت الموافقة ونطاق التنازل قبل إنهاء اللفة أو الصكة.
+  score_dispute:
+    default_outcome: correct_action
+    points_delta: [0, 0]
+    requires_referee: true
+    requires_video_review: false
+    notes_ar: تعاد الحسبة من سجل الأحداث والمشاريع دون تعديل التاريخ الأصلي.
+  technical_failure:
+    default_outcome: technical_draw
+    points_delta: [0, 0]
+    requires_referee: true
+    requires_video_review: false
+    notes_ar: يفصل الخلل الفني عن أخطاء اللعب ويعالج وفقا لسياسة البطولة.
+  other:
+    default_outcome: custom
+    points_delta: [0, 0]
+    requires_referee: true
+    requires_video_review: false
+    notes_ar: يحتاج قرار حكم موثق.
+appeals:
+  enabled: true
+  maximum_levels: 1
+  require_new_referee: true
+  preserve_original_ruling: true
+audit:
+  immutable_cases: true
+  hash_chain: true
+  preserve_evidence: true

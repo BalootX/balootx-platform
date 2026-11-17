@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#071d19" />
+  <title>منصة البلوت</title>
+  <link rel="stylesheet" href="/app-assets/app.css" />
+  <link rel="stylesheet" href="/app-assets/card-preview.css" />
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">ب</span><div><strong>منصة البلوت</strong><small>لعب · تحدّي · تعلّم</small></div></div>
+    <nav id="nav">
+      <button class="nav-item active" data-view="home">الرئيسية</button>
+      <button class="nav-item" data-view="shared">شارك لفة أو صكّة</button>
+      <button class="nav-item" data-view="live">طاولة مباشرة</button>
+      <button class="nav-item" data-view="replay">الإعادات و«ليش؟»</button>
+      <button class="nav-item" data-view="learn">التعلّم</button>
+      <button class="nav-item" data-view="referee">الحكم والمراجعة</button>
+    </nav>
+    <div class="identity" id="identityCard">
+      <span class="status-dot"></span><div><strong id="identityName">غير مسجّل</strong><small>الدخول اختياري</small></div>
+      <button class="ghost compact" id="guestButton">ابدأ كضيف</button>
+    </div>
+  </aside>
+
+  <main class="content">
+    <header class="topbar">
+      <div><h1 id="viewTitle">جاهز للعب؟</h1><p id="viewSubtitle">ابدأ بسرعة أو شارك نفس البداية مع أصحابك.</p></div>
+      <div class="top-actions"><span class="pill">الإعداد القياسي · ١٥٢</span><button class="icon-button" id="refreshButton" aria-label="تحديث">↻</button></div>
+    </header>
+
+    <section class="view active" data-view-panel="home">
+      <div class="hero">
+        <div class="hero-copy"><span class="eyebrow">نفس الورق، القرار هو الفرق</span><h2>اختبر مهارتك في بيئة موحّدة</h2><p>شارك لفة أو صكّة كاملة. كل لاعب يحصل على نفس الورق، نفس الإعدادات، نفس اللاعبين الآليين ونفس ترتيب التوزيع.</p><div class="actions"><button class="primary" data-jump="shared">شارك الآن</button><button class="secondary" data-jump="live">افتح طاولة مباشرة</button></div></div>
+        <div class="table-preview" aria-label="معاينة طاولة بلوت"><div class="seat north">شمال</div><div class="seat west">غرب</div><div class="seat east">شرق</div><div class="seat south">أنت</div><div class="trick"><img src="/card-assets/A_clubs.svg" alt="A♣"><img src="/card-assets/K_clubs.svg" alt="K♣"><img src="/card-assets/10_clubs.svg" alt="10♣"><img src="/card-assets/A_hearts.svg" alt="A♥"></div></div>
+      </div>
+      <div class="grid three">
+        <article class="feature"><span>١</span><h3>لفة موحّدة</h3><p>جولة واحدة بنفس البداية للمقارنة العادلة.</p></article>
+        <article class="feature"><span>١٥٢</span><h3>صكّة كاملة</h3><p>تسلسل لفات ثابت حتى نهاية الصكّة.</p></article>
+        <article class="feature"><span>ليش؟</span><h3>شرح بسيط</h3><p>افتح أي قرار بعد اللعب واعرف سببه بلغة واضحة.</p></article>
+      </div>
+    </section>
+
+    <section class="view" data-view-panel="shared">
+      <div class="split">
+        <form class="card form-card" id="sharedForm">
+          <div class="card-heading"><div><span class="eyebrow">إنشاء تحدّي</span><h2>وش تبي تشارك؟</h2></div></div>
+          <div class="segmented" role="radiogroup"><label><input type="radio" name="scope" value="laffa" checked><span>لفة واحدة</span></label><label><input type="radio" name="scope" value="sakka"><span>صكّة كاملة</span></label></div>
+          <div class="form-grid">
+            <label><span>البداية</span><select name="dealer"><option value="east">الشرق</option><option value="north">الشمال</option><option value="west">الغرب</option><option value="south">الجنوب</option></select></label>
+            <label><span>مقعدك</span><select name="observerSeat"><option value="south">الجنوب</option><option value="north">الشمال</option><option value="west">الغرب</option><option value="east">الشرق</option></select></label>
+            <label><span>نقاطنا</span><input name="usScore" type="number" value="0" min="0" max="500"></label>
+            <label><span>نقاطهم</span><input name="themScore" type="number" value="0" min="0" max="500"></label>
+            <label><span>النمط</span><select name="rulesProfile"><option value="full">كامل</option><option value="sun_only">صن فقط</option><option value="hokum_only">حكم فقط</option></select></label>
+            <label><span>الظهور</span><select name="visibility"><option value="unlisted">برمز فقط</option><option value="private">خاص</option><option value="public">عام</option></select></label>
+          </div>
+          <button class="primary full" type="submit">أنشئ البداية الموحّدة</button>
+        </form>
+        <div class="card result-card"><span class="eyebrow">الكود</span><div class="share-code" id="shareCode">— — — —</div><p id="shareMessage">بعد الإنشاء يظهر الكود هنا، وتبقى الأوراق المستقبلية مخفية ومثبتة بالتعهد.</p><button class="secondary full" id="copyCode" disabled>نسخ الكود</button></div>
+      </div>
+      <div class="card"><div class="card-heading"><div><h3>ادخل بكود</h3><p>انضم لتحدّي أرسله لك أحد أصحابك.</p></div></div><form class="join-row" id="joinSharedForm"><input name="code" placeholder="مثال: AB12CD34" maxlength="20"><button class="primary">فتح</button></form><pre class="result" id="sharedResult"></pre></div>
+    </section>
+
+    <section class="view" data-view-panel="live">
+      <div class="grid two">
+        <form class="card form-card" id="liveCreateForm"><span class="eyebrow">أربعة لاعبين</span><h2>طاولة مباشرة</h2><p>كل مقعد يتحكم به لاعب واحد، مع جاهزية، مؤقت، عودة بعد الانقطاع وحكم اختياري.</p><div class="form-grid"><label><span>المهلة لكل دور</span><input name="turnSeconds" type="number" value="45" min="5" max="600"></label><label><span>السماح بالمشاهدين</span><select name="allowSpectators"><option value="true">نعم</option><option value="false">لا</option></select></label></div><button class="primary full">إنشاء طاولة</button></form>
+        <form class="card form-card" id="liveJoinForm"><span class="eyebrow">انضمام</span><h2>ادخل للطاولة</h2><label><span>رمز الغرفة</span><input name="code" required></label><label><span>المقعد</span><select name="seat"><option value="south">الجنوب</option><option value="north">الشمال</option><option value="west">الغرب</option><option value="east">الشرق</option></select></label><button class="secondary full">احجز المقعد</button></form>
+      </div>
+      <div class="card live-board" id="liveBoard"><div class="live-status"><strong>لا توجد طاولة مفتوحة</strong><span class="pill muted">انتظار</span></div><div class="seat-grid"><div data-seat="north">الشمال</div><div data-seat="west">الغرب</div><div class="felt"><span>الطاولة</span></div><div data-seat="east">الشرق</div><div data-seat="south">الجنوب</div></div><pre class="result" id="liveResult"></pre></div>
+    </section>
+
+    <section class="view" data-view-panel="replay">
+      <div class="card"><span class="eyebrow">الإعادة</span><h2>افتح أي لعبة أو قرار</h2><form class="join-row" id="replayForm"><input name="identifier" placeholder="رقم اللعبة أو الرمز"><button class="primary">فتح</button></form></div>
+      <div class="grid two"><article class="card"><h3>وش كان يعرف؟</h3><p>يعرض النظام المعلومات العامة المتاحة لحظة القرار فقط.</p></article><article class="card"><h3>ليش لعبها؟</h3><p>حقائق اللعب، حساب المحرك، قراءة محتملة، أو سبب سجله اللاعب.</p></article></div>
+      <pre class="result card" id="replayResult"></pre>
+    </section>
+
+    <section class="view" data-view-panel="learn">
+      <div class="card"><span class="eyebrow">حلقة التعلّم</span><h2>اقتراح أفضل من اللاعب أو الخبير</h2><p>لا يتحول أي اقتراح إلى حقيقة تلقائيا. يفحص قانونيا، يسجل سببه، يراجع، ثم يدخل بيانات التدريب بعد تحقق الإجماع.</p><div class="reason-chips"><button>عدّ الورق</button><button>إشارة الخوي</button><button>التحكم بالحكم</button><button>النتيجة</button><button>المخاطرة</button></div></div>
+      <div class="grid three"><article class="metric"><strong>٠</strong><span>مخالفات قانونية مسموحة للنموذج</span></article><article class="metric"><strong>نسخ</strong><span>كل نموذج قابل للرجوع</span></article><article class="metric"><strong>تتبّع</strong><span>كل بيانات التدريب لها أصل</span></article></div>
+    </section>
+
+    <section class="view" data-view-panel="referee">
+      <div class="card"><span class="eyebrow">الحكم والمراجعة</span><h2>قضية موثّقة بدون حذف التاريخ</h2><form class="form-grid" id="caseForm"><label><span>رقم اللعبة</span><input name="gameId" required></label><label><span>نوع الحالة</span><select name="violation"><option value="illegal_card">ورقة غير قانونية</option><option value="out_of_turn">لعب خارج الدور</option><option value="misdeal">خلل توزيع</option><option value="timeout">تأخير</option><option value="disconnect">انقطاع</option><option value="score_dispute">اعتراض حسبة</option></select></label><label class="wide"><span>الوصف</span><textarea name="description" rows="3" required></textarea></label><button class="primary">فتح قضية</button></form><pre class="result" id="caseResult"></pre></div>
+    </section>
+  <section class="section"><div class="section-head"><div><h2>مراجعة المجتمع</h2><p>اقترح لعبًا أفضل وشارك في تعلّم محكوم.</p></div><a class="link" href="/hitl-studio">افتح مراجعات اللعب ←</a></div></section></main>
+</div>
+<div class="toast" id="toast"></div>
+<script src="/app-assets/app.js" defer></script>
+</body>
+</html>

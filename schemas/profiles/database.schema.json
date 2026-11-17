@@ -1,0 +1,169 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/database.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "artifacts": {
+      "additionalProperties": false,
+      "properties": {
+        "content_addressed": {
+          "type": "boolean"
+        },
+        "object_versioning": {
+          "type": "boolean"
+        },
+        "published_object_lock": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "content_addressed",
+        "object_versioning",
+        "published_object_lock"
+      ],
+      "type": "object"
+    },
+    "backend": {
+      "additionalProperties": false,
+      "properties": {
+        "analytics_projection": {
+          "type": "string"
+        },
+        "artifact_store": {
+          "type": "string"
+        },
+        "authoritative": {
+          "type": "string"
+        },
+        "cache": {
+          "type": "string"
+        },
+        "development": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "analytics_projection",
+        "artifact_store",
+        "authoritative",
+        "cache",
+        "development"
+      ],
+      "type": "object"
+    },
+    "events": {
+      "additionalProperties": false,
+      "properties": {
+        "append_only": {
+          "type": "boolean"
+        },
+        "canonical_binary": {
+          "type": "string"
+        },
+        "corrections_are_descendants": {
+          "type": "boolean"
+        },
+        "format": {
+          "type": "string"
+        },
+        "hash_algorithm": {
+          "type": "string"
+        },
+        "monthly_partitioning": {
+          "type": "boolean"
+        },
+        "snapshots_every_events": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "append_only",
+        "canonical_binary",
+        "corrections_are_descendants",
+        "format",
+        "hash_algorithm",
+        "monthly_partitioning",
+        "snapshots_every_events"
+      ],
+      "type": "object"
+    },
+    "jobs": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_policy": {
+          "type": "string"
+        },
+        "heartbeat_seconds": {
+          "type": "integer"
+        },
+        "lease_seconds": {
+          "type": "integer"
+        },
+        "maximum_attempts": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "claim_policy",
+        "heartbeat_seconds",
+        "lease_seconds",
+        "maximum_attempts"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "security": {
+      "additionalProperties": false,
+      "properties": {
+        "application_roles": {
+          "type": "boolean"
+        },
+        "row_level_security": {
+          "type": "boolean"
+        },
+        "tenant_column": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "application_roles",
+        "row_level_security",
+        "tenant_column"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "artifacts",
+    "backend",
+    "events",
+    "jobs",
+    "profile",
+    "schema_version",
+    "security"
+  ],
+  "type": "object"
+}

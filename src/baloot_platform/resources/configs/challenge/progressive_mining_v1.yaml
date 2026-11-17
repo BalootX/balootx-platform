@@ -1,0 +1,83 @@
+schema_version: 1
+profile:
+  id: progressive_challenge_mining_v1
+  version: 1.0.0
+  status: production_candidate
+sources:
+  simulation: true
+  history: true
+  expert_import: true
+screening:
+  minimum_legal_actions: 2
+  shallow_samples: 12
+  retain_fraction: 0.15
+  maximum_candidates_per_seed: 4
+  shallow_exact_allocation_limit: 800
+  shallow_exact_search_remaining: 5
+  maximum_sampling_attempts: 1000
+  exact_search_max_nodes: 10000
+  exact_search_max_seconds: 0.03
+confirmation:
+  deep_samples: 96
+  maximum_sampling_attempts: 4000
+  exact_allocation_limit: 20000
+  exact_search_remaining: 7
+  exact_search_max_nodes: 40000
+  exact_search_max_seconds: 0.15
+  require_legal_replay: true
+publication:
+  minimum_publishability: 0.64
+  minimum_robustness: 0.35
+  minimum_archetype_score: 0.50
+  require_human_review: true
+  reviewer_quorum: 2
+diversity:
+  fingerprint_version: 1
+  maximum_per_fingerprint: 1
+  maximum_per_archetype_per_batch: 20
+resource_limits:
+  maximum_seeds: 5000
+  maximum_seconds: 7200
+  worker_batch_size: 16
+scenario_defaults:
+  seed: 917
+  viewer: south
+  dealer: east
+  round_number: 1
+  cut_position: null
+  contract: hokum
+  buyer: null
+  trump_suit: null
+  match_score: [0, 0]
+  escalation: []
+  escalation_level: normal
+  escalation_mode: open
+  require_project: true
+  pause_trick_min: 3
+  pause_trick_max: 6
+  requested_samples: 24
+  exact_allocation_limit: 4000
+  exact_search_max_remaining: 8
+  maximum_sampling_attempts: 50000
+  exact_search_max_nodes: 120000
+  exact_search_max_seconds: 1.0
+  exact_search_max_depth: 32
+  exact_search_max_cache_entries: 100000
+  max_seed_attempts: 200
+  max_candidates_per_seed: 4
+  minimum_hidden_deals: 1
+  minimum_expected_margin_gap: 0.0
+  minimum_win_probability_gap: 0.0
+  require_exact_analysis: false
+  target_debate_score: 65
+  agent_profiles: []
+match_defaults:
+  seed: 1000
+  dealer: east
+  viewer: south
+  maximum_rounds: 16
+  contract: null
+  trump_suit: null
+  require_project: false
+  requested_samples: 8
+  exact_search_max_remaining: 6

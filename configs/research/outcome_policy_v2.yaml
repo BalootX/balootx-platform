@@ -1,0 +1,56 @@
+schemaVersion: 1
+id: outcome_policy_v2
+informed:
+  particles: 8
+  iterations: 64
+  maximumSamplingAttempts: 2000
+  bidSamples: 4
+  deliberateMistakes: false
+  bidTieBreak: [sun, hokum, ashkal, pass]
+construction:
+  sunOpeningAces: 3
+  hokumOpeningHonors: [jack, nine]
+optimal:
+  maximumConflicts: 250000
+  executionBudget:
+    schemaVersion: 1
+    maximumWallSeconds: 5
+    maximumEvidenceBytes: 67108864
+    maximumEscalationDecisions: 20
+  proofBudget:
+    maximumNodes: 50000
+    maximumDepth: 64
+    maximumHorizonActions: 64
+    maximumHiddenWorlds: 1
+    maximumWallSeconds: 5
+    maximumCpuSeconds: 5
+    maximumCacheEntries: 10000
+    maximumCacheBytes: 67108864
+    cancellationCheckIntervalNodes: 16
+    maximumWorkers: 1
+    maximumLineCountNodes: 50000
+    maximumStateSpace: 1000000
+    nativeObserved:
+      schemaVersion: 2
+      counterexampleObjective: minimum_utility
+      maximumIterations: 64
+      maximumQueries: 256
+      maximumObservations: 1024
+      maximumBoundPrefixes: 64
+      maximumCachedPrefixesPerBranch: 256
+  onIncomplete: reject
+cardPolicy:
+  method: native_dd_pimc_v1
+  particles: 32
+  maximumSamplingAttempts: 2000
+  maximumWallSeconds: 5
+  maximumCpuSeconds: 5
+  maximumNodes: 10000000
+  maximumCacheEntries: 1000000
+  samplingSeed: 0
+  tieBreak: stable_action_id
+opportunityOrder: [north, west, south, east]
+metadata:
+  meaning: Exact double-dummy card play, or sampled PIMC with exact values in each of 32 consistent worlds. Auctions remain informed or fixed by spec.
+  decisionBudgetJustification: Same lead-approved five-second wall/CPU cap (measured 2.15s position); DD counts direct tree visits, not CP-SAT graph nodes. Historical v1 is unchanged.
+  maturity: Prototype; early-deal DD latency still misses the throughput target. Incomplete decisions reject, without fallback.

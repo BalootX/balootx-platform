@@ -1,0 +1,13 @@
+{
+  "name": "@baloot/platform-client",
+  "version": "21.1.0",
+  "type": "module",
+  "exports": "./src/client.ts",
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  },
+  "private": true
+}

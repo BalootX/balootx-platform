@@ -1,0 +1,232 @@
+schema_version: 1
+profile:
+  id: default_agent_lineup
+  version: 2.9.0
+  status: governed_candidate
+default_profile: strong
+profiles:
+  beginner:
+    display_name_ar: مبتدئ
+    skill: 0.3
+    buying_strength: 0.35
+    play_search_budget: 0
+    play_search_mode: disabled
+    play_search_objective: match_point_margin
+    play_search_max_remaining: 16
+    play_search_samples: 4
+    play_exact_allocation_limit: 100
+    play_exact_search_remaining: 6
+    play_maximum_sampling_attempts: 2000
+    risk_tolerance: 0.55
+    mistake_probability: 0.18
+    deception_probability: 0.0
+    signal_discipline: 0.2
+    use_production_model: false
+    model_weight: 0.0
+    minimum_model_confidence: 0.5
+    bid_samples: 0
+    maximum_deception_regret: 0.0
+    maximum_deception_win_drop: 0.0
+  regular:
+    display_name_ar: لاعب عادي
+    skill: 0.52
+    buying_strength: 0.52
+    play_search_budget: 200
+    play_search_mode: disabled
+    play_search_objective: match_point_margin
+    play_search_max_remaining: 16
+    play_search_samples: 4
+    play_exact_allocation_limit: 100
+    play_exact_search_remaining: 6
+    play_maximum_sampling_attempts: 2000
+    risk_tolerance: 0.5
+    mistake_probability: 0.08
+    deception_probability: 0.01
+    signal_discipline: 0.45
+    use_production_model: true
+    model_weight: 0.35
+    minimum_model_confidence: 0.42
+    bid_samples: 2
+    maximum_deception_regret: 0.75
+    maximum_deception_win_drop: 0.008
+  foundry_throughput:
+    display_name_ar: توليد المصنع
+    skill: 1.0
+    buying_strength: 0.74
+    play_search_budget: 0
+    play_search_mode: disabled
+    play_search_objective: match_point_margin
+    play_search_max_remaining: 16
+    play_search_samples: 4
+    play_exact_allocation_limit: 100
+    play_exact_search_remaining: 8
+    play_maximum_sampling_attempts: 2000
+    risk_tolerance: 0.48
+    mistake_probability: 0.0
+    deception_probability: 0.0
+    signal_discipline: 1.0
+    use_production_model: false
+    model_weight: 0.0
+    minimum_model_confidence: 0.36
+    bid_samples: 0
+    maximum_deception_regret: 0.0
+    maximum_deception_win_drop: 0.0
+  foundry_balanced:
+    display_name_ar: توليد المصنع المتوازن
+    skill: 1.0
+    buying_strength: 0.9
+    play_search_budget: 1000
+    play_search_mode: paired_information_set
+    play_search_objective: match_point_margin
+    play_search_max_remaining: 16
+    play_search_samples: 2
+    play_exact_allocation_limit: 1
+    play_exact_search_remaining: 8
+    play_maximum_sampling_attempts: 2000
+    risk_tolerance: 0.48
+    mistake_probability: 0.0
+    deception_probability: 0.0
+    signal_discipline: 1.0
+    use_production_model: false
+    model_weight: 0.0
+    minimum_model_confidence: 0.36
+    bid_samples: 2
+    maximum_deception_regret: 0.0
+    maximum_deception_win_drop: 0.0
+  strong:
+    display_name_ar: لاعب قوي
+    skill: 0.75
+    buying_strength: 0.74
+    play_search_budget: 2000
+    play_search_mode: disabled
+    play_search_objective: match_point_margin
+    play_search_max_remaining: 16
+    play_search_samples: 4
+    play_exact_allocation_limit: 100
+    play_exact_search_remaining: 8
+    play_maximum_sampling_attempts: 2000
+    risk_tolerance: 0.48
+    mistake_probability: 0.025
+    deception_probability: 0.025
+    signal_discipline: 0.72
+    use_production_model: true
+    model_weight: 0.6
+    minimum_model_confidence: 0.36
+    bid_samples: 6
+    maximum_deception_regret: 1.25
+    maximum_deception_win_drop: 0.012
+  expert:
+    display_name_ar: خبير
+    skill: 0.91
+    buying_strength: 0.9
+    play_search_budget: 12000
+    play_search_mode: paired_information_set
+    play_search_objective: match_point_margin
+    play_search_max_remaining: 16
+    play_search_samples: 16
+    play_exact_allocation_limit: 20000
+    play_exact_search_remaining: 12
+    play_maximum_sampling_attempts: 8000
+    risk_tolerance: 0.46
+    mistake_probability: 0.005
+    deception_probability: 0.04
+    signal_discipline: 0.88
+    use_production_model: true
+    model_weight: 0.8
+    minimum_model_confidence: 0.3
+    bid_samples: 16
+    maximum_deception_regret: 1.75
+    maximum_deception_win_drop: 0.018
+  expert_deterministic:
+    display_name_ar: خبير حتمي
+    skill: 1.0
+    buying_strength: 0.9
+    play_search_budget: 12000
+    play_search_mode: paired_information_set
+    play_search_objective: match_point_margin
+    play_search_max_remaining: 16
+    play_search_samples: 16
+    play_exact_allocation_limit: 20000
+    play_exact_search_remaining: 12
+    play_maximum_sampling_attempts: 8000
+    risk_tolerance: 0.46
+    mistake_probability: 0.0
+    deception_probability: 0.0
+    signal_discipline: 1.0
+    use_production_model: true
+    model_weight: 0.8
+    minimum_model_confidence: 0.3
+    bid_samples: 16
+    maximum_deception_regret: 0.0
+    maximum_deception_win_drop: 0.0
+  finalist_candidate:
+    display_name_ar: مرشح نهائي حتمي
+    skill: 1.0
+    buying_strength: 0.9
+    play_search_budget: 8000
+    play_search_mode: paired_information_set
+    play_search_objective: match_win_probability
+    play_search_max_remaining: 32
+    play_search_samples: 192
+    play_exact_allocation_limit: 128
+    play_exact_search_remaining: 9
+    play_maximum_sampling_attempts: 6000
+    risk_tolerance: 0.46
+    mistake_probability: 0.0
+    deception_probability: 0.0
+    signal_discipline: 1.0
+    use_production_model: false
+    model_weight: 0.0
+    minimum_model_confidence: 0.3
+    bid_samples: 192
+    maximum_deception_regret: 0.0
+    maximum_deception_win_drop: 0.0
+  deceptive:
+    display_name_ar: قوي ومخادع
+    skill: 0.82
+    buying_strength: 0.79
+    play_search_budget: 6000
+    play_search_mode: paired_information_set
+    play_search_objective: match_point_margin
+    play_search_max_remaining: 16
+    play_search_samples: 8
+    play_exact_allocation_limit: 12000
+    play_exact_search_remaining: 12
+    play_maximum_sampling_attempts: 4000
+    risk_tolerance: 0.62
+    mistake_probability: 0.015
+    deception_probability: 0.12
+    signal_discipline: 0.76
+    use_production_model: true
+    model_weight: 0.65
+    minimum_model_confidence: 0.34
+    bid_samples: 10
+    maximum_deception_regret: 2.25
+    maximum_deception_win_drop: 0.025
+  solver_fast:
+    display_name_ar: محرك التحليل
+    skill: 1.0
+    buying_strength: 1.0
+    play_search_budget: 12000
+    play_search_mode: paired_information_set
+    play_search_objective: match_point_margin
+    play_search_max_remaining: 16
+    play_search_samples: 16
+    play_exact_allocation_limit: 64
+    play_exact_search_remaining: 12
+    play_maximum_sampling_attempts: 8000
+    risk_tolerance: 0.5
+    mistake_probability: 0.0
+    deception_probability: 0.0
+    signal_discipline: 1.0
+    use_production_model: true
+    model_weight: 1.0
+    minimum_model_confidence: 0.3
+    bid_samples: 32
+    maximum_deception_regret: 0.0
+    maximum_deception_win_drop: 0.0
+default_lineup:
+  north: strong
+  west: strong
+  south: strong
+  east: strong

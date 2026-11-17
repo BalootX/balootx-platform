@@ -1,0 +1,6 @@
+schemaVersion: 1
+rulesProfile: saudi_federation_2023_v7
+mode: sun
+category: big_swing
+policies:
+  default: optimal

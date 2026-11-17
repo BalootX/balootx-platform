@@ -1,0 +1,100 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/strategy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "analysis_plugin": {
+      "type": "string"
+    },
+    "available_search_plugins": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "bidding_plugin": {
+      "type": "string"
+    },
+    "information_set_mcts": {
+      "additionalProperties": false,
+      "properties": {
+        "exploration": {
+          "type": "number"
+        },
+        "guarantee": {
+          "type": "string"
+        },
+        "iterations": {
+          "type": "integer"
+        },
+        "maximum_tree_depth": {
+          "type": "integer"
+        },
+        "particles": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "exploration",
+        "guarantee",
+        "iterations",
+        "maximum_tree_depth",
+        "particles",
+        "status"
+      ],
+      "type": "object"
+    },
+    "objective": {
+      "type": "string"
+    },
+    "play_plugin": {
+      "type": "string"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "search_plugin": {
+      "type": "string"
+    },
+    "seed_policy": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "analysis_plugin",
+    "available_search_plugins",
+    "bidding_plugin",
+    "information_set_mcts",
+    "objective",
+    "play_plugin",
+    "profile",
+    "schema_version",
+    "search_plugin",
+    "seed_policy"
+  ],
+  "type": "object"
+}

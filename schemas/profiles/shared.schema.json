@@ -1,0 +1,199 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/shared.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "determinism": {
+      "additionalProperties": false,
+      "properties": {
+        "bot_seed_policy": {
+          "type": "string"
+        },
+        "freeze_agent_full_tunings": {
+          "type": "boolean"
+        },
+        "freeze_model_artifacts": {
+          "type": "boolean"
+        },
+        "freeze_rules_and_scoring": {
+          "type": "boolean"
+        },
+        "freeze_strategy_plugins": {
+          "type": "boolean"
+        },
+        "require_reproducible_bot_actions": {
+          "type": "boolean"
+        },
+        "same_action_path_same_result": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "bot_seed_policy",
+        "freeze_agent_full_tunings",
+        "freeze_model_artifacts",
+        "freeze_rules_and_scoring",
+        "freeze_strategy_plugins",
+        "require_reproducible_bot_actions",
+        "same_action_path_same_result"
+      ],
+      "type": "object"
+    },
+    "models": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_modes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default_shared_mode": {
+          "type": "string"
+        },
+        "require_artifact_hash_when_enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "allowed_modes",
+        "default_shared_mode",
+        "require_artifact_hash_when_enabled"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "schedule": {
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "all_pass_consumes_attempt": {
+          "type": "boolean"
+        },
+        "completed_round_consumes_attempt": {
+          "type": "boolean"
+        },
+        "deal_attempts_per_maximum_round": {
+          "type": "integer"
+        },
+        "dealer_progression": {
+          "type": "string"
+        },
+        "maximum_deal_attempts": {
+          "type": "integer"
+        },
+        "minimum_deal_attempts": {
+          "type": "integer"
+        },
+        "preserve_source_schedule_when_branching": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "algorithm",
+        "all_pass_consumes_attempt",
+        "completed_round_consumes_attempt",
+        "deal_attempts_per_maximum_round",
+        "dealer_progression",
+        "maximum_deal_attempts",
+        "minimum_deal_attempts",
+        "preserve_source_schedule_when_branching"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "sharing": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "comparison_requires_identical_environment_hash": {
+          "type": "boolean"
+        },
+        "default_scope": {
+          "type": "string"
+        },
+        "hide_cut_positions": {
+          "type": "boolean"
+        },
+        "hide_future_cards": {
+          "type": "boolean"
+        },
+        "hide_future_seeds": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "allowed_scopes",
+        "comparison_requires_identical_environment_hash",
+        "default_scope",
+        "hide_cut_positions",
+        "hide_future_cards",
+        "hide_future_seeds"
+      ],
+      "type": "object"
+    },
+    "terminology": {
+      "additionalProperties": false,
+      "properties": {
+        "match_ar": {
+          "type": "string"
+        },
+        "round_ar": {
+          "type": "string"
+        },
+        "trick_ar": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "match_ar",
+        "round_ar",
+        "trick_ar"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "determinism",
+    "models",
+    "profile",
+    "schedule",
+    "schema_version",
+    "sharing",
+    "terminology"
+  ],
+  "type": "object"
+}

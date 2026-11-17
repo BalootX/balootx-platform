@@ -1,0 +1,4522 @@
+{
+  "schemaVersion": 7,
+  "episodeId": "baloot-v7-outcome-flip-964644a0aa14",
+  "bundleHash": "e6603746b690d8b2529ff3d7418609874baba3e7088979ca2766699d5d82d1a1",
+  "viewer": "south",
+  "titleAr": "تحدّي بلوت يحسم المباراة",
+  "questionAr": "أي ورقة تربّح المباراة؟",
+  "provenance": {
+    "gameSerial": "BLT-9646-44A0-AA14-ACC8",
+    "gameRecordHash": "964644a0aa14acc8197557dbdca0dcb1fa925003343ca6890a1a7e3702f0eca1",
+    "challengeId": "CHL-EF13DF7B63A443F3D747",
+    "analysisId": "ANL-714702DF6A2E9E00E65E",
+    "modelId": null,
+    "auditId": "AUD-958A32B27211E9EDD826",
+    "decisionId": "DEC-FFF5DCF92443764BB32D"
+  },
+  "decisionIndex": [
+    {
+      "label": "critical_decision",
+      "decisionId": "DEC-FFF5DCF92443764BB32D"
+    },
+    {
+      "label": "question",
+      "decisionId": "DEC-FFF5DCF92443764BB32D"
+    },
+    {
+      "label": "reveal",
+      "decisionId": "DEC-FFF5DCF92443764BB32D"
+    },
+    {
+      "label": "continuation",
+      "decisionId": "DEC-FFF5DCF92443764BB32D"
+    }
+  ],
+  "auditSummary": {
+    "schemaVersion": "7.1.0",
+    "contentContract": {
+      "contract": "actual_deal_flip",
+      "truthLevel": "actual_deal",
+      "valid": true,
+      "bestActionId": "D10",
+      "alternativeActionId": "CA",
+      "copyKey": "actual_deal_winner",
+      "probabilitySwing": 1.0,
+      "marginSwing": 24.0,
+      "robustness": 1.0,
+      "reasons": [
+        "content contract verified"
+      ],
+      "metrics": {
+        "bestProbability": 1.0,
+        "alternativeProbability": 0.0,
+        "bestMargin": 18.0,
+        "alternativeMargin": -6.0,
+        "bestConfidence": [
+          1.0,
+          1.0
+        ],
+        "alternativeConfidence": [
+          0.0,
+          0.0
+        ],
+        "minimumEffectiveSamples": 20.0
+      }
+    },
+    "metricsSemanticsVersion": "2.0.0",
+    "decisionKind": "play",
+    "truth": "actual_deal",
+    "bestAction": "D10",
+    "alternativeAction": "CA",
+    "actualDealBranches": {
+      "D10": {
+        "margin": 18.0,
+        "ownAwardedPoints": 18.0,
+        "opponentAwardedPoints": 0.0,
+        "principalVariation": [
+          "DA",
+          "C10",
+          "CA",
+          "CK",
+          "H10"
+        ],
+        "matchScoreAfter": [
+          158,
+          140
+        ],
+        "matchWinner": "north_south"
+      },
+      "CA": {
+        "margin": -6.0,
+        "ownAwardedPoints": 6.0,
+        "opponentAwardedPoints": 12.0,
+        "principalVariation": [
+          "DA",
+          "C10",
+          "D10",
+          "CK",
+          "H10"
+        ],
+        "matchScoreAfter": [
+          146,
+          152
+        ],
+        "matchWinner": "west_east"
+      }
+    },
+    "observerAnalysis": {
+      "hiddenDeals": 2,
+      "method": "exhaustive_hidden_deals+hard_facts_only",
+      "effectiveSampleSize": 2.0,
+      "exactShare": 1.0
+    },
+    "misleadingCopyGuard": true
+  },
+  "playbackMode": "verified_actual_deal_flip",
+  "shuffle": {
+    "algorithm": "splitmix64_fisher_yates_v1",
+    "seed": 8069,
+    "dealer": "east",
+    "cutter": "south",
+    "cutPosition": 5,
+    "deckCommitment": "6dac298a11d9de5bc3391bcfb04b8053747429fc4fc3ff30c511aed5115433ae",
+    "deckOrder": [
+      9,
+      21,
+      10,
+      2,
+      27,
+      4,
+      5,
+      24,
+      26,
+      30,
+      22,
+      18,
+      11,
+      3,
+      28,
+      15,
+      1,
+      19,
+      8,
+      20,
+      0,
+      14,
+      25,
+      7,
+      12,
+      6,
+      16,
+      17,
+      31,
+      23,
+      29,
+      13
+    ]
+  },
+  "dealTrace": [
+    {
+      "sequence": 0,
+      "stage": "initial",
+      "packet": 1,
+      "seat": "north",
+      "count": 3,
+      "faceUp": false,
+      "cards": [
+        {
+          "id": 9,
+          "code": "H8",
+          "suit": "hearts",
+          "rank": "eight",
+          "symbol": "♥",
+          "label": "8♥"
+        },
+        {
+          "id": 21,
+          "code": "DQ",
+          "suit": "diamonds",
+          "rank": "queen",
+          "symbol": "♦",
+          "label": "Q♦"
+        },
+        {
+          "id": 10,
+          "code": "H9",
+          "suit": "hearts",
+          "rank": "nine",
+          "symbol": "♥",
+          "label": "9♥"
+        }
+      ]
+    },
+    {
+      "sequence": 1,
+      "stage": "initial",
+      "packet": 1,
+      "seat": "west",
+      "count": 3,
+      "faceUp": false,
+      "cards": [
+        {
+          "id": 2,
+          "code": "S9",
+          "suit": "spades",
+          "rank": "nine",
+          "symbol": "♠",
+          "label": "9♠"
+        },
+        {
+          "id": 27,
+          "code": "C10",
+          "suit": "clubs",
+          "rank": "ten",
+          "symbol": "♣",
+          "label": "10♣"
+        },
+        {
+          "id": 4,
+          "code": "SJ",
+          "suit": "spades",
+          "rank": "jack",
+          "symbol": "♠",
+          "label": "J♠"
+        }
+      ]
+    },
+    {
+      "sequence": 2,
+      "stage": "initial",
+      "packet": 1,
+      "seat": "south",
+      "count": 3,
+      "faceUp": false,
+      "cards": [
+        {
+          "id": 5,
+          "code": "SQ",
+          "suit": "spades",
+          "rank": "queen",
+          "symbol": "♠",
+          "label": "Q♠"
+        },
+        {
+          "id": 24,
+          "code": "C7",
+          "suit": "clubs",
+          "rank": "seven",
+          "symbol": "♣",
+          "label": "7♣"
+        },
+        {
+          "id": 26,
+          "code": "C9",
+          "suit": "clubs",
+          "rank": "nine",
+          "symbol": "♣",
+          "label": "9♣"
+        }
+      ]
+    },
+    {
+      "sequence": 3,
+      "stage": "initial",
+      "packet": 1,
+      "seat": "east",
+      "count": 3,
+      "faceUp": false,
+      "cards": [
+        {
+          "id": 30,
+          "code": "CK",
+          "suit": "clubs",
+          "rank": "king",
+          "symbol": "♣",
+          "label": "K♣"
+        },
+        {
+          "id": 22,
+          "code": "DK",
+          "suit": "diamonds",
+          "rank": "king",
+          "symbol": "♦",
+          "label": "K♦"
+        },
+        {
+          "id": 18,
+          "code": "D9",
+          "suit": "diamonds",
+          "rank": "nine",
+          "symbol": "♦",
+          "label": "9♦"
+        }
+      ]
+    },
+    {
+      "sequence": 4,
+      "stage": "initial",
+      "packet": 2,
+      "seat": "north",
+      "count": 2,
+      "faceUp": false,
+      "cards": [
+        {
+          "id": 11,
+          "code": "H10",
+          "suit": "hearts",
+          "rank": "ten",
+          "symbol": "♥",
+          "label": "10♥"
+        },
+        {
+          "id": 3,
+          "code": "S10",
+          "suit": "spades",
+          "rank": "ten",
+          "symbol": "♠",
+          "label": "10♠"
+        }
+      ]
+    },
+    {
+      "sequence": 5,
+      "stage": "initial",
+      "packet": 2,
+      "seat": "west",
+      "count": 2,
+      "faceUp": false,
+      "cards": [
+        {
+          "id": 28,
+          "code": "CJ",
+          "suit": "clubs",
+          "rank": "jack",
+          "symbol": "♣",
+          "label": "J♣"
+        },
+        {
+          "id": 15,
+          "code": "HA",
+          "suit": "hearts",
+          "rank": "ace",
+          "symbol": "♥",
+          "label": "A♥"
+        }
+      ]
+    },
+    {
+      "sequence": 6,
+      "stage": "initial",
+      "packet": 2,
+      "seat": "south",
+      "count": 2,
+      "faceUp": false,
+      "cards": [
+        {
+          "id": 1,
+          "code": "S8",
+          "suit": "spades",
+          "rank": "eight",
+          "symbol": "♠",
+          "label": "8♠"
+        },
+        {
+          "id": 19,
+          "code": "D10",
+          "suit": "diamonds",
+          "rank": "ten",
+          "symbol": "♦",
+          "label": "10♦"
+        }
+      ]
+    },
+    {
+      "sequence": 7,
+      "stage": "initial",
+      "packet": 2,
+      "seat": "east",
+      "count": 2,
+      "faceUp": false,
+      "cards": [
+        {
+          "id": 8,
+          "code": "H7",
+          "suit": "hearts",
+          "rank": "seven",
+          "symbol": "♥",
+          "label": "7♥"
+        },
+        {
+          "id": 20,
+          "code": "DJ",
+          "suit": "diamonds",
+          "rank": "jack",
+          "symbol": "♦",
+          "label": "J♦"
+        }
+      ]
+    },
+    {
+      "sequence": 8,
+      "stage": "purchase",
+      "packet": 0,
+      "seat": null,
+      "count": 1,
+      "faceUp": true,
+      "cards": [
+        {
+          "id": 0,
+          "code": "S7",
+          "suit": "spades",
+          "rank": "seven",
+          "symbol": "♠",
+          "label": "7♠"
+        }
+      ]
+    },
+    {
+      "sequence": 9,
+      "stage": "final",
+      "packet": 1,
+      "seat": "north",
+      "count": 3,
+      "faceUp": false,
+      "cards": [
+        {
+          "id": 14,
+          "code": "HK",
+          "suit": "hearts",
+          "rank": "king",
+          "symbol": "♥",
+          "label": "K♥"
+        },
+        {
+          "id": 25,
+          "code": "C8",
+          "suit": "clubs",
+          "rank": "eight",
+          "symbol": "♣",
+          "label": "8♣"
+        },
+        {
+          "id": 7,
+          "code": "SA",
+          "suit": "spades",
+          "rank": "ace",
+          "symbol": "♠",
+          "label": "A♠"
+        }
+      ]
+    },
+    {
+      "sequence": 10,
+      "stage": "final",
+      "packet": 1,
+      "seat": "west",
+      "count": 2,
+      "faceUp": false,
+      "cards": [
+        {
+          "id": 12,
+          "code": "HJ",
+          "suit": "hearts",
+          "rank": "jack",
+          "symbol": "♥",
+          "label": "J♥"
+        },
+        {
+          "id": 6,
+          "code": "SK",
+          "suit": "spades",
+          "rank": "king",
+          "symbol": "♠",
+          "label": "K♠"
+        }
+      ]
+    },
+    {
+      "sequence": 11,
+      "stage": "final",
+      "packet": 1,
+      "seat": "south",
+      "count": 3,
+      "faceUp": false,
+      "cards": [
+        {
+          "id": 16,
+          "code": "D7",
+          "suit": "diamonds",
+          "rank": "seven",
+          "symbol": "♦",
+          "label": "7♦"
+        },
+        {
+          "id": 17,
+          "code": "D8",
+          "suit": "diamonds",
+          "rank": "eight",
+          "symbol": "♦",
+          "label": "8♦"
+        },
+        {
+          "id": 31,
+          "code": "CA",
+          "suit": "clubs",
+          "rank": "ace",
+          "symbol": "♣",
+          "label": "A♣"
+        }
+      ]
+    },
+    {
+      "sequence": 12,
+      "stage": "final",
+      "packet": 1,
+      "seat": "east",
+      "count": 3,
+      "faceUp": false,
+      "cards": [
+        {
+          "id": 23,
+          "code": "DA",
+          "suit": "diamonds",
+          "rank": "ace",
+          "symbol": "♦",
+          "label": "A♦"
+        },
+        {
+          "id": 29,
+          "code": "CQ",
+          "suit": "clubs",
+          "rank": "queen",
+          "symbol": "♣",
+          "label": "Q♣"
+        },
+        {
+          "id": 13,
+          "code": "HQ",
+          "suit": "hearts",
+          "rank": "queen",
+          "symbol": "♥",
+          "label": "Q♥"
+        }
+      ]
+    }
+  ],
+  "roundNumber": 1,
+  "dealer": "east",
+  "cutter": "south",
+  "buyer": "west",
+  "declarer": "west",
+  "contract": "hokum",
+  "trumpSuit": "spades",
+  "firstLeader": "north",
+  "purchaseCard": {
+    "id": 0,
+    "code": "S7",
+    "suit": "spades",
+    "rank": "seven",
+    "symbol": "♠",
+    "label": "7♠"
+  },
+  "initialFive": {
+    "north": [
+      {
+        "id": 3,
+        "code": "S10",
+        "suit": "spades",
+        "rank": "ten",
+        "symbol": "♠",
+        "label": "10♠"
+      },
+      {
+        "id": 9,
+        "code": "H8",
+        "suit": "hearts",
+        "rank": "eight",
+        "symbol": "♥",
+        "label": "8♥"
+      },
+      {
+        "id": 10,
+        "code": "H9",
+        "suit": "hearts",
+        "rank": "nine",
+        "symbol": "♥",
+        "label": "9♥"
+      },
+      {
+        "id": 11,
+        "code": "H10",
+        "suit": "hearts",
+        "rank": "ten",
+        "symbol": "♥",
+        "label": "10♥"
+      },
+      {
+        "id": 21,
+        "code": "DQ",
+        "suit": "diamonds",
+        "rank": "queen",
+        "symbol": "♦",
+        "label": "Q♦"
+      }
+    ],
+    "west": [
+      {
+        "id": 2,
+        "code": "S9",
+        "suit": "spades",
+        "rank": "nine",
+        "symbol": "♠",
+        "label": "9♠"
+      },
+      {
+        "id": 4,
+        "code": "SJ",
+        "suit": "spades",
+        "rank": "jack",
+        "symbol": "♠",
+        "label": "J♠"
+      },
+      {
+        "id": 15,
+        "code": "HA",
+        "suit": "hearts",
+        "rank": "ace",
+        "symbol": "♥",
+        "label": "A♥"
+      },
+      {
+        "id": 27,
+        "code": "C10",
+        "suit": "clubs",
+        "rank": "ten",
+        "symbol": "♣",
+        "label": "10♣"
+      },
+      {
+        "id": 28,
+        "code": "CJ",
+        "suit": "clubs",
+        "rank": "jack",
+        "symbol": "♣",
+        "label": "J♣"
+      }
+    ],
+    "south": [
+      {
+        "id": 1,
+        "code": "S8",
+        "suit": "spades",
+        "rank": "eight",
+        "symbol": "♠",
+        "label": "8♠"
+      },
+      {
+        "id": 5,
+        "code": "SQ",
+        "suit": "spades",
+        "rank": "queen",
+        "symbol": "♠",
+        "label": "Q♠"
+      },
+      {
+        "id": 19,
+        "code": "D10",
+        "suit": "diamonds",
+        "rank": "ten",
+        "symbol": "♦",
+        "label": "10♦"
+      },
+      {
+        "id": 24,
+        "code": "C7",
+        "suit": "clubs",
+        "rank": "seven",
+        "symbol": "♣",
+        "label": "7♣"
+      },
+      {
+        "id": 26,
+        "code": "C9",
+        "suit": "clubs",
+        "rank": "nine",
+        "symbol": "♣",
+        "label": "9♣"
+      }
+    ],
+    "east": [
+      {
+        "id": 8,
+        "code": "H7",
+        "suit": "hearts",
+        "rank": "seven",
+        "symbol": "♥",
+        "label": "7♥"
+      },
+      {
+        "id": 18,
+        "code": "D9",
+        "suit": "diamonds",
+        "rank": "nine",
+        "symbol": "♦",
+        "label": "9♦"
+      },
+      {
+        "id": 20,
+        "code": "DJ",
+        "suit": "diamonds",
+        "rank": "jack",
+        "symbol": "♦",
+        "label": "J♦"
+      },
+      {
+        "id": 22,
+        "code": "DK",
+        "suit": "diamonds",
+        "rank": "king",
+        "symbol": "♦",
+        "label": "K♦"
+      },
+      {
+        "id": 30,
+        "code": "CK",
+        "suit": "clubs",
+        "rank": "king",
+        "symbol": "♣",
+        "label": "K♣"
+      }
+    ]
+  },
+  "initialHands": {
+    "north": [
+      {
+        "id": 3,
+        "code": "S10",
+        "suit": "spades",
+        "rank": "ten",
+        "symbol": "♠",
+        "label": "10♠"
+      },
+      {
+        "id": 7,
+        "code": "SA",
+        "suit": "spades",
+        "rank": "ace",
+        "symbol": "♠",
+        "label": "A♠"
+      },
+      {
+        "id": 9,
+        "code": "H8",
+        "suit": "hearts",
+        "rank": "eight",
+        "symbol": "♥",
+        "label": "8♥"
+      },
+      {
+        "id": 10,
+        "code": "H9",
+        "suit": "hearts",
+        "rank": "nine",
+        "symbol": "♥",
+        "label": "9♥"
+      },
+      {
+        "id": 11,
+        "code": "H10",
+        "suit": "hearts",
+        "rank": "ten",
+        "symbol": "♥",
+        "label": "10♥"
+      },
+      {
+        "id": 14,
+        "code": "HK",
+        "suit": "hearts",
+        "rank": "king",
+        "symbol": "♥",
+        "label": "K♥"
+      },
+      {
+        "id": 21,
+        "code": "DQ",
+        "suit": "diamonds",
+        "rank": "queen",
+        "symbol": "♦",
+        "label": "Q♦"
+      },
+      {
+        "id": 25,
+        "code": "C8",
+        "suit": "clubs",
+        "rank": "eight",
+        "symbol": "♣",
+        "label": "8♣"
+      }
+    ],
+    "west": [
+      {
+        "id": 0,
+        "code": "S7",
+        "suit": "spades",
+        "rank": "seven",
+        "symbol": "♠",
+        "label": "7♠"
+      },
+      {
+        "id": 2,
+        "code": "S9",
+        "suit": "spades",
+        "rank": "nine",
+        "symbol": "♠",
+        "label": "9♠"
+      },
+      {
+        "id": 4,
+        "code": "SJ",
+        "suit": "spades",
+        "rank": "jack",
+        "symbol": "♠",
+        "label": "J♠"
+      },
+      {
+        "id": 6,
+        "code": "SK",
+        "suit": "spades",
+        "rank": "king",
+        "symbol": "♠",
+        "label": "K♠"
+      },
+      {
+        "id": 12,
+        "code": "HJ",
+        "suit": "hearts",
+        "rank": "jack",
+        "symbol": "♥",
+        "label": "J♥"
+      },
+      {
+        "id": 15,
+        "code": "HA",
+        "suit": "hearts",
+        "rank": "ace",
+        "symbol": "♥",
+        "label": "A♥"
+      },
+      {
+        "id": 27,
+        "code": "C10",
+        "suit": "clubs",
+        "rank": "ten",
+        "symbol": "♣",
+        "label": "10♣"
+      },
+      {
+        "id": 28,
+        "code": "CJ",
+        "suit": "clubs",
+        "rank": "jack",
+        "symbol": "♣",
+        "label": "J♣"
+      }
+    ],
+    "south": [
+      {
+        "id": 1,
+        "code": "S8",
+        "suit": "spades",
+        "rank": "eight",
+        "symbol": "♠",
+        "label": "8♠"
+      },
+      {
+        "id": 5,
+        "code": "SQ",
+        "suit": "spades",
+        "rank": "queen",
+        "symbol": "♠",
+        "label": "Q♠"
+      },
+      {
+        "id": 16,
+        "code": "D7",
+        "suit": "diamonds",
+        "rank": "seven",
+        "symbol": "♦",
+        "label": "7♦"
+      },
+      {
+        "id": 17,
+        "code": "D8",
+        "suit": "diamonds",
+        "rank": "eight",
+        "symbol": "♦",
+        "label": "8♦"
+      },
+      {
+        "id": 19,
+        "code": "D10",
+        "suit": "diamonds",
+        "rank": "ten",
+        "symbol": "♦",
+        "label": "10♦"
+      },
+      {
+        "id": 24,
+        "code": "C7",
+        "suit": "clubs",
+        "rank": "seven",
+        "symbol": "♣",
+        "label": "7♣"
+      },
+      {
+        "id": 26,
+        "code": "C9",
+        "suit": "clubs",
+        "rank": "nine",
+        "symbol": "♣",
+        "label": "9♣"
+      },
+      {
+        "id": 31,
+        "code": "CA",
+        "suit": "clubs",
+        "rank": "ace",
+        "symbol": "♣",
+        "label": "A♣"
+      }
+    ],
+    "east": [
+      {
+        "id": 8,
+        "code": "H7",
+        "suit": "hearts",
+        "rank": "seven",
+        "symbol": "♥",
+        "label": "7♥"
+      },
+      {
+        "id": 13,
+        "code": "HQ",
+        "suit": "hearts",
+        "rank": "queen",
+        "symbol": "♥",
+        "label": "Q♥"
+      },
+      {
+        "id": 18,
+        "code": "D9",
+        "suit": "diamonds",
+        "rank": "nine",
+        "symbol": "♦",
+        "label": "9♦"
+      },
+      {
+        "id": 20,
+        "code": "DJ",
+        "suit": "diamonds",
+        "rank": "jack",
+        "symbol": "♦",
+        "label": "J♦"
+      },
+      {
+        "id": 22,
+        "code": "DK",
+        "suit": "diamonds",
+        "rank": "king",
+        "symbol": "♦",
+        "label": "K♦"
+      },
+      {
+        "id": 23,
+        "code": "DA",
+        "suit": "diamonds",
+        "rank": "ace",
+        "symbol": "♦",
+        "label": "A♦"
+      },
+      {
+        "id": 29,
+        "code": "CQ",
+        "suit": "clubs",
+        "rank": "queen",
+        "symbol": "♣",
+        "label": "Q♣"
+      },
+      {
+        "id": 30,
+        "code": "CK",
+        "suit": "clubs",
+        "rank": "king",
+        "symbol": "♣",
+        "label": "K♣"
+      }
+    ]
+  },
+  "biddingHistory": [
+    {
+      "round": 1,
+      "turn": 0,
+      "seat": "north",
+      "action": "pass",
+      "contract": null,
+      "trumpSuit": null,
+      "bidder": null,
+      "buyer": null
+    },
+    {
+      "round": 1,
+      "turn": 1,
+      "seat": "west",
+      "action": "hokum",
+      "contract": "hokum",
+      "trumpSuit": "spades",
+      "bidder": "west",
+      "buyer": "west"
+    }
+  ],
+  "winningBidder": "west",
+  "contractOwner": "west",
+  "purchaseRecipient": "west",
+  "escalation": "normal",
+  "escalationHistory": [],
+  "locked": false,
+  "projects": [
+    {
+      "owner": "north",
+      "kind": "siri",
+      "value": 2,
+      "highRank": 3,
+      "declarationOrder": 1,
+      "team": "north_south",
+      "cards": [
+        {
+          "id": 9,
+          "code": "H8",
+          "suit": "hearts",
+          "rank": "eight",
+          "symbol": "♥",
+          "label": "8♥"
+        },
+        {
+          "id": 10,
+          "code": "H9",
+          "suit": "hearts",
+          "rank": "nine",
+          "symbol": "♥",
+          "label": "9♥"
+        },
+        {
+          "id": 11,
+          "code": "H10",
+          "suit": "hearts",
+          "rank": "ten",
+          "symbol": "♥",
+          "label": "10♥"
+        }
+      ],
+      "scoring": true,
+      "revealed": true
+    }
+  ],
+  "projectWinningTeam": "north_south",
+  "pauseBeforePlayIndex": 26,
+  "analysis": {
+    "observer": "south",
+    "recommendedCard": {
+      "id": 19,
+      "code": "D10",
+      "suit": "diamonds",
+      "rank": "ten",
+      "symbol": "♦",
+      "label": "10♦"
+    },
+    "actions": [
+      {
+        "card": {
+          "id": 19,
+          "code": "D10",
+          "suit": "diamonds",
+          "rank": "ten",
+          "symbol": "♦",
+          "label": "10♦"
+        },
+        "metrics": {
+          "semanticsVersion": "2.0.0",
+          "expectedRoundMargin": 18.0,
+          "expectedOwnAwardedPoints": 18.0,
+          "expectedOpponentAwardedPoints": 0.0,
+          "roundLeadProbability": 1.0,
+          "contractSuccessProbability": 0.0,
+          "trueMatchWinProbability": 1.0,
+          "roundLeadConfidence95": [
+            0.34237195288961925,
+            1.0
+          ],
+          "trueMatchConfidence95": [
+            1.0,
+            1.0
+          ],
+          "matchValueMethod": "finite_horizon_markov_v1"
+        },
+        "expectedMatchMargin": 18.0,
+        "expectedTeamPoints": 18.0,
+        "expectedOpponentPoints": 0.0,
+        "winProbability": 1.0,
+        "drawProbability": 0.0,
+        "confidence95": [
+          0.34237195288961925,
+          1.0
+        ],
+        "legacyMetricSemantics": {
+          "deprecated": true,
+          "expectedMatchMarginMeans": "expected_round_award_margin",
+          "winProbabilityMeans": "round_lead_probability"
+        },
+        "bestShare": 1.0,
+        "samples": 2,
+        "effectiveSamples": 2.0,
+        "exactShare": 1.0,
+        "distribution": {
+          "downsideCvar10": 18.0,
+          "volatility": 0.0,
+          "dealCount": 2
+        },
+        "principalVariation": [
+          "DA",
+          "C10",
+          "CA",
+          "CK",
+          "H10"
+        ],
+        "searchNodes": 11
+      },
+      {
+        "card": {
+          "id": 31,
+          "code": "CA",
+          "suit": "clubs",
+          "rank": "ace",
+          "symbol": "♣",
+          "label": "A♣"
+        },
+        "metrics": {
+          "semanticsVersion": "2.0.0",
+          "expectedRoundMargin": -6.0,
+          "expectedOwnAwardedPoints": 6.0,
+          "expectedOpponentAwardedPoints": 12.0,
+          "roundLeadProbability": 0.0,
+          "contractSuccessProbability": 1.0,
+          "trueMatchWinProbability": 0.0,
+          "roundLeadConfidence95": [
+            0.0,
+            0.6576280471103807
+          ],
+          "trueMatchConfidence95": [
+            0.0,
+            0.0
+          ],
+          "matchValueMethod": "finite_horizon_markov_v1"
+        },
+        "expectedMatchMargin": -6.0,
+        "expectedTeamPoints": 6.0,
+        "expectedOpponentPoints": 12.0,
+        "winProbability": 0.0,
+        "drawProbability": 0.0,
+        "confidence95": [
+          0.0,
+          0.6576280471103807
+        ],
+        "legacyMetricSemantics": {
+          "deprecated": true,
+          "expectedMatchMarginMeans": "expected_round_award_margin",
+          "winProbabilityMeans": "round_lead_probability"
+        },
+        "bestShare": 0.0,
+        "samples": 2,
+        "effectiveSamples": 2.0,
+        "exactShare": 1.0,
+        "distribution": {
+          "downsideCvar10": -6.000000000000001,
+          "volatility": 0.0,
+          "dealCount": 2
+        },
+        "principalVariation": [
+          "DA",
+          "C10",
+          "D10",
+          "CK",
+          "H10"
+        ],
+        "searchNodes": 11
+      }
+    ],
+    "deductions": [
+      {
+        "kind": "void_suit",
+        "seat": "south",
+        "suit": "hearts",
+        "certainty": 1.0,
+        "source": "trick_1_failed_to_follow"
+      },
+      {
+        "kind": "void_suit",
+        "seat": "west",
+        "suit": "diamonds",
+        "certainty": 1.0,
+        "source": "trick_2_failed_to_follow"
+      },
+      {
+        "kind": "void_suit",
+        "seat": "north",
+        "suit": "diamonds",
+        "certainty": 1.0,
+        "source": "trick_5_failed_to_follow"
+      },
+      {
+        "kind": "void_suit",
+        "seat": "south",
+        "suit": "spades",
+        "certainty": 1.0,
+        "source": "trick_6_failed_to_follow"
+      },
+      {
+        "kind": "void_suit",
+        "seat": "east",
+        "suit": "spades",
+        "certainty": 1.0,
+        "source": "trick_6_failed_to_follow"
+      },
+      {
+        "kind": "void_suit",
+        "seat": "west",
+        "suit": "hearts",
+        "certainty": 1.0,
+        "source": "trick_7_failed_to_follow"
+      }
+    ],
+    "signals": [
+      {
+        "kind": "low_then_high",
+        "seat": "north",
+        "relationship": "partner",
+        "cards": [
+          {
+            "id": 10,
+            "code": "H9",
+            "suit": "hearts",
+            "rank": "nine",
+            "symbol": "♥",
+            "label": "9♥"
+          },
+          {
+            "id": 14,
+            "code": "HK",
+            "suit": "hearts",
+            "rank": "king",
+            "symbol": "♥",
+            "label": "K♥"
+          }
+        ],
+        "confidence": 0.35,
+        "forcedness": "unknown",
+        "interpretations": [
+          "possible encouragement or preserved strength",
+          "could be forced, tactical, or deceptive"
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention."
+      },
+      {
+        "kind": "low_then_high",
+        "seat": "west",
+        "relationship": "left_opponent",
+        "cards": [
+          {
+            "id": 12,
+            "code": "HJ",
+            "suit": "hearts",
+            "rank": "jack",
+            "symbol": "♥",
+            "label": "J♥"
+          },
+          {
+            "id": 15,
+            "code": "HA",
+            "suit": "hearts",
+            "rank": "ace",
+            "symbol": "♥",
+            "label": "A♥"
+          }
+        ],
+        "confidence": 0.35,
+        "forcedness": "unknown",
+        "interpretations": [
+          "possible encouragement or preserved strength",
+          "could be forced, tactical, or deceptive"
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention."
+      },
+      {
+        "kind": "low_then_high",
+        "seat": "south",
+        "relationship": "self",
+        "cards": [
+          {
+            "id": 1,
+            "code": "S8",
+            "suit": "spades",
+            "rank": "eight",
+            "symbol": "♠",
+            "label": "8♠"
+          },
+          {
+            "id": 5,
+            "code": "SQ",
+            "suit": "spades",
+            "rank": "queen",
+            "symbol": "♠",
+            "label": "Q♠"
+          }
+        ],
+        "confidence": 0.42,
+        "forcedness": "near_forced",
+        "interpretations": [
+          "possible encouragement or preserved strength",
+          "could be forced, tactical, or deceptive"
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention."
+      },
+      {
+        "kind": "high_then_low",
+        "seat": "east",
+        "relationship": "right_opponent",
+        "cards": [
+          {
+            "id": 13,
+            "code": "HQ",
+            "suit": "hearts",
+            "rank": "queen",
+            "symbol": "♥",
+            "label": "Q♥"
+          },
+          {
+            "id": 8,
+            "code": "H7",
+            "suit": "hearts",
+            "rank": "seven",
+            "symbol": "♥",
+            "label": "7♥"
+          }
+        ],
+        "confidence": 0.35,
+        "forcedness": "unknown",
+        "interpretations": [
+          "possible shortness or discouragement",
+          "could be forced, tactical, or deceptive"
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention."
+      },
+      {
+        "kind": "low_then_high",
+        "seat": "south",
+        "relationship": "self",
+        "cards": [
+          {
+            "id": 16,
+            "code": "D7",
+            "suit": "diamonds",
+            "rank": "seven",
+            "symbol": "♦",
+            "label": "7♦"
+          },
+          {
+            "id": 17,
+            "code": "D8",
+            "suit": "diamonds",
+            "rank": "eight",
+            "symbol": "♦",
+            "label": "8♦"
+          }
+        ],
+        "confidence": 0.58,
+        "forcedness": "meaningful_choice",
+        "interpretations": [
+          "possible encouragement or preserved strength",
+          "could be forced, tactical, or deceptive"
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention."
+      },
+      {
+        "kind": "low_then_high",
+        "seat": "east",
+        "relationship": "right_opponent",
+        "cards": [
+          {
+            "id": 20,
+            "code": "DJ",
+            "suit": "diamonds",
+            "rank": "jack",
+            "symbol": "♦",
+            "label": "J♦"
+          },
+          {
+            "id": 22,
+            "code": "DK",
+            "suit": "diamonds",
+            "rank": "king",
+            "symbol": "♦",
+            "label": "K♦"
+          }
+        ],
+        "confidence": 0.35,
+        "forcedness": "unknown",
+        "interpretations": [
+          "possible encouragement or preserved strength",
+          "could be forced, tactical, or deceptive"
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention."
+      },
+      {
+        "kind": "high_then_low",
+        "seat": "west",
+        "relationship": "left_opponent",
+        "cards": [
+          {
+            "id": 6,
+            "code": "SK",
+            "suit": "spades",
+            "rank": "king",
+            "symbol": "♠",
+            "label": "K♠"
+          },
+          {
+            "id": 4,
+            "code": "SJ",
+            "suit": "spades",
+            "rank": "jack",
+            "symbol": "♠",
+            "label": "J♠"
+          }
+        ],
+        "confidence": 0.35,
+        "forcedness": "unknown",
+        "interpretations": [
+          "possible shortness or discouragement",
+          "could be forced, tactical, or deceptive"
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention."
+      },
+      {
+        "kind": "low_then_high",
+        "seat": "south",
+        "relationship": "self",
+        "cards": [
+          {
+            "id": 24,
+            "code": "C7",
+            "suit": "clubs",
+            "rank": "seven",
+            "symbol": "♣",
+            "label": "7♣"
+          },
+          {
+            "id": 26,
+            "code": "C9",
+            "suit": "clubs",
+            "rank": "nine",
+            "symbol": "♣",
+            "label": "9♣"
+          }
+        ],
+        "confidence": 0.58,
+        "forcedness": "meaningful_choice",
+        "interpretations": [
+          "possible encouragement or preserved strength",
+          "could be forced, tactical, or deceptive"
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention."
+      },
+      {
+        "kind": "low_then_high",
+        "seat": "north",
+        "relationship": "partner",
+        "cards": [
+          {
+            "id": 3,
+            "code": "S10",
+            "suit": "spades",
+            "rank": "ten",
+            "symbol": "♠",
+            "label": "10♠"
+          },
+          {
+            "id": 7,
+            "code": "SA",
+            "suit": "spades",
+            "rank": "ace",
+            "symbol": "♠",
+            "label": "A♠"
+          }
+        ],
+        "confidence": 0.35,
+        "forcedness": "unknown",
+        "interpretations": [
+          "possible encouragement or preserved strength",
+          "could be forced, tactical, or deceptive"
+        ],
+        "caveat": "A card-order pattern is an observation, not proof of intention."
+      }
+    ],
+    "method": "exhaustive_hidden_deals+hard_facts_only",
+    "hiddenDeals": 2,
+    "effectiveSampleSize": 2.0,
+    "difficulty": 56,
+    "debateScore": 20,
+    "conventionsApplied": false,
+    "explanation": [
+      "Compared 2 legal actions across 2 legal hidden deals.",
+      "Hidden-deal method: exhaustive_hidden_deals; effective sample size 2.0.",
+      "Round lead, contract success, and true match-to-target probability are reported separately.",
+      "Recommendation objective: expected awarded round margin; match-value method: finite_horizon_markov_v1.",
+      "The exposed purchase card and revealed projects are pinned to their known owners.",
+      "Opponent legal alternatives are reconstructed per hypothetical deal and never copied from the true hidden hands.",
+      "Hard deductions restrict legality; convention evidence only reweights legal deals when explicitly enabled.",
+      "Recommended D10 under the configured objective."
+    ]
+  },
+  "completedTricks": [
+    {
+      "index": 0,
+      "leader": "north",
+      "plays": [
+        {
+          "seat": "north",
+          "card": {
+            "id": 9,
+            "code": "H8",
+            "suit": "hearts",
+            "rank": "eight",
+            "symbol": "♥",
+            "label": "8♥"
+          },
+          "trickIndex": 0,
+          "position": 0,
+          "legalCards": [
+            {
+              "id": 3,
+              "code": "S10",
+              "suit": "spades",
+              "rank": "ten",
+              "symbol": "♠",
+              "label": "10♠"
+            },
+            {
+              "id": 7,
+              "code": "SA",
+              "suit": "spades",
+              "rank": "ace",
+              "symbol": "♠",
+              "label": "A♠"
+            },
+            {
+              "id": 9,
+              "code": "H8",
+              "suit": "hearts",
+              "rank": "eight",
+              "symbol": "♥",
+              "label": "8♥"
+            },
+            {
+              "id": 10,
+              "code": "H9",
+              "suit": "hearts",
+              "rank": "nine",
+              "symbol": "♥",
+              "label": "9♥"
+            },
+            {
+              "id": 11,
+              "code": "H10",
+              "suit": "hearts",
+              "rank": "ten",
+              "symbol": "♥",
+              "label": "10♥"
+            },
+            {
+              "id": 14,
+              "code": "HK",
+              "suit": "hearts",
+              "rank": "king",
+              "symbol": "♥",
+              "label": "K♥"
+            },
+            {
+              "id": 21,
+              "code": "DQ",
+              "suit": "diamonds",
+              "rank": "queen",
+              "symbol": "♦",
+              "label": "Q♦"
+            },
+            {
+              "id": 25,
+              "code": "C8",
+              "suit": "clubs",
+              "rank": "eight",
+              "symbol": "♣",
+              "label": "8♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "west",
+          "card": {
+            "id": 12,
+            "code": "HJ",
+            "suit": "hearts",
+            "rank": "jack",
+            "symbol": "♥",
+            "label": "J♥"
+          },
+          "trickIndex": 0,
+          "position": 1,
+          "legalCards": [
+            {
+              "id": 12,
+              "code": "HJ",
+              "suit": "hearts",
+              "rank": "jack",
+              "symbol": "♥",
+              "label": "J♥"
+            },
+            {
+              "id": 15,
+              "code": "HA",
+              "suit": "hearts",
+              "rank": "ace",
+              "symbol": "♥",
+              "label": "A♥"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "south",
+          "card": {
+            "id": 1,
+            "code": "S8",
+            "suit": "spades",
+            "rank": "eight",
+            "symbol": "♠",
+            "label": "8♠"
+          },
+          "trickIndex": 0,
+          "position": 2,
+          "legalCards": [
+            {
+              "id": 1,
+              "code": "S8",
+              "suit": "spades",
+              "rank": "eight",
+              "symbol": "♠",
+              "label": "8♠"
+            },
+            {
+              "id": 5,
+              "code": "SQ",
+              "suit": "spades",
+              "rank": "queen",
+              "symbol": "♠",
+              "label": "Q♠"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "east",
+          "card": {
+            "id": 13,
+            "code": "HQ",
+            "suit": "hearts",
+            "rank": "queen",
+            "symbol": "♥",
+            "label": "Q♥"
+          },
+          "trickIndex": 0,
+          "position": 3,
+          "legalCards": [
+            {
+              "id": 8,
+              "code": "H7",
+              "suit": "hearts",
+              "rank": "seven",
+              "symbol": "♥",
+              "label": "7♥"
+            },
+            {
+              "id": 13,
+              "code": "HQ",
+              "suit": "hearts",
+              "rank": "queen",
+              "symbol": "♥",
+              "label": "Q♥"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        }
+      ],
+      "winner": "south",
+      "rawPoints": 5
+    },
+    {
+      "index": 1,
+      "leader": "south",
+      "plays": [
+        {
+          "seat": "south",
+          "card": {
+            "id": 16,
+            "code": "D7",
+            "suit": "diamonds",
+            "rank": "seven",
+            "symbol": "♦",
+            "label": "7♦"
+          },
+          "trickIndex": 1,
+          "position": 0,
+          "legalCards": [
+            {
+              "id": 5,
+              "code": "SQ",
+              "suit": "spades",
+              "rank": "queen",
+              "symbol": "♠",
+              "label": "Q♠"
+            },
+            {
+              "id": 16,
+              "code": "D7",
+              "suit": "diamonds",
+              "rank": "seven",
+              "symbol": "♦",
+              "label": "7♦"
+            },
+            {
+              "id": 17,
+              "code": "D8",
+              "suit": "diamonds",
+              "rank": "eight",
+              "symbol": "♦",
+              "label": "8♦"
+            },
+            {
+              "id": 19,
+              "code": "D10",
+              "suit": "diamonds",
+              "rank": "ten",
+              "symbol": "♦",
+              "label": "10♦"
+            },
+            {
+              "id": 24,
+              "code": "C7",
+              "suit": "clubs",
+              "rank": "seven",
+              "symbol": "♣",
+              "label": "7♣"
+            },
+            {
+              "id": 26,
+              "code": "C9",
+              "suit": "clubs",
+              "rank": "nine",
+              "symbol": "♣",
+              "label": "9♣"
+            },
+            {
+              "id": 31,
+              "code": "CA",
+              "suit": "clubs",
+              "rank": "ace",
+              "symbol": "♣",
+              "label": "A♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "east",
+          "card": {
+            "id": 18,
+            "code": "D9",
+            "suit": "diamonds",
+            "rank": "nine",
+            "symbol": "♦",
+            "label": "9♦"
+          },
+          "trickIndex": 1,
+          "position": 1,
+          "legalCards": [
+            {
+              "id": 18,
+              "code": "D9",
+              "suit": "diamonds",
+              "rank": "nine",
+              "symbol": "♦",
+              "label": "9♦"
+            },
+            {
+              "id": 20,
+              "code": "DJ",
+              "suit": "diamonds",
+              "rank": "jack",
+              "symbol": "♦",
+              "label": "J♦"
+            },
+            {
+              "id": 22,
+              "code": "DK",
+              "suit": "diamonds",
+              "rank": "king",
+              "symbol": "♦",
+              "label": "K♦"
+            },
+            {
+              "id": 23,
+              "code": "DA",
+              "suit": "diamonds",
+              "rank": "ace",
+              "symbol": "♦",
+              "label": "A♦"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "north",
+          "card": {
+            "id": 21,
+            "code": "DQ",
+            "suit": "diamonds",
+            "rank": "queen",
+            "symbol": "♦",
+            "label": "Q♦"
+          },
+          "trickIndex": 1,
+          "position": 2,
+          "legalCards": [
+            {
+              "id": 21,
+              "code": "DQ",
+              "suit": "diamonds",
+              "rank": "queen",
+              "symbol": "♦",
+              "label": "Q♦"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "west",
+          "card": {
+            "id": 0,
+            "code": "S7",
+            "suit": "spades",
+            "rank": "seven",
+            "symbol": "♠",
+            "label": "7♠"
+          },
+          "trickIndex": 1,
+          "position": 3,
+          "legalCards": [
+            {
+              "id": 0,
+              "code": "S7",
+              "suit": "spades",
+              "rank": "seven",
+              "symbol": "♠",
+              "label": "7♠"
+            },
+            {
+              "id": 2,
+              "code": "S9",
+              "suit": "spades",
+              "rank": "nine",
+              "symbol": "♠",
+              "label": "9♠"
+            },
+            {
+              "id": 4,
+              "code": "SJ",
+              "suit": "spades",
+              "rank": "jack",
+              "symbol": "♠",
+              "label": "J♠"
+            },
+            {
+              "id": 6,
+              "code": "SK",
+              "suit": "spades",
+              "rank": "king",
+              "symbol": "♠",
+              "label": "K♠"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        }
+      ],
+      "winner": "west",
+      "rawPoints": 3
+    },
+    {
+      "index": 2,
+      "leader": "west",
+      "plays": [
+        {
+          "seat": "west",
+          "card": {
+            "id": 28,
+            "code": "CJ",
+            "suit": "clubs",
+            "rank": "jack",
+            "symbol": "♣",
+            "label": "J♣"
+          },
+          "trickIndex": 2,
+          "position": 0,
+          "legalCards": [
+            {
+              "id": 2,
+              "code": "S9",
+              "suit": "spades",
+              "rank": "nine",
+              "symbol": "♠",
+              "label": "9♠"
+            },
+            {
+              "id": 4,
+              "code": "SJ",
+              "suit": "spades",
+              "rank": "jack",
+              "symbol": "♠",
+              "label": "J♠"
+            },
+            {
+              "id": 6,
+              "code": "SK",
+              "suit": "spades",
+              "rank": "king",
+              "symbol": "♠",
+              "label": "K♠"
+            },
+            {
+              "id": 15,
+              "code": "HA",
+              "suit": "hearts",
+              "rank": "ace",
+              "symbol": "♥",
+              "label": "A♥"
+            },
+            {
+              "id": 27,
+              "code": "C10",
+              "suit": "clubs",
+              "rank": "ten",
+              "symbol": "♣",
+              "label": "10♣"
+            },
+            {
+              "id": 28,
+              "code": "CJ",
+              "suit": "clubs",
+              "rank": "jack",
+              "symbol": "♣",
+              "label": "J♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "south",
+          "card": {
+            "id": 24,
+            "code": "C7",
+            "suit": "clubs",
+            "rank": "seven",
+            "symbol": "♣",
+            "label": "7♣"
+          },
+          "trickIndex": 2,
+          "position": 1,
+          "legalCards": [
+            {
+              "id": 24,
+              "code": "C7",
+              "suit": "clubs",
+              "rank": "seven",
+              "symbol": "♣",
+              "label": "7♣"
+            },
+            {
+              "id": 26,
+              "code": "C9",
+              "suit": "clubs",
+              "rank": "nine",
+              "symbol": "♣",
+              "label": "9♣"
+            },
+            {
+              "id": 31,
+              "code": "CA",
+              "suit": "clubs",
+              "rank": "ace",
+              "symbol": "♣",
+              "label": "A♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "east",
+          "card": {
+            "id": 29,
+            "code": "CQ",
+            "suit": "clubs",
+            "rank": "queen",
+            "symbol": "♣",
+            "label": "Q♣"
+          },
+          "trickIndex": 2,
+          "position": 2,
+          "legalCards": [
+            {
+              "id": 29,
+              "code": "CQ",
+              "suit": "clubs",
+              "rank": "queen",
+              "symbol": "♣",
+              "label": "Q♣"
+            },
+            {
+              "id": 30,
+              "code": "CK",
+              "suit": "clubs",
+              "rank": "king",
+              "symbol": "♣",
+              "label": "K♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "north",
+          "card": {
+            "id": 25,
+            "code": "C8",
+            "suit": "clubs",
+            "rank": "eight",
+            "symbol": "♣",
+            "label": "8♣"
+          },
+          "trickIndex": 2,
+          "position": 3,
+          "legalCards": [
+            {
+              "id": 25,
+              "code": "C8",
+              "suit": "clubs",
+              "rank": "eight",
+              "symbol": "♣",
+              "label": "8♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        }
+      ],
+      "winner": "east",
+      "rawPoints": 5
+    },
+    {
+      "index": 3,
+      "leader": "east",
+      "plays": [
+        {
+          "seat": "east",
+          "card": {
+            "id": 8,
+            "code": "H7",
+            "suit": "hearts",
+            "rank": "seven",
+            "symbol": "♥",
+            "label": "7♥"
+          },
+          "trickIndex": 3,
+          "position": 0,
+          "legalCards": [
+            {
+              "id": 8,
+              "code": "H7",
+              "suit": "hearts",
+              "rank": "seven",
+              "symbol": "♥",
+              "label": "7♥"
+            },
+            {
+              "id": 20,
+              "code": "DJ",
+              "suit": "diamonds",
+              "rank": "jack",
+              "symbol": "♦",
+              "label": "J♦"
+            },
+            {
+              "id": 22,
+              "code": "DK",
+              "suit": "diamonds",
+              "rank": "king",
+              "symbol": "♦",
+              "label": "K♦"
+            },
+            {
+              "id": 23,
+              "code": "DA",
+              "suit": "diamonds",
+              "rank": "ace",
+              "symbol": "♦",
+              "label": "A♦"
+            },
+            {
+              "id": 30,
+              "code": "CK",
+              "suit": "clubs",
+              "rank": "king",
+              "symbol": "♣",
+              "label": "K♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "north",
+          "card": {
+            "id": 10,
+            "code": "H9",
+            "suit": "hearts",
+            "rank": "nine",
+            "symbol": "♥",
+            "label": "9♥"
+          },
+          "trickIndex": 3,
+          "position": 1,
+          "legalCards": [
+            {
+              "id": 10,
+              "code": "H9",
+              "suit": "hearts",
+              "rank": "nine",
+              "symbol": "♥",
+              "label": "9♥"
+            },
+            {
+              "id": 11,
+              "code": "H10",
+              "suit": "hearts",
+              "rank": "ten",
+              "symbol": "♥",
+              "label": "10♥"
+            },
+            {
+              "id": 14,
+              "code": "HK",
+              "suit": "hearts",
+              "rank": "king",
+              "symbol": "♥",
+              "label": "K♥"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "west",
+          "card": {
+            "id": 15,
+            "code": "HA",
+            "suit": "hearts",
+            "rank": "ace",
+            "symbol": "♥",
+            "label": "A♥"
+          },
+          "trickIndex": 3,
+          "position": 2,
+          "legalCards": [
+            {
+              "id": 15,
+              "code": "HA",
+              "suit": "hearts",
+              "rank": "ace",
+              "symbol": "♥",
+              "label": "A♥"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "south",
+          "card": {
+            "id": 5,
+            "code": "SQ",
+            "suit": "spades",
+            "rank": "queen",
+            "symbol": "♠",
+            "label": "Q♠"
+          },
+          "trickIndex": 3,
+          "position": 3,
+          "legalCards": [
+            {
+              "id": 5,
+              "code": "SQ",
+              "suit": "spades",
+              "rank": "queen",
+              "symbol": "♠",
+              "label": "Q♠"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        }
+      ],
+      "winner": "south",
+      "rawPoints": 14
+    },
+    {
+      "index": 4,
+      "leader": "south",
+      "plays": [
+        {
+          "seat": "south",
+          "card": {
+            "id": 17,
+            "code": "D8",
+            "suit": "diamonds",
+            "rank": "eight",
+            "symbol": "♦",
+            "label": "8♦"
+          },
+          "trickIndex": 4,
+          "position": 0,
+          "legalCards": [
+            {
+              "id": 17,
+              "code": "D8",
+              "suit": "diamonds",
+              "rank": "eight",
+              "symbol": "♦",
+              "label": "8♦"
+            },
+            {
+              "id": 19,
+              "code": "D10",
+              "suit": "diamonds",
+              "rank": "ten",
+              "symbol": "♦",
+              "label": "10♦"
+            },
+            {
+              "id": 26,
+              "code": "C9",
+              "suit": "clubs",
+              "rank": "nine",
+              "symbol": "♣",
+              "label": "9♣"
+            },
+            {
+              "id": 31,
+              "code": "CA",
+              "suit": "clubs",
+              "rank": "ace",
+              "symbol": "♣",
+              "label": "A♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "east",
+          "card": {
+            "id": 20,
+            "code": "DJ",
+            "suit": "diamonds",
+            "rank": "jack",
+            "symbol": "♦",
+            "label": "J♦"
+          },
+          "trickIndex": 4,
+          "position": 1,
+          "legalCards": [
+            {
+              "id": 20,
+              "code": "DJ",
+              "suit": "diamonds",
+              "rank": "jack",
+              "symbol": "♦",
+              "label": "J♦"
+            },
+            {
+              "id": 22,
+              "code": "DK",
+              "suit": "diamonds",
+              "rank": "king",
+              "symbol": "♦",
+              "label": "K♦"
+            },
+            {
+              "id": 23,
+              "code": "DA",
+              "suit": "diamonds",
+              "rank": "ace",
+              "symbol": "♦",
+              "label": "A♦"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "north",
+          "card": {
+            "id": 3,
+            "code": "S10",
+            "suit": "spades",
+            "rank": "ten",
+            "symbol": "♠",
+            "label": "10♠"
+          },
+          "trickIndex": 4,
+          "position": 2,
+          "legalCards": [
+            {
+              "id": 3,
+              "code": "S10",
+              "suit": "spades",
+              "rank": "ten",
+              "symbol": "♠",
+              "label": "10♠"
+            },
+            {
+              "id": 7,
+              "code": "SA",
+              "suit": "spades",
+              "rank": "ace",
+              "symbol": "♠",
+              "label": "A♠"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "west",
+          "card": {
+            "id": 2,
+            "code": "S9",
+            "suit": "spades",
+            "rank": "nine",
+            "symbol": "♠",
+            "label": "9♠"
+          },
+          "trickIndex": 4,
+          "position": 3,
+          "legalCards": [
+            {
+              "id": 2,
+              "code": "S9",
+              "suit": "spades",
+              "rank": "nine",
+              "symbol": "♠",
+              "label": "9♠"
+            },
+            {
+              "id": 4,
+              "code": "SJ",
+              "suit": "spades",
+              "rank": "jack",
+              "symbol": "♠",
+              "label": "J♠"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        }
+      ],
+      "winner": "west",
+      "rawPoints": 26
+    },
+    {
+      "index": 5,
+      "leader": "west",
+      "plays": [
+        {
+          "seat": "west",
+          "card": {
+            "id": 6,
+            "code": "SK",
+            "suit": "spades",
+            "rank": "king",
+            "symbol": "♠",
+            "label": "K♠"
+          },
+          "trickIndex": 5,
+          "position": 0,
+          "legalCards": [
+            {
+              "id": 4,
+              "code": "SJ",
+              "suit": "spades",
+              "rank": "jack",
+              "symbol": "♠",
+              "label": "J♠"
+            },
+            {
+              "id": 6,
+              "code": "SK",
+              "suit": "spades",
+              "rank": "king",
+              "symbol": "♠",
+              "label": "K♠"
+            },
+            {
+              "id": 27,
+              "code": "C10",
+              "suit": "clubs",
+              "rank": "ten",
+              "symbol": "♣",
+              "label": "10♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "south",
+          "card": {
+            "id": 26,
+            "code": "C9",
+            "suit": "clubs",
+            "rank": "nine",
+            "symbol": "♣",
+            "label": "9♣"
+          },
+          "trickIndex": 5,
+          "position": 1,
+          "legalCards": [
+            {
+              "id": 19,
+              "code": "D10",
+              "suit": "diamonds",
+              "rank": "ten",
+              "symbol": "♦",
+              "label": "10♦"
+            },
+            {
+              "id": 26,
+              "code": "C9",
+              "suit": "clubs",
+              "rank": "nine",
+              "symbol": "♣",
+              "label": "9♣"
+            },
+            {
+              "id": 31,
+              "code": "CA",
+              "suit": "clubs",
+              "rank": "ace",
+              "symbol": "♣",
+              "label": "A♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "east",
+          "card": {
+            "id": 22,
+            "code": "DK",
+            "suit": "diamonds",
+            "rank": "king",
+            "symbol": "♦",
+            "label": "K♦"
+          },
+          "trickIndex": 5,
+          "position": 2,
+          "legalCards": [
+            {
+              "id": 22,
+              "code": "DK",
+              "suit": "diamonds",
+              "rank": "king",
+              "symbol": "♦",
+              "label": "K♦"
+            },
+            {
+              "id": 23,
+              "code": "DA",
+              "suit": "diamonds",
+              "rank": "ace",
+              "symbol": "♦",
+              "label": "A♦"
+            },
+            {
+              "id": 30,
+              "code": "CK",
+              "suit": "clubs",
+              "rank": "king",
+              "symbol": "♣",
+              "label": "K♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "north",
+          "card": {
+            "id": 7,
+            "code": "SA",
+            "suit": "spades",
+            "rank": "ace",
+            "symbol": "♠",
+            "label": "A♠"
+          },
+          "trickIndex": 5,
+          "position": 3,
+          "legalCards": [
+            {
+              "id": 7,
+              "code": "SA",
+              "suit": "spades",
+              "rank": "ace",
+              "symbol": "♠",
+              "label": "A♠"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        }
+      ],
+      "winner": "north",
+      "rawPoints": 19
+    },
+    {
+      "index": 6,
+      "leader": "north",
+      "plays": [
+        {
+          "seat": "north",
+          "card": {
+            "id": 14,
+            "code": "HK",
+            "suit": "hearts",
+            "rank": "king",
+            "symbol": "♥",
+            "label": "K♥"
+          },
+          "trickIndex": 6,
+          "position": 0,
+          "legalCards": [
+            {
+              "id": 11,
+              "code": "H10",
+              "suit": "hearts",
+              "rank": "ten",
+              "symbol": "♥",
+              "label": "10♥"
+            },
+            {
+              "id": 14,
+              "code": "HK",
+              "suit": "hearts",
+              "rank": "king",
+              "symbol": "♥",
+              "label": "K♥"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "west",
+          "card": {
+            "id": 4,
+            "code": "SJ",
+            "suit": "spades",
+            "rank": "jack",
+            "symbol": "♠",
+            "label": "J♠"
+          },
+          "trickIndex": 6,
+          "position": 1,
+          "legalCards": [
+            {
+              "id": 4,
+              "code": "SJ",
+              "suit": "spades",
+              "rank": "jack",
+              "symbol": "♠",
+              "label": "J♠"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "south",
+          "card": {
+            "id": 19,
+            "code": "D10",
+            "suit": "diamonds",
+            "rank": "ten",
+            "symbol": "♦",
+            "label": "10♦"
+          },
+          "trickIndex": 6,
+          "position": 2,
+          "legalCards": [
+            {
+              "id": 19,
+              "code": "D10",
+              "suit": "diamonds",
+              "rank": "ten",
+              "symbol": "♦",
+              "label": "10♦"
+            },
+            {
+              "id": 31,
+              "code": "CA",
+              "suit": "clubs",
+              "rank": "ace",
+              "symbol": "♣",
+              "label": "A♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "east",
+          "card": {
+            "id": 23,
+            "code": "DA",
+            "suit": "diamonds",
+            "rank": "ace",
+            "symbol": "♦",
+            "label": "A♦"
+          },
+          "trickIndex": 6,
+          "position": 3,
+          "legalCards": [
+            {
+              "id": 23,
+              "code": "DA",
+              "suit": "diamonds",
+              "rank": "ace",
+              "symbol": "♦",
+              "label": "A♦"
+            },
+            {
+              "id": 30,
+              "code": "CK",
+              "suit": "clubs",
+              "rank": "king",
+              "symbol": "♣",
+              "label": "K♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        }
+      ],
+      "winner": "west",
+      "rawPoints": 45
+    },
+    {
+      "index": 7,
+      "leader": "west",
+      "plays": [
+        {
+          "seat": "west",
+          "card": {
+            "id": 27,
+            "code": "C10",
+            "suit": "clubs",
+            "rank": "ten",
+            "symbol": "♣",
+            "label": "10♣"
+          },
+          "trickIndex": 7,
+          "position": 0,
+          "legalCards": [
+            {
+              "id": 27,
+              "code": "C10",
+              "suit": "clubs",
+              "rank": "ten",
+              "symbol": "♣",
+              "label": "10♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "south",
+          "card": {
+            "id": 31,
+            "code": "CA",
+            "suit": "clubs",
+            "rank": "ace",
+            "symbol": "♣",
+            "label": "A♣"
+          },
+          "trickIndex": 7,
+          "position": 1,
+          "legalCards": [
+            {
+              "id": 31,
+              "code": "CA",
+              "suit": "clubs",
+              "rank": "ace",
+              "symbol": "♣",
+              "label": "A♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "east",
+          "card": {
+            "id": 30,
+            "code": "CK",
+            "suit": "clubs",
+            "rank": "king",
+            "symbol": "♣",
+            "label": "K♣"
+          },
+          "trickIndex": 7,
+          "position": 2,
+          "legalCards": [
+            {
+              "id": 30,
+              "code": "CK",
+              "suit": "clubs",
+              "rank": "king",
+              "symbol": "♣",
+              "label": "K♣"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        },
+        {
+          "seat": "north",
+          "card": {
+            "id": 11,
+            "code": "H10",
+            "suit": "hearts",
+            "rank": "ten",
+            "symbol": "♥",
+            "label": "10♥"
+          },
+          "trickIndex": 7,
+          "position": 3,
+          "legalCards": [
+            {
+              "id": 11,
+              "code": "H10",
+              "suit": "hearts",
+              "rank": "ten",
+              "symbol": "♥",
+              "label": "10♥"
+            }
+          ],
+          "ekka": false,
+          "baloot": false
+        }
+      ],
+      "winner": "south",
+      "rawPoints": 35
+    }
+  ],
+  "roundScore": {
+    "rawCardPoints": [
+      83,
+      79
+    ],
+    "cardGamePoints": [
+      8,
+      8
+    ],
+    "projectPoints": [
+      2,
+      0
+    ],
+    "balootPoints": [
+      0,
+      0
+    ],
+    "totalBeforeAward": [
+      10,
+      8
+    ],
+    "winner": "north_south",
+    "awardedPoints": [
+      18,
+      0
+    ],
+    "countingTeam": "north_south",
+    "multiplier": 1,
+    "kabout": false,
+    "gahwa": false,
+    "matchWinner": "north_south",
+    "explanation": [
+      "counting_team=north_south",
+      "card_game_points=[8, 8]",
+      "projects=[2, 0]",
+      "baloot=[0, 0]"
+    ]
+  },
+  "roundResult": {
+    "winner": "north_south",
+    "buyerSucceeded": false,
+    "awardedPoints": [
+      18,
+      0
+    ],
+    "kabout": false,
+    "gahwa": false
+  },
+  "matchScoreBefore": [
+    140,
+    140
+  ],
+  "matchScoreAfter": [
+    158,
+    140
+  ],
+  "matchWinner": "north_south",
+  "events": [
+    {
+      "sequence": 0,
+      "type": "round_created",
+      "dealer": "east",
+      "seed": 8069,
+      "roundNumber": 1,
+      "matchScore": [
+        140,
+        140
+      ]
+    },
+    {
+      "sequence": 1,
+      "type": "deck_shuffled",
+      "algorithm": "splitmix64_fisher_yates_v1",
+      "seed": 8069,
+      "dealer": "east",
+      "cutter": "south",
+      "cutPosition": 5,
+      "deckCommitment": "6dac298a11d9de5bc3391bcfb04b8053747429fc4fc3ff30c511aed5115433ae"
+    },
+    {
+      "sequence": 2,
+      "type": "cards_dealt",
+      "stage": "initial",
+      "packet": 1,
+      "seat": "north",
+      "count": 3
+    },
+    {
+      "sequence": 3,
+      "type": "cards_dealt",
+      "stage": "initial",
+      "packet": 1,
+      "seat": "west",
+      "count": 3
+    },
+    {
+      "sequence": 4,
+      "type": "cards_dealt",
+      "stage": "initial",
+      "packet": 1,
+      "seat": "south",
+      "count": 3
+    },
+    {
+      "sequence": 5,
+      "type": "cards_dealt",
+      "stage": "initial",
+      "packet": 1,
+      "seat": "east",
+      "count": 3
+    },
+    {
+      "sequence": 6,
+      "type": "cards_dealt",
+      "stage": "initial",
+      "packet": 2,
+      "seat": "north",
+      "count": 2
+    },
+    {
+      "sequence": 7,
+      "type": "cards_dealt",
+      "stage": "initial",
+      "packet": 2,
+      "seat": "west",
+      "count": 2
+    },
+    {
+      "sequence": 8,
+      "type": "cards_dealt",
+      "stage": "initial",
+      "packet": 2,
+      "seat": "south",
+      "count": 2
+    },
+    {
+      "sequence": 9,
+      "type": "cards_dealt",
+      "stage": "initial",
+      "packet": 2,
+      "seat": "east",
+      "count": 2
+    },
+    {
+      "sequence": 10,
+      "type": "purchase_card_exposed",
+      "card": {
+        "id": 0,
+        "code": "S7",
+        "suit": "spades",
+        "rank": "seven",
+        "symbol": "♠",
+        "label": "7♠"
+      }
+    },
+    {
+      "sequence": 11,
+      "type": "initial_deal_complete",
+      "firstBidder": "north",
+      "cutter": "south"
+    },
+    {
+      "sequence": 12,
+      "type": "bid_made",
+      "round": 1,
+      "turn": 0,
+      "seat": "north",
+      "action": "pass",
+      "contract": null,
+      "trumpSuit": null,
+      "bidder": null,
+      "buyer": null
+    },
+    {
+      "sequence": 13,
+      "type": "bid_made",
+      "round": 1,
+      "turn": 1,
+      "seat": "west",
+      "action": "hokum",
+      "contract": "hokum",
+      "trumpSuit": "spades",
+      "bidder": "west",
+      "buyer": "west"
+    },
+    {
+      "sequence": 14,
+      "type": "contract_purchased",
+      "winningBidder": "west",
+      "buyer": "west",
+      "contractOwner": "west",
+      "purchaseRecipient": "west",
+      "declarer": "west",
+      "contract": "hokum",
+      "trumpSuit": "spades",
+      "purchaseCard": {
+        "id": 0,
+        "code": "S7",
+        "suit": "spades",
+        "rank": "seven",
+        "symbol": "♠",
+        "label": "7♠"
+      }
+    },
+    {
+      "sequence": 15,
+      "type": "cards_dealt",
+      "stage": "final",
+      "packet": 1,
+      "seat": "north",
+      "count": 3
+    },
+    {
+      "sequence": 16,
+      "type": "cards_dealt",
+      "stage": "final",
+      "packet": 1,
+      "seat": "west",
+      "count": 2
+    },
+    {
+      "sequence": 17,
+      "type": "cards_dealt",
+      "stage": "final",
+      "packet": 1,
+      "seat": "south",
+      "count": 3
+    },
+    {
+      "sequence": 18,
+      "type": "cards_dealt",
+      "stage": "final",
+      "packet": 1,
+      "seat": "east",
+      "count": 3
+    },
+    {
+      "sequence": 19,
+      "type": "final_deal_complete",
+      "buyer": "west",
+      "contractOwner": "west",
+      "purchaseRecipient": "west",
+      "firstLeader": "north"
+    },
+    {
+      "sequence": 20,
+      "type": "project_holdings_detected",
+      "count": 1
+    },
+    {
+      "sequence": 21,
+      "type": "play_started",
+      "firstLeader": "north"
+    },
+    {
+      "sequence": 22,
+      "type": "project_declared",
+      "owner": "north",
+      "kind": "siri",
+      "value": 2,
+      "highRank": 3,
+      "declarationOrder": 1
+    },
+    {
+      "sequence": 23,
+      "type": "card_played",
+      "seat": "north",
+      "card": {
+        "id": 9,
+        "code": "H8",
+        "suit": "hearts",
+        "rank": "eight",
+        "symbol": "♥",
+        "label": "8♥"
+      },
+      "trickIndex": 0,
+      "position": 0,
+      "legalCards": [
+        {
+          "id": 3,
+          "code": "S10",
+          "suit": "spades",
+          "rank": "ten",
+          "symbol": "♠",
+          "label": "10♠"
+        },
+        {
+          "id": 7,
+          "code": "SA",
+          "suit": "spades",
+          "rank": "ace",
+          "symbol": "♠",
+          "label": "A♠"
+        },
+        {
+          "id": 9,
+          "code": "H8",
+          "suit": "hearts",
+          "rank": "eight",
+          "symbol": "♥",
+          "label": "8♥"
+        },
+        {
+          "id": 10,
+          "code": "H9",
+          "suit": "hearts",
+          "rank": "nine",
+          "symbol": "♥",
+          "label": "9♥"
+        },
+        {
+          "id": 11,
+          "code": "H10",
+          "suit": "hearts",
+          "rank": "ten",
+          "symbol": "♥",
+          "label": "10♥"
+        },
+        {
+          "id": 14,
+          "code": "HK",
+          "suit": "hearts",
+          "rank": "king",
+          "symbol": "♥",
+          "label": "K♥"
+        },
+        {
+          "id": 21,
+          "code": "DQ",
+          "suit": "diamonds",
+          "rank": "queen",
+          "symbol": "♦",
+          "label": "Q♦"
+        },
+        {
+          "id": 25,
+          "code": "C8",
+          "suit": "clubs",
+          "rank": "eight",
+          "symbol": "♣",
+          "label": "8♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 24,
+      "type": "card_played",
+      "seat": "west",
+      "card": {
+        "id": 12,
+        "code": "HJ",
+        "suit": "hearts",
+        "rank": "jack",
+        "symbol": "♥",
+        "label": "J♥"
+      },
+      "trickIndex": 0,
+      "position": 1,
+      "legalCards": [
+        {
+          "id": 12,
+          "code": "HJ",
+          "suit": "hearts",
+          "rank": "jack",
+          "symbol": "♥",
+          "label": "J♥"
+        },
+        {
+          "id": 15,
+          "code": "HA",
+          "suit": "hearts",
+          "rank": "ace",
+          "symbol": "♥",
+          "label": "A♥"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 25,
+      "type": "card_played",
+      "seat": "south",
+      "card": {
+        "id": 1,
+        "code": "S8",
+        "suit": "spades",
+        "rank": "eight",
+        "symbol": "♠",
+        "label": "8♠"
+      },
+      "trickIndex": 0,
+      "position": 2,
+      "legalCards": [
+        {
+          "id": 1,
+          "code": "S8",
+          "suit": "spades",
+          "rank": "eight",
+          "symbol": "♠",
+          "label": "8♠"
+        },
+        {
+          "id": 5,
+          "code": "SQ",
+          "suit": "spades",
+          "rank": "queen",
+          "symbol": "♠",
+          "label": "Q♠"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 26,
+      "type": "card_played",
+      "seat": "east",
+      "card": {
+        "id": 13,
+        "code": "HQ",
+        "suit": "hearts",
+        "rank": "queen",
+        "symbol": "♥",
+        "label": "Q♥"
+      },
+      "trickIndex": 0,
+      "position": 3,
+      "legalCards": [
+        {
+          "id": 8,
+          "code": "H7",
+          "suit": "hearts",
+          "rank": "seven",
+          "symbol": "♥",
+          "label": "7♥"
+        },
+        {
+          "id": 13,
+          "code": "HQ",
+          "suit": "hearts",
+          "rank": "queen",
+          "symbol": "♥",
+          "label": "Q♥"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 27,
+      "type": "trick_completed",
+      "trickIndex": 0,
+      "winner": "south",
+      "rawPoints": 5
+    },
+    {
+      "sequence": 28,
+      "type": "projects_compared",
+      "winningTeam": "north_south",
+      "declarations": [
+        {
+          "owner": "north",
+          "kind": "siri",
+          "value": 2,
+          "highRank": 3,
+          "declarationOrder": 1
+        }
+      ]
+    },
+    {
+      "sequence": 29,
+      "type": "card_played",
+      "seat": "south",
+      "card": {
+        "id": 16,
+        "code": "D7",
+        "suit": "diamonds",
+        "rank": "seven",
+        "symbol": "♦",
+        "label": "7♦"
+      },
+      "trickIndex": 1,
+      "position": 0,
+      "legalCards": [
+        {
+          "id": 5,
+          "code": "SQ",
+          "suit": "spades",
+          "rank": "queen",
+          "symbol": "♠",
+          "label": "Q♠"
+        },
+        {
+          "id": 16,
+          "code": "D7",
+          "suit": "diamonds",
+          "rank": "seven",
+          "symbol": "♦",
+          "label": "7♦"
+        },
+        {
+          "id": 17,
+          "code": "D8",
+          "suit": "diamonds",
+          "rank": "eight",
+          "symbol": "♦",
+          "label": "8♦"
+        },
+        {
+          "id": 19,
+          "code": "D10",
+          "suit": "diamonds",
+          "rank": "ten",
+          "symbol": "♦",
+          "label": "10♦"
+        },
+        {
+          "id": 24,
+          "code": "C7",
+          "suit": "clubs",
+          "rank": "seven",
+          "symbol": "♣",
+          "label": "7♣"
+        },
+        {
+          "id": 26,
+          "code": "C9",
+          "suit": "clubs",
+          "rank": "nine",
+          "symbol": "♣",
+          "label": "9♣"
+        },
+        {
+          "id": 31,
+          "code": "CA",
+          "suit": "clubs",
+          "rank": "ace",
+          "symbol": "♣",
+          "label": "A♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 30,
+      "type": "card_played",
+      "seat": "east",
+      "card": {
+        "id": 18,
+        "code": "D9",
+        "suit": "diamonds",
+        "rank": "nine",
+        "symbol": "♦",
+        "label": "9♦"
+      },
+      "trickIndex": 1,
+      "position": 1,
+      "legalCards": [
+        {
+          "id": 18,
+          "code": "D9",
+          "suit": "diamonds",
+          "rank": "nine",
+          "symbol": "♦",
+          "label": "9♦"
+        },
+        {
+          "id": 20,
+          "code": "DJ",
+          "suit": "diamonds",
+          "rank": "jack",
+          "symbol": "♦",
+          "label": "J♦"
+        },
+        {
+          "id": 22,
+          "code": "DK",
+          "suit": "diamonds",
+          "rank": "king",
+          "symbol": "♦",
+          "label": "K♦"
+        },
+        {
+          "id": 23,
+          "code": "DA",
+          "suit": "diamonds",
+          "rank": "ace",
+          "symbol": "♦",
+          "label": "A♦"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 31,
+      "type": "projects_revealed",
+      "owner": "north",
+      "projects": [
+        {
+          "owner": "north",
+          "kind": "siri",
+          "value": 2,
+          "highRank": 3,
+          "declarationOrder": 1,
+          "team": "north_south",
+          "cards": [
+            {
+              "id": 9,
+              "code": "H8",
+              "suit": "hearts",
+              "rank": "eight",
+              "symbol": "♥",
+              "label": "8♥"
+            },
+            {
+              "id": 10,
+              "code": "H9",
+              "suit": "hearts",
+              "rank": "nine",
+              "symbol": "♥",
+              "label": "9♥"
+            },
+            {
+              "id": 11,
+              "code": "H10",
+              "suit": "hearts",
+              "rank": "ten",
+              "symbol": "♥",
+              "label": "10♥"
+            }
+          ],
+          "scoring": true,
+          "revealed": true
+        }
+      ]
+    },
+    {
+      "sequence": 32,
+      "type": "card_played",
+      "seat": "north",
+      "card": {
+        "id": 21,
+        "code": "DQ",
+        "suit": "diamonds",
+        "rank": "queen",
+        "symbol": "♦",
+        "label": "Q♦"
+      },
+      "trickIndex": 1,
+      "position": 2,
+      "legalCards": [
+        {
+          "id": 21,
+          "code": "DQ",
+          "suit": "diamonds",
+          "rank": "queen",
+          "symbol": "♦",
+          "label": "Q♦"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 33,
+      "type": "card_played",
+      "seat": "west",
+      "card": {
+        "id": 0,
+        "code": "S7",
+        "suit": "spades",
+        "rank": "seven",
+        "symbol": "♠",
+        "label": "7♠"
+      },
+      "trickIndex": 1,
+      "position": 3,
+      "legalCards": [
+        {
+          "id": 0,
+          "code": "S7",
+          "suit": "spades",
+          "rank": "seven",
+          "symbol": "♠",
+          "label": "7♠"
+        },
+        {
+          "id": 2,
+          "code": "S9",
+          "suit": "spades",
+          "rank": "nine",
+          "symbol": "♠",
+          "label": "9♠"
+        },
+        {
+          "id": 4,
+          "code": "SJ",
+          "suit": "spades",
+          "rank": "jack",
+          "symbol": "♠",
+          "label": "J♠"
+        },
+        {
+          "id": 6,
+          "code": "SK",
+          "suit": "spades",
+          "rank": "king",
+          "symbol": "♠",
+          "label": "K♠"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 34,
+      "type": "trick_completed",
+      "trickIndex": 1,
+      "winner": "west",
+      "rawPoints": 3
+    },
+    {
+      "sequence": 35,
+      "type": "projects_collected",
+      "owners": [
+        "north"
+      ]
+    },
+    {
+      "sequence": 36,
+      "type": "card_played",
+      "seat": "west",
+      "card": {
+        "id": 28,
+        "code": "CJ",
+        "suit": "clubs",
+        "rank": "jack",
+        "symbol": "♣",
+        "label": "J♣"
+      },
+      "trickIndex": 2,
+      "position": 0,
+      "legalCards": [
+        {
+          "id": 2,
+          "code": "S9",
+          "suit": "spades",
+          "rank": "nine",
+          "symbol": "♠",
+          "label": "9♠"
+        },
+        {
+          "id": 4,
+          "code": "SJ",
+          "suit": "spades",
+          "rank": "jack",
+          "symbol": "♠",
+          "label": "J♠"
+        },
+        {
+          "id": 6,
+          "code": "SK",
+          "suit": "spades",
+          "rank": "king",
+          "symbol": "♠",
+          "label": "K♠"
+        },
+        {
+          "id": 15,
+          "code": "HA",
+          "suit": "hearts",
+          "rank": "ace",
+          "symbol": "♥",
+          "label": "A♥"
+        },
+        {
+          "id": 27,
+          "code": "C10",
+          "suit": "clubs",
+          "rank": "ten",
+          "symbol": "♣",
+          "label": "10♣"
+        },
+        {
+          "id": 28,
+          "code": "CJ",
+          "suit": "clubs",
+          "rank": "jack",
+          "symbol": "♣",
+          "label": "J♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 37,
+      "type": "card_played",
+      "seat": "south",
+      "card": {
+        "id": 24,
+        "code": "C7",
+        "suit": "clubs",
+        "rank": "seven",
+        "symbol": "♣",
+        "label": "7♣"
+      },
+      "trickIndex": 2,
+      "position": 1,
+      "legalCards": [
+        {
+          "id": 24,
+          "code": "C7",
+          "suit": "clubs",
+          "rank": "seven",
+          "symbol": "♣",
+          "label": "7♣"
+        },
+        {
+          "id": 26,
+          "code": "C9",
+          "suit": "clubs",
+          "rank": "nine",
+          "symbol": "♣",
+          "label": "9♣"
+        },
+        {
+          "id": 31,
+          "code": "CA",
+          "suit": "clubs",
+          "rank": "ace",
+          "symbol": "♣",
+          "label": "A♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 38,
+      "type": "card_played",
+      "seat": "east",
+      "card": {
+        "id": 29,
+        "code": "CQ",
+        "suit": "clubs",
+        "rank": "queen",
+        "symbol": "♣",
+        "label": "Q♣"
+      },
+      "trickIndex": 2,
+      "position": 2,
+      "legalCards": [
+        {
+          "id": 29,
+          "code": "CQ",
+          "suit": "clubs",
+          "rank": "queen",
+          "symbol": "♣",
+          "label": "Q♣"
+        },
+        {
+          "id": 30,
+          "code": "CK",
+          "suit": "clubs",
+          "rank": "king",
+          "symbol": "♣",
+          "label": "K♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 39,
+      "type": "card_played",
+      "seat": "north",
+      "card": {
+        "id": 25,
+        "code": "C8",
+        "suit": "clubs",
+        "rank": "eight",
+        "symbol": "♣",
+        "label": "8♣"
+      },
+      "trickIndex": 2,
+      "position": 3,
+      "legalCards": [
+        {
+          "id": 25,
+          "code": "C8",
+          "suit": "clubs",
+          "rank": "eight",
+          "symbol": "♣",
+          "label": "8♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 40,
+      "type": "trick_completed",
+      "trickIndex": 2,
+      "winner": "east",
+      "rawPoints": 5
+    },
+    {
+      "sequence": 41,
+      "type": "card_played",
+      "seat": "east",
+      "card": {
+        "id": 8,
+        "code": "H7",
+        "suit": "hearts",
+        "rank": "seven",
+        "symbol": "♥",
+        "label": "7♥"
+      },
+      "trickIndex": 3,
+      "position": 0,
+      "legalCards": [
+        {
+          "id": 8,
+          "code": "H7",
+          "suit": "hearts",
+          "rank": "seven",
+          "symbol": "♥",
+          "label": "7♥"
+        },
+        {
+          "id": 20,
+          "code": "DJ",
+          "suit": "diamonds",
+          "rank": "jack",
+          "symbol": "♦",
+          "label": "J♦"
+        },
+        {
+          "id": 22,
+          "code": "DK",
+          "suit": "diamonds",
+          "rank": "king",
+          "symbol": "♦",
+          "label": "K♦"
+        },
+        {
+          "id": 23,
+          "code": "DA",
+          "suit": "diamonds",
+          "rank": "ace",
+          "symbol": "♦",
+          "label": "A♦"
+        },
+        {
+          "id": 30,
+          "code": "CK",
+          "suit": "clubs",
+          "rank": "king",
+          "symbol": "♣",
+          "label": "K♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 42,
+      "type": "card_played",
+      "seat": "north",
+      "card": {
+        "id": 10,
+        "code": "H9",
+        "suit": "hearts",
+        "rank": "nine",
+        "symbol": "♥",
+        "label": "9♥"
+      },
+      "trickIndex": 3,
+      "position": 1,
+      "legalCards": [
+        {
+          "id": 10,
+          "code": "H9",
+          "suit": "hearts",
+          "rank": "nine",
+          "symbol": "♥",
+          "label": "9♥"
+        },
+        {
+          "id": 11,
+          "code": "H10",
+          "suit": "hearts",
+          "rank": "ten",
+          "symbol": "♥",
+          "label": "10♥"
+        },
+        {
+          "id": 14,
+          "code": "HK",
+          "suit": "hearts",
+          "rank": "king",
+          "symbol": "♥",
+          "label": "K♥"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 43,
+      "type": "card_played",
+      "seat": "west",
+      "card": {
+        "id": 15,
+        "code": "HA",
+        "suit": "hearts",
+        "rank": "ace",
+        "symbol": "♥",
+        "label": "A♥"
+      },
+      "trickIndex": 3,
+      "position": 2,
+      "legalCards": [
+        {
+          "id": 15,
+          "code": "HA",
+          "suit": "hearts",
+          "rank": "ace",
+          "symbol": "♥",
+          "label": "A♥"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 44,
+      "type": "card_played",
+      "seat": "south",
+      "card": {
+        "id": 5,
+        "code": "SQ",
+        "suit": "spades",
+        "rank": "queen",
+        "symbol": "♠",
+        "label": "Q♠"
+      },
+      "trickIndex": 3,
+      "position": 3,
+      "legalCards": [
+        {
+          "id": 5,
+          "code": "SQ",
+          "suit": "spades",
+          "rank": "queen",
+          "symbol": "♠",
+          "label": "Q♠"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 45,
+      "type": "trick_completed",
+      "trickIndex": 3,
+      "winner": "south",
+      "rawPoints": 14
+    },
+    {
+      "sequence": 46,
+      "type": "card_played",
+      "seat": "south",
+      "card": {
+        "id": 17,
+        "code": "D8",
+        "suit": "diamonds",
+        "rank": "eight",
+        "symbol": "♦",
+        "label": "8♦"
+      },
+      "trickIndex": 4,
+      "position": 0,
+      "legalCards": [
+        {
+          "id": 17,
+          "code": "D8",
+          "suit": "diamonds",
+          "rank": "eight",
+          "symbol": "♦",
+          "label": "8♦"
+        },
+        {
+          "id": 19,
+          "code": "D10",
+          "suit": "diamonds",
+          "rank": "ten",
+          "symbol": "♦",
+          "label": "10♦"
+        },
+        {
+          "id": 26,
+          "code": "C9",
+          "suit": "clubs",
+          "rank": "nine",
+          "symbol": "♣",
+          "label": "9♣"
+        },
+        {
+          "id": 31,
+          "code": "CA",
+          "suit": "clubs",
+          "rank": "ace",
+          "symbol": "♣",
+          "label": "A♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 47,
+      "type": "card_played",
+      "seat": "east",
+      "card": {
+        "id": 20,
+        "code": "DJ",
+        "suit": "diamonds",
+        "rank": "jack",
+        "symbol": "♦",
+        "label": "J♦"
+      },
+      "trickIndex": 4,
+      "position": 1,
+      "legalCards": [
+        {
+          "id": 20,
+          "code": "DJ",
+          "suit": "diamonds",
+          "rank": "jack",
+          "symbol": "♦",
+          "label": "J♦"
+        },
+        {
+          "id": 22,
+          "code": "DK",
+          "suit": "diamonds",
+          "rank": "king",
+          "symbol": "♦",
+          "label": "K♦"
+        },
+        {
+          "id": 23,
+          "code": "DA",
+          "suit": "diamonds",
+          "rank": "ace",
+          "symbol": "♦",
+          "label": "A♦"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 48,
+      "type": "card_played",
+      "seat": "north",
+      "card": {
+        "id": 3,
+        "code": "S10",
+        "suit": "spades",
+        "rank": "ten",
+        "symbol": "♠",
+        "label": "10♠"
+      },
+      "trickIndex": 4,
+      "position": 2,
+      "legalCards": [
+        {
+          "id": 3,
+          "code": "S10",
+          "suit": "spades",
+          "rank": "ten",
+          "symbol": "♠",
+          "label": "10♠"
+        },
+        {
+          "id": 7,
+          "code": "SA",
+          "suit": "spades",
+          "rank": "ace",
+          "symbol": "♠",
+          "label": "A♠"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 49,
+      "type": "card_played",
+      "seat": "west",
+      "card": {
+        "id": 2,
+        "code": "S9",
+        "suit": "spades",
+        "rank": "nine",
+        "symbol": "♠",
+        "label": "9♠"
+      },
+      "trickIndex": 4,
+      "position": 3,
+      "legalCards": [
+        {
+          "id": 2,
+          "code": "S9",
+          "suit": "spades",
+          "rank": "nine",
+          "symbol": "♠",
+          "label": "9♠"
+        },
+        {
+          "id": 4,
+          "code": "SJ",
+          "suit": "spades",
+          "rank": "jack",
+          "symbol": "♠",
+          "label": "J♠"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 50,
+      "type": "trick_completed",
+      "trickIndex": 4,
+      "winner": "west",
+      "rawPoints": 26
+    },
+    {
+      "sequence": 51,
+      "type": "card_played",
+      "seat": "west",
+      "card": {
+        "id": 6,
+        "code": "SK",
+        "suit": "spades",
+        "rank": "king",
+        "symbol": "♠",
+        "label": "K♠"
+      },
+      "trickIndex": 5,
+      "position": 0,
+      "legalCards": [
+        {
+          "id": 4,
+          "code": "SJ",
+          "suit": "spades",
+          "rank": "jack",
+          "symbol": "♠",
+          "label": "J♠"
+        },
+        {
+          "id": 6,
+          "code": "SK",
+          "suit": "spades",
+          "rank": "king",
+          "symbol": "♠",
+          "label": "K♠"
+        },
+        {
+          "id": 27,
+          "code": "C10",
+          "suit": "clubs",
+          "rank": "ten",
+          "symbol": "♣",
+          "label": "10♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 52,
+      "type": "card_played",
+      "seat": "south",
+      "card": {
+        "id": 26,
+        "code": "C9",
+        "suit": "clubs",
+        "rank": "nine",
+        "symbol": "♣",
+        "label": "9♣"
+      },
+      "trickIndex": 5,
+      "position": 1,
+      "legalCards": [
+        {
+          "id": 19,
+          "code": "D10",
+          "suit": "diamonds",
+          "rank": "ten",
+          "symbol": "♦",
+          "label": "10♦"
+        },
+        {
+          "id": 26,
+          "code": "C9",
+          "suit": "clubs",
+          "rank": "nine",
+          "symbol": "♣",
+          "label": "9♣"
+        },
+        {
+          "id": 31,
+          "code": "CA",
+          "suit": "clubs",
+          "rank": "ace",
+          "symbol": "♣",
+          "label": "A♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 53,
+      "type": "card_played",
+      "seat": "east",
+      "card": {
+        "id": 22,
+        "code": "DK",
+        "suit": "diamonds",
+        "rank": "king",
+        "symbol": "♦",
+        "label": "K♦"
+      },
+      "trickIndex": 5,
+      "position": 2,
+      "legalCards": [
+        {
+          "id": 22,
+          "code": "DK",
+          "suit": "diamonds",
+          "rank": "king",
+          "symbol": "♦",
+          "label": "K♦"
+        },
+        {
+          "id": 23,
+          "code": "DA",
+          "suit": "diamonds",
+          "rank": "ace",
+          "symbol": "♦",
+          "label": "A♦"
+        },
+        {
+          "id": 30,
+          "code": "CK",
+          "suit": "clubs",
+          "rank": "king",
+          "symbol": "♣",
+          "label": "K♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 54,
+      "type": "card_played",
+      "seat": "north",
+      "card": {
+        "id": 7,
+        "code": "SA",
+        "suit": "spades",
+        "rank": "ace",
+        "symbol": "♠",
+        "label": "A♠"
+      },
+      "trickIndex": 5,
+      "position": 3,
+      "legalCards": [
+        {
+          "id": 7,
+          "code": "SA",
+          "suit": "spades",
+          "rank": "ace",
+          "symbol": "♠",
+          "label": "A♠"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 55,
+      "type": "trick_completed",
+      "trickIndex": 5,
+      "winner": "north",
+      "rawPoints": 19
+    },
+    {
+      "sequence": 56,
+      "type": "card_played",
+      "seat": "north",
+      "card": {
+        "id": 14,
+        "code": "HK",
+        "suit": "hearts",
+        "rank": "king",
+        "symbol": "♥",
+        "label": "K♥"
+      },
+      "trickIndex": 6,
+      "position": 0,
+      "legalCards": [
+        {
+          "id": 11,
+          "code": "H10",
+          "suit": "hearts",
+          "rank": "ten",
+          "symbol": "♥",
+          "label": "10♥"
+        },
+        {
+          "id": 14,
+          "code": "HK",
+          "suit": "hearts",
+          "rank": "king",
+          "symbol": "♥",
+          "label": "K♥"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 57,
+      "type": "card_played",
+      "seat": "west",
+      "card": {
+        "id": 4,
+        "code": "SJ",
+        "suit": "spades",
+        "rank": "jack",
+        "symbol": "♠",
+        "label": "J♠"
+      },
+      "trickIndex": 6,
+      "position": 1,
+      "legalCards": [
+        {
+          "id": 4,
+          "code": "SJ",
+          "suit": "spades",
+          "rank": "jack",
+          "symbol": "♠",
+          "label": "J♠"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 58,
+      "type": "card_played",
+      "seat": "south",
+      "card": {
+        "id": 19,
+        "code": "D10",
+        "suit": "diamonds",
+        "rank": "ten",
+        "symbol": "♦",
+        "label": "10♦"
+      },
+      "trickIndex": 6,
+      "position": 2,
+      "legalCards": [
+        {
+          "id": 19,
+          "code": "D10",
+          "suit": "diamonds",
+          "rank": "ten",
+          "symbol": "♦",
+          "label": "10♦"
+        },
+        {
+          "id": 31,
+          "code": "CA",
+          "suit": "clubs",
+          "rank": "ace",
+          "symbol": "♣",
+          "label": "A♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 59,
+      "type": "card_played",
+      "seat": "east",
+      "card": {
+        "id": 23,
+        "code": "DA",
+        "suit": "diamonds",
+        "rank": "ace",
+        "symbol": "♦",
+        "label": "A♦"
+      },
+      "trickIndex": 6,
+      "position": 3,
+      "legalCards": [
+        {
+          "id": 23,
+          "code": "DA",
+          "suit": "diamonds",
+          "rank": "ace",
+          "symbol": "♦",
+          "label": "A♦"
+        },
+        {
+          "id": 30,
+          "code": "CK",
+          "suit": "clubs",
+          "rank": "king",
+          "symbol": "♣",
+          "label": "K♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 60,
+      "type": "trick_completed",
+      "trickIndex": 6,
+      "winner": "west",
+      "rawPoints": 45
+    },
+    {
+      "sequence": 61,
+      "type": "card_played",
+      "seat": "west",
+      "card": {
+        "id": 27,
+        "code": "C10",
+        "suit": "clubs",
+        "rank": "ten",
+        "symbol": "♣",
+        "label": "10♣"
+      },
+      "trickIndex": 7,
+      "position": 0,
+      "legalCards": [
+        {
+          "id": 27,
+          "code": "C10",
+          "suit": "clubs",
+          "rank": "ten",
+          "symbol": "♣",
+          "label": "10♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 62,
+      "type": "card_played",
+      "seat": "south",
+      "card": {
+        "id": 31,
+        "code": "CA",
+        "suit": "clubs",
+        "rank": "ace",
+        "symbol": "♣",
+        "label": "A♣"
+      },
+      "trickIndex": 7,
+      "position": 1,
+      "legalCards": [
+        {
+          "id": 31,
+          "code": "CA",
+          "suit": "clubs",
+          "rank": "ace",
+          "symbol": "♣",
+          "label": "A♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 63,
+      "type": "card_played",
+      "seat": "east",
+      "card": {
+        "id": 30,
+        "code": "CK",
+        "suit": "clubs",
+        "rank": "king",
+        "symbol": "♣",
+        "label": "K♣"
+      },
+      "trickIndex": 7,
+      "position": 2,
+      "legalCards": [
+        {
+          "id": 30,
+          "code": "CK",
+          "suit": "clubs",
+          "rank": "king",
+          "symbol": "♣",
+          "label": "K♣"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 64,
+      "type": "card_played",
+      "seat": "north",
+      "card": {
+        "id": 11,
+        "code": "H10",
+        "suit": "hearts",
+        "rank": "ten",
+        "symbol": "♥",
+        "label": "10♥"
+      },
+      "trickIndex": 7,
+      "position": 3,
+      "legalCards": [
+        {
+          "id": 11,
+          "code": "H10",
+          "suit": "hearts",
+          "rank": "ten",
+          "symbol": "♥",
+          "label": "10♥"
+        }
+      ],
+      "ekka": false,
+      "baloot": false
+    },
+    {
+      "sequence": 65,
+      "type": "trick_completed",
+      "trickIndex": 7,
+      "winner": "south",
+      "rawPoints": 35
+    },
+    {
+      "sequence": 66,
+      "type": "round_scored",
+      "score": {
+        "rawCardPoints": [
+          83,
+          79
+        ],
+        "cardGamePoints": [
+          8,
+          8
+        ],
+        "projectPoints": [
+          2,
+          0
+        ],
+        "balootPoints": [
+          0,
+          0
+        ],
+        "totalBeforeAward": [
+          10,
+          8
+        ],
+        "winner": "north_south",
+        "awardedPoints": [
+          18,
+          0
+        ],
+        "countingTeam": "north_south",
+        "multiplier": 1,
+        "kabout": false,
+        "gahwa": false,
+        "matchWinner": "north_south",
+        "explanation": [
+          "counting_team=north_south",
+          "card_game_points=[8, 8]",
+          "projects=[2, 0]",
+          "baloot=[0, 0]"
+        ]
+      },
+      "matchScore": [
+        158,
+        140
+      ],
+      "matchWinner": "north_south"
+    }
+  ]
+}

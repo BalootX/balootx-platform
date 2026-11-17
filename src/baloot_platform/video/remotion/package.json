@@ -1,0 +1,35 @@
+{
+  "name": "@balootx/remotion-professional-renderer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "render:prototypes": "node scripts/render-prototypes.mjs",
+    "render:flagship": "node scripts/render-flagship.mjs",
+    "render:decision": "node scripts/render-decision-clip.mjs",
+    "render:multi-angle": "node scripts/render-multi-angle.mjs"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.503",
+    "@remotion/renderer": "4.0.503",
+    "jpeg-js": "0.4.4",
+    "jsqr": "1.4.0",
+    "qrcode.react": "4.2.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.503"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "nanoid": "3.3.18"
+  }
+}

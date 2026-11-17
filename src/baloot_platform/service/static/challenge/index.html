@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ar-SA" dir="rtl" translate="no" class="notranslate">
+<head>
+  <meta charset="utf-8">
+  <meta name="google" content="notranslate">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#061914">
+  <title></title>
+  <link rel="stylesheet" href="/challenge-assets/app.css?v=2c8dd319cd0f">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a id="brand" class="brand" href="/play"><span id="brand-mark"></span><strong id="brand-name"></strong></a>
+      <div class="code"><small id="code-label"></small><b id="code">—</b></div>
+    </header>
+
+    <section id="loading" class="state-card" aria-live="polite">
+      <span class="loader"></span><p id="loading-copy"></p>
+    </section>
+
+    <section id="error" class="state-card" hidden>
+      <span class="error-mark">!</span><h1 id="error-title"></h1><p id="error-copy"></p>
+    </section>
+
+    <section id="challenge" hidden>
+      <div id="scorebar" class="scorebar">
+        <div class="score"><small id="us-label"></small><strong id="us-score">0</strong></div>
+        <div class="contract">
+          <span id="buyer">—</span>
+          <strong id="contract">—</strong>
+        </div>
+        <div class="score"><small id="them-label"></small><strong id="them-score">0</strong></div>
+      </div>
+
+      <div id="table" class="table">
+        <div class="felt-motif" aria-hidden="true"></div>
+        <div id="seats"></div>
+        <div id="trick" class="trick"></div>
+        <div id="play-target" class="play-target" aria-hidden="true"><span id="play-target-copy"></span></div>
+      </div>
+
+      <section class="decision">
+        <div class="prompt"><small id="decision-eyebrow"></small><h1 id="prompt"></h1></div>
+        <div id="confidence" class="confidence" role="group">
+          <button id="confidence-unsure" data-confidence="0.4"></button>
+          <button id="confidence-confident" class="active" data-confidence="0.7"></button>
+          <button id="confidence-certain" data-confidence="0.95"></button>
+        </div>
+      </section>
+
+      <p id="drag-hint" class="drag-hint"></p>
+      <div id="hand" class="hand"></div>
+      <button id="commit" class="commit" disabled></button>
+    </section>
+
+    <section id="result" class="result" hidden aria-live="polite">
+      <div class="result-head">
+        <span id="result-mark" class="result-mark">✓</span>
+        <div><small id="truth-label"></small><h1 id="result-title"></h1></div>
+      </div>
+      <div id="answer-cards" class="answer-cards"></div>
+      <p id="result-note" class="result-note"></p>
+      <article id="expert-reason" class="expert-reason" hidden>
+        <small id="reason-label"></small><p id="expert-reason-copy"></p>
+      </article>
+
+      <div class="stat-grid">
+        <article><small id="participants-label"></small><strong id="attempt-count">0</strong></article>
+        <article><small id="recommended-rate-label"></small><strong id="recommended-rate">—</strong></article>
+        <article><small id="difficulty-label"></small><strong id="difficulty">—</strong></article>
+      </div>
+
+      <section class="breakdown">
+        <h2 id="player-choices-label"></h2><div id="choices"></div>
+      </section>
+      <section id="friends-panel" class="breakdown" hidden>
+        <h2 id="friend-choices-label"></h2><div id="friends"></div>
+      </section>
+      <a id="next-challenge" class="next" href="/play"></a>
+    </section>
+  </main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/challenge-assets/app.js?v=35d6f18176e8" defer></script>
+</body>
+</html>

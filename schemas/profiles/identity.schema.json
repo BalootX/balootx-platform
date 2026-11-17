@@ -1,0 +1,153 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/identity.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cookies": {
+      "additionalProperties": false,
+      "properties": {
+        "http_only": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "same_site": {
+          "type": "string"
+        },
+        "secure_in_production": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "http_only",
+        "name",
+        "same_site",
+        "secure_in_production"
+      ],
+      "type": "object"
+    },
+    "csrf": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled_in_production": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled_in_production"
+      ],
+      "type": "object"
+    },
+    "friends": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "type": "object"
+    },
+    "guest": {
+      "additionalProperties": false,
+      "properties": {
+        "default_display_name": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "session_hours": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "default_display_name",
+        "enabled",
+        "session_hours"
+      ],
+      "type": "object"
+    },
+    "local_accounts": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "password_minimum": {
+          "type": "integer"
+        },
+        "session_hours": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "enabled",
+        "password_minimum",
+        "session_hours"
+      ],
+      "type": "object"
+    },
+    "mode": {
+      "type": "string"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "providers": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "type": "string"
+        },
+        "plugins": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "default",
+        "plugins"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "cookies",
+    "csrf",
+    "friends",
+    "guest",
+    "local_accounts",
+    "mode",
+    "profile",
+    "providers",
+    "schema_version"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "packId": "goodall_modern_baloot_32",
+  "displayName": "Goodall Modern Double-Ended Baloot 32",
+  "source": "https://www.me.uk/cards/ (user-supplied generated deck: poker-wider-double-modern-reverse-BackGoodall.zip)",
+  "licenseStatus": "CC0-1.0-public-domain",
+  "allowedUse": "unrestricted_project_use",
+  "ranks": [
+    "7",
+    "8",
+    "9",
+    "10",
+    "J",
+    "Q",
+    "K",
+    "A"
+  ],
+  "suits": [
+    "spades",
+    "hearts",
+    "clubs",
+    "diamonds"
+  ],
+  "defaultBack": "1B",
+  "cards": {
+    "7_spades": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/7_spades.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/7_spades.png"
+    },
+    "7_hearts": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/7_hearts.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/7_hearts.png"
+    },
+    "7_clubs": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/7_clubs.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/7_clubs.png"
+    },
+    "7_diamonds": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/7_diamonds.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/7_diamonds.png"
+    },
+    "8_spades": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/8_spades.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/8_spades.png"
+    },
+    "8_hearts": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/8_hearts.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/8_hearts.png"
+    },
+    "8_clubs": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/8_clubs.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/8_clubs.png"
+    },
+    "8_diamonds": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/8_diamonds.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/8_diamonds.png"
+    },
+    "9_spades": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/9_spades.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/9_spades.png"
+    },
+    "9_hearts": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/9_hearts.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/9_hearts.png"
+    },
+    "9_clubs": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/9_clubs.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/9_clubs.png"
+    },
+    "9_diamonds": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/9_diamonds.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/9_diamonds.png"
+    },
+    "10_spades": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/10_spades.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/10_spades.png"
+    },
+    "10_hearts": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/10_hearts.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/10_hearts.png"
+    },
+    "10_clubs": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/10_clubs.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/10_clubs.png"
+    },
+    "10_diamonds": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/10_diamonds.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/10_diamonds.png"
+    },
+    "J_spades": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/J_spades.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/J_spades.png"
+    },
+    "J_hearts": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/J_hearts.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/J_hearts.png"
+    },
+    "J_clubs": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/J_clubs.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/J_clubs.png"
+    },
+    "J_diamonds": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/J_diamonds.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/J_diamonds.png"
+    },
+    "Q_spades": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/Q_spades.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/Q_spades.png"
+    },
+    "Q_hearts": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/Q_hearts.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/Q_hearts.png"
+    },
+    "Q_clubs": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/Q_clubs.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/Q_clubs.png"
+    },
+    "Q_diamonds": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/Q_diamonds.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/Q_diamonds.png"
+    },
+    "K_spades": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/K_spades.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/K_spades.png"
+    },
+    "K_hearts": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/K_hearts.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/K_hearts.png"
+    },
+    "K_clubs": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/K_clubs.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/K_clubs.png"
+    },
+    "K_diamonds": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/K_diamonds.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/K_diamonds.png"
+    },
+    "A_spades": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/A_spades.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/A_spades.png"
+    },
+    "A_hearts": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/A_hearts.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/A_hearts.png"
+    },
+    "A_clubs": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/A_clubs.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/A_clubs.png"
+    },
+    "A_diamonds": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/A_diamonds.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/A_diamonds.png"
+    }
+  },
+  "backs": {
+    "1B": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/1B.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/1B.png"
+    },
+    "2B": {
+      "svg": "assets/cards/packs/goodall_modern_baloot_32/svg/2B.svg",
+      "png": "assets/cards/packs/goodall_modern_baloot_32/png/2B.png"
+    }
+  },
+  "render": {
+    "masterWidth": 600,
+    "masterHeight": 840,
+    "aspectRatio": "5:7"
+  },
+  "attribution": "Adrian Kennard / me.uk/cards (credit appreciated, not required)",
+  "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+}

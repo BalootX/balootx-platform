@@ -1,0 +1,62 @@
+schema_version: 1
+profile:
+  id: security_optional_oidc_passkeys_v2
+  version: 2.0.0
+  status: production_candidate
+auth:
+  mode: optional_api_key
+  api_key_environment: BALOOT_API_KEY
+  trusted_context_scope: analysis:trusted
+http:
+  maximum_body_bytes: 2097152
+  rate_limit_per_minute: 120
+  cors_origins: []
+headers:
+  content_security_policy: 'default-src ''self''; img-src ''self'' data: blob:; media-src
+    ''self'' blob:; style-src ''self'' ''unsafe-inline''; script-src ''self'' ''unsafe-inline'''
+  frame_options: DENY
+mcp:
+  read_only_by_default: true
+  allow_mutations_environment: BALOOT_MCP_ALLOW_MUTATIONS
+oauth:
+  resource_server: true
+  issuer_environment: BALOOT_TOKEN_ISSUER
+  audience_environment: BALOOT_TOKEN_AUDIENCE
+  access_token_lifetime_seconds: 900
+  scopes:
+  - baloot.read
+  - baloot.play
+  - baloot.analyze
+  - baloot.live
+  - baloot.hidden.read
+  - baloot.referee
+  - baloot.config.admin
+  - baloot.model.admin
+oidc:
+  enabled_when_configured: true
+  pkce_required: true
+  state_ttl_seconds: 600
+passkeys:
+  enabled: true
+  rp_id_environment: BALOOT_WEBAUTHN_RP_ID
+  origin_environment: BALOOT_WEBAUTHN_ORIGIN
+  challenge_ttl_seconds: 300
+roles:
+  guest:
+  - baloot.read
+  - baloot.play
+  - baloot.live
+  player:
+  - baloot.read
+  - baloot.play
+  - baloot.analyze
+  - baloot.live
+  referee:
+  - baloot.read
+  - baloot.play
+  - baloot.analyze
+  - baloot.live
+  - baloot.referee
+  - baloot.hidden.read
+  admin:
+  - '*'

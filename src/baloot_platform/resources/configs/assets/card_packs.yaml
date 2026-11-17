@@ -1,0 +1,51 @@
+schema_version: 1
+default_pack: goodall_modern_baloot_32
+packs:
+  goodall_modern_baloot_32:
+    label_ar: ورق Goodall الحديث — الافتراضي المفتوح
+    provider: raster_pack_v1
+    manifest: assets/cards/packs/goodall_modern_baloot_32/manifest.json
+    backs:
+    - 1B
+    - 2B
+    default_back: 1B
+    enabled: true
+    freeze_in_shared_environment: true
+    license_status: CC0-1.0-public-domain
+    intended_use: unrestricted_project_use
+    source_url: https://www.me.uk/cards/
+  procedural_v1:
+    label_ar: ورق المحرك الأصلي — احتياطي
+    provider: procedural_v1
+    backs:
+    - 1B
+    - 2B
+    default_back: 1B
+    enabled: true
+    freeze_in_shared_environment: true
+    license_status: project_original
+    intended_use: unrestricted_project_use
+  poker_double_backmarked_baloot_32:
+    label_ar: ورق Poker BackMarked — اختياري يتطلب مراجعة الحقوق
+    provider: raster_pack_v1
+    manifest: assets/cards/packs/poker_double_backmarked_baloot_32/manifest.json
+    backs:
+    - 1B
+    - 2B
+    default_back: 1B
+    enabled: false
+    freeze_in_shared_environment: true
+    license_status: user_supplied_review_required
+    intended_use: project_use_subject_to_source_review
+    source_url: local-upload://poker-double-BackMarked.zip
+selection:
+  studio_visible: true
+  per_tenant_override: true
+  per_room_override: true
+  per_shared_game_override: true
+  per_video_profile_override: true
+validation:
+  require_baloot_32: true
+  fail_on_missing_asset: true
+  fail_on_unknown_pack: true
+  fail_on_unknown_back: true

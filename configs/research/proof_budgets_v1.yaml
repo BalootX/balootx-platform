@@ -1,0 +1,69 @@
+schemaVersion: 1
+id: configurable-scenario-proof-budgets
+version: 1.0.0
+profiles:
+  interactive_validation_v1:
+    maximumNodes: 25000
+    maximumDepth: 8
+    maximumHorizonActions: 8
+    maximumHiddenWorlds: 64
+    maximumWallSeconds: 1.0
+    maximumCpuSeconds: 1.0
+    maximumCacheEntries: 10000
+    maximumCacheBytes: 8388608
+    cancellationCheckIntervalNodes: 16
+    maximumWorkers: 1
+    maximumLineCountNodes: 25000
+    maximumStateSpace: 1000000
+  bounded_v1:
+    maximumNodes: 250000
+    maximumDepth: 40
+    maximumHorizonActions: 40
+    maximumHiddenWorlds: 512
+    maximumWallSeconds: 10.0
+    maximumCpuSeconds: 10.0
+    maximumCacheEntries: 100000
+    maximumCacheBytes: 67108864
+    cancellationCheckIntervalNodes: 64
+    maximumWorkers: 1
+    maximumLineCountNodes: 250000
+    maximumStateSpace: 50000000
+  late_game_exact_v1:
+    maximumNodes: 2000000
+    maximumDepth: 16
+    maximumHorizonActions: 16
+    maximumHiddenWorlds: 1
+    maximumWallSeconds: 60.0
+    maximumCpuSeconds: 60.0
+    maximumCacheEntries: 500000
+    maximumCacheBytes: 268435456
+    cancellationCheckIntervalNodes: 128
+    maximumWorkers: 1
+    maximumLineCountNodes: 2000000
+    maximumStateSpace: 50000000
+  actor_information_set_exact_v1:
+    maximumNodes: 2000000
+    maximumDepth: 12
+    maximumHorizonActions: 12
+    maximumHiddenWorlds: 4096
+    maximumWallSeconds: 120.0
+    maximumCpuSeconds: 120.0
+    maximumCacheEntries: 500000
+    maximumCacheBytes: 268435456
+    cancellationCheckIntervalNodes: 64
+    maximumWorkers: 1
+    maximumLineCountNodes: 2000000
+    maximumStateSpace: 250000000
+  offline_heavyweight_v1:
+    maximumNodes: 10000000
+    maximumDepth: 40
+    maximumHorizonActions: 40
+    maximumHiddenWorlds: 25000
+    maximumWallSeconds: 600.0
+    maximumCpuSeconds: 600.0
+    maximumCacheEntries: 2000000
+    maximumCacheBytes: 1073741824
+    cancellationCheckIntervalNodes: 256
+    maximumWorkers: 1
+    maximumLineCountNodes: 10000000
+    maximumStateSpace: 1000000000000

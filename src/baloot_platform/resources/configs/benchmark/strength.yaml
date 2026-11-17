@@ -1,0 +1,63 @@
+schema_version: 1
+profile:
+  id: intelligence_benchmark
+  version: 21.2.0
+  status: governed_candidate
+strata:
+- bidding
+- opening_lead
+- play_obligation
+- projects
+- midgame
+- endgame
+- contract_rescue
+- risk
+- outcome_flip
+metrics:
+- policy_accuracy
+- top3_accuracy
+- expected_regret
+- brier_score
+- expected_calibration_error
+- illegal_action_rate
+- search_completion
+- latency
+- memory
+- nodes
+promotion_thresholds:
+  minimum_examples: 500
+  minimum_policy_accuracy: 0.6
+  maximum_expected_regret: 1.5
+  maximum_illegal_action_rate: 0.0
+permanent_holdout:
+  minimum_positions: 500
+  minimum_per_archetype: 40
+  minimum_adjudication_agreement: 0.8
+  minimum_independent_authorities: 2
+  require_full_candidate_coverage: true
+  calibration_bins: 10
+paired_comparison:
+  candidate_profile_id: finalist_candidate
+  baseline_profile_id: foundry_balanced
+  minimum_pairs: 100
+  minimum_win_rate: 0.55
+  minimum_win_rate_lower_bound: 0.5
+  minimum_regret_improvement: 0.25
+  maximum_seconds: 7200.0
+symmetry:
+  seed_start: 41000000
+  maximum_cases: 12
+  tolerance: 1.0e-09
+  required_transforms:
+  - seat_rotation
+  - team_swap
+  - suit_relabel
+local_preanalysis:
+  minimum_positions: 120
+  minimum_policy_accuracy: 0.95
+  maximum_expected_regret: 0.5
+  maximum_illegal_action_rate: 0.0
+  maximum_p95_latency_ms: 4000.0
+  qualification_eligible: false
+automatic_promotion: false
+group_split_by_game_hash: true

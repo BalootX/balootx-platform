@@ -1,0 +1,138 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/belief.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "calibration": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "metrics": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "enabled",
+        "metrics"
+      ],
+      "type": "object"
+    },
+    "construction": {
+      "additionalProperties": false,
+      "properties": {
+        "exact_when_allocations_below": {
+          "maximum": 100000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "method": {
+          "type": "string"
+        },
+        "rejection_fallback": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "exact_when_allocations_below",
+        "method",
+        "rejection_fallback"
+      ],
+      "type": "object"
+    },
+    "particles": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum": {
+          "maximum": 100000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "minimum_effective_fraction": {
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "type": "number"
+        },
+        "rejuvenation_attempts": {
+          "type": "integer"
+        },
+        "requested": {
+          "maximum": 100000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "resampling": {
+          "const": "systematic",
+          "type": "string"
+        }
+      },
+      "required": [
+        "maximum",
+        "minimum_effective_fraction",
+        "rejuvenation_attempts",
+        "requested",
+        "resampling"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "weights": {
+      "additionalProperties": false,
+      "properties": {
+        "hard_facts_authoritative": {
+          "type": "boolean"
+        },
+        "minimum_likelihood": {
+          "type": "number"
+        },
+        "signals_default": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hard_facts_authoritative",
+        "minimum_likelihood",
+        "signals_default"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "calibration",
+    "construction",
+    "particles",
+    "profile",
+    "schema_version",
+    "weights"
+  ],
+  "type": "object"
+}

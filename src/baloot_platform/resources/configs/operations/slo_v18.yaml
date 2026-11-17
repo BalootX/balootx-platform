@@ -1,0 +1,28 @@
+schema_version: 1
+profile:
+  id: production_slo_v18
+  version: 18.0.0
+  status: production_candidate
+objectives:
+  action_ack_p95_ms:
+    comparator: lte
+    target: 250
+  room_event_p95_ms:
+    comparator: lte
+    target: 500
+  analysis_standard_p95_ms:
+    comparator: lte
+    target: 5000
+  replay_availability:
+    comparator: gte
+    target: 0.999
+  job_success_rate:
+    comparator: gte
+    target: 0.995
+  data_durability:
+    comparator: gte
+    target: 0.999999
+recovery:
+  rpo_seconds: 60
+  rto_seconds: 900
+automatic_production_change: false

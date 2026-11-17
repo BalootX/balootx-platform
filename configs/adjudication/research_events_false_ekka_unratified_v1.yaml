@@ -1,0 +1,164 @@
+schemaVersion: 1
+profile:
+  id: balootx_false_ekka_adjudication_unratified_v1
+  version: 1.0.0
+  status: configured_unratified_referee_variant
+sourceAuthority:
+  class: official_regulation
+  sourceId: gea_baloot_regulation_2023
+  url: https://enjoy.sa/media/j1ofreng/baloot.pdf
+  archiveUrl: https://web.archive.org/web/20230314050221id_/https://enjoy.sa/media/j1ofreng/baloot.pdf
+  sha256: 9a7c67046549c5013f10e31069e6feba70e20eb1d47b27c7a2ba8abaa3e848c2
+  bytes: 3035758
+  verificationReceiptPath: release/saudi-baloot-official-source-verification-20260831-v2.json
+  verificationReceiptSha256: a6c38d796c2c12652069b88be1f8d9037186a6cf5d14963b067c95b43b37796c
+  currentAuthorityBoundary: verified_2023_not_proven_current_2026_requires_external_ratification
+variant:
+  id: false_ekka_illegal_declaration_attempt_v1
+  status: unratified_referee_variant
+  certificationEligible: false
+events:
+  incorrect_highest_card_naming:
+    labelAr: تسمية ورقة على أنها الأكبر
+    labelEn: Incorrect highest-card naming
+    violationCode: illegal_card
+    stage: play
+    authorityClass: official_regulation_adjudication
+    domainPrimitive: adjudication.external_card_naming
+    sourceClause: section_9.registration_table.incorrect_highest_card_naming
+    sourceTextAr: أكه بورقة على أنها أكبر ورقة لعب في الجولة ولم تكن كذلك.
+    eventScope: external_evidence
+    ordinaryTrace: not_an_action
+    availableRemedies: [opponent_register_with_projects, continue_play]
+    requiresTableReferee: true
+    generatedSearch: unsupported
+    exactInput: audit_sidecar_only
+    hardPredicate: unsupported
+    uiExposure: hidden
+    observerSafety: referee_restricted
+    messageAr: واقعة خارجية محايدة تحتاج دليل الحكم، ولا تتحول إلى ادعاء إكّة خاطئة.
+    messageEn: Neutral external evidence requiring a referee record; it is not converted into a false-Ekka claim.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#incorrect-highest-card-naming
+  out_of_turn:
+    labelAr: لعب قبل الدور
+    labelEn: Play before turn
+    violationCode: out_of_turn
+    stage: play
+    authorityClass: official_regulation_adjudication
+    domainPrimitive: rules.play.current_actor
+    sourceClause: section_9.first_registration_table.play_before_turn
+    eventScope: adjudicated_attempt
+    ordinaryTrace: rejected
+    coveredSubtype: play_before_turn
+    availableRemedies: [opponent_register_with_projects, continue_play]
+    requiresTableReferee: true
+    generatedSearch: unsupported
+    exactInput: legal_trace_rejects_attempt_audit_sidecar_supported
+    hardPredicate: unsupported
+    uiExposure: hidden
+    observerSafety: referee_restricted
+    messageAr: محاولة لعب قبل الدور محفوظة بجانب المسار القانوني.
+    messageEn: An out-of-turn attempt is preserved beside the legal trace.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#out-of-turn
+  invalid_bid:
+    labelAr: شراء قبل الدور
+    labelEn: Purchase before turn
+    violationCode: wrong_bid
+    stage: auction
+    authorityClass: official_regulation_adjudication
+    domainPrimitive: rules.auction.legal_actions
+    sourceClause: section_9.takweesh_table.purchase_before_turn
+    eventScope: adjudicated_attempt
+    ordinaryTrace: rejected
+    coveredSubtype: purchase_before_turn
+    availableRemedies: [opponent_takweesh, continue_play]
+    requiresTableReferee: true
+    generatedSearch: unsupported
+    exactInput: legal_trace_rejects_attempt_audit_sidecar_supported
+    hardPredicate: unsupported
+    uiExposure: hidden
+    observerSafety: referee_restricted
+    messageAr: محاولة شراء قبل الدور محفوظة بجانب سجل المزاد القانوني.
+    messageEn: A purchase-before-turn attempt is preserved beside legal auction history.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#invalid-bid
+  false_ekka_attempt:
+    labelAr: محاولة إكّة غير قانونية
+    labelEn: Illegal Ekka declaration attempt
+    violationCode: illegal_card
+    stage: play
+    authorityClass: configured_unratified_referee_variant
+    domainPrimitive: rules.play.legal_actions
+    sourceClause: configured_variant.false_ekka_illegal_declaration_attempt_v1
+    eventScope: adjudicated_attempt
+    ordinaryTrace: rejected
+    coveredSubtype: illegal_ekka_declaration
+    availableRemedies: [opponent_register_with_projects, continue_play]
+    requiresTableReferee: true
+    generatedSearch: native_exact
+    exactInput: legal_trace_rejects_attempt_audit_sidecar_supported
+    hardPredicate: native_exact
+    uiExposure: variant_only
+    observerSafety: referee_restricted
+    messageAr: هذا متغير غير مصدّق يثبت فقط محاولة اللاعب الحالي إعلان إكّة على ورقة قانونية حين لا يكون فعل الإكّة قانونياً؛ والمعالجة للحكم.
+    messageEn: This unratified variant proves only that the current actor attempted Ekka on a legal card when the Ekka action was illegal; the remedy remains with the referee.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#false-ekka-unratified-variant
+  exposed_card:
+    labelAr: ورقة مكشوفة
+    labelEn: Exposed dealt card
+    violationCode: exposed_card
+    stage: play
+    authorityClass: official_regulation_adjudication
+    domainPrimitive: adjudication.external_card_exposure
+    sourceClause: section_9.takweesh_table.exposed_dealt_card_named_by_opponent
+    eventScope: external_evidence
+    ordinaryTrace: not_an_action
+    availableRemedies: [opponent_takweesh, continue_play]
+    requiresTableReferee: true
+    generatedSearch: unsupported
+    exactInput: audit_sidecar_only
+    hardPredicate: unsupported
+    uiExposure: hidden
+    observerSafety: referee_restricted
+    messageAr: واقعة كشف الورقة تحتاج دليلاً خارجياً وقرار حكم.
+    messageEn: Exposed-card evidence remains external and referee-controlled.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#exposed-card
+  signalling:
+    labelAr: إشارة أثناء اللعب
+    labelEn: Signalling during play
+    violationCode: communication
+    stage: play
+    authorityClass: official_regulation_referee_adjudication
+    domainPrimitive: adjudication.external_communication
+    sourceClause: section_2.2_and_section_9.signalling
+    eventScope: external_evidence
+    ordinaryTrace: not_an_action
+    availableRemedies: [warning, register_against_with_projects]
+    requiresTableReferee: true
+    generatedSearch: unsupported
+    exactInput: audit_sidecar_only
+    hardPredicate: unsupported
+    uiExposure: hidden
+    observerSafety: referee_restricted
+    messageAr: الإشارة المزعومة تحتاج دليلاً خارجياً وقرار حكم.
+    messageEn: Alleged signalling remains external evidence under referee review.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#signalling
+  verbal_baloot_inside_sequential_100:
+    labelAr: نطق بلوت داخل سرا مية
+    labelEn: Verbal Baloot inside sequential 100
+    violationCode: communication
+    stage: projects
+    authorityClass: official_regulation_adjudication
+    domainPrimitive: rules.projects.baloot_verbal_declaration
+    sourceClause: section_5.clauses_5_6_and_5_8
+    eventScope: external_evidence
+    ordinaryTrace: not_an_action
+    availableRemedies: [opponent_register_with_projects, continue_play]
+    requiresTableReferee: true
+    generatedSearch: unsupported
+    exactInput: audit_sidecar_only
+    hardPredicate: unsupported
+    uiExposure: hidden
+    observerSafety: referee_restricted
+    messageAr: النطق المحظور يحفظ كواقعة تحكيم خارجية.
+    messageEn: The forbidden utterance remains external referee evidence.
+    documentation: docs/ADJUDICATION_RESEARCH_BOUNDARY.md#verbal-baloot-inside-sequential-100

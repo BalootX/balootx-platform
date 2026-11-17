@@ -1,0 +1,74 @@
+schema_version: 2
+profile:
+  id: ml_selfplay_promotion_v17
+  version: 18.0.0
+  status: production_candidate
+action_space:
+  cards: 32
+  bids:
+  - pass
+  - sun
+  - hokum_spades
+  - hokum_hearts
+  - hokum_diamonds
+  - hokum_clubs
+  - ashkal
+  escalations:
+  - double_open
+  - double_locked
+  - triple
+  - four_open
+  - four_locked
+  - gahwa
+  declarations:
+  - ekka
+  - baloot
+observation:
+  hidden_information_safe: true
+  include_legal_mask: true
+  include_profile_hash: true
+  include_public_events: true
+models:
+  belief: numpy_multitask_linear_v1
+  policy: uniform_legal_v1
+  value: numpy_multitask_linear_v1
+  intention: numpy_multitask_linear_v1
+  production_strength: baseline_not_elite
+  optional_onnx: true
+self_play:
+  enabled: true
+  league: elo_cross_play_v1
+  initial_rating: 1500.0
+  k_factor: 24.0
+  historical_checkpoints: true
+  identical_board_sets: true
+  zero_illegal_actions: true
+calibration:
+  enabled: true
+  bins: 10
+  metrics:
+  - brier_score
+  - log_loss
+  - ece
+  - mce
+  - top1_accuracy
+  group_by:
+  - contract
+  - seat
+  - player_profile
+  - rules_profile
+promotion:
+  minimum_score_rate: 0.52
+  minimum_lower_bound: 0.5
+  maximum_calibration_error: 0.08
+  maximum_p95_latency_ms: 50.0
+  minimum_ood_recall: 0.75
+  minimum_board_sets: 20
+  minimum_decisions: 10000
+  maximum_legal_violation_rate: 0.0
+  rollback_required: true
+dataset:
+  group_split_by_game_hash: true
+  include_expert_consensus_only: true
+  include_corrected_lineage: true
+  exclude_hidden_leakage: true

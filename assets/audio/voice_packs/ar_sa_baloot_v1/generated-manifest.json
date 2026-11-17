@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "packId": "callouts_ar_v10_5",
+  "engine": "espeak-fa-offline",
+  "license": "generated_original",
+  "clips": {
+    "pass": {
+      "textAr": "بس",
+      "file": "assets/audio/callouts_ar_v10_5/pass.wav"
+    },
+    "sun": {
+      "textAr": "صن",
+      "file": "assets/audio/callouts_ar_v10_5/sun.wav"
+    },
+    "hokum": {
+      "textAr": "حكم",
+      "file": "assets/audio/callouts_ar_v10_5/hokum.wav"
+    },
+    "hokum_second": {
+      "textAr": "حكم ثاني",
+      "file": "assets/audio/callouts_ar_v10_5/hokum_second.wav"
+    },
+    "ashkal": {
+      "textAr": "أشكل",
+      "file": "assets/audio/callouts_ar_v10_5/ashkal.wav"
+    },
+    "wala": {
+      "textAr": "ولا",
+      "file": "assets/audio/callouts_ar_v10_5/wala.wav"
+    },
+    "double": {
+      "textAr": "دبل",
+      "file": "assets/audio/callouts_ar_v10_5/double.wav"
+    },
+    "triple": {
+      "textAr": "ثري",
+      "file": "assets/audio/callouts_ar_v10_5/triple.wav"
+    },
+    "four": {
+      "textAr": "فور",
+      "file": "assets/audio/callouts_ar_v10_5/four.wav"
+    },
+    "gahwa": {
+      "textAr": "قهوة",
+      "file": "assets/audio/callouts_ar_v10_5/gahwa.wav"
+    },
+    "siri": {
+      "textAr": "سرا",
+      "file": "assets/audio/callouts_ar_v10_5/siri.wav"
+    },
+    "fifty": {
+      "textAr": "خمسين",
+      "file": "assets/audio/callouts_ar_v10_5/fifty.wav"
+    },
+    "hundred": {
+      "textAr": "مية",
+      "file": "assets/audio/callouts_ar_v10_5/hundred.wav"
+    },
+    "four_hundred": {
+      "textAr": "أربع مية",
+      "file": "assets/audio/callouts_ar_v10_5/four_hundred.wav"
+    },
+    "baloot": {
+      "textAr": "بلوت",
+      "file": "assets/audio/callouts_ar_v10_5/baloot.wav"
+    }
+  }
+}

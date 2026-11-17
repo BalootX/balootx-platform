@@ -1,0 +1,45 @@
+schemaVersion: 1
+id: outcome_policy_v1
+informed:
+  particles: 8
+  iterations: 64
+  maximumSamplingAttempts: 2000
+  bidSamples: 4
+  deliberateMistakes: false
+  bidTieBreak: [sun, hokum, ashkal, pass]
+construction:
+  sunOpeningAces: 3
+  hokumOpeningHonors: [jack, nine]
+optimal:
+  maximumConflicts: 250000
+  executionBudget:
+    schemaVersion: 1
+    maximumWallSeconds: 5
+    maximumEvidenceBytes: 67108864
+    maximumEscalationDecisions: 20
+  proofBudget:
+    maximumNodes: 50000
+    maximumDepth: 64
+    maximumHorizonActions: 64
+    maximumHiddenWorlds: 1
+    maximumWallSeconds: 5
+    maximumCpuSeconds: 5
+    maximumCacheEntries: 10000
+    maximumCacheBytes: 67108864
+    cancellationCheckIntervalNodes: 16
+    maximumWorkers: 1
+    maximumLineCountNodes: 50000
+    maximumStateSpace: 1000000
+    nativeObserved:
+      schemaVersion: 2
+      counterexampleObjective: minimum_utility
+      maximumIterations: 64
+      maximumQueries: 256
+      maximumObservations: 1024
+      maximumBoundPrefixes: 64
+      maximumCachedPrefixesPerBranch: 256
+  onIncomplete: reject
+opportunityOrder: [north, west, south, east]
+metadata:
+  meaning: Sampled information-set search is approximate; optimal requires completed native perfect-information proof.
+  decisionBudgetJustification: New immutable profile only; lead-approved 5s allowance based on the measured 2.15s position. Historical profiles are unchanged.

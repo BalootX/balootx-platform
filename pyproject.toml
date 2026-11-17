@@ -1,0 +1,107 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+classifiers = ["Private :: Do Not Upload"]
+license = {file = "LICENSE"}
+name = "baloot-platform"
+version = "21.1.27"
+description = ""
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.116",
+  "uvicorn>=0.35",
+  "pydantic>=2.11",
+  "PyYAML>=6.0",
+  "jsonschema>=4.23",
+  "referencing>=0.28.4",
+  "Pillow>=11.0",
+  "arabic-reshaper>=3.0,<4",
+  "python-bidi>=0.6,<1",
+  "numpy>=2.0",
+  "httpx>=0.28",
+  "ortools==9.15.6755",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-cov>=6.0", "ruff>=0.11", "mypy>=1.15"]
+grpc = ["grpcio>=1.74", "protobuf>=5.29"]
+grpc-dev = ["grpcio>=1.74", "grpcio-tools>=1.74", "protobuf>=5.29"]
+postgres = ["psycopg[binary,pool]>=3.2"]
+s3 = ["boto3>=1.37"]
+redis = ["redis>=5.2"]
+security = ["cryptography>=44", "PyJWT[crypto]>=2.10", "webauthn>=2.5"]
+ml = ["onnxruntime>=1.21", "torch>=2.7"]
+optimization = ["ortools==9.15.6755"]
+all = ["grpcio>=1.74", "protobuf>=5.29", "psycopg[binary,pool]>=3.2", "boto3>=1.37", "onnxruntime>=1.21", "redis>=5.2", "cryptography>=44", "PyJWT[crypto]>=2.10", "webauthn>=2.5", "ortools==9.15.6755"]
+
+[project.scripts]
+baloot = "baloot_platform.cli:main"
+baloot-api = "baloot_platform.service.api:main"
+baloot-mcp = "baloot_platform.service.mcp_server:main"
+baloot-grpc = "baloot_platform.service.grpc_service:main"
+baloot-worker = "baloot_platform.service.worker:main"
+baloot-foundry-simulation-worker = "baloot_platform.service.foundry_simulation_worker:main"
+baloot-foundry-simulation-fleet = "baloot_platform.service.foundry_simulation_fleet:main"
+baloot-foundry-analysis-worker = "baloot_platform.service.foundry_analysis_worker:main"
+
+[tool.setuptools]
+license-files = ["LICENSE", "THIRD-PARTY-NOTICES"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = ["real_clock: test intentionally exercises wall-clock, timeout, CPU, or cancellation behavior"]
+
+[tool.setuptools.package-data]
+"baloot_platform.video" = [
+  "remotion/package.json",
+  "remotion/package-lock.json",
+  "remotion/tsconfig.json",
+  "remotion/scripts/*.mjs",
+  "remotion/src/*.ts",
+  "remotion/src/*.tsx",
+]
+"baloot_platform.service" = [
+  "static/*.html",
+  "static/player/*.html",
+  "static/player/*.css",
+  "static/player/*.js",
+  "static/app/*.html",
+  "static/app/*.css",
+  "static/app/*.js",
+  "static/scene-preview/*.html",
+  "static/scene-preview/*.css",
+  "static/scene-preview/*.js",
+  "static/challenge/*.html",
+  "static/challenge/*.css",
+  "static/challenge/*.js",
+  "static/foundry/*.html",
+  "static/foundry/*.txt",
+  "static/foundry/assets/*.css",
+  "static/foundry/assets/*.js",
+  "static/guide/*.html",
+  "static/guide/*.css",
+  "static/guide/*.js",
+]
+"baloot_platform" = [
+  "resources/*.txt",
+  "resources/configs/*.yaml",
+  "resources/configs/*/*.yaml",
+  "resources/schemas/*.json",
+  "resources/schemas/contracts/*.json",
+  "resources/schemas/profiles/*.json",
+  "resources/migrations/*.sql",
+  "resources/release/saudi-baloot-official-source-verification-*.json",
+  "resources/assets/**/*",
+]
+
+[tool.setuptools.exclude-package-data]
+"baloot_platform" = [
+  "resources/assets/cards/packs/poker_double_backmarked_baloot_32/**/*",
+]

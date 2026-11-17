@@ -1,0 +1,38 @@
+schema_version: 1
+profile:
+  id: synchronous_four_human_v1
+  version: 1.0.0
+  status: production_candidate
+room:
+  seats: 4
+  default_turn_seconds: 45
+  minimum_turn_seconds: 5
+  maximum_turn_seconds: 600
+  reconnect_grace_seconds: 120
+  allow_spectators: true
+  require_all_ready: true
+  server_authoritative: true
+timeout:
+  default_action: pause_for_referee
+  allow_bot_takeover: false
+  record_adjudication_event: true
+reconnect:
+  token_bytes: 32
+  preserve_seat: true
+  rotate_token_on_claim: true
+referee:
+  enabled: true
+  may_pause: true
+  may_resume: true
+  may_enforce_deadline: true
+  hidden_information_scope: baloot.hidden.read
+anti_cheat:
+  assistance_policy_default: none
+  action_hash_chain: true
+  reject_out_of_turn: true
+  reject_wrong_seat: true
+  preserve_all_attempts: true
+scaling:
+  event_poll_interval_ms: 500
+  store: auto
+  multi_node_pubsub_adapter: optional

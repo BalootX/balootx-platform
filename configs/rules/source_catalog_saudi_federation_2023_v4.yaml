@@ -1,0 +1,458 @@
+schema_version: 1
+catalog:
+  id: saudi_federation_2023_v4_sources
+  version: 1.0.0
+  profile_id: saudi_federation_2023_v4
+  profile_version: 4.0.0
+  profile_sha256: 494d0eb9c7e4325e3337ca4c5d55e0ea7fda4295b218b2a57366dc0b39b23031
+  certification_status: public_regulation_plus_unratified_configured_gaps
+sources:
+- id: saudi_federation_gameplay_2020_archive
+  authority_class: official_federation_archive
+  url: https://baloot.safeis.sa/gameplay
+  snapshot_url: https://web.archive.org/web/20200319231836id_/https://baloot.safeis.sa/gameplay
+  content_sha256: 1b27febda31acb4b2c1490ac5762aea19360c269c241b111cc4eae84ebceb9d6
+  published_date: '2020-03-19'
+  status: external_snapshot_hash_recorded_not_retained
+- id: gea_baloot_regulation_2023
+  authority_class: official_tournament_regulation
+  url: https://enjoy.sa/media/j1ofreng/baloot.pdf
+  snapshot_url: https://web.archive.org/web/20230314050221id_/https://enjoy.sa/media/j1ofreng/baloot.pdf
+  content_sha256: 9a7c67046549c5013f10e31069e6feba70e20eb1d47b27c7a2ba8abaa3e848c2
+  published_date: '2023-03-01'
+  status: external_snapshot_hash_recorded_not_retained
+- id: sfms_approved_regulation_2026
+  authority_class: official_governing_context
+  url: https://www.spa.gov.sa/N2495561
+  snapshot_url: https://www.spa.gov.sa/N2495561
+  content_sha256: 44881f1758162709a9d3d036e3238ed652141b506ae35f0101936e4b3794fbd6
+  published_date: '2026-01-22'
+  status: external_snapshot_hash_recorded_not_retained
+- id: balootx_saudi_federation_2023_v4_config
+  authority_class: configured_variant
+  url: repo://configs/rules/saudi_federation_2023_v4.yaml
+  snapshot_url: repo://configs/rules/saudi_federation_2023_v4.yaml
+  content_sha256: 58d47fc250d9640805f1477bf2c224dc3dc26991add31e09f526f14337601e48
+  published_date: '2026-08-31'
+  status: internal_unratified
+bindings:
+- path_prefix: schema_version
+  authority_class: protocol_invariant
+  source_ids:
+  - balootx_saudi_federation_2023_v4_config
+  clause_locator: software_schema.1
+  clause: profile serialization schema
+  applicability: all profile reads
+  examples:
+  - tests/test_saudi_federation_2023_rules.py
+  counterexamples:
+  - unknown schema version rejected
+  runtime_owner: src/baloot_platform/core/rules.py
+  cp_sat_owner: src/baloot_platform/research/domain_compiler.py
+  ratification_status: software_governed
+- path_prefix: profile
+  authority_class: provenance_metadata
+  source_ids:
+  - saudi_federation_gameplay_2020_archive
+  - gea_baloot_regulation_2023
+  - sfms_approved_regulation_2026
+  clause_locator: source_identity.2020_2023_2026
+  clause: exact source and certification boundary
+  applicability: profile identity and public claims
+  examples:
+  - tests/test_saudi_federation_2023_rules.py
+  counterexamples:
+  - expert_ratified remains false
+  runtime_owner: src/baloot_platform/core/rules.py
+  cp_sat_owner: src/baloot_platform/research/domain_compiler.py
+  ratification_status: external_referee_required
+- path_prefix: contracts
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_4.clauses_4_1_to_4_2
+  clause: purchase types and two-round auction
+  applicability: all auctions
+  examples:
+  - tests/test_auction_compiler_v1.py
+  counterexamples:
+  - unknown contract rejected
+  runtime_owner: src/baloot_platform/core/auction_ir.py
+  cp_sat_owner: src/baloot_platform/research/auction_compiler.py
+  ratification_status: public_regulation_clause
+- path_prefix: seating
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_1
+  clause: four players and fixed opposing partnerships
+  applicability: all rounds
+  examples:
+  - tests/test_structural_compiler_v1.py
+  counterexamples:
+  - invalid partnership rejected
+  runtime_owner: src/baloot_platform/core/structural_ir.py
+  cp_sat_owner: src/baloot_platform/research/structural_compiler.py
+  ratification_status: public_regulation_clause
+- path_prefix: deck
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_1
+  clause: 32-card deck from seven through Ace
+  applicability: all rounds
+  examples:
+  - tests/test_structural_compiler_v1.py
+  counterexamples:
+  - duplicate or unknown card rejected
+  runtime_owner: src/baloot_platform/core/structural_ir.py
+  cp_sat_owner: src/baloot_platform/research/structural_compiler.py
+  ratification_status: public_regulation_clause
+- path_prefix: card_rules
+  authority_class: configured_variant
+  source_ids:
+  - balootx_saudi_federation_2023_v4_config
+  clause_locator: configured_profile.card_rules
+  clause: card strength and point tables absent from public regulation
+  applicability: Sun and Hokum play and scoring
+  examples:
+  - tests/test_rule_fixtures.py
+  counterexamples:
+  - table length or raw total mismatch rejected
+  runtime_owner: src/baloot_platform/core/play_ir.py
+  cp_sat_owner: src/baloot_platform/research/play_compiler.py
+  ratification_status: external_referee_required
+- path_prefix: dealing
+  authority_class: configured_variant
+  source_ids:
+  - gea_baloot_regulation_2023
+  - balootx_saudi_federation_2023_v4_config
+  clause_locator: section_3
+  clause: regulation specifies initial 3-2 packets but not every completion detail
+  applicability: round construction
+  examples:
+  - tests/test_structural_compiler_v1.py
+  counterexamples:
+  - card conservation failure rejected
+  runtime_owner: src/baloot_platform/core/structural_ir.py
+  cp_sat_owner: src/baloot_platform/research/structural_compiler.py
+  ratification_status: mixed_public_and_referee_required
+- path_prefix: bidding
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_4.clause_4_1_and_general_item_2
+  clause: two purchase rounds, exposed-Ace restriction, and Ashkal roles
+  applicability: auction state machine
+  examples:
+  - tests/test_saudi_federation_2023_rules.py
+  counterexamples:
+  - third purchase round rejected
+  runtime_owner: src/baloot_platform/core/auction_ir.py
+  cp_sat_owner: src/baloot_platform/research/auction_compiler.py
+  ratification_status: public_regulation_with_ashkal_gap_boundary
+- path_prefix: bidding.first_round.exposed_ace_hokum_sun_overcall
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_4.clause_4_1_and_section_3.clause_3_5
+  clause: an exposed Ace limits the Hokum-to-Sun recall by actor position and purchase-card rank
+  applicability: first-round exposed-Ace Hokum recalls
+  examples:
+  - tests/test_saudi_federation_2023_rules.py
+  - tests/test_domain_compiler_v3.py
+  counterexamples:
+  - a non-Ace purchase card does not trigger the restriction
+  runtime_owner: src/baloot_platform/core/auction_ir.py
+  cp_sat_owner: src/baloot_platform/research/auction_compiler.py
+  ratification_status: public_regulation_clause
+- path_prefix: bidding.ashkal.contract_owner
+  authority_class: official_regulation_with_internal_term_mapping
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: important_general_points.item_2
+  clause: the Ashkal caller owns the contract while the caller's partner takes the purchase card; declarer
+    is an internal mapped term
+  applicability: completed Ashkal auctions
+  examples:
+  - tests/test_saudi_federation_2023_rules.py
+  - tests/test_domain_compiler_v3.py
+  counterexamples:
+  - the purchase-card taker is not silently made the Ashkal caller
+  runtime_owner: src/baloot_platform/core/auction_ir.py
+  cp_sat_owner: src/baloot_platform/research/auction_compiler.py
+  ratification_status: public_roles_with_internal_declarer_mapping_not_externally_ratified
+- path_prefix: bidding.heuristics
+  authority_class: heuristic
+  source_ids:
+  - balootx_saudi_federation_2023_v4_config
+  clause_locator: configured_profile.bidding_heuristics
+  clause: deterministic fallback buying policy, not a rule
+  applicability: bot search ordering only
+  examples:
+  - tests/test_generation_bid_score_evidence.py
+  counterexamples:
+  - never qualifies legality
+  runtime_owner: src/baloot_platform/core/bidding.py
+  cp_sat_owner: src/baloot_platform/research/scenario_registry.py
+  ratification_status: not_applicable_to_rules_certification
+- path_prefix: escalation
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_7.clauses_7_1_to_7_7
+  clause: Sun Double and Hokum Double-Three-Four-Gahwa
+  applicability: post-auction escalation
+  examples:
+  - tests/test_escalation_compiler_v1.py
+  counterexamples:
+  - illegal actor or chain step rejected
+  runtime_owner: src/baloot_platform/core/escalation_ir.py
+  cp_sat_owner: src/baloot_platform/research/escalation_compiler.py
+  ratification_status: public_regulation_clause
+- path_prefix: escalation.sun_lower_score_inclusive
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_7.clause_7_2
+  clause: the lower Sun side may equal exactly 100 when the other side exceeds 100
+  applicability: Sun Double split-score eligibility
+  examples:
+  - tests/test_saudi_federation_2023_rules.py
+  - tests/test_domain_compiler_v3.py
+  counterexamples:
+  - an exclusive lower-than-100 check rejects the official equality boundary
+  runtime_owner: src/baloot_platform/core/escalation_ir.py
+  cp_sat_owner: src/baloot_platform/research/escalation_compiler.py
+  ratification_status: public_regulation_clause
+- path_prefix: play
+  authority_class: configured_variant
+  source_ids:
+  - gea_baloot_regulation_2023
+  - balootx_saudi_federation_2023_v4_config
+  clause_locator: section_8
+  clause: follow-suit is public; complete trump and Ekka semantics require ratification
+  applicability: trick play
+  examples:
+  - tests/test_play_obligations.py
+  counterexamples:
+  - illegal follow-suit action rejected
+  runtime_owner: src/baloot_platform/core/play_ir.py
+  cp_sat_owner: src/baloot_platform/research/play_compiler.py
+  ratification_status: mixed_public_and_referee_required
+- path_prefix: play.must_follow_suit
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_8
+  clause: playing off-suit while holding led suit is a violation
+  applicability: every trick after lead
+  examples:
+  - tests/test_play_obligations.py
+  counterexamples:
+  - off-suit card excluded when led suit exists
+  runtime_owner: src/baloot_platform/core/play_ir.py
+  cp_sat_owner: src/baloot_platform/research/play_compiler.py
+  ratification_status: public_regulation_clause
+- path_prefix: projects
+  authority_class: configured_variant
+  source_ids:
+  - gea_baloot_regulation_2023
+  - balootx_saudi_federation_2023_v4_config
+  clause_locator: section_5
+  clause: values and priority are public; overlap and timing gaps are configured
+  applicability: project lifecycle
+  examples:
+  - tests/test_project_compiler_v1.py
+  counterexamples:
+  - invalid overlap rejected
+  runtime_owner: src/baloot_platform/core/project_ir.py
+  cp_sat_owner: src/baloot_platform/research/ortools_project_fragment.py
+  ratification_status: mixed_public_and_referee_required
+- path_prefix: projects.comparison
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_5.clause_5_2
+  clause: sequential Hundred outranks quartet Hundred
+  applicability: equal-value project comparison
+  examples:
+  - tests/test_saudi_federation_2023_rules.py
+  counterexamples:
+  - quartet Hundred cannot outrank sequential Hundred
+  runtime_owner: src/baloot_platform/core/project_ir.py
+  cp_sat_owner: src/baloot_platform/research/ortools_project_fragment.py
+  ratification_status: public_regulation_clause
+- path_prefix: projects.comparison.category_priorities
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_5.clause_5_2
+  clause: project category ranks bind the published Siri, Fifty, sequential Hundred, quartet Hundred,
+    and Four Hundred comparison order
+  applicability: project construction and equal-value comparison ranking
+  examples:
+  - tests/test_saudi_federation_2023_rules.py
+  - tests/test_domain_compiler_v3.py
+  counterexamples:
+  - a quartet Hundred cannot outrank an equal sequential Hundred
+  runtime_owner: src/baloot_platform/core/project_ir.py
+  cp_sat_owner: src/baloot_platform/research/ortools_project_model.py
+  ratification_status: public_regulation_clause
+- path_prefix: projects.sequences.values_game_points
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_5.clause_5_2
+  clause: Siri, Fifty, and Hundred values
+  applicability: project scoring
+  examples:
+  - tests/test_projects_scoring_extended.py
+  counterexamples:
+  - unknown sequence value rejected
+  runtime_owner: src/baloot_platform/core/project_ir.py
+  cp_sat_owner: src/baloot_platform/research/ortools_project_fragment.py
+  ratification_status: public_regulation_clause
+- path_prefix: projects.four_of_kind.values_game_points
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_5.clause_5_2
+  clause: quartet Hundred and Sun Four Hundred values
+  applicability: project scoring
+  examples:
+  - tests/test_projects_scoring_extended.py
+  counterexamples:
+  - ineligible rank rejected
+  runtime_owner: src/baloot_platform/core/project_ir.py
+  cp_sat_owner: src/baloot_platform/research/ortools_project_fragment.py
+  ratification_status: public_regulation_clause
+- path_prefix: projects.baloot
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_5.clauses_5_6_and_5_8
+  clause: trump King-Queen declaration and project interaction
+  applicability: Hokum only
+  examples:
+  - tests/test_saudi_federation_2023_rules.py
+  counterexamples:
+  - Sun Baloot rejected
+  runtime_owner: src/baloot_platform/core/project_ir.py
+  cp_sat_owner: src/baloot_platform/research/ortools_project_fragment.py
+  ratification_status: public_regulation_clause
+- path_prefix: projects.baloot.hundred_inclusion
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_5.clauses_5_6_and_5_8
+  clause: Baloot inside a sequential Hundred scores automatically; prohibited verbal declaration is a
+    separate referee adjudication event
+  applicability: awarded sequential Hundred containing the trump King and Queen
+  examples:
+  - tests/test_saudi_federation_2023_rules.py
+  - tests/test_adjudication_research_boundary_v1.py
+  counterexamples:
+  - automatic scoring does not authorize a verbal Baloot declaration
+  runtime_owner: src/baloot_platform/core/project_ir.py
+  cp_sat_owner: src/baloot_platform/research/ortools_project_model.py
+  ratification_status: public_regulation_clause_with_separate_section_5_8_adjudication
+- path_prefix: scoring
+  authority_class: configured_variant
+  source_ids:
+  - gea_baloot_regulation_2023
+  - balootx_saudi_federation_2023_v4_config
+  clause_locator: sections_6_and_7
+  clause: public thresholds and examples do not specify complete conversion tables
+  applicability: round and match scoring
+  examples:
+  - tests/test_scoring_domain_ir.py
+  counterexamples:
+  - inconsistent raw total rejected
+  runtime_owner: src/baloot_platform/core/scoring_ir.py
+  cp_sat_owner: src/baloot_platform/research/ortools_research_executor.py
+  ratification_status: mixed_public_and_referee_required
+- path_prefix: scoring.escalation
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_7
+  clause: projects double at Double and do not multiply at Three or Four; Baloot stays two
+  applicability: multiplied rounds
+  examples:
+  - tests/test_scoring_domain_ir.py
+  counterexamples:
+  - project multiplier above two rejected by profile
+  runtime_owner: src/baloot_platform/core/scoring_ir.py
+  cp_sat_owner: src/baloot_platform/research/ortools_research_executor.py
+  ratification_status: public_regulation_clause
+- path_prefix: scoring.kabout
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_7.clause_7_7
+  clause: doubled Kabout remains 44 Sun or 25 Hokum
+  applicability: swept multiplied round
+  examples:
+  - tests/test_saudi_federation_2023_rules.py
+  counterexamples:
+  - 88 Sun or 50 Hokum rejected under official profile
+  runtime_owner: src/baloot_platform/core/scoring_ir.py
+  cp_sat_owner: src/baloot_platform/research/ortools_research_executor.py
+  ratification_status: public_regulation_clause
+- path_prefix: scoring.match
+  authority_class: official_regulation
+  source_ids:
+  - gea_baloot_regulation_2023
+  clause_locator: section_6
+  clause: target 152 and higher cumulative score after joint crossing
+  applicability: match completion
+  examples:
+  - tests/test_match_and_lifecycle.py
+  counterexamples:
+  - equal-above-target remains unratified
+  runtime_owner: src/baloot_platform/core/scoring_ir.py
+  cp_sat_owner: src/baloot_platform/research/ortools_research_executor.py
+  ratification_status: public_regulation_with_exact_tie_gap
+- path_prefix: disputed_options
+  authority_class: configured_variant
+  source_ids:
+  - balootx_saudi_federation_2023_v4_config
+  clause_locator: configured_profile.disputed_options
+  clause: unresolved customs and non-universal hints
+  applicability: published variant revisions only
+  examples:
+  - tests/test_rule_fixtures.py
+  counterexamples:
+  - operators cannot mix leaves at run time
+  runtime_owner: src/baloot_platform/core/rules.py
+  cp_sat_owner: src/baloot_platform/research/domain_compiler.py
+  ratification_status: external_referee_required
+- path_prefix: projects.declaration_mode
+  authority_class: configured_variant
+  source_ids:
+  - balootx_saudi_federation_2023_v4_config
+  clause_locator: configured_profile.projects.declaration_mode
+  clause: mandatory or optional project-declaration transition policy
+  applicability: project declaration actions
+  examples:
+  - tests/test_optional_project_declarations_v1.py
+  counterexamples:
+  - mandatory profile rejects pass while optional profile permits pass
+  runtime_owner: src/baloot_platform/core/project_ir.py
+  cp_sat_owner: src/baloot_platform/research/ortools_project_model.py
+  ratification_status: pending_owner_ratification
+- path_prefix: projects.top_rank_visibility
+  authority_class: configured_variant
+  source_ids:
+  - balootx_saudi_federation_2023_v4_config
+  clause_locator: configured_profile.projects.top_rank_visibility
+  clause: opponent top rank is hidden unless needed for project comparison
+  applicability: observer projections and consistent hidden worlds
+  examples:
+  - tests/test_observer_information_projection.py
+  counterexamples:
+  - losing project category does not expose its top rank
+  runtime_owner: src/baloot_platform/core/project_visibility.py
+  cp_sat_owner: src/baloot_platform/research/ortools_information_set_compiler.py
+  ratification_status: pending_owner_ratification

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "status": "candidate_external_review_required",
+  "cases": [
+    {
+      "caseId": "RULE-GOLDEN-FOLLOW-SUIT-001",
+      "category": "play_obligation",
+      "statement": "A player who can follow the led suit must follow it.",
+      "expected": "legal_mask_excludes_off_suit",
+      "certificationStatus": "candidate"
+    },
+    {
+      "caseId": "RULE-GOLDEN-HOKUM-CUT-001",
+      "category": "play_obligation",
+      "statement": "A void player cuts according to the configured Hokum obligation profile.",
+      "expected": "configured_cut_obligation",
+      "certificationStatus": "candidate"
+    },
+    {
+      "caseId": "RULE-GOLDEN-PROJECT-TIMING-001",
+      "category": "projects",
+      "statement": "Project declaration and reveal occur only at configured public timings.",
+      "expected": "timing_enforced",
+      "certificationStatus": "candidate"
+    },
+    {
+      "caseId": "RULE-GOLDEN-SCORE-152-001",
+      "category": "match",
+      "statement": "A صكّة uses the configured target, default 152, and continues on a tie.",
+      "expected": "target_and_tie_policy",
+      "certificationStatus": "candidate"
+    }
+  ]
+}

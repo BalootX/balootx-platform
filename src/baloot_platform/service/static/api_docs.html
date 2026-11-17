@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BalootX API Reference</title>
+  <style>
+    :root{color-scheme:dark;--bg:#061411;--panel:#0b261f;--line:#275044;--gold:#e1b85d;--text:#fff9e9;--muted:#aebfb7;--get:#62c9a1;--post:#6ca8ed;--put:#d7a65c;--delete:#e57f79}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#123d32,var(--bg) 42%);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+    header{position:sticky;top:0;z-index:2;background:#061411ee;border-bottom:1px solid var(--line);backdrop-filter:blur(12px)}.top{max-width:1180px;margin:auto;padding:20px;display:flex;gap:18px;align-items:center;justify-content:space-between}.brand h1{font-size:24px;margin:0}.brand p{margin:3px 0 0;color:var(--muted)}
+    .actions{display:flex;gap:10px;align-items:center}a{color:var(--gold)}input{width:min(420px,48vw);padding:11px 14px;border-radius:12px;border:1px solid var(--line);background:#071b16;color:var(--text);font:inherit}
+    main{max-width:1180px;margin:auto;padding:22px}.status{color:var(--muted);margin-bottom:16px}.tag{margin:0 0 22px}.tag h2{font-size:17px;color:var(--gold);margin:0 0 9px;text-transform:none}.endpoint{border:1px solid var(--line);border-radius:15px;background:var(--panel);margin:8px 0;overflow:hidden}.endpoint summary{display:grid;grid-template-columns:82px minmax(220px,1fr) minmax(180px,1.2fr);gap:12px;align-items:center;padding:13px 15px;cursor:pointer;list-style:none}.endpoint summary::-webkit-details-marker{display:none}
+    .method{font-weight:800;letter-spacing:.04em}.get{color:var(--get)}.post{color:var(--post)}.put,.patch{color:var(--put)}.delete{color:var(--delete)}code{direction:ltr;overflow-wrap:anywhere;color:#e8f3ed}.summary{color:var(--muted)}.details{border-top:1px solid var(--line);padding:14px 16px;color:var(--muted)}.details strong{color:var(--text)}.pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 8px;margin:3px}.empty{padding:45px;text-align:center;color:var(--muted)}
+    @media(max-width:720px){.top{align-items:flex-start;flex-direction:column}.actions{width:100%}input{width:100%}.endpoint summary{grid-template-columns:70px 1fr}.summary{grid-column:1/-1}.details{font-size:14px}}
+  </style>
+</head>
+<body>
+<header><div class="top"><div class="brand"><h1>BalootX API Reference</h1><p>Local, offline, and generated from the authoritative OpenAPI contract.</p></div><div class="actions"><input id="search" aria-label="Search API endpoints" placeholder="Search path, operation, or tag"><a href="/openapi.json">OpenAPI JSON</a></div></div></header>
+<main><div class="status" id="status">Loading the API contract…</div><div id="content"></div></main>
+<script>
+const content=document.getElementById('content'),status=document.getElementById('status'),search=document.getElementById('search');
+let operations=[];
+function element(name,className,text){const node=document.createElement(name);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node}
+function render(query=''){
+  const needle=query.trim().toLowerCase();content.replaceChildren();
+  const filtered=operations.filter(item=>!needle||item.haystack.includes(needle));
+  status.textContent=`${filtered.length} of ${operations.length} operations · ${window.apiTitle} ${window.apiVersion}`;
+  const groups=new Map();for(const item of filtered){const tag=item.tag||'Other';if(!groups.has(tag))groups.set(tag,[]);groups.get(tag).push(item)}
+  for(const [tag,items] of [...groups].sort(([a],[b])=>a.localeCompare(b))){
+    const section=element('section','tag');section.append(element('h2','',tag));
+    for(const item of items){
+      const card=element('details','endpoint');const head=element('summary');head.append(element('span',`method ${item.method}`,item.method.toUpperCase()),element('code','',item.path),element('span','summary',item.summary||item.operationId||'—'));card.append(head);
+      const body=element('div','details');if(item.description)body.append(element('p','',item.description));
+      const identity=element('p');identity.append(element('strong','','Operation: '),document.createTextNode(item.operationId||'—'));body.append(identity);
+      const params=item.parameters||[];if(params.length){const row=element('p');row.append(element('strong','','Parameters: '));for(const param of params)row.append(element('span','pill',`${param.name} · ${param.in}${param.required?' · required':''}`));body.append(row)}
+      const responses=Object.keys(item.responses||{});if(responses.length){const row=element('p');row.append(element('strong','','Responses: '));for(const response of responses)row.append(element('span','pill',response));body.append(row)}
+      card.append(body);section.append(card)
+    }content.append(section)
+  }
+  if(!filtered.length)content.append(element('div','empty','No API operations match this search.'))
+}
+fetch('/openapi.json',{headers:{accept:'application/json'}}).then(response=>{if(!response.ok)throw new Error(`HTTP ${response.status}`);return response.json()}).then(spec=>{
+  window.apiTitle=spec.info?.title||'BalootX';window.apiVersion=spec.info?.version||'';
+  for(const [path,methods] of Object.entries(spec.paths||{}))for(const [method,operation] of Object.entries(methods||{}))if(['get','post','put','patch','delete'].includes(method))operations.push({path,method,tag:operation.tags?.[0]||'Other',summary:operation.summary,description:operation.description,operationId:operation.operationId,parameters:operation.parameters,responses:operation.responses,haystack:`${path} ${method} ${operation.tags?.join(' ')||''} ${operation.summary||''} ${operation.operationId||''}`.toLowerCase()});
+  render();search.addEventListener('input',()=>render(search.value));
+}).catch(error=>{status.textContent=`Unable to load the API contract: ${error.message}`;content.append(element('div','empty','The OpenAPI contract could not be loaded.'))});
+</script>
+</body>
+</html>

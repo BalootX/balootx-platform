@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "sourceDateEpoch": 315532800,
+  "packages": {
+    "dejavu": {
+      "license": "LICENSE-DEJAVU.txt",
+      "package": "fonts-dejavu-core",
+      "version": "2.37-8"
+    },
+    "noto": {
+      "license": "LICENSE-NOTO.txt",
+      "package": "fonts-noto-core/fonts-noto-extra",
+      "version": "20201225-2"
+    }
+  },
+  "fonts": {
+    "DejaVuSans-Bold.ttf": {
+      "bytes": 708920,
+      "family": "dejavu",
+      "sha256": "5c1247acef7f2b8522a31742c76d6adcb5569bacc0be7ceaa4dc39dd252ce895"
+    },
+    "DejaVuSans.ttf": {
+      "bytes": 759720,
+      "family": "dejavu",
+      "sha256": "ae7b7855e115a5966d8b1b3f80f254ccc117ec86f9965e202ee2940453837280"
+    },
+    "NotoKufiArabic-Bold.ttf": {
+      "bytes": 180552,
+      "family": "noto",
+      "sha256": "11c1608fb7c70135ab4cfd126f2300c81c7ca08c9bcffaff61b947edba234e65"
+    },
+    "NotoKufiArabic-Regular.ttf": {
+      "bytes": 176740,
+      "family": "noto",
+      "sha256": "befb9d07506942ba2a7e0e85c65a24a76792c937d812bc80f1095d0f660cf330"
+    },
+    "NotoSansArabic-Bold.ttf": {
+      "bytes": 252940,
+      "family": "noto",
+      "sha256": "ded6fc7359ca36d15d7aab9ef0c066e21ce48b26a069994d6602fa2cb9a1b952"
+    },
+    "NotoSansArabic-Regular.ttf": {
+      "bytes": 244072,
+      "family": "noto",
+      "sha256": "504d7407d86875acf7d04dfaa0fd7524d0b8797723bc4aa18022f29db25b0b6e"
+    }
+  }
+}

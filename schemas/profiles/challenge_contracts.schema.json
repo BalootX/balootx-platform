@@ -1,0 +1,236 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/challenge_contracts.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "contracts": {
+      "additionalProperties": false,
+      "properties": {
+        "actual_deal_flip": {
+          "additionalProperties": false,
+          "properties": {
+            "alternative_actual_margin_max": {
+              "type": "number"
+            },
+            "best_actual_margin_min": {
+              "type": "number"
+            },
+            "require_exact": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "alternative_actual_margin_max",
+            "best_actual_margin_min",
+            "require_exact"
+          ],
+          "type": "object"
+        },
+        "big_win_small_win": {
+          "additionalProperties": false,
+          "properties": {
+            "alternative_match_win_probability_min": {
+              "type": "number"
+            },
+            "best_match_win_probability_min": {
+              "type": "number"
+            },
+            "expected_round_margin_swing_min": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "alternative_match_win_probability_min",
+            "best_match_win_probability_min",
+            "expected_round_margin_swing_min"
+          ],
+          "type": "object"
+        },
+        "buy_or_pass": {
+          "additionalProperties": false,
+          "properties": {
+            "probability_swing_min": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "probability_swing_min"
+          ],
+          "type": "object"
+        },
+        "comeback": {
+          "additionalProperties": false,
+          "properties": {
+            "alternative_match_win_probability_max": {
+              "type": "number"
+            },
+            "best_match_win_probability_min": {
+              "type": "number"
+            },
+            "opponent_bought": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "alternative_match_win_probability_max",
+            "best_match_win_probability_min",
+            "opponent_bought"
+          ],
+          "type": "object"
+        },
+        "damage_control": {
+          "additionalProperties": false,
+          "properties": {
+            "maximum_best_match_win_probability": {
+              "type": "number"
+            },
+            "prohibit_winning_language": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "maximum_best_match_win_probability",
+            "prohibit_winning_language"
+          ],
+          "type": "object"
+        },
+        "debate": {
+          "additionalProperties": false,
+          "properties": {
+            "maximum_utility_gap": {
+              "type": "number"
+            },
+            "minimum_hidden_deal_disagreement": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "maximum_utility_gap",
+            "minimum_hidden_deal_disagreement"
+          ],
+          "type": "object"
+        },
+        "outcome_flip": {
+          "additionalProperties": false,
+          "properties": {
+            "alternative_match_win_probability_max": {
+              "type": "number"
+            },
+            "best_match_win_probability_min": {
+              "type": "number"
+            },
+            "expected_round_margin_swing_min": {
+              "type": "number"
+            },
+            "probability_swing_min": {
+              "type": "number"
+            },
+            "require_robustness": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "alternative_match_win_probability_max",
+            "best_match_win_probability_min",
+            "expected_round_margin_swing_min",
+            "probability_swing_min",
+            "require_robustness"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "actual_deal_flip",
+        "big_win_small_win",
+        "buy_or_pass",
+        "comeback",
+        "damage_control",
+        "debate",
+        "outcome_flip"
+      ],
+      "type": "object"
+    },
+    "copy_policy": {
+      "additionalProperties": false,
+      "properties": {
+        "comparative_language_for": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "damage_control_label": {
+          "type": "string"
+        },
+        "winning_language_allowed_for": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "comparative_language_for",
+        "damage_control_label",
+        "winning_language_allowed_for"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "publication": {
+      "additionalProperties": false,
+      "properties": {
+        "prohibit_untyped_challenges": {
+          "type": "boolean"
+        },
+        "require_confidence_intervals": {
+          "type": "boolean"
+        },
+        "require_provenance": {
+          "type": "boolean"
+        },
+        "require_verified_contract": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "prohibit_untyped_challenges",
+        "require_confidence_intervals",
+        "require_provenance",
+        "require_verified_contract"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "contracts",
+    "copy_policy",
+    "profile",
+    "publication",
+    "schema_version"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "bundleRevisionId": "CBR-A1D9AEC0099AB4F9E4E95A0B",
+  "candidateCount": 2,
+  "seedStart": 7001,
+  "constructionBudgetProfile": "bounded_v1",
+  "bidBudgetProfile": "offline_heavyweight_v1",
+  "maximumBidScreenSeconds": 60,
+  "screeningRoot": "construction_purchase",
+  "campaignBudgetProfile": "offline_heavyweight_v1",
+  "contracts": ["sun", "hokum"],
+  "dealers": ["north", "west", "south", "east"],
+  "trumpSuits": ["diamonds", "clubs", "hearts", "spades"],
+  "initialHighCardRange": [1, 3],
+  "postPurchaseHighCardRange": [3, 3],
+  "postPurchaseAceTenRange": [0, 2],
+  "trumpCountRange": [2, 2],
+  "splitTrumpRanks": ["jack", "nine"],
+  "project": {"kind": "siri", "gameValuesByContract": {"sun": 4, "hokum": 2}, "state": "eligible"},
+  "selectedValueBand": [-20, 20],
+  "maximumAlternativeGap": 20,
+  "maximumSurvivors": 2
+}

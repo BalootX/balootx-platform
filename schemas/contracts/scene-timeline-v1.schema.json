@@ -1,0 +1,112 @@
+{
+  "$id": "https://baloot.local/schemas/contracts/scene-timeline-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "canvas": {
+      "additionalProperties": false,
+      "properties": {
+        "aspectRatio": {
+          "const": "9:16"
+        },
+        "height": {
+          "minimum": 16,
+          "type": "integer"
+        },
+        "width": {
+          "minimum": 9,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "aspectRatio",
+        "height",
+        "width"
+      ],
+      "type": "object"
+    },
+    "frameRate": {
+      "$ref": "#/$defs/rational"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "segments": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "durationFrames": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "durationTime": {
+            "$ref": "#/$defs/rational"
+          },
+          "sceneId": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "stage": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "startFrame": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "startTime": {
+            "$ref": "#/$defs/rational"
+          }
+        },
+        "required": [
+          "durationFrames",
+          "durationTime",
+          "sceneId",
+          "stage",
+          "startFrame",
+          "startTime"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "timelineSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "totalFrames": {
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "canvas",
+    "frameRate",
+    "schemaVersion",
+    "segments",
+    "timelineSha256",
+    "totalFrames"
+  ],
+  "type": "object",
+  "$defs": {
+    "rational": {
+      "additionalProperties": false,
+      "properties": {
+        "denominator": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "numerator": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "denominator",
+        "numerator"
+      ],
+      "type": "object"
+    }
+  }
+}

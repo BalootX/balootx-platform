@@ -1,0 +1,44 @@
+schema_version: 1
+profile:
+  id: sakka_competitive_v2
+  version: 2.0.0
+  status: production_default
+name_ar: صكّة البلوت
+modes: [daily_board, friend_room, branch_race, club_set, engine_arena, live_race, async_race]
+default_mode: friend_room
+comparison_identity:
+  fields: [board_version, bundle_hash, observer_seat, scope, maximum_rounds, starting_match_score, public_prefix_hash, bot_policy_hashes, scoring_profile, time_control, reveal_policy]
+board:
+  immutable_after_publish: true
+  signed: true
+  allow_full_round: true
+  allow_full_match: true
+  allow_midgame: true
+  minimum_public_events: 0
+  maximum_public_events: 255
+  default_visibility: unlisted
+  share_code_characters: 10
+rooms:
+  default_max_players: 16
+  maximum_players: 200
+  allow_guests_by_default: true
+  supported_modes: [async, live, practice]
+match:
+  maximum_rounds: 16
+  stop_on_match_winner: true
+bots:
+  deterministic: true
+  default_profile: strong
+  branch_aware: true
+scoring:
+  metrics: [match_result, match_points, round_margin, awarded_points, field_percentile, engine_regret, consistency, contract_success]
+  primary: match_result
+reveal:
+  default: after_completion
+  allowed: [immediate, after_completion, after_room_complete, scheduled]
+anti_cheat:
+  hide_seed_until_reveal: true
+  hide_oracle_hands: true
+  reject_incompatible_runs: true
+  server_authoritative: true
+  signed_action_chain: true

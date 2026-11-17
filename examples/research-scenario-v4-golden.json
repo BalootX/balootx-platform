@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "sun-hundred-project-no-salvage-v1",
+  "titleAr": "مشروع مية في الصن ولا توجد لعبة تنقذ المشتري",
+  "rulesMeaning": {
+    "contract": "sun",
+    "buyer": "north",
+    "projectKind": "hundred_sequence",
+    "projectDisplayValue": 100,
+    "projectGovernedGamePoints": 20,
+    "projectState": "awarded",
+    "lossMeaning": "target team finishes with a negative awarded-point margin",
+    "salvageThreshold": 1
+  },
+  "exactTracePrefix": {
+    "schemaVersion": 1,
+    "deckOrder": [7, 6, 5, 28, 18, 31, 25, 29, 20, 11, 17, 15, 4, 3, 12, 0, 13, 1, 27, 23, 8, 16, 24, 19, 30, 21, 22, 9, 14, 2, 26, 10],
+    "dealer": "east",
+    "roundNumber": 1,
+    "matchScore": [0, 0],
+    "auctionActions": [
+      {"actor": "north", "action": "sun"}
+    ],
+    "escalationActions": [],
+    "projectDeclarations": [
+      {
+        "owner": "north",
+        "kind": "hundred_sequence",
+        "value": 20,
+        "highRank": 7,
+        "declarationOrder": 1
+      }
+    ],
+    "projectAssertions": [
+      {
+        "owner": "north",
+        "team": "north_south",
+        "kind": "hundred_sequence",
+        "value": 20,
+        "state": "awarded"
+      }
+    ],
+    "playActions": [
+      {"actor": "north", "card": "H7"},
+      {"actor": "west", "card": "HJ"},
+      {"actor": "south", "card": "H8"},
+      {"actor": "east", "card": "H10"},
+      {"actor": "east", "card": "D8"},
+      {"actor": "north", "card": "D7"},
+      {"actor": "west", "card": "D9"},
+      {"actor": "south", "card": "DJ"},
+      {"actor": "south", "card": "S8"},
+      {"actor": "east", "card": "S9"},
+      {"actor": "north", "card": "SJ"},
+      {"actor": "west", "card": "S7"},
+      {"actor": "north", "card": "C7"},
+      {"actor": "west", "card": "CJ"},
+      {"actor": "south", "card": "C8"},
+      {"actor": "east", "card": "C10"},
+      {"actor": "east", "card": "H9"},
+      {"actor": "north", "card": "SQ"},
+      {"actor": "west", "card": "DQ"},
+      {"actor": "south", "card": "HQ"},
+      {"actor": "south", "card": "CQ"},
+      {"actor": "east", "card": "C9"},
+      {"actor": "north", "card": "SK"},
+      {"actor": "west", "card": "CK"}
+    ],
+    "stateAssertions": {"phase": "playing"}
+  },
+  "proof": {
+    "schemaVersion": 1,
+    "mode": "exact",
+    "visibility": "complete_state",
+    "claim": "target_team_has_no_salvage",
+    "targetTeam": "north_south",
+    "utility": "awarded_point_margin",
+    "successThreshold": 1,
+    "lineUniverse": "all_legal",
+    "budgetProfile": "late_game_exact_v1"
+  },
+  "expected": {
+    "phase": "playing",
+    "buyer": "north",
+    "contract": "sun",
+    "legalRootActionCount": 2,
+    "legalRootActions": ["CA", "D10"],
+    "winningRootActionCount": 0,
+    "completionStatus": "exact_complete",
+    "claimSatisfied": true,
+    "rootValues": [-46, -46]
+  }
+}

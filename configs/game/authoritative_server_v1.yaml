@@ -1,0 +1,25 @@
+schema_version: 1
+profile:
+  id: authoritative_server_v1
+  version: 1.0.0
+  status: production_candidate
+sessions:
+  persistence: sqlite
+  event_sourcing: true
+  optimistic_concurrency: true
+  reconnect_tokens: true
+  spectator_delay_seconds: 30
+  reveal_hands_after_round: true
+bots:
+  enabled: true
+  default_plugin: balanced_heuristic_v1
+  action_timeout_ms: 5000
+fair_play:
+  live_hidden_hand_analysis: false
+  trusted_context_scope_required: true
+  post_game_analysis: true
+
+all_pass:
+  auto_redeal: true
+  dealer_policy: counter_clockwise_next
+  archive_deal: true

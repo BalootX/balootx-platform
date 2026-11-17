@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ar-SA" dir="rtl" translate="no" class="notranslate">
+<head>
+  <meta charset="utf-8">
+  <meta name="google" content="notranslate">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#071b16">
+  <title>{{player_brand_aria}}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23071914'/%3E%3Cpath d='M32 10 52 32 32 54 12 32Z' fill='none' stroke='%23d7b66c' stroke-width='3'/%3E%3Ccircle cx='32' cy='32' r='8' fill='%23d7b66c'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/play-assets/app.css?v={{player_asset_version}}">
+</head>
+<body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+  <header class="topbar">
+    <a class="brand" href="/play" aria-label="{{player_brand_aria}}">
+      <span class="brand-mark">{{brand_mark}}</span>
+      <span><strong>{{brand_name}}</strong><small>{{player_brand_tagline}}</small></span>
+    </a>
+    <div class="identity-box">
+      <span id="identity-name" class="identity-name">{{player_preparing}}</span>
+      <button id="auth-button" class="button ghost small">{{player_optional_login}}</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section id="home-view" class="view active">
+      <div class="hero">
+        <div class="hero-copy">
+          <span class="eyebrow">{{player_hero_eyebrow}}</span>
+          <h1>{{player_hero_title_before}} <em>{{player_hero_title_emphasis}}</em> {{player_hero_title_after}}</h1>
+          <p>{{player_hero_body}}</p>
+          <div class="hero-actions">
+            <button id="open-create" class="button primary">{{player_create_sakka}}</button>
+            <button id="open-join" class="button secondary">{{player_join_code}}</button>
+          </div>
+        </div>
+        <div class="hero-cards" aria-hidden="true">
+          <img class="hero-card" src="/card-assets/A_hearts.svg" alt="" draggable="false">
+          <img class="hero-card" src="/card-assets/J_spades.svg" alt="" draggable="false">
+          <img class="hero-card" src="/card-assets/10_diamonds.svg" alt="" draggable="false">
+        </div>
+      </div>
+
+      <div class="feature-grid">
+        <article><span>01</span><h3>{{player_feature_start_title}}</h3><p>{{player_feature_start_body}}</p></article>
+        <article><span>02</span><h3>{{player_feature_scope_title}}</h3><p>{{player_feature_scope_body}}</p></article>
+        <article><span>03</span><h3>{{player_feature_analysis_title}}</h3><p>{{player_feature_analysis_body}}</p></article>
+      </div>
+    </section>
+
+    <section id="create-view" class="view panel-view">
+      <button class="back-link" data-back>← {{player_back}}</button>
+      <div class="panel-head"><span class="eyebrow">{{player_create_eyebrow}}</span><h2>{{player_create_title}}</h2><p>{{player_create_body}}</p></div>
+      <form id="create-form" class="form-grid">
+        <label><span>{{player_sakka_name}}</span><input name="label" maxlength="80" placeholder="{{player_sakka_name_placeholder}}"></label>
+        <label><span>{{player_competition_type}}</span><select name="scope"><option value="round">{{player_round_one}}</option><option value="match">{{player_full_match}}</option></select></label>
+        <label><span>{{player_play_type}}</span><select name="rulesProfile"><option value="full">{{player_sun_and_hokum}}</option><option value="sun_only">{{player_sun_only}}</option><option value="hokum_only">{{player_hokum_only}}</option></select></label>
+        <label><span>{{player_seat}}</span><select name="observerSeat"><option value="south">{{player_seat_bottom}}</option><option value="north">{{player_seat_top}}</option><option value="west">{{player_seat_left}}</option><option value="east">{{player_seat_right}}</option></select></label>
+        <label><span>{{player_score_us}}</span><input name="usScore" type="number" min="0" max="500" value="0"></label>
+        <label><span>{{player_score_them}}</span><input name="themScore" type="number" min="0" max="500" value="0"></label>
+        <label><span>{{player_reproducible_seed}}</span><input name="seed" type="number" min="0" value="917"></label>
+        <label><span>{{player_privacy}}</span><select name="visibility"><option value="unlisted">{{player_by_code_only}}</option><option value="private">{{player_private}}</option><option value="public">{{player_public}}</option></select></label>
+        <div class="form-actions"><button class="button primary" type="submit">{{player_create_and_share}}</button></div>
+      </form>
+    </section>
+
+    <section id="join-view" class="view panel-view">
+      <button class="back-link" data-back>← {{player_back}}</button>
+      <div class="panel-head"><span class="eyebrow">{{player_join_eyebrow}}</span><h2>{{player_join_title}}</h2><p>{{player_join_body}}</p></div>
+      <form id="join-form" class="join-card">
+        <input id="room-code" name="code" inputmode="text" autocomplete="off" maxlength="16" placeholder="{{player_code_placeholder}}" aria-label="{{player_code_aria}}">
+        <button class="button primary" type="submit">{{player_open_sakka}}</button>
+      </form>
+    </section>
+
+    <section id="lobby-view" class="view panel-view">
+      <button class="back-link" data-back>← {{player_home}}</button>
+      <div class="lobby-grid">
+        <div class="lobby-main card-panel">
+          <span class="eyebrow">{{player_lobby_eyebrow}}</span>
+          <h2 id="lobby-title">{{player_default_sakka_title}}</h2>
+          <div class="share-code"><span>{{player_share_code}}</span><strong id="share-code">—</strong><button id="copy-code" class="button ghost small">{{player_copy}}</button></div>
+          <div id="board-meta" class="meta-row"></div><div id="board-verification" class="verification-line" aria-live="polite">{{player_verifying}}</div>
+          <button id="start-run" class="button primary wide">{{player_start_play}}</button>
+        </div>
+        <aside class="card-panel"><div class="aside-head"><h3>{{player_participants}}</h3><span id="member-count">0</span></div><div id="members" class="member-list"></div></aside>
+      </div>
+      <div class="card-panel leaderboard-panel">
+        <div class="aside-head"><h3>{{player_results}}</h3><div class="leader-tools"><button id="compare-top" class="button ghost small" hidden>{{player_compare_top}}</button><button id="refresh-lobby" class="icon-button" aria-label="{{player_refresh_aria}}">↻</button></div></div>
+        <div id="leaderboard" class="leaderboard empty">{{player_no_results}}</div>
+        <section id="comparison-panel" class="comparison-panel" hidden aria-live="polite"></section>
+      </div>
+    </section>
+
+    <section id="game-view" class="view game-view">
+      <header class="match-hud">
+        <div class="match-score" id="game-score" aria-label="{{player_score_aria}}">
+          <span><small>{{us_score}}</small><b id="match-us-score">0</b></span>
+          <span><small>{{them_score}}</small><b id="match-them-score">0</b></span>
+        </div>
+        <div class="match-contract">
+          <small id="buyer-label">—</small>
+          <strong id="game-contract">{{player_waiting_purchase}}</strong>
+          <span>{{player_round_label}} <b id="round-number">1</b></span>
+        </div>
+        <div class="match-code"><small>{{player_sakka_code}}</small><strong id="match-room-code">—</strong></div>
+        <button id="leave-game" class="match-exit" aria-label="{{player_save_exit_aria}}">‹</button>
+      </header>
+
+      <div class="table-wrap">
+        <div id="match-table" class="table premium-table">
+          <div class="felt-motif" aria-hidden="true"></div>
+          <div id="match-seats"></div>
+          <div id="trick-cards" class="trick-cards"></div>
+          <div id="match-play-target" class="play-target" aria-hidden="true"><span>{{play_target}}</span></div>
+          <span id="turn-label" class="sr-only" aria-live="polite">{{player_your_turn}}</span>
+          <span id="purchase-label" class="sr-only"></span>
+        </div>
+      </div>
+
+      <div class="decision-panel">
+        <h2 id="decision-title">{{player_decision_play}}</h2>
+        <div id="legal-actions" class="legal-actions"></div>
+      </div>
+      <p id="match-drag-hint" class="match-drag-hint">{{drag_hint}}</p>
+      <div id="hand" class="hand" aria-label="{{hand_aria}}"></div>
+      <button id="play-selected" class="play-selected" disabled>{{player_play_card}}</button>
+    </section>
+
+    <section id="result-view" class="view panel-view">
+      <div class="result-card">
+        <span class="eyebrow">{{player_result_eyebrow}}</span>
+        <div id="result-icon" class="result-icon">✓</div>
+        <h2 id="result-title">{{player_result_recorded}}</h2>
+        <div id="result-score" class="result-score">0 — 0</div>
+        <p id="result-copy"></p>
+        <div class="result-actions">
+          <button id="analyze-run" class="button primary">{{player_analyze_decisions}}</button>
+          <button id="verify-run" class="button secondary">{{player_verify_replay}}</button>
+          <button id="show-leaderboard" class="button secondary">{{player_view_friends}}</button>
+          <button id="home-button" class="button ghost">{{player_home}}</button>
+        </div>
+        <div id="run-verification" class="verification-line result-verification" hidden></div><section id="result-audit" class="audit-panel" hidden>
+          <div class="audit-summary" id="audit-summary"></div>
+          <div id="audit-decisions" class="audit-decisions"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="auth-dialog">
+    <form method="dialog" class="dialog-shell">
+      <button class="dialog-close" value="cancel" aria-label="{{player_close_aria}}">×</button>
+      <span class="eyebrow">{{player_optional_login}}</span><h2>{{player_auth_title}}</h2>
+      <div class="tabs"><button type="button" class="tab active" data-auth-tab="login">{{player_login}}</button><button type="button" class="tab" data-auth-tab="register">{{player_register}}</button></div>
+      <div id="auth-error" class="form-error"></div>
+      <label><span>{{player_username}}</span><input id="auth-username" autocomplete="username"></label>
+      <label><span>{{player_password}}</span><input id="auth-password" type="password" autocomplete="current-password"></label>
+      <label id="display-name-field" hidden><span>{{player_display_name}}</span><input id="auth-display-name" maxlength="40"></label>
+      <button id="auth-submit" type="button" class="button primary wide">{{player_login}}</button>
+      <p class="dialog-note">{{player_auth_note}}</p>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script id="player-copy" type="application/json">{{player_copy_json}}</script>
+  <script src="/play-assets/app.js?v={{player_asset_version}}" defer></script>
+</body>
+</html>

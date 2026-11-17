@@ -1,0 +1,16 @@
+schemaVersion: baloot.agent.buying/v4
+profileId: strong_balanced_buyer_v4
+version: 4.0.0
+pluginId: threshold_buy_v4
+minimumSuccess: 0.56
+minimumExpectedMargin: 2.0
+scorePressureAggression: 0.12
+trailingAggression: 0.10
+leadingConservatism: 0.08
+riskTolerance: 0.58
+bluffProbability: 0.01
+mistakeProbability: 0.005
+preferSunWithCloseValue: 0.025
+allPass:
+  enabled: true
+  redealPolicy: next_counterclockwise_dealer_v1

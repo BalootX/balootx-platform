@@ -1,0 +1,266 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/ml.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action_space": {
+      "additionalProperties": false,
+      "properties": {
+        "bids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cards": {
+          "type": "integer"
+        },
+        "declarations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "escalations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "bids",
+        "cards",
+        "declarations",
+        "escalations"
+      ],
+      "type": "object"
+    },
+    "calibration": {
+      "additionalProperties": false,
+      "properties": {
+        "bins": {
+          "type": "integer"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "group_by": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "metrics": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "bins",
+        "enabled",
+        "group_by",
+        "metrics"
+      ],
+      "type": "object"
+    },
+    "dataset": {
+      "additionalProperties": false,
+      "properties": {
+        "exclude_hidden_leakage": {
+          "type": "boolean"
+        },
+        "group_split_by_game_hash": {
+          "type": "boolean"
+        },
+        "include_corrected_lineage": {
+          "type": "boolean"
+        },
+        "include_expert_consensus_only": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "exclude_hidden_leakage",
+        "group_split_by_game_hash",
+        "include_corrected_lineage",
+        "include_expert_consensus_only"
+      ],
+      "type": "object"
+    },
+    "models": {
+      "additionalProperties": false,
+      "properties": {
+        "belief": {
+          "type": "string"
+        },
+        "intention": {
+          "type": "string"
+        },
+        "optional_onnx": {
+          "type": "boolean"
+        },
+        "policy": {
+          "type": "string"
+        },
+        "production_strength": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "belief",
+        "intention",
+        "optional_onnx",
+        "policy",
+        "production_strength",
+        "value"
+      ],
+      "type": "object"
+    },
+    "observation": {
+      "additionalProperties": false,
+      "properties": {
+        "hidden_information_safe": {
+          "type": "boolean"
+        },
+        "include_legal_mask": {
+          "type": "boolean"
+        },
+        "include_profile_hash": {
+          "type": "boolean"
+        },
+        "include_public_events": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hidden_information_safe",
+        "include_legal_mask",
+        "include_profile_hash",
+        "include_public_events"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "promotion": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_calibration_error": {
+          "type": "number"
+        },
+        "maximum_legal_violation_rate": {
+          "type": "number"
+        },
+        "maximum_p95_latency_ms": {
+          "type": "number"
+        },
+        "minimum_board_sets": {
+          "type": "integer"
+        },
+        "minimum_decisions": {
+          "type": "integer"
+        },
+        "minimum_lower_bound": {
+          "type": "number"
+        },
+        "minimum_ood_recall": {
+          "type": "number"
+        },
+        "minimum_score_rate": {
+          "type": "number"
+        },
+        "rollback_required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "maximum_calibration_error",
+        "maximum_legal_violation_rate",
+        "maximum_p95_latency_ms",
+        "minimum_board_sets",
+        "minimum_decisions",
+        "minimum_lower_bound",
+        "minimum_ood_recall",
+        "minimum_score_rate",
+        "rollback_required"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 2,
+      "type": "integer"
+    },
+    "self_play": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "historical_checkpoints": {
+          "type": "boolean"
+        },
+        "identical_board_sets": {
+          "type": "boolean"
+        },
+        "initial_rating": {
+          "type": "number"
+        },
+        "k_factor": {
+          "type": "number"
+        },
+        "league": {
+          "type": "string"
+        },
+        "zero_illegal_actions": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled",
+        "historical_checkpoints",
+        "identical_board_sets",
+        "initial_rating",
+        "k_factor",
+        "league",
+        "zero_illegal_actions"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "action_space",
+    "calibration",
+    "dataset",
+    "models",
+    "observation",
+    "profile",
+    "promotion",
+    "schema_version",
+    "self_play"
+  ],
+  "type": "object"
+}

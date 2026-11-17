@@ -1,0 +1,58 @@
+# Authoring draft only; activation requires a new frozen bundle revision.
+schemaVersion: 1
+id: public_project_rank_inference
+revision: 2
+families:
+  - id: project-rank-inference
+    name: Unrevealed losing project top-rank inference
+    enabled: true
+    weight: 1
+    minimumAllocation: 0.05
+    contracts: [sun]
+    capabilityTags:
+      impact: [round-flip, points-only]
+      technique: [project-inference]
+      level: [intermediate, advanced]
+      mode: [sun]
+      trickBand: [trick-5, trick-6, trick-7]
+    parameters:
+      suits: [spades, hearts, diamonds, clubs]
+      seats: [north, west, south, east]
+      ranks: [seven, eight, nine, ten, jack, queen, king, ace]
+      projectTypes: [siri]
+      playIndex: {minimum: 16, maximum: 27}
+    template:
+      kind: scenario_predicates_v1
+      expression:
+        op: all
+        children:
+          - predicateId: PRED-CONTRACT
+            kind: auction.contract
+            version: 1
+            hardness: hard
+            arguments: {contract: sun}
+          - predicateId: PRED-NS-SIRI
+            kind: project.exists
+            version: 1
+            hardness: hard
+            arguments: {team: north_south, kind: siri, value: 4, state: declared}
+          - predicateId: PRED-WE-SIRI
+            kind: project.exists
+            version: 1
+            hardness: hard
+            arguments: {team: west_east, kind: siri, value: 4, state: declared}
+          - predicateId: PRED-NS-COUNT
+            kind: project.count
+            version: 1
+            hardness: hard
+            arguments: {team: north_south, minimum: 1, maximum: 1, state: declared}
+          - predicateId: PRED-WE-COUNT
+            kind: project.count
+            version: 1
+            hardness: hard
+            arguments: {team: west_east, minimum: 1, maximum: 1, state: declared}
+          - predicateId: PRED-PROJECT-CHOICES
+            kind: state.legal_action_count
+            version: 1
+            hardness: hard
+            arguments: {minimum: 2, maximum: 16}

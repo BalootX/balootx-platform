@@ -1,0 +1,29 @@
+syntax = "proto3";
+package baloot.v18;
+
+message Empty {}
+message Identifier { string value = 1; }
+message JsonRequest { bytes canonical_json = 1; }
+message JsonResponse { bytes canonical_json = 1; }
+message Health { string status = 1; string version = 2; }
+
+service HumanLearning {
+  rpc HealthCheck(Empty) returns (Health);
+  rpc Profile(Empty) returns (JsonResponse);
+  rpc ListCases(JsonRequest) returns (JsonResponse);
+  rpc CreateCase(JsonRequest) returns (JsonResponse);
+  rpc GetCase(JsonRequest) returns (JsonResponse);
+  rpc AssignBlindReview(JsonRequest) returns (JsonResponse);
+  rpc SubmitReview(JsonRequest) returns (JsonResponse);
+  rpc ComputeConsensus(Identifier) returns (JsonResponse);
+  rpc SetConsent(JsonRequest) returns (JsonResponse);
+  rpc GetConsent(Identifier) returns (JsonResponse);
+  rpc CreateTrainingCandidate(Identifier) returns (JsonResponse);
+  rpc RecordChallengerEvaluation(JsonRequest) returns (JsonResponse);
+  rpc AcceptTrainingCandidate(JsonRequest) returns (JsonResponse);
+  rpc CreateImprovementProposal(JsonRequest) returns (JsonResponse);
+  rpc EvaluateImprovement(JsonRequest) returns (JsonResponse);
+  rpc ApproveImprovement(JsonRequest) returns (JsonResponse);
+  rpc FinalizeImprovement(JsonRequest) returns (JsonResponse);
+  rpc RenderReviewClip(JsonRequest) returns (JsonResponse);
+}

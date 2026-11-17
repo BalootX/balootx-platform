@@ -1,0 +1,1660 @@
+{
+  "schemaVersion": 1,
+  "version": "21.0.0",
+  "scope": {
+    "kind": "dataclass-field-defaults",
+    "packages": [
+      "configuration",
+      "core",
+      "analysis",
+      "video",
+      "plugins"
+    ]
+  },
+  "entries": [
+    {
+      "key": "src/baloot_platform/analysis/hidden_deals.py:HiddenDealSet.coverage_complete",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/hidden_deals.py:HiddenDealSet",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/ismcts_v8.py:ISMCTSAction.ekka",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/ismcts_v8.py:ISMCTSAction",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/ismcts_v8.py:ISMCTSResult.guarantee",
+      "default": "'shared_strategy_by_information_set_not_equilibrium'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/ismcts_v8.py:ISMCTSResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/ismcts_v8.py:ISMCTSResult.method",
+      "default": "'information_set_mcts_v1'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/ismcts_v8.py:ISMCTSResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/ismcts_v8.py:ISMCTSResult.recommended_ekka",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/ismcts_v8.py:ISMCTSResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/ismcts_v8.py:_ActionStats.positive",
+      "default": "0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/ismcts_v8.py:_ActionStats",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/ismcts_v8.py:_ActionStats.squared",
+      "default": "0.0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/ismcts_v8.py:_ActionStats",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/ismcts_v8.py:_ActionStats.total",
+      "default": "0.0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/ismcts_v8.py:_ActionStats",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/ismcts_v8.py:_ActionStats.visits",
+      "default": "0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/ismcts_v8.py:_ActionStats",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:ActionEvaluation.contract_success_probability",
+      "default": "0.0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:ActionEvaluation",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:ActionEvaluation.deal_margins",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:ActionEvaluation",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:ActionEvaluation.downside_cvar",
+      "default": "0.0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:ActionEvaluation",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:ActionEvaluation.match_confidence_high",
+      "default": "0.0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:ActionEvaluation",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:ActionEvaluation.match_confidence_low",
+      "default": "0.0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:ActionEvaluation",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:ActionEvaluation.match_value_model",
+      "default": "'policy_conditioned_exact_dynamic_program_v2'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:ActionEvaluation",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:ActionEvaluation.match_win_probability",
+      "default": "0.0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:ActionEvaluation",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:ActionEvaluation.principal_variation",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:ActionEvaluation",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:ActionEvaluation.search_completion_status",
+      "default": "'failed'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:ActionEvaluation",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:ActionEvaluation.search_nodes",
+      "default": "0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:ActionEvaluation",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:ActionEvaluation.volatility",
+      "default": "0.0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:ActionEvaluation",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:AnalysisResult.analysis_profile_id",
+      "default": "''",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:AnalysisResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:AnalysisResult.analysis_profile_version",
+      "default": "''",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:AnalysisResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:AnalysisResult.explanation",
+      "default": "field(default_factory=tuple)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:AnalysisResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:AnalysisResult.objective",
+      "default": "'match_win_probability'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:AnalysisResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:BidChoice.trump_suit",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:BidChoice",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:InformationState.bid_history",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:InformationState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/models.py:PublicProject.cards",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/models.py:PublicProject",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/public_belief_v7.py:PublicBeliefResult.method",
+      "default": "'shared_particle_team_public_search_v1'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/public_belief_v7.py:PublicBeliefResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/search.py:SearchResult.completion_status",
+      "default": "'failed'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/search.py:SearchResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/search.py:SearchResult.contract_succeeded",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/search.py:SearchResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/search.py:SearchResult.match_winner",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/search.py:SearchResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/search.py:SearchResult.principal_variation",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/search.py:SearchResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/search.py:SearchResult.round_lead",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/search.py:SearchResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/search.py:SearchResult.score_after_round",
+      "default": "(0, 0)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/search.py:SearchResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/sequential_belief_v10.py:SequentialParticleBelief.history",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/sequential_belief_v10.py:SequentialParticleBelief",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/sequential_belief_v10.py:SequentialParticleBelief.step",
+      "default": "0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/sequential_belief_v10.py:SequentialParticleBelief",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/analysis/team_public_search_v10.py:TeamPublicAction.visits",
+      "default": "0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/team_public_search_v10.py:TeamPublicAction",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:BundleRevision.effective_from",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:BundleRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:BundleRevision.effective_until",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:BundleRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:BundleRevision.etag",
+      "default": "1",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:BundleRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:BundleRevision.published_at",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:BundleRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:BundleRevision.published_by",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:BundleRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:BundleRevision.rollout_percentage",
+      "default": "100.0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:BundleRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:BundleRevision.rollout_seed",
+      "default": "'default'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:BundleRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:BundleRevision.supersedes_revision_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:BundleRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ProfileRevision.effective_from",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ProfileRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ProfileRevision.effective_until",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ProfileRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ProfileRevision.etag",
+      "default": "1",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ProfileRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ProfileRevision.published_at",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ProfileRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ProfileRevision.published_by",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ProfileRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ProfileRevision.rollout_percentage",
+      "default": "100.0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ProfileRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ProfileRevision.rollout_seed",
+      "default": "'default'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ProfileRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ProfileRevision.supersedes_revision_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ProfileRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ResolutionContext.at_time",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ResolutionContext",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ResolutionContext.environment",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ResolutionContext",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ResolutionContext.room_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ResolutionContext",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ResolutionContext.shared_game_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ResolutionContext",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ResolutionContext.subject_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ResolutionContext",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ResolutionContext.tenant_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ResolutionContext",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ResolutionContext.user_experiment_key",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ResolutionContext",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ResolutionContext.video_profile_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ResolutionContext",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec.analysis_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec.challenge_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec.decision_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec.game_record_hash",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec.game_serial",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec.model_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding.py:BidResult.buyer",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding.py:BidResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding.py:BidResult.caller",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding.py:BidResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding.py:BidResult.contract",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding.py:BidResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding.py:BidResult.declarer",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding.py:BidResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding.py:BidResult.purchase_recipient",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding.py:BidResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding.py:BidResult.trump",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding.py:BidResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding_machine.py:BiddingMachine._candidate",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding_machine.py:BiddingMachine",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding_machine.py:BiddingMachine._recall_position",
+      "default": "0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding_machine.py:BiddingMachine",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding_machine.py:BiddingMachine._recall_queue",
+      "default": "field(default_factory=list)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding_machine.py:BiddingMachine",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding_machine.py:BiddingMachine.cursor",
+      "default": "0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding_machine.py:BiddingMachine",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding_machine.py:BiddingMachine.finished",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding_machine.py:BiddingMachine",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding_machine.py:BiddingMachine.purchase_rank",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding_machine.py:BiddingMachine",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding_machine.py:BiddingMachine.records",
+      "default": "field(default_factory=list)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding_machine.py:BiddingMachine",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding_machine.py:BiddingMachine.result",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding_machine.py:BiddingMachine",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/bidding_machine.py:BiddingMachine.round_index",
+      "default": "1",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/bidding_machine.py:BiddingMachine",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/escalation_ir.py:EscalationStateV1.double_seat",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/escalation_ir.py:EscalationStateV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/escalation_ir.py:EscalationStateV1.locked",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/escalation_ir.py:EscalationStateV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/match.py:MatchResult.final_score",
+      "default": "field(default_factory=lambda: [0, 0])",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/match.py:MatchResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/match.py:MatchResult.rounds",
+      "default": "field(default_factory=list)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/match.py:MatchResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/match.py:MatchResult.winner",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/match.py:MatchResult",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:BidRecord.bidder",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:BidRecord",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:BidRecord.buyer",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:BidRecord",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:BidRecord.contract",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:BidRecord",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:BidRecord.declarer",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:BidRecord",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:BidRecord.purchase_recipient",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:BidRecord",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:BidRecord.trump",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:BidRecord",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:DealRecord.face_up",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:DealRecord",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:LegalPlayActionV1.ekka",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:LegalPlayActionV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:PlayedCard.baloot",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:PlayedCard",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:PlayedCard.ekka",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:PlayedCard",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:PlayedCard.legal_cards",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:PlayedCard",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:Project.declaration_order",
+      "default": "999",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:Project",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:Project.declared",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:Project",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:Project.revealed",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:Project",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:Project.scoring",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:Project",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundScore.explanation",
+      "default": "field(default_factory=list)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundScore",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundScore.gahwa",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundScore",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundScore.kabout",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundScore",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundScore.match_winner",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundScore",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState._project_declaration_state",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.annul_reason",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.annulled_by",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.baloot_teams",
+      "default": "field(default_factory=set)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.bid_history",
+      "default": "field(default_factory=list)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.buyer",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.card_taker",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.completed_tricks",
+      "default": "field(default_factory=list)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.contract",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.current_player",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.current_trick",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.deal_trace",
+      "default": "field(default_factory=list)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.declarer",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.double_seat",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.escalation",
+      "default": "'normal'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.escalation_history",
+      "default": "field(default_factory=list)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.events",
+      "default": "field(default_factory=list)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.first_leader",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.hands",
+      "default": "field(default_factory=lambda: [0, 0, 0, 0])",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.initial_five",
+      "default": "field(default_factory=lambda: [0, 0, 0, 0])",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.initial_hands",
+      "default": "field(default_factory=lambda: [0, 0, 0, 0])",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.locked",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.match_score",
+      "default": "field(default_factory=lambda: [0, 0])",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.match_winner",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.phase",
+      "default": "GamePhase.CREATED",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.project_rank_visibility",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.project_winning_team",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.projects",
+      "default": "field(default_factory=list)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.purchase_card",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.round_score",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.shuffle",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.trump_broken",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.trump_suit",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:RoundState.undealt",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:RoundState",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:Trick.plays",
+      "default": "field(default_factory=list)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:Trick",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:Trick.raw_points",
+      "default": "0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:Trick",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/models.py:Trick.winner",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/models.py:Trick",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/project_ir.py:ProjectDeclarationActionV1.project_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/project_ir.py:ProjectDeclarationActionV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/project_ir.py:ProjectDeclarationStateV1.actions",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/project_ir.py:ProjectDeclarationStateV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/project_ir.py:ProjectDeclarationStateV1.next_index",
+      "default": "0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/project_ir.py:ProjectDeclarationStateV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/project_ir.py:ProjectDomainIRV1.reveal_scope",
+      "default": "'scoring_team'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/project_ir.py:ProjectDomainIRV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/project_ir.py:ProjectDomainIRV1.reveal_scope_authored",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/project_ir.py:ProjectDomainIRV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/project_ir.py:ProjectDomainIRV1.tie_break_order",
+      "default": "'declaration'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/project_ir.py:ProjectDomainIRV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/project_ir.py:ProjectDomainIRV1.tie_break_order_authored",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/project_ir.py:ProjectDomainIRV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scenario.py:EpisodeSpec.analysis_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scenario.py:EpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scenario.py:EpisodeSpec.audit_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scenario.py:EpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scenario.py:EpisodeSpec.audit_summary",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scenario.py:EpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scenario.py:EpisodeSpec.challenge_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scenario.py:EpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scenario.py:EpisodeSpec.decision_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scenario.py:EpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scenario.py:EpisodeSpec.decision_index",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scenario.py:EpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scenario.py:EpisodeSpec.game_record_hash",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scenario.py:EpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scenario.py:EpisodeSpec.game_serial",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scenario.py:EpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scenario.py:EpisodeSpec.model_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scenario.py:EpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scenario.py:EpisodeSpec.playback_mode",
+      "default": "'challenge_branch'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scenario.py:EpisodeSpec",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scenario.py:EscalationRequest.mode",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scenario.py:EscalationRequest",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scoring_ir.py:ScoringDomainIRV1.buyer_tie_outcome",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scoring_ir.py:ScoringDomainIRV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scoring_ir.py:ScoringDomainIRV1.escalation_multipliers",
+      "default": "(('normal', 1), ('double', 2), ('triple', 3), ('four', 4), ('gahwa', 1))",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scoring_ir.py:ScoringDomainIRV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scoring_ir.py:ScoringDomainIRV1.kabout_winner",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scoring_ir.py:ScoringDomainIRV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/core/scoring_ir.py:ScoringDomainIRV1.tie_counting_units",
+      "default": "((1, 2, 3, 4), (2, 3, 4, 5))",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/core/scoring_ir.py:ScoringDomainIRV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.api_version",
+      "default": "'1'",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.artifact_sha256",
+      "default": "None",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.cancellation_mode",
+      "default": "'bounded'",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.capabilities",
+      "default": "()",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.compatible_profile_schemas",
+      "default": "()",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.contract_id",
+      "default": "None",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.contract_version",
+      "default": "None",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.deterministic",
+      "default": "True",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.failure_mode",
+      "default": "'fail_closed'",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.host_api_range",
+      "default": "'>=1,<2'",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.isolation",
+      "default": "'in_process'",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.maximum_memory_mb",
+      "default": "512",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.permissions",
+      "default": "()",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.profile_schema_range",
+      "default": "'>=1,<2'",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.resource_class",
+      "default": "'cpu'",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.rollback_supported",
+      "default": "True",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.safety_guards",
+      "default": "()",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.side_effects",
+      "default": "()",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.signature",
+      "default": "None",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.signed",
+      "default": "False",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.timeout_seconds",
+      "default": "30",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:PluginDescriptor.trust_class",
+      "default": "'builtin'",
+      "classification": "safety_bound",
+      "status": "compliant",
+      "owner": "schemas/plugin-manifest.schema.json",
+      "rationale": "Manifest protocol or deny-by-default safety value; registry policy remains explicit and governed."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:RenderArtifacts.captions_vtt",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/plugins/base.py:RenderArtifacts",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:RenderArtifacts.semantic_files",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/plugins/base.py:RenderArtifacts",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:RenderArtifacts.timeline",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/plugins/base.py:RenderArtifacts",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/plugins/base.py:RenderArtifacts.transcript",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/plugins/base.py:RenderArtifacts",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/plugins/contracts.py:PluginContractDescriptorV1.allowed_resource_classes",
+      "default": "('cpu', 'analysis-cpu', 'io', 'storage', 'gpu')",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/plugins/contracts.py:PluginContractDescriptorV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/plugins/contracts.py:PluginContractDescriptorV1.allowed_side_effects",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/plugins/contracts.py:PluginContractDescriptorV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/plugins/contracts.py:PluginContractDescriptorV1.deterministic_required",
+      "default": "True",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/plugins/contracts.py:PluginContractDescriptorV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/plugins/contracts.py:PluginContractDescriptorV1.failure_modes",
+      "default": "('fail_closed', 'isolated')",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/plugins/contracts.py:PluginContractDescriptorV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/plugins/contracts.py:PluginContractDescriptorV1.rollback_required",
+      "default": "True",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/plugins/contracts.py:PluginContractDescriptorV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/plugins/registry.py:RegisteredPlugin.source",
+      "default": "'builtin'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/plugins/registry.py:RegisteredPlugin",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/video/batch_executor.py:RenderBatchItemResultV1.error_code",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/video/batch_executor.py:RenderBatchItemResultV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/video/batch_executor.py:RenderBatchItemResultV1.error_detail",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/video/batch_executor.py:RenderBatchItemResultV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/video/card_registry.py:CardPackDefinition.manifest",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/video/card_registry.py:CardPackDefinition",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/video/render_plan.py:RenderBatchItemV1.proof_artifact_sha256",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/video/render_plan.py:RenderBatchItemV1",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/video/visual_qa.py:LayoutAudit.items",
+      "default": "field(default_factory=list)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/video/visual_qa.py:LayoutAudit",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/video/visual_qa.py:LayoutAudit.safe_margin",
+      "default": "0",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/video/visual_qa.py:LayoutAudit",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/video/visual_qa.py:LayoutItem.layer",
+      "default": "'overlay'",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/video/visual_qa.py:LayoutItem",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/video/visual_qa.py:LayoutItem.may_overlap",
+      "default": "()",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/video/visual_qa.py:LayoutItem",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    }
+  ],
+  "summary": {
+    "total": 205,
+    "migrationRequired": 0
+  }
+}

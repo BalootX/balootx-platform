@@ -1,0 +1,293 @@
+{
+  "schemaVersion": 1,
+  "sourceGenerationArtifactHash": "0706ae1cad507268f18bc0761b026c227ca5b2962657de8d9ad387d695413709",
+  "qualityReceiptHash": "b2b500f61b6194c28f890097cf8f7e6ce95e3b29d82b5f9150f380dd686cbbc5",
+  "rulesHash": "bbc97b44e0705cad859bb512dde5f6bf08e9cb63d0e2cc42eaa167a09b1984e5",
+  "playingQuality": {
+    "decisions": {
+      "bid": {
+        "boundaryEvaluator": "auction_hand_margin_v1",
+        "budgetProfile": "bounded_v1",
+        "horizon": {
+          "unit": "plies",
+          "value": 1
+        },
+        "utility": "awarded_point_margin"
+      },
+      "escalation": {
+        "boundaryEvaluator": "current_raw_point_margin_v1",
+        "budgetProfile": "bounded_v1",
+        "horizon": {
+          "unit": "plies",
+          "value": 1
+        },
+        "utility": "awarded_point_margin"
+      },
+      "play": {
+        "boundaryEvaluator": "current_raw_point_margin_v1",
+        "budgetProfile": "bounded_v1",
+        "horizon": {
+          "unit": "tricks",
+          "value": 1
+        },
+        "utility": "awarded_point_margin"
+      },
+      "project": {
+        "boundaryEvaluator": "current_raw_point_margin_v1",
+        "budgetProfile": "bounded_v1",
+        "horizon": {
+          "unit": "plies",
+          "value": 1
+        },
+        "utility": "awarded_point_margin"
+      }
+    },
+    "mode": "budgeted",
+    "schemaVersion": 1,
+    "sha256": "102f640fbbe3e623f4cb0bd2575706362256126ad09033f03ab1fa634d853ee4"
+  },
+  "maximumHiddenWorldsPerDecision": 8,
+  "maximumDecisionSeconds": 20,
+  "exactTracePrefix": {
+    "auctionActions": [
+      {
+        "action": "pass",
+        "actor": "north"
+      },
+      {
+        "action": "sun",
+        "actor": "west"
+      },
+      {
+        "action": "pass",
+        "actor": "north"
+      }
+    ],
+    "dealer": "east",
+    "deckOrder": [
+      25,
+      19,
+      26,
+      31,
+      7,
+      9,
+      18,
+      23,
+      30,
+      24,
+      29,
+      17,
+      0,
+      15,
+      27,
+      3,
+      16,
+      1,
+      28,
+      21,
+      8,
+      11,
+      14,
+      10,
+      12,
+      5,
+      6,
+      2,
+      4,
+      13,
+      20,
+      22
+    ],
+    "escalationActions": [],
+    "matchScore": [
+      0,
+      0
+    ],
+    "playActions": [
+      {
+        "actor": "north",
+        "card": 19,
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": 9,
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": 23,
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": 17,
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": 18,
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": 22,
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": 0,
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": 31,
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": 21,
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": 10,
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": 7,
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": 16,
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": 20,
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": 26,
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": 27,
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": 1,
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": 24,
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": 25,
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": 8,
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": 30,
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": 6,
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": 28,
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": 14,
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": 3,
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": 5,
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": 2,
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": 13,
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": 11,
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": 12,
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": 4,
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": 29,
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": 15,
+        "ekka": false
+      }
+    ],
+    "projectActions": [
+      {
+        "action": "pass",
+        "actor": "north"
+      },
+      {
+        "action": "pass",
+        "actor": "west"
+      },
+      {
+        "action": "pass",
+        "actor": "south"
+      },
+      {
+        "action": "declare",
+        "actor": "east",
+        "projectId": "PROJECT-42151093764901E1"
+      }
+    ],
+    "projectAssertions": [],
+    "projectDeclarations": [],
+    "roundNumber": 1,
+    "schemaVersion": 1,
+    "stateAssertions": {}
+  }
+}

@@ -1,0 +1,247 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/duplicate.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "anti_cheat": {
+      "additionalProperties": false,
+      "properties": {
+        "hide_oracle_hands": {
+          "type": "boolean"
+        },
+        "hide_seed_until_reveal": {
+          "type": "boolean"
+        },
+        "reject_incompatible_runs": {
+          "type": "boolean"
+        },
+        "server_authoritative": {
+          "type": "boolean"
+        },
+        "signed_action_chain": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hide_oracle_hands",
+        "hide_seed_until_reveal",
+        "reject_incompatible_runs",
+        "server_authoritative",
+        "signed_action_chain"
+      ],
+      "type": "object"
+    },
+    "board": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_full_match": {
+          "type": "boolean"
+        },
+        "allow_full_round": {
+          "type": "boolean"
+        },
+        "allow_midgame": {
+          "type": "boolean"
+        },
+        "default_visibility": {
+          "type": "string"
+        },
+        "immutable_after_publish": {
+          "type": "boolean"
+        },
+        "maximum_public_events": {
+          "type": "integer"
+        },
+        "minimum_public_events": {
+          "type": "integer"
+        },
+        "share_code_characters": {
+          "type": "integer"
+        },
+        "signed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "allow_full_match",
+        "allow_full_round",
+        "allow_midgame",
+        "default_visibility",
+        "immutable_after_publish",
+        "maximum_public_events",
+        "minimum_public_events",
+        "share_code_characters",
+        "signed"
+      ],
+      "type": "object"
+    },
+    "bots": {
+      "additionalProperties": false,
+      "properties": {
+        "branch_aware": {
+          "type": "boolean"
+        },
+        "default_profile": {
+          "type": "string"
+        },
+        "deterministic": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "branch_aware",
+        "default_profile",
+        "deterministic"
+      ],
+      "type": "object"
+    },
+    "comparison_identity": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "fields"
+      ],
+      "type": "object"
+    },
+    "default_mode": {
+      "type": "string"
+    },
+    "match": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_rounds": {
+          "type": "integer"
+        },
+        "stop_on_match_winner": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "maximum_rounds",
+        "stop_on_match_winner"
+      ],
+      "type": "object"
+    },
+    "modes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "name_ar": {
+      "type": "string"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "reveal": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "allowed",
+        "default"
+      ],
+      "type": "object"
+    },
+    "rooms": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_guests_by_default": {
+          "type": "boolean"
+        },
+        "default_max_players": {
+          "type": "integer"
+        },
+        "maximum_players": {
+          "type": "integer"
+        },
+        "supported_modes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "allow_guests_by_default",
+        "default_max_players",
+        "maximum_players",
+        "supported_modes"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "scoring": {
+      "additionalProperties": false,
+      "properties": {
+        "metrics": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "primary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "metrics",
+        "primary"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "anti_cheat",
+    "board",
+    "bots",
+    "comparison_identity",
+    "default_mode",
+    "match",
+    "modes",
+    "name_ar",
+    "profile",
+    "reveal",
+    "rooms",
+    "schema_version",
+    "scoring"
+  ],
+  "type": "object"
+}

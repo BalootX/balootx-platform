@@ -1,0 +1,12 @@
+{
+  "high": {
+    "canonical_sha256": "71f176655b559db43b2ddee9d9fc8c1d2a96f04f1f70fb6162f185d36657ac98",
+    "decision_hash": "a503e07c0a2dd11e8c8ed544f7a3f579ee039e064b2a604ec566da0374796c84",
+    "legacy_canonical_sha256": "36e38122049fd65972e6d1b4625cefb253346def691c6ac341e73189658e8260"
+  },
+  "low": {
+    "canonical_sha256": "71f176655b559db43b2ddee9d9fc8c1d2a96f04f1f70fb6162f185d36657ac98",
+    "decision_hash": "690458847abcab16f46265680baab0152157b3018f6b62b832a68e71c553acad",
+    "legacy_canonical_sha256": "9d8d8fb0b38ac8f57f06f21658defecda7818794478b9defceea2a86670506bc"
+  }
+}

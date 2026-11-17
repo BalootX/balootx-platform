@@ -1,0 +1,201 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/difficulty.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "adaptive_delivery": {
+      "additionalProperties": false,
+      "properties": {
+        "exploration_fraction": {
+          "type": "number"
+        },
+        "maximum_recent_repeat": {
+          "type": "integer"
+        },
+        "target_success_probability": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "exploration_fraction",
+        "maximum_recent_repeat",
+        "target_success_probability"
+      ],
+      "type": "object"
+    },
+    "calibration": {
+      "additionalProperties": false,
+      "properties": {
+        "cold_start_engine_weight": {
+          "type": "number"
+        },
+        "confidence_z": {
+          "type": "number"
+        },
+        "mature_engine_weight": {
+          "type": "number"
+        },
+        "mature_response_count": {
+          "type": "integer"
+        },
+        "minimum_distinct_players": {
+          "type": "integer"
+        },
+        "minimum_responses_for_public_label": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cold_start_engine_weight",
+        "confidence_z",
+        "mature_engine_weight",
+        "mature_response_count",
+        "minimum_distinct_players",
+        "minimum_responses_for_public_label"
+      ],
+      "type": "object"
+    },
+    "labels": {
+      "additionalProperties": false,
+      "properties": {
+        "easy_max": {
+          "type": "integer"
+        },
+        "expert_max": {
+          "type": "integer"
+        },
+        "hard_max": {
+          "type": "integer"
+        },
+        "medium_max": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "easy_max",
+        "expert_max",
+        "hard_max",
+        "medium_max"
+      ],
+      "type": "object"
+    },
+    "model": {
+      "additionalProperties": false,
+      "properties": {
+        "ability_initial": {
+          "type": "number"
+        },
+        "confidence_weight": {
+          "type": "number"
+        },
+        "difficulty_initial": {
+          "type": "number"
+        },
+        "discrimination_initial": {
+          "type": "number"
+        },
+        "discrimination_max": {
+          "type": "number"
+        },
+        "discrimination_min": {
+          "type": "number"
+        },
+        "l2_shrinkage": {
+          "type": "number"
+        },
+        "learning_rate_ability": {
+          "type": "number"
+        },
+        "learning_rate_difficulty": {
+          "type": "number"
+        },
+        "learning_rate_discrimination": {
+          "type": "number"
+        },
+        "maximum_seconds": {
+          "type": "number"
+        },
+        "minimum_seconds": {
+          "type": "number"
+        },
+        "response_time_weight": {
+          "type": "number"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ability_initial",
+        "confidence_weight",
+        "difficulty_initial",
+        "discrimination_initial",
+        "discrimination_max",
+        "discrimination_min",
+        "l2_shrinkage",
+        "learning_rate_ability",
+        "learning_rate_difficulty",
+        "learning_rate_discrimination",
+        "maximum_seconds",
+        "minimum_seconds",
+        "response_time_weight",
+        "type"
+      ],
+      "type": "object"
+    },
+    "privacy": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_anonymous_players": {
+          "type": "boolean"
+        },
+        "hash_external_player_ids": {
+          "type": "boolean"
+        },
+        "retain_raw_explanations": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "allow_anonymous_players",
+        "hash_external_player_ids",
+        "retain_raw_explanations"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "adaptive_delivery",
+    "calibration",
+    "labels",
+    "model",
+    "privacy",
+    "profile",
+    "schema_version"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,3083 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/adjudication.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "appeals": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "maximum_levels": {
+              "type": "integer"
+            },
+            "preserve_original_ruling": {
+              "type": "boolean"
+            },
+            "require_new_referee": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled",
+            "maximum_levels",
+            "preserve_original_ruling",
+            "require_new_referee"
+          ],
+          "type": "object"
+        },
+        "audit": {
+          "additionalProperties": false,
+          "properties": {
+            "hash_chain": {
+              "type": "boolean"
+            },
+            "immutable_cases": {
+              "type": "boolean"
+            },
+            "preserve_evidence": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "hash_chain",
+            "immutable_cases",
+            "preserve_evidence"
+          ],
+          "type": "object"
+        },
+        "profile": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        },
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "violations": {
+          "additionalProperties": false,
+          "properties": {
+            "claim": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            },
+            "communication": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            },
+            "concession": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            },
+            "disconnect": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            },
+            "exposed_card": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            },
+            "illegal_card": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            },
+            "misdeal": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            },
+            "other": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            },
+            "out_of_turn": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            },
+            "score_dispute": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            },
+            "technical_failure": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            },
+            "timeout": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            },
+            "wrong_bid": {
+              "additionalProperties": false,
+              "properties": {
+                "default_outcome": {
+                  "type": "string"
+                },
+                "notes_ar": {
+                  "type": "string"
+                },
+                "points_delta": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "requires_referee": {
+                  "type": "boolean"
+                },
+                "requires_video_review": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "default_outcome",
+                "notes_ar",
+                "points_delta",
+                "requires_referee",
+                "requires_video_review"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "claim",
+            "communication",
+            "concession",
+            "disconnect",
+            "exposed_card",
+            "illegal_card",
+            "misdeal",
+            "other",
+            "out_of_turn",
+            "score_dispute",
+            "technical_failure",
+            "timeout",
+            "wrong_bid"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "appeals",
+        "audit",
+        "profile",
+        "schema_version",
+        "violations"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "additionalProperties": false,
+          "properties": {
+            "exposed_card": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            },
+            "incorrect_highest_card_naming": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "sourceTextAr": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "sourceTextAr",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            },
+            "invalid_bid": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "coveredSubtype": {
+                  "type": "string"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "coveredSubtype",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            },
+            "out_of_turn": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "coveredSubtype": {
+                  "type": "string"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "coveredSubtype",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            },
+            "signalling": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            },
+            "verbal_baloot_inside_sequential_100": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "exposed_card",
+            "incorrect_highest_card_naming",
+            "invalid_bid",
+            "out_of_turn",
+            "signalling",
+            "verbal_baloot_inside_sequential_100"
+          ],
+          "type": "object"
+        },
+        "profile": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        },
+        "schemaVersion": {
+          "type": "integer"
+        },
+        "sourceAuthority": {
+          "additionalProperties": false,
+          "properties": {
+            "archiveUrl": {
+              "type": "string"
+            },
+            "bytes": {
+              "type": "integer"
+            },
+            "class": {
+              "type": "string"
+            },
+            "currentAuthorityBoundary": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "sourceId": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "verificationReceiptPath": {
+              "type": "string"
+            },
+            "verificationReceiptSha256": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "archiveUrl",
+            "bytes",
+            "class",
+            "currentAuthorityBoundary",
+            "sha256",
+            "sourceId",
+            "url",
+            "verificationReceiptPath",
+            "verificationReceiptSha256"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "events",
+        "profile",
+        "schemaVersion",
+        "sourceAuthority"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "additionalProperties": false,
+          "properties": {
+            "exposed_card": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            },
+            "false_ekka_attempt": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "coveredSubtype": {
+                  "type": "string"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "coveredSubtype",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            },
+            "incorrect_highest_card_naming": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "sourceTextAr": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "sourceTextAr",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            },
+            "invalid_bid": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "coveredSubtype": {
+                  "type": "string"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "coveredSubtype",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            },
+            "out_of_turn": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "coveredSubtype": {
+                  "type": "string"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "coveredSubtype",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            },
+            "signalling": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            },
+            "verbal_baloot_inside_sequential_100": {
+              "additionalProperties": false,
+              "properties": {
+                "authorityClass": {
+                  "type": "string"
+                },
+                "availableRemedies": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "documentation": {
+                  "type": "string"
+                },
+                "domainPrimitive": {
+                  "type": "string"
+                },
+                "eventScope": {
+                  "type": "string"
+                },
+                "exactInput": {
+                  "type": "string"
+                },
+                "generatedSearch": {
+                  "type": "string"
+                },
+                "hardPredicate": {
+                  "type": "string"
+                },
+                "labelAr": {
+                  "type": "string"
+                },
+                "labelEn": {
+                  "type": "string"
+                },
+                "messageAr": {
+                  "type": "string"
+                },
+                "messageEn": {
+                  "type": "string"
+                },
+                "observerSafety": {
+                  "type": "string"
+                },
+                "ordinaryTrace": {
+                  "type": "string"
+                },
+                "requiresTableReferee": {
+                  "type": "boolean"
+                },
+                "sourceClause": {
+                  "type": "string"
+                },
+                "stage": {
+                  "type": "string"
+                },
+                "uiExposure": {
+                  "type": "string"
+                },
+                "violationCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authorityClass",
+                "availableRemedies",
+                "documentation",
+                "domainPrimitive",
+                "eventScope",
+                "exactInput",
+                "generatedSearch",
+                "hardPredicate",
+                "labelAr",
+                "labelEn",
+                "messageAr",
+                "messageEn",
+                "observerSafety",
+                "ordinaryTrace",
+                "requiresTableReferee",
+                "sourceClause",
+                "stage",
+                "uiExposure",
+                "violationCode"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "exposed_card",
+            "false_ekka_attempt",
+            "incorrect_highest_card_naming",
+            "invalid_bid",
+            "out_of_turn",
+            "signalling",
+            "verbal_baloot_inside_sequential_100"
+          ],
+          "type": "object"
+        },
+        "profile": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        },
+        "schemaVersion": {
+          "type": "integer"
+        },
+        "sourceAuthority": {
+          "additionalProperties": false,
+          "properties": {
+            "archiveUrl": {
+              "type": "string"
+            },
+            "bytes": {
+              "type": "integer"
+            },
+            "class": {
+              "type": "string"
+            },
+            "currentAuthorityBoundary": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "sourceId": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "verificationReceiptPath": {
+              "type": "string"
+            },
+            "verificationReceiptSha256": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "archiveUrl",
+            "bytes",
+            "class",
+            "currentAuthorityBoundary",
+            "sha256",
+            "sourceId",
+            "url",
+            "verificationReceiptPath",
+            "verificationReceiptSha256"
+          ],
+          "type": "object"
+        },
+        "variant": {
+          "additionalProperties": false,
+          "properties": {
+            "certificationEligible": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "certificationEligible",
+            "id",
+            "status"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "events",
+        "profile",
+        "schemaVersion",
+        "sourceAuthority",
+        "variant"
+      ],
+      "type": "object"
+    }
+  ],
+  "properties": {
+    "appeals": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "maximum_levels": {
+          "type": "integer"
+        },
+        "preserve_original_ruling": {
+          "type": "boolean"
+        },
+        "require_new_referee": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled",
+        "maximum_levels",
+        "preserve_original_ruling",
+        "require_new_referee"
+      ],
+      "type": "object"
+    },
+    "audit": {
+      "additionalProperties": false,
+      "properties": {
+        "hash_chain": {
+          "type": "boolean"
+        },
+        "immutable_cases": {
+          "type": "boolean"
+        },
+        "preserve_evidence": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hash_chain",
+        "immutable_cases",
+        "preserve_evidence"
+      ],
+      "type": "object"
+    },
+    "events": {
+      "additionalProperties": false,
+      "properties": {
+        "exposed_card": {
+          "additionalProperties": false,
+          "properties": {
+            "authorityClass": {
+              "type": "string"
+            },
+            "availableRemedies": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "documentation": {
+              "type": "string"
+            },
+            "domainPrimitive": {
+              "type": "string"
+            },
+            "eventScope": {
+              "type": "string"
+            },
+            "exactInput": {
+              "type": "string"
+            },
+            "generatedSearch": {
+              "type": "string"
+            },
+            "hardPredicate": {
+              "type": "string"
+            },
+            "labelAr": {
+              "type": "string"
+            },
+            "labelEn": {
+              "type": "string"
+            },
+            "messageAr": {
+              "type": "string"
+            },
+            "messageEn": {
+              "type": "string"
+            },
+            "observerSafety": {
+              "type": "string"
+            },
+            "ordinaryTrace": {
+              "type": "string"
+            },
+            "requiresTableReferee": {
+              "type": "boolean"
+            },
+            "sourceClause": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            },
+            "uiExposure": {
+              "type": "string"
+            },
+            "violationCode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "authorityClass",
+            "availableRemedies",
+            "documentation",
+            "domainPrimitive",
+            "eventScope",
+            "exactInput",
+            "generatedSearch",
+            "hardPredicate",
+            "labelAr",
+            "labelEn",
+            "messageAr",
+            "messageEn",
+            "observerSafety",
+            "ordinaryTrace",
+            "requiresTableReferee",
+            "sourceClause",
+            "stage",
+            "uiExposure",
+            "violationCode"
+          ],
+          "type": "object"
+        },
+        "false_ekka_attempt": {
+          "additionalProperties": false,
+          "properties": {
+            "authorityClass": {
+              "type": "string"
+            },
+            "availableRemedies": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "coveredSubtype": {
+              "type": "string"
+            },
+            "documentation": {
+              "type": "string"
+            },
+            "domainPrimitive": {
+              "type": "string"
+            },
+            "eventScope": {
+              "type": "string"
+            },
+            "exactInput": {
+              "type": "string"
+            },
+            "generatedSearch": {
+              "type": "string"
+            },
+            "hardPredicate": {
+              "type": "string"
+            },
+            "labelAr": {
+              "type": "string"
+            },
+            "labelEn": {
+              "type": "string"
+            },
+            "messageAr": {
+              "type": "string"
+            },
+            "messageEn": {
+              "type": "string"
+            },
+            "observerSafety": {
+              "type": "string"
+            },
+            "ordinaryTrace": {
+              "type": "string"
+            },
+            "requiresTableReferee": {
+              "type": "boolean"
+            },
+            "sourceClause": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            },
+            "uiExposure": {
+              "type": "string"
+            },
+            "violationCode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "authorityClass",
+            "availableRemedies",
+            "coveredSubtype",
+            "documentation",
+            "domainPrimitive",
+            "eventScope",
+            "exactInput",
+            "generatedSearch",
+            "hardPredicate",
+            "labelAr",
+            "labelEn",
+            "messageAr",
+            "messageEn",
+            "observerSafety",
+            "ordinaryTrace",
+            "requiresTableReferee",
+            "sourceClause",
+            "stage",
+            "uiExposure",
+            "violationCode"
+          ],
+          "type": "object"
+        },
+        "incorrect_highest_card_naming": {
+          "additionalProperties": false,
+          "properties": {
+            "authorityClass": {
+              "type": "string"
+            },
+            "availableRemedies": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "documentation": {
+              "type": "string"
+            },
+            "domainPrimitive": {
+              "type": "string"
+            },
+            "eventScope": {
+              "type": "string"
+            },
+            "exactInput": {
+              "type": "string"
+            },
+            "generatedSearch": {
+              "type": "string"
+            },
+            "hardPredicate": {
+              "type": "string"
+            },
+            "labelAr": {
+              "type": "string"
+            },
+            "labelEn": {
+              "type": "string"
+            },
+            "messageAr": {
+              "type": "string"
+            },
+            "messageEn": {
+              "type": "string"
+            },
+            "observerSafety": {
+              "type": "string"
+            },
+            "ordinaryTrace": {
+              "type": "string"
+            },
+            "requiresTableReferee": {
+              "type": "boolean"
+            },
+            "sourceClause": {
+              "type": "string"
+            },
+            "sourceTextAr": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            },
+            "uiExposure": {
+              "type": "string"
+            },
+            "violationCode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "authorityClass",
+            "availableRemedies",
+            "documentation",
+            "domainPrimitive",
+            "eventScope",
+            "exactInput",
+            "generatedSearch",
+            "hardPredicate",
+            "labelAr",
+            "labelEn",
+            "messageAr",
+            "messageEn",
+            "observerSafety",
+            "ordinaryTrace",
+            "requiresTableReferee",
+            "sourceClause",
+            "sourceTextAr",
+            "stage",
+            "uiExposure",
+            "violationCode"
+          ],
+          "type": "object"
+        },
+        "invalid_bid": {
+          "additionalProperties": false,
+          "properties": {
+            "authorityClass": {
+              "type": "string"
+            },
+            "availableRemedies": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "coveredSubtype": {
+              "type": "string"
+            },
+            "documentation": {
+              "type": "string"
+            },
+            "domainPrimitive": {
+              "type": "string"
+            },
+            "eventScope": {
+              "type": "string"
+            },
+            "exactInput": {
+              "type": "string"
+            },
+            "generatedSearch": {
+              "type": "string"
+            },
+            "hardPredicate": {
+              "type": "string"
+            },
+            "labelAr": {
+              "type": "string"
+            },
+            "labelEn": {
+              "type": "string"
+            },
+            "messageAr": {
+              "type": "string"
+            },
+            "messageEn": {
+              "type": "string"
+            },
+            "observerSafety": {
+              "type": "string"
+            },
+            "ordinaryTrace": {
+              "type": "string"
+            },
+            "requiresTableReferee": {
+              "type": "boolean"
+            },
+            "sourceClause": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            },
+            "uiExposure": {
+              "type": "string"
+            },
+            "violationCode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "authorityClass",
+            "availableRemedies",
+            "coveredSubtype",
+            "documentation",
+            "domainPrimitive",
+            "eventScope",
+            "exactInput",
+            "generatedSearch",
+            "hardPredicate",
+            "labelAr",
+            "labelEn",
+            "messageAr",
+            "messageEn",
+            "observerSafety",
+            "ordinaryTrace",
+            "requiresTableReferee",
+            "sourceClause",
+            "stage",
+            "uiExposure",
+            "violationCode"
+          ],
+          "type": "object"
+        },
+        "out_of_turn": {
+          "additionalProperties": false,
+          "properties": {
+            "authorityClass": {
+              "type": "string"
+            },
+            "availableRemedies": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "coveredSubtype": {
+              "type": "string"
+            },
+            "documentation": {
+              "type": "string"
+            },
+            "domainPrimitive": {
+              "type": "string"
+            },
+            "eventScope": {
+              "type": "string"
+            },
+            "exactInput": {
+              "type": "string"
+            },
+            "generatedSearch": {
+              "type": "string"
+            },
+            "hardPredicate": {
+              "type": "string"
+            },
+            "labelAr": {
+              "type": "string"
+            },
+            "labelEn": {
+              "type": "string"
+            },
+            "messageAr": {
+              "type": "string"
+            },
+            "messageEn": {
+              "type": "string"
+            },
+            "observerSafety": {
+              "type": "string"
+            },
+            "ordinaryTrace": {
+              "type": "string"
+            },
+            "requiresTableReferee": {
+              "type": "boolean"
+            },
+            "sourceClause": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            },
+            "uiExposure": {
+              "type": "string"
+            },
+            "violationCode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "authorityClass",
+            "availableRemedies",
+            "coveredSubtype",
+            "documentation",
+            "domainPrimitive",
+            "eventScope",
+            "exactInput",
+            "generatedSearch",
+            "hardPredicate",
+            "labelAr",
+            "labelEn",
+            "messageAr",
+            "messageEn",
+            "observerSafety",
+            "ordinaryTrace",
+            "requiresTableReferee",
+            "sourceClause",
+            "stage",
+            "uiExposure",
+            "violationCode"
+          ],
+          "type": "object"
+        },
+        "signalling": {
+          "additionalProperties": false,
+          "properties": {
+            "authorityClass": {
+              "type": "string"
+            },
+            "availableRemedies": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "documentation": {
+              "type": "string"
+            },
+            "domainPrimitive": {
+              "type": "string"
+            },
+            "eventScope": {
+              "type": "string"
+            },
+            "exactInput": {
+              "type": "string"
+            },
+            "generatedSearch": {
+              "type": "string"
+            },
+            "hardPredicate": {
+              "type": "string"
+            },
+            "labelAr": {
+              "type": "string"
+            },
+            "labelEn": {
+              "type": "string"
+            },
+            "messageAr": {
+              "type": "string"
+            },
+            "messageEn": {
+              "type": "string"
+            },
+            "observerSafety": {
+              "type": "string"
+            },
+            "ordinaryTrace": {
+              "type": "string"
+            },
+            "requiresTableReferee": {
+              "type": "boolean"
+            },
+            "sourceClause": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            },
+            "uiExposure": {
+              "type": "string"
+            },
+            "violationCode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "authorityClass",
+            "availableRemedies",
+            "documentation",
+            "domainPrimitive",
+            "eventScope",
+            "exactInput",
+            "generatedSearch",
+            "hardPredicate",
+            "labelAr",
+            "labelEn",
+            "messageAr",
+            "messageEn",
+            "observerSafety",
+            "ordinaryTrace",
+            "requiresTableReferee",
+            "sourceClause",
+            "stage",
+            "uiExposure",
+            "violationCode"
+          ],
+          "type": "object"
+        },
+        "verbal_baloot_inside_sequential_100": {
+          "additionalProperties": false,
+          "properties": {
+            "authorityClass": {
+              "type": "string"
+            },
+            "availableRemedies": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "documentation": {
+              "type": "string"
+            },
+            "domainPrimitive": {
+              "type": "string"
+            },
+            "eventScope": {
+              "type": "string"
+            },
+            "exactInput": {
+              "type": "string"
+            },
+            "generatedSearch": {
+              "type": "string"
+            },
+            "hardPredicate": {
+              "type": "string"
+            },
+            "labelAr": {
+              "type": "string"
+            },
+            "labelEn": {
+              "type": "string"
+            },
+            "messageAr": {
+              "type": "string"
+            },
+            "messageEn": {
+              "type": "string"
+            },
+            "observerSafety": {
+              "type": "string"
+            },
+            "ordinaryTrace": {
+              "type": "string"
+            },
+            "requiresTableReferee": {
+              "type": "boolean"
+            },
+            "sourceClause": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            },
+            "uiExposure": {
+              "type": "string"
+            },
+            "violationCode": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "authorityClass",
+            "availableRemedies",
+            "documentation",
+            "domainPrimitive",
+            "eventScope",
+            "exactInput",
+            "generatedSearch",
+            "hardPredicate",
+            "labelAr",
+            "labelEn",
+            "messageAr",
+            "messageEn",
+            "observerSafety",
+            "ordinaryTrace",
+            "requiresTableReferee",
+            "sourceClause",
+            "stage",
+            "uiExposure",
+            "violationCode"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "exposed_card",
+        "incorrect_highest_card_naming",
+        "invalid_bid",
+        "out_of_turn",
+        "signalling",
+        "verbal_baloot_inside_sequential_100"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "schemaVersion": {
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "sourceAuthority": {
+      "additionalProperties": false,
+      "properties": {
+        "archiveUrl": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer"
+        },
+        "class": {
+          "type": "string"
+        },
+        "currentAuthorityBoundary": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "verificationReceiptPath": {
+          "type": "string"
+        },
+        "verificationReceiptSha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "archiveUrl",
+        "bytes",
+        "class",
+        "currentAuthorityBoundary",
+        "sha256",
+        "sourceId",
+        "url",
+        "verificationReceiptPath",
+        "verificationReceiptSha256"
+      ],
+      "type": "object"
+    },
+    "variant": {
+      "additionalProperties": false,
+      "properties": {
+        "certificationEligible": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "certificationEligible",
+        "id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "violations": {
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        },
+        "communication": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        },
+        "concession": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        },
+        "disconnect": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        },
+        "exposed_card": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        },
+        "illegal_card": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        },
+        "misdeal": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        },
+        "other": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        },
+        "out_of_turn": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        },
+        "score_dispute": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        },
+        "technical_failure": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        },
+        "timeout": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        },
+        "wrong_bid": {
+          "additionalProperties": false,
+          "properties": {
+            "default_outcome": {
+              "type": "string"
+            },
+            "notes_ar": {
+              "type": "string"
+            },
+            "points_delta": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "requires_referee": {
+              "type": "boolean"
+            },
+            "requires_video_review": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "default_outcome",
+            "notes_ar",
+            "points_delta",
+            "requires_referee",
+            "requires_video_review"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "claim",
+        "communication",
+        "concession",
+        "disconnect",
+        "exposed_card",
+        "illegal_card",
+        "misdeal",
+        "other",
+        "out_of_turn",
+        "score_dispute",
+        "technical_failure",
+        "timeout",
+        "wrong_bid"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "profile"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,36 @@
+schema_version: 1
+profile:
+  id: continuous_learning_v1
+  version: 1.0.0
+  status: production_candidate
+feedback:
+  minimum_confidence: 0.55
+  allowed_sources: [expert, referee, audience, engine, model]
+  require_rationale_for_expert: true
+active_learning:
+  weights:
+    model_disagreement: 0.30
+    uncertainty: 0.20
+    interestingness: 0.25
+    model_error: 0.15
+    under_reviewed: 0.10
+  maximum_queue_items: 5000
+dataset:
+  group_split_key: game_hash
+  train_fraction: 0.80
+  validation_fraction: 0.10
+  test_fraction: 0.10
+  minimum_examples: 1
+  exclude_unverified_games: true
+training:
+  default_backend: numpy_linear_policy_value_v1
+  epochs: 40
+  learning_rate: 0.03
+  l2: 0.0001
+  batch_size: 64
+  preference_loss_weight: 0.25
+promotion:
+  minimum_examples: 20
+  minimum_top3_accuracy: 0.55
+  maximum_illegal_action_rate: 0.0
+  require_holdout_evaluation: true

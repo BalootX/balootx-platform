@@ -1,0 +1,103 @@
+schema_version: 1
+profile:
+  id: governed_hitl_v18
+  version: 18.0.0
+  status: production_candidate
+review:
+  minimum_independent_reviewers: 5
+  minimum_weighted_support: 0.7
+  minimum_wilson_lower: 0.55
+  minimum_independent_clusters: 4
+  require_verified_expert_or_two_trusted: true
+  expert_opposition_blocks: true
+  blind_until_submission: true
+  maximum_rationale_similarity: 0.88
+validation:
+  allowed_view_modes:
+  - observer
+  - public
+  safe_disclosure_timings:
+  - before_reveal
+  - during_play
+  block_hidden_cards_seen: true
+  block_final_result_seen: true
+  require_legal_action: true
+  require_structured_reasons: true
+consent_defaults:
+  allow_training: false
+  allow_research: false
+  allow_public_challenge: false
+  allow_voice: false
+  allow_identity_attribution: false
+  allow_private_coaching: true
+training:
+  minimum_independent_challenger_evaluations: 2
+  automatic_model_promotion: false
+  separate_label_provenance: true
+  allowed_candidate_states:
+  - training_candidate
+  - challenger_evaluated
+  - accepted
+improvement:
+  minimum_independent_validators: 2
+  require_expert_approval: true
+  automatic_production_apply: false
+  require_regression: true
+  require_shadow: true
+  require_canary: true
+  require_rollback_manifest: true
+review_clip:
+  presentation_mode: player
+  width: 720
+  height: 1280
+  fps: 30
+  duration_seconds: 9.0
+  observer_safe: true
+  countdown_seconds: 5.0
+  intro_seconds: 0.7
+  selection_seconds: 0.8
+  answer_reveal_seconds: 1.2
+  maximum_choices: 4
+  choice_card_width: 110
+  choice_card_height: 154
+  show_correct_after_submission: true
+  show_case_locator: true
+  case_locator_characters: 8
+  show_developer_card_codes: false
+  copy:
+    header_title: مراجعة القرار
+    actor_fallback: اللاعب
+    actor_north: الشريك
+    actor_west: الخصم الأيسر
+    actor_south: أنت
+    actor_east: الخصم الأيمن
+    phase_playing: قرار لعب
+    phase_play: قرار لعب
+    phase_bidding: قرار شراء
+    phase_buying: قرار شراء
+    phase_projects: قرار مشروع
+    phase_scoring: مراجعة الحسبة
+    phase_decision: قرار لعب
+    context_actor: "صاحب القرار: {actor}"
+    stage_intro: جهّز اختيارك
+    stage_blind_choice: وش تشوف اللعب الأفضل؟
+    stage_selection_confirmed: تم تسجيل اختيارك
+    stage_answer_reveal: اللعب الأقوى بعد الإرسال
+    stage_reason_prompt: علّمنا وش بنيت عليه قرارك
+    reveal_fallback: تظهر الإجابة بعد تثبيت اختيارك فقط
+    reason_main: اكتب السبب والمعلومة اللي اعتمدت عليها
+    reason_secondary: توصية المحرك ما تظهر قبل تثبيت اختيارك
+    footer_submitted: اختيارك محفوظ للمراجعة
+    footer_blind: المراجعة عمياء قبل الإرسال
+    rank_7: سبعة
+    rank_8: ثمانية
+    rank_9: تسعة
+    rank_10: عشرة
+    rank_j: ولد
+    rank_q: بنت
+    rank_k: شايب
+    rank_a: إكة
+    suit_spades: سباتي
+    suit_hearts: هاص
+    suit_diamonds: دايمن
+    suit_clubs: كلب

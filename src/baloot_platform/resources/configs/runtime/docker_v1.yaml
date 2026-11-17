@@ -1,0 +1,39 @@
+schema_version: 1
+profile:
+  id: docker_v1
+  version: 22.0.0
+  status: production_candidate
+service:
+  host: 0.0.0.0
+  port: 8080
+workers:
+  video_concurrency: 1
+  video_render_slots: 6
+  analysis_concurrency: 2
+limits:
+  maximum_video_seconds: 900
+  maximum_analysis_samples: 100000
+storage:
+  metadata_backend: sqlite
+  sqlite_path: /data/baloot.sqlite3
+  artifact_root: /data/artifacts
+observability:
+  json_logs: true
+  prometheus: true
+  opentelemetry: true
+  traces: true
+  metrics: true
+  profiles: true
+plugin_host:
+  host_api_version: "1"
+  profile_schema_version: "1"
+  allowed_isolation: [in_process, process, wasm_component]
+  allowed_permissions: [none, filesystem_read, network_egress, gpu, model_read]
+  require_signed_external: true
+  require_content_addressed_external: true
+  maximum_timeout_seconds: 3600
+  maximum_response_bytes: 4194304
+  maximum_memory_mb: 4096
+  maximum_cpu_seconds: 30
+  maximum_stderr_bytes: 262144
+  wit_contract: wit/baloot-plugin.wit

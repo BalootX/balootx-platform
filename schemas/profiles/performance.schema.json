@@ -1,0 +1,221 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/performance.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "budgets": {
+      "additionalProperties": false,
+      "properties": {
+        "api_game_action_p95_ms": {
+          "type": "number"
+        },
+        "api_health_p95_ms": {
+          "type": "number"
+        },
+        "apply_action_p95_ms": {
+          "type": "number"
+        },
+        "configuration_resolve_p95_ms": {
+          "type": "number"
+        },
+        "deep_analysis_p95_ms": {
+          "type": "number"
+        },
+        "legal_moves_p95_ms": {
+          "type": "number"
+        },
+        "live_cas_p95_ms": {
+          "type": "number"
+        },
+        "mcp_tool_dispatch_p95_ms": {
+          "type": "number"
+        },
+        "native_apply_undo_p95_ms": {
+          "type": "number"
+        },
+        "observer_state_p95_ms": {
+          "type": "number"
+        },
+        "operation_registry_p95_ms": {
+          "type": "number"
+        },
+        "research_live_result_visibility_p95_ms": {
+          "type": "number"
+        },
+        "shallow_analysis_p95_ms": {
+          "type": "number"
+        },
+        "video_frame_p95_ms": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "api_game_action_p95_ms",
+        "api_health_p95_ms",
+        "apply_action_p95_ms",
+        "configuration_resolve_p95_ms",
+        "deep_analysis_p95_ms",
+        "legal_moves_p95_ms",
+        "live_cas_p95_ms",
+        "mcp_tool_dispatch_p95_ms",
+        "native_apply_undo_p95_ms",
+        "observer_state_p95_ms",
+        "operation_registry_p95_ms",
+        "research_live_result_visibility_p95_ms",
+        "shallow_analysis_p95_ms",
+        "video_frame_p95_ms"
+      ],
+      "type": "object"
+    },
+    "measurement": {
+      "additionalProperties": false,
+      "properties": {
+        "fail_on_regression_percent": {
+          "type": "number"
+        },
+        "measured_iterations": {
+          "type": "integer"
+        },
+        "percentile": {
+          "type": "integer"
+        },
+        "record_environment": {
+          "type": "boolean"
+        },
+        "sqlite_live_synchronous": {
+          "type": "string"
+        },
+        "warmup_iterations": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fail_on_regression_percent",
+        "measured_iterations",
+        "percentile",
+        "record_environment",
+        "sqlite_live_synchronous",
+        "warmup_iterations"
+      ],
+      "type": "object"
+    },
+    "observability": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "include_engine_version": {
+          "type": "boolean"
+        },
+        "include_profile_hashes": {
+          "type": "boolean"
+        },
+        "metrics": {
+          "type": "boolean"
+        },
+        "semantic_conventions": {
+          "type": "string"
+        },
+        "structured_logs": {
+          "type": "boolean"
+        },
+        "traces": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled",
+        "include_engine_version",
+        "include_profile_hashes",
+        "metrics",
+        "semantic_conventions",
+        "structured_logs",
+        "traces"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "search": {
+      "additionalProperties": false,
+      "properties": {
+        "fallback_backend": {
+          "type": "string"
+        },
+        "minimum_kernel_speedup": {
+          "type": "number"
+        },
+        "minimum_trace_speedup": {
+          "type": "number"
+        },
+        "preferred_backend": {
+          "type": "string"
+        },
+        "require_preferred": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fallback_backend",
+        "minimum_kernel_speedup",
+        "minimum_trace_speedup",
+        "preferred_backend",
+        "require_preferred"
+      ],
+      "type": "object"
+    },
+    "throughput": {
+      "additionalProperties": false,
+      "properties": {
+        "api_read_requests_per_second_min": {
+          "type": "integer"
+        },
+        "live_actions_per_second_min": {
+          "type": "integer"
+        },
+        "native_legal_positions_per_second_min": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "api_read_requests_per_second_min",
+        "live_actions_per_second_min",
+        "native_legal_positions_per_second_min"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "budgets",
+    "measurement",
+    "observability",
+    "profile",
+    "schema_version",
+    "search",
+    "throughput"
+  ],
+  "type": "object"
+}

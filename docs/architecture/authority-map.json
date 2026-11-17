@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 3,
+  "version": "21.1.0",
+  "authorities": {
+    "runtimeConfiguration": {
+      "owner": "baloot_platform.configuration.VersionedConfigurationService",
+      "store": "baloot_platform.configuration.SQLiteConfigurationStore or PostgresConfigurationStore",
+      "resolvedContract": "EffectiveRuntimeConfigV2",
+      "legacyReadAdapters": [
+        "EffectiveRuntimeConfigV1"
+      ],
+      "dualWriteAllowed": false
+    },
+    "rulesAndTransitions": {
+      "owner": "baloot_platform.core",
+      "canonicalStateHash": "baloot_platform.core.state.GameState.state_hash",
+      "duplicateAuthorityAllowed": false
+    },
+    "engineEvents": {
+      "owner": "baloot_platform.core events",
+      "historyStore": "baloot_platform.history",
+      "duplicateAuthorityAllowed": false
+    },
+    "plugins": {
+      "owner": "baloot_platform.plugins.PluginRegistry",
+      "host": "baloot_platform.plugins host",
+      "duplicateAuthorityAllowed": false
+    },
+    "analysisRequestsAndResults": {
+      "owner": "baloot_platform.analysis",
+      "configurationInput": "EffectiveRuntimeConfigV2",
+      "duplicateAuthorityAllowed": false
+    },
+    "decisionMoments": {
+      "owner": "baloot_platform.challenge",
+      "configurationInput": "EffectiveRuntimeConfigV2",
+      "duplicateAuthorityAllowed": false
+    },
+    "scenesAndTimelines": {
+      "owner": "baloot_platform.video.scene.reduce_scene_document",
+      "trustedLegacyAdapter": "baloot_platform.video.scene_adapter.build_legacy_episode_scene_package",
+      "inputs": [
+        "observer-safe state",
+        "public engine events",
+        "approved analysis facts",
+        "EffectiveRuntimeConfigV2"
+      ],
+      "currentRendererBoundary": {
+        "decisionPixelsConsumeCanonicalScenes": true,
+        "fullLifecyclePixelsConsumeCanonicalScenes": true,
+        "fullLifecycleTimingConsumesCanonicalTimeline": true,
+        "rendererReceivesTrustedEpisode": false,
+        "rendererInputProjection": "ObserverSafeRenderEpisodeProjectionV1",
+        "publicEpisodePayloadIsObserverSafe": true,
+        "remainingWork": "No renderer state or timing authority remains outside SceneDocumentV1 and SceneTimelineV1."
+      },
+      "rendererMayRecalculateGameFacts": false,
+      "duplicateAuthorityAllowed": false
+    },
+    "renderManifests": {
+      "owner": "baloot_platform.video",
+      "configurationInput": "EffectiveRuntimeConfigV2",
+      "duplicateAuthorityAllowed": false
+    },
+    "publicEngineGuide": {
+      "owner": "baloot_platform.guide.build_engine_guide",
+      "behaviorAuthorities": [
+        "published rules profile",
+        "published convention profile"
+      ],
+      "presentationAuthority": "published product.public_guide profile",
+      "consumers": [
+        "/api/v1/engine-guide",
+        "/guide",
+        "docs/ENGINE_GUIDE_AR.md"
+      ],
+      "duplicateAuthorityAllowed": false
+    },
+    "governedLocalization": {
+      "owner": "published video and product localization profiles",
+      "configurationInputs": [
+        "configs/video/premium.yaml",
+        "configs/product/studio_v1.yaml"
+      ],
+      "consumers": [
+        "Foundry",
+        "playable challenge",
+        "player and replay",
+        "Remotion video",
+        "HITL review",
+        "public engine guide"
+      ],
+      "duplicateAuthorityAllowed": false
+    },
+    "visualPresentation": {
+      "owner": "published video profile and card asset registry",
+      "configurationInputs": [
+        "configs/video/premium.yaml",
+        "configs/assets/card_packs.yaml"
+      ],
+      "consumers": [
+        "professional video",
+        "scene preview",
+        "playable challenge",
+        "player and replay",
+        "Foundry preview"
+      ],
+      "duplicateAuthorityAllowed": false
+    }
+  }
+}

@@ -1,0 +1,60 @@
+schema_version: 1
+profile:
+  id: premium_mobile_hitl
+  version: 21.1.0
+  status: release_candidate
+review_clip:
+  presentation_mode: player
+  width: 1080
+  height: 1920
+  fps: 60
+  duration_seconds: 9.0
+  observer_safe: true
+  countdown_seconds: 5.0
+  intro_seconds: 0.7
+  selection_seconds: 0.8
+  answer_reveal_seconds: 1.2
+  maximum_choices: 4
+  choice_card_width: 250
+  choice_card_height: 350
+  show_correct_after_submission: true
+  show_case_locator: true
+  case_locator_characters: 8
+  show_developer_card_codes: false
+  copy:
+    header_title: مراجعة القرار
+    actor_fallback: اللاعب
+    actor_north: الشريك
+    actor_west: الخصم الأيسر
+    actor_south: أنت
+    actor_east: الخصم الأيمن
+    phase_playing: قرار لعب
+    phase_play: قرار لعب
+    phase_bidding: قرار شراء
+    phase_buying: قرار شراء
+    phase_projects: قرار مشروع
+    phase_scoring: مراجعة الحسبة
+    phase_decision: قرار لعب
+    context_actor: "صاحب القرار: {actor}"
+    stage_intro: جهّز اختيارك
+    stage_blind_choice: وش تشوف اللعب الأفضل؟
+    stage_selection_confirmed: تم تسجيل اختيارك
+    stage_answer_reveal: اللعب الأقوى بعد الإرسال
+    stage_reason_prompt: علّمنا وش بنيت عليه قرارك
+    reveal_fallback: تظهر الإجابة بعد تثبيت اختيارك فقط
+    reason_main: اكتب السبب والمعلومة اللي اعتمدت عليها
+    reason_secondary: توصية المحرك ما تظهر قبل تثبيت اختيارك
+    footer_submitted: اختيارك محفوظ للمراجعة
+    footer_blind: المراجعة عمياء قبل الإرسال
+    rank_7: سبعة
+    rank_8: ثمانية
+    rank_9: تسعة
+    rank_10: عشرة
+    rank_j: ولد
+    rank_q: بنت
+    rank_k: شايب
+    rank_a: إكة
+    suit_spades: سباتي
+    suit_hearts: هاص
+    suit_diamonds: دايمن
+    suit_clubs: كلب

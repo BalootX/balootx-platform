@@ -1,0 +1,3547 @@
+{
+  "$id": "https://baloot.local/schemas/profiles/video.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "approved_design": {
+      "additionalProperties": false,
+      "properties": {
+        "reference_artifact_id": {
+          "type": "string"
+        },
+        "reference_mp4_sha256": {
+          "type": "string"
+        },
+        "reference_run_id": {
+          "type": "string"
+        },
+        "source_head": {
+          "type": "string"
+        },
+        "source_tree": {
+          "type": "string"
+        },
+        "variant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference_artifact_id",
+        "reference_mp4_sha256",
+        "reference_run_id",
+        "source_head",
+        "source_tree",
+        "variant"
+      ],
+      "type": "object"
+    },
+    "audio": {
+      "additionalProperties": false,
+      "properties": {
+        "ambience": {
+          "type": "boolean"
+        },
+        "card_clicks": {
+          "type": "boolean"
+        },
+        "countdown": {
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "explanation_voice_file": {
+          "type": "string"
+        },
+        "explanation_voice_localization_key": {
+          "type": "string"
+        },
+        "explanation_voice_mode": {
+          "type": "string"
+        },
+        "explanation_voice_transcript": {
+          "type": "string"
+        },
+        "explanation_voice_volume": {
+          "type": "number"
+        },
+        "foley": {
+          "type": "boolean"
+        },
+        "normalization_true_peak_dbtp": {
+          "type": "number"
+        },
+        "one_piece_explanation": {
+          "type": "boolean"
+        },
+        "reveal_chime": {
+          "type": "boolean"
+        },
+        "spoken_voice_pack": {
+          "type": "boolean"
+        },
+        "stereo_seat_pan": {
+          "type": "boolean"
+        },
+        "synthetic_callout_cues": {
+          "type": "boolean"
+        },
+        "table_foley": {
+          "type": "boolean"
+        },
+        "target_lufs": {
+          "type": "integer"
+        },
+        "voice_callouts": {
+          "type": "boolean"
+        },
+        "voice_pack_directory": {
+          "type": "string"
+        },
+        "voice_pack_manifest": {
+          "type": "string"
+        },
+        "voice_provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ambience",
+        "card_clicks",
+        "countdown",
+        "enabled",
+        "explanation_voice_file",
+        "explanation_voice_localization_key",
+        "explanation_voice_mode",
+        "explanation_voice_transcript",
+        "explanation_voice_volume",
+        "foley",
+        "normalization_true_peak_dbtp",
+        "one_piece_explanation",
+        "reveal_chime",
+        "spoken_voice_pack",
+        "stereo_seat_pan",
+        "synthetic_callout_cues",
+        "table_foley",
+        "target_lufs",
+        "voice_callouts",
+        "voice_pack_directory",
+        "voice_pack_manifest",
+        "voice_provider"
+      ],
+      "type": "object"
+    },
+    "audit": {
+      "additionalProperties": false,
+      "properties": {
+        "include_decision_timecodes": {
+          "type": "boolean"
+        },
+        "show_actual_intent_only_when_recorded": {
+          "type": "boolean"
+        },
+        "show_quality_on_reveal": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "include_decision_timecodes",
+        "show_actual_intent_only_when_recorded",
+        "show_quality_on_reveal"
+      ],
+      "type": "object"
+    },
+    "callouts": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "fade_in_ms": {
+          "type": "integer"
+        },
+        "fade_out_ms": {
+          "type": "integer"
+        },
+        "maximum_characters_per_line": {
+          "type": "integer"
+        },
+        "maximum_lines": {
+          "type": "integer"
+        },
+        "public_only_before_reveal": {
+          "type": "boolean"
+        },
+        "seat_attached": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled",
+        "fade_in_ms",
+        "fade_out_ms",
+        "maximum_characters_per_line",
+        "maximum_lines",
+        "public_only_before_reveal",
+        "seat_attached"
+      ],
+      "type": "object"
+    },
+    "card_assets": {
+      "additionalProperties": false,
+      "properties": {
+        "back_id": {
+          "type": "string"
+        },
+        "fallback_provider": {
+          "type": "string"
+        },
+        "freeze_in_shared_environment": {
+          "type": "boolean"
+        },
+        "license_status": {
+          "type": "string"
+        },
+        "manifest": {
+          "type": "string"
+        },
+        "pack_id": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "back_id",
+        "fallback_provider",
+        "freeze_in_shared_environment",
+        "license_status",
+        "manifest",
+        "pack_id",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "challenge_copy": {
+      "additionalProperties": false,
+      "properties": {
+        "action_accessibility": {
+          "type": "string"
+        },
+        "action_accessibility_en": {
+          "type": "string"
+        },
+        "action_bid_ashkal": {
+          "type": "string"
+        },
+        "action_bid_ashkal_en": {
+          "type": "string"
+        },
+        "action_bid_hokum": {
+          "type": "string"
+        },
+        "action_bid_hokum_en": {
+          "type": "string"
+        },
+        "action_bid_pass": {
+          "type": "string"
+        },
+        "action_bid_pass_en": {
+          "type": "string"
+        },
+        "action_bid_sun": {
+          "type": "string"
+        },
+        "action_bid_sun_en": {
+          "type": "string"
+        },
+        "action_escalation_decline": {
+          "type": "string"
+        },
+        "action_escalation_decline_en": {
+          "type": "string"
+        },
+        "action_escalation_double": {
+          "type": "string"
+        },
+        "action_escalation_double_en": {
+          "type": "string"
+        },
+        "action_escalation_four": {
+          "type": "string"
+        },
+        "action_escalation_four_en": {
+          "type": "string"
+        },
+        "action_escalation_gahwa": {
+          "type": "string"
+        },
+        "action_escalation_gahwa_en": {
+          "type": "string"
+        },
+        "action_escalation_triple": {
+          "type": "string"
+        },
+        "action_escalation_triple_en": {
+          "type": "string"
+        },
+        "action_mode_locked": {
+          "type": "string"
+        },
+        "action_mode_locked_en": {
+          "type": "string"
+        },
+        "action_mode_open": {
+          "type": "string"
+        },
+        "action_mode_open_en": {
+          "type": "string"
+        },
+        "action_project_declare": {
+          "type": "string"
+        },
+        "action_project_declare_en": {
+          "type": "string"
+        },
+        "action_project_fifty": {
+          "type": "string"
+        },
+        "action_project_fifty_en": {
+          "type": "string"
+        },
+        "action_project_four_hundred": {
+          "type": "string"
+        },
+        "action_project_four_hundred_en": {
+          "type": "string"
+        },
+        "action_project_hundred_four_kind": {
+          "type": "string"
+        },
+        "action_project_hundred_four_kind_en": {
+          "type": "string"
+        },
+        "action_project_hundred_sequence": {
+          "type": "string"
+        },
+        "action_project_hundred_sequence_en": {
+          "type": "string"
+        },
+        "action_project_siri": {
+          "type": "string"
+        },
+        "action_project_siri_en": {
+          "type": "string"
+        },
+        "audience_difficulty": {
+          "type": "string"
+        },
+        "brand_mark": {
+          "type": "string"
+        },
+        "brand_name": {
+          "type": "string"
+        },
+        "buyer_with_name": {
+          "type": "string"
+        },
+        "calibrating": {
+          "type": "string"
+        },
+        "code_label": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "committing": {
+          "type": "string"
+        },
+        "confidence_aria": {
+          "type": "string"
+        },
+        "confidence_certain": {
+          "type": "string"
+        },
+        "confidence_confident": {
+          "type": "string"
+        },
+        "confidence_unsure": {
+          "type": "string"
+        },
+        "contract_ashkal": {
+          "type": "string"
+        },
+        "contract_hokum": {
+          "type": "string"
+        },
+        "contract_sun": {
+          "type": "string"
+        },
+        "decision_eyebrow": {
+          "type": "string"
+        },
+        "decision_options_aria": {
+          "type": "string"
+        },
+        "decision_options_aria_en": {
+          "type": "string"
+        },
+        "drag_hint": {
+          "type": "string"
+        },
+        "drag_release": {
+          "type": "string"
+        },
+        "drag_up": {
+          "type": "string"
+        },
+        "error_title": {
+          "type": "string"
+        },
+        "friend_choices": {
+          "type": "string"
+        },
+        "guest_name": {
+          "type": "string"
+        },
+        "hand_aria": {
+          "type": "string"
+        },
+        "loading": {
+          "type": "string"
+        },
+        "metric_contract_success": {
+          "type": "string"
+        },
+        "metric_round_lead": {
+          "type": "string"
+        },
+        "metric_round_margin": {
+          "type": "string"
+        },
+        "missing_code": {
+          "type": "string"
+        },
+        "next_challenge": {
+          "type": "string"
+        },
+        "no_statistics": {
+          "type": "string"
+        },
+        "note_multiple": {
+          "type": "string"
+        },
+        "note_single": {
+          "type": "string"
+        },
+        "note_unavailable": {
+          "type": "string"
+        },
+        "page_title": {
+          "type": "string"
+        },
+        "participants": {
+          "type": "string"
+        },
+        "play_target": {
+          "type": "string"
+        },
+        "player_analysis_fallback": {
+          "type": "string"
+        },
+        "player_analyze_decisions": {
+          "type": "string"
+        },
+        "player_analyzing": {
+          "type": "string"
+        },
+        "player_audit_critical": {
+          "type": "string"
+        },
+        "player_audit_quality": {
+          "type": "string"
+        },
+        "player_audit_regret": {
+          "type": "string"
+        },
+        "player_auth_note": {
+          "type": "string"
+        },
+        "player_auth_title": {
+          "type": "string"
+        },
+        "player_back": {
+          "type": "string"
+        },
+        "player_best_play": {
+          "type": "string"
+        },
+        "player_bid_ashkal": {
+          "type": "string"
+        },
+        "player_bid_hokum": {
+          "type": "string"
+        },
+        "player_bid_pass": {
+          "type": "string"
+        },
+        "player_bid_sun": {
+          "type": "string"
+        },
+        "player_board_invalid": {
+          "type": "string"
+        },
+        "player_board_verified": {
+          "type": "string"
+        },
+        "player_brand_aria": {
+          "type": "string"
+        },
+        "player_brand_tagline": {
+          "type": "string"
+        },
+        "player_by_code_only": {
+          "type": "string"
+        },
+        "player_choices": {
+          "type": "string"
+        },
+        "player_close_aria": {
+          "type": "string"
+        },
+        "player_code_aria": {
+          "type": "string"
+        },
+        "player_code_copied": {
+          "type": "string"
+        },
+        "player_code_placeholder": {
+          "type": "string"
+        },
+        "player_compare_title": {
+          "type": "string"
+        },
+        "player_compare_top": {
+          "type": "string"
+        },
+        "player_compare_verified": {
+          "type": "string"
+        },
+        "player_competition_type": {
+          "type": "string"
+        },
+        "player_copy": {
+          "type": "string"
+        },
+        "player_create_and_share": {
+          "type": "string"
+        },
+        "player_create_body": {
+          "type": "string"
+        },
+        "player_create_eyebrow": {
+          "type": "string"
+        },
+        "player_create_sakka": {
+          "type": "string"
+        },
+        "player_create_title": {
+          "type": "string"
+        },
+        "player_decision_bid": {
+          "type": "string"
+        },
+        "player_decision_buy": {
+          "type": "string"
+        },
+        "player_decision_card": {
+          "type": "string"
+        },
+        "player_decision_play": {
+          "type": "string"
+        },
+        "player_default_sakka_title": {
+          "type": "string"
+        },
+        "player_did_not_win": {
+          "type": "string"
+        },
+        "player_display_name": {
+          "type": "string"
+        },
+        "player_feature_analysis_body": {
+          "type": "string"
+        },
+        "player_feature_analysis_title": {
+          "type": "string"
+        },
+        "player_feature_scope_body": {
+          "type": "string"
+        },
+        "player_feature_scope_title": {
+          "type": "string"
+        },
+        "player_feature_start_body": {
+          "type": "string"
+        },
+        "player_feature_start_title": {
+          "type": "string"
+        },
+        "player_feedback": {
+          "type": "string"
+        },
+        "player_feedback_prompt": {
+          "type": "string"
+        },
+        "player_feedback_saved": {
+          "type": "string"
+        },
+        "player_full_match": {
+          "type": "string"
+        },
+        "player_hero_body": {
+          "type": "string"
+        },
+        "player_hero_eyebrow": {
+          "type": "string"
+        },
+        "player_hero_title_after": {
+          "type": "string"
+        },
+        "player_hero_title_before": {
+          "type": "string"
+        },
+        "player_hero_title_emphasis": {
+          "type": "string"
+        },
+        "player_hokum_only": {
+          "type": "string"
+        },
+        "player_home": {
+          "type": "string"
+        },
+        "player_join_body": {
+          "type": "string"
+        },
+        "player_join_code": {
+          "type": "string"
+        },
+        "player_join_eyebrow": {
+          "type": "string"
+        },
+        "player_join_title": {
+          "type": "string"
+        },
+        "player_lobby_eyebrow": {
+          "type": "string"
+        },
+        "player_login": {
+          "type": "string"
+        },
+        "player_login_success": {
+          "type": "string"
+        },
+        "player_no_comparable": {
+          "type": "string"
+        },
+        "player_no_results": {
+          "type": "string"
+        },
+        "player_open_sakka": {
+          "type": "string"
+        },
+        "player_optional_login": {
+          "type": "string"
+        },
+        "player_participants": {
+          "type": "string"
+        },
+        "player_password": {
+          "type": "string"
+        },
+        "player_path_first": {
+          "type": "string"
+        },
+        "player_path_second": {
+          "type": "string"
+        },
+        "player_play_card": {
+          "type": "string"
+        },
+        "player_play_type": {
+          "type": "string"
+        },
+        "player_playing": {
+          "type": "string"
+        },
+        "player_preparing": {
+          "type": "string"
+        },
+        "player_privacy": {
+          "type": "string"
+        },
+        "player_private": {
+          "type": "string"
+        },
+        "player_public": {
+          "type": "string"
+        },
+        "player_purchase_card": {
+          "type": "string"
+        },
+        "player_purchase_stage": {
+          "type": "string"
+        },
+        "player_quality_analysis": {
+          "type": "string"
+        },
+        "player_quality_blunder": {
+          "type": "string"
+        },
+        "player_quality_excellent": {
+          "type": "string"
+        },
+        "player_quality_forced": {
+          "type": "string"
+        },
+        "player_quality_good": {
+          "type": "string"
+        },
+        "player_quality_mistake": {
+          "type": "string"
+        },
+        "player_refresh_aria": {
+          "type": "string"
+        },
+        "player_register": {
+          "type": "string"
+        },
+        "player_replay_failed": {
+          "type": "string"
+        },
+        "player_replay_verified": {
+          "type": "string"
+        },
+        "player_reproducible_seed": {
+          "type": "string"
+        },
+        "player_result_body": {
+          "type": "string"
+        },
+        "player_result_compared": {
+          "type": "string"
+        },
+        "player_result_excellent": {
+          "type": "string"
+        },
+        "player_result_eyebrow": {
+          "type": "string"
+        },
+        "player_result_recorded": {
+          "type": "string"
+        },
+        "player_results": {
+          "type": "string"
+        },
+        "player_role_you": {
+          "type": "string"
+        },
+        "player_round_label": {
+          "type": "string"
+        },
+        "player_round_one": {
+          "type": "string"
+        },
+        "player_sakka_code": {
+          "type": "string"
+        },
+        "player_sakka_name": {
+          "type": "string"
+        },
+        "player_sakka_name_placeholder": {
+          "type": "string"
+        },
+        "player_save_exit_aria": {
+          "type": "string"
+        },
+        "player_scope_match": {
+          "type": "string"
+        },
+        "player_scope_round": {
+          "type": "string"
+        },
+        "player_score_aria": {
+          "type": "string"
+        },
+        "player_score_them": {
+          "type": "string"
+        },
+        "player_score_us": {
+          "type": "string"
+        },
+        "player_seat": {
+          "type": "string"
+        },
+        "player_seat_bottom": {
+          "type": "string"
+        },
+        "player_seat_left": {
+          "type": "string"
+        },
+        "player_seat_right": {
+          "type": "string"
+        },
+        "player_seat_summary": {
+          "type": "string"
+        },
+        "player_seat_top": {
+          "type": "string"
+        },
+        "player_share_code": {
+          "type": "string"
+        },
+        "player_share_created": {
+          "type": "string"
+        },
+        "player_share_here": {
+          "type": "string"
+        },
+        "player_shared_sakka_label": {
+          "type": "string"
+        },
+        "player_start_play": {
+          "type": "string"
+        },
+        "player_start_score": {
+          "type": "string"
+        },
+        "player_sun_and_hokum": {
+          "type": "string"
+        },
+        "player_sun_only": {
+          "type": "string"
+        },
+        "player_turn_named": {
+          "type": "string"
+        },
+        "player_unexpected_error": {
+          "type": "string"
+        },
+        "player_username": {
+          "type": "string"
+        },
+        "player_verify_replay": {
+          "type": "string"
+        },
+        "player_verifying": {
+          "type": "string"
+        },
+        "player_versus": {
+          "type": "string"
+        },
+        "player_view_friends": {
+          "type": "string"
+        },
+        "player_waiting_participants": {
+          "type": "string"
+        },
+        "player_waiting_purchase": {
+          "type": "string"
+        },
+        "player_win_difference": {
+          "type": "string"
+        },
+        "player_won_match": {
+          "type": "string"
+        },
+        "player_your_play": {
+          "type": "string"
+        },
+        "player_your_turn": {
+          "type": "string"
+        },
+        "prompt_bid": {
+          "type": "string"
+        },
+        "prompt_bid_en": {
+          "type": "string"
+        },
+        "prompt_choose_acting_action": {
+          "type": "string"
+        },
+        "prompt_escalation": {
+          "type": "string"
+        },
+        "prompt_escalation_en": {
+          "type": "string"
+        },
+        "prompt_identify_threat": {
+          "type": "string"
+        },
+        "prompt_infer_distribution": {
+          "type": "string"
+        },
+        "prompt_plan_next_response": {
+          "type": "string"
+        },
+        "prompt_post_reveal_analysis": {
+          "type": "string"
+        },
+        "prompt_predict_opponent_play": {
+          "type": "string"
+        },
+        "prompt_project": {
+          "type": "string"
+        },
+        "prompt_project_en": {
+          "type": "string"
+        },
+        "prompt_read_partner_signal": {
+          "type": "string"
+        },
+        "proof_boundary_bounded": {
+          "type": "string"
+        },
+        "proof_boundary_bounded_en": {
+          "type": "string"
+        },
+        "proof_boundary_exact": {
+          "type": "string"
+        },
+        "proof_boundary_exact_en": {
+          "type": "string"
+        },
+        "proof_boundary_policy_conditioned": {
+          "type": "string"
+        },
+        "proof_boundary_policy_conditioned_en": {
+          "type": "string"
+        },
+        "purchase_first": {
+          "type": "string"
+        },
+        "purchase_hokum_summary": {
+          "type": "string"
+        },
+        "purchase_plain_summary": {
+          "type": "string"
+        },
+        "purchase_second": {
+          "type": "string"
+        },
+        "reason_contract": {
+          "type": "string"
+        },
+        "reason_label": {
+          "type": "string"
+        },
+        "reason_margin": {
+          "type": "string"
+        },
+        "reason_ranked": {
+          "type": "string"
+        },
+        "reason_verified": {
+          "type": "string"
+        },
+        "recommendation": {
+          "type": "string"
+        },
+        "recommended_rate": {
+          "type": "string"
+        },
+        "request_error": {
+          "type": "string"
+        },
+        "result_default_label": {
+          "type": "string"
+        },
+        "result_default_title": {
+          "type": "string"
+        },
+        "result_different": {
+          "type": "string"
+        },
+        "result_recorded": {
+          "type": "string"
+        },
+        "result_supported": {
+          "type": "string"
+        },
+        "role_buyer": {
+          "type": "string"
+        },
+        "role_dealer": {
+          "type": "string"
+        },
+        "role_player": {
+          "type": "string"
+        },
+        "score_aria": {
+          "type": "string"
+        },
+        "table_aria": {
+          "type": "string"
+        },
+        "them_score": {
+          "type": "string"
+        },
+        "truth_debatable": {
+          "type": "string"
+        },
+        "truth_exact_optimal": {
+          "type": "string"
+        },
+        "truth_rejected": {
+          "type": "string"
+        },
+        "truth_robust_best_known": {
+          "type": "string"
+        },
+        "truth_unresolved": {
+          "type": "string"
+        },
+        "unsupported_prompt": {
+          "type": "string"
+        },
+        "us_score": {
+          "type": "string"
+        },
+        "your_choice": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action_accessibility",
+        "action_accessibility_en",
+        "action_bid_ashkal",
+        "action_bid_ashkal_en",
+        "action_bid_hokum",
+        "action_bid_hokum_en",
+        "action_bid_pass",
+        "action_bid_pass_en",
+        "action_bid_sun",
+        "action_bid_sun_en",
+        "action_escalation_decline",
+        "action_escalation_decline_en",
+        "action_escalation_double",
+        "action_escalation_double_en",
+        "action_escalation_four",
+        "action_escalation_four_en",
+        "action_escalation_gahwa",
+        "action_escalation_gahwa_en",
+        "action_escalation_triple",
+        "action_escalation_triple_en",
+        "action_mode_locked",
+        "action_mode_locked_en",
+        "action_mode_open",
+        "action_mode_open_en",
+        "action_project_declare",
+        "action_project_declare_en",
+        "action_project_fifty",
+        "action_project_fifty_en",
+        "action_project_four_hundred",
+        "action_project_four_hundred_en",
+        "action_project_hundred_four_kind",
+        "action_project_hundred_four_kind_en",
+        "action_project_hundred_sequence",
+        "action_project_hundred_sequence_en",
+        "action_project_siri",
+        "action_project_siri_en",
+        "audience_difficulty",
+        "brand_mark",
+        "brand_name",
+        "buyer_with_name",
+        "calibrating",
+        "code_label",
+        "commit",
+        "committing",
+        "confidence_aria",
+        "confidence_certain",
+        "confidence_confident",
+        "confidence_unsure",
+        "contract_ashkal",
+        "contract_hokum",
+        "contract_sun",
+        "decision_eyebrow",
+        "decision_options_aria",
+        "decision_options_aria_en",
+        "drag_hint",
+        "drag_release",
+        "drag_up",
+        "error_title",
+        "friend_choices",
+        "guest_name",
+        "hand_aria",
+        "loading",
+        "metric_contract_success",
+        "metric_round_lead",
+        "metric_round_margin",
+        "missing_code",
+        "next_challenge",
+        "no_statistics",
+        "note_multiple",
+        "note_single",
+        "note_unavailable",
+        "page_title",
+        "participants",
+        "play_target",
+        "player_analysis_fallback",
+        "player_analyze_decisions",
+        "player_analyzing",
+        "player_audit_critical",
+        "player_audit_quality",
+        "player_audit_regret",
+        "player_auth_note",
+        "player_auth_title",
+        "player_back",
+        "player_best_play",
+        "player_bid_ashkal",
+        "player_bid_hokum",
+        "player_bid_pass",
+        "player_bid_sun",
+        "player_board_invalid",
+        "player_board_verified",
+        "player_brand_aria",
+        "player_brand_tagline",
+        "player_by_code_only",
+        "player_choices",
+        "player_close_aria",
+        "player_code_aria",
+        "player_code_copied",
+        "player_code_placeholder",
+        "player_compare_title",
+        "player_compare_top",
+        "player_compare_verified",
+        "player_competition_type",
+        "player_copy",
+        "player_create_and_share",
+        "player_create_body",
+        "player_create_eyebrow",
+        "player_create_sakka",
+        "player_create_title",
+        "player_decision_bid",
+        "player_decision_buy",
+        "player_decision_card",
+        "player_decision_play",
+        "player_default_sakka_title",
+        "player_did_not_win",
+        "player_display_name",
+        "player_feature_analysis_body",
+        "player_feature_analysis_title",
+        "player_feature_scope_body",
+        "player_feature_scope_title",
+        "player_feature_start_body",
+        "player_feature_start_title",
+        "player_feedback",
+        "player_feedback_prompt",
+        "player_feedback_saved",
+        "player_full_match",
+        "player_hero_body",
+        "player_hero_eyebrow",
+        "player_hero_title_after",
+        "player_hero_title_before",
+        "player_hero_title_emphasis",
+        "player_hokum_only",
+        "player_home",
+        "player_join_body",
+        "player_join_code",
+        "player_join_eyebrow",
+        "player_join_title",
+        "player_lobby_eyebrow",
+        "player_login",
+        "player_login_success",
+        "player_no_comparable",
+        "player_no_results",
+        "player_open_sakka",
+        "player_optional_login",
+        "player_participants",
+        "player_password",
+        "player_path_first",
+        "player_path_second",
+        "player_play_card",
+        "player_play_type",
+        "player_playing",
+        "player_preparing",
+        "player_privacy",
+        "player_private",
+        "player_public",
+        "player_purchase_card",
+        "player_purchase_stage",
+        "player_quality_analysis",
+        "player_quality_blunder",
+        "player_quality_excellent",
+        "player_quality_forced",
+        "player_quality_good",
+        "player_quality_mistake",
+        "player_refresh_aria",
+        "player_register",
+        "player_replay_failed",
+        "player_replay_verified",
+        "player_reproducible_seed",
+        "player_result_body",
+        "player_result_compared",
+        "player_result_excellent",
+        "player_result_eyebrow",
+        "player_result_recorded",
+        "player_results",
+        "player_role_you",
+        "player_round_label",
+        "player_round_one",
+        "player_sakka_code",
+        "player_sakka_name",
+        "player_sakka_name_placeholder",
+        "player_save_exit_aria",
+        "player_scope_match",
+        "player_scope_round",
+        "player_score_aria",
+        "player_score_them",
+        "player_score_us",
+        "player_seat",
+        "player_seat_bottom",
+        "player_seat_left",
+        "player_seat_right",
+        "player_seat_summary",
+        "player_seat_top",
+        "player_share_code",
+        "player_share_created",
+        "player_share_here",
+        "player_shared_sakka_label",
+        "player_start_play",
+        "player_start_score",
+        "player_sun_and_hokum",
+        "player_sun_only",
+        "player_turn_named",
+        "player_unexpected_error",
+        "player_username",
+        "player_verify_replay",
+        "player_verifying",
+        "player_versus",
+        "player_view_friends",
+        "player_waiting_participants",
+        "player_waiting_purchase",
+        "player_win_difference",
+        "player_won_match",
+        "player_your_play",
+        "player_your_turn",
+        "prompt_bid",
+        "prompt_bid_en",
+        "prompt_choose_acting_action",
+        "prompt_escalation",
+        "prompt_escalation_en",
+        "prompt_identify_threat",
+        "prompt_infer_distribution",
+        "prompt_plan_next_response",
+        "prompt_post_reveal_analysis",
+        "prompt_predict_opponent_play",
+        "prompt_project",
+        "prompt_project_en",
+        "prompt_read_partner_signal",
+        "proof_boundary_bounded",
+        "proof_boundary_bounded_en",
+        "proof_boundary_exact",
+        "proof_boundary_exact_en",
+        "proof_boundary_policy_conditioned",
+        "proof_boundary_policy_conditioned_en",
+        "purchase_first",
+        "purchase_hokum_summary",
+        "purchase_plain_summary",
+        "purchase_second",
+        "reason_contract",
+        "reason_label",
+        "reason_margin",
+        "reason_ranked",
+        "reason_verified",
+        "recommendation",
+        "recommended_rate",
+        "request_error",
+        "result_default_label",
+        "result_default_title",
+        "result_different",
+        "result_recorded",
+        "result_supported",
+        "role_buyer",
+        "role_dealer",
+        "role_player",
+        "score_aria",
+        "table_aria",
+        "them_score",
+        "truth_debatable",
+        "truth_exact_optimal",
+        "truth_rejected",
+        "truth_robust_best_known",
+        "truth_unresolved",
+        "unsupported_prompt",
+        "us_score",
+        "your_choice"
+      ],
+      "type": "object"
+    },
+    "colors": {
+      "additionalProperties": false,
+      "properties": {
+        "accent": {
+          "type": "string"
+        },
+        "background": {
+          "type": "string"
+        },
+        "black": {
+          "type": "string"
+        },
+        "gold": {
+          "type": "string"
+        },
+        "muted": {
+          "type": "string"
+        },
+        "rail": {
+          "type": "string"
+        },
+        "red": {
+          "type": "string"
+        },
+        "table": {
+          "type": "string"
+        },
+        "table_dark": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "accent",
+        "background",
+        "black",
+        "gold",
+        "muted",
+        "rail",
+        "red",
+        "table",
+        "table_dark",
+        "text"
+      ],
+      "type": "object"
+    },
+    "exports": {
+      "additionalProperties": false,
+      "properties": {
+        "decision_clip": {
+          "additionalProperties": false,
+          "properties": {
+            "context_seconds": {
+              "type": "number"
+            },
+            "continuation_seconds": {
+              "type": "number"
+            },
+            "continue_to_round_end": {
+              "type": "boolean"
+            },
+            "decision_seconds": {
+              "type": "number"
+            },
+            "fps": {
+              "enum": [
+                30,
+                60
+              ],
+              "type": "integer"
+            },
+            "include_complete_replay": {
+              "type": "boolean"
+            },
+            "maximum_seconds": {
+              "type": "integer"
+            },
+            "minimum_seconds": {
+              "type": "integer"
+            },
+            "opening_hook_seconds": {
+              "type": "number"
+            },
+            "outcome_seconds": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "play_seconds": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "reveal_seconds": {
+              "type": "number"
+            },
+            "rewind_seconds": {
+              "type": "number"
+            },
+            "setup_seconds": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "target_seconds": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "context_seconds",
+            "continuation_seconds",
+            "decision_seconds",
+            "include_complete_replay",
+            "maximum_seconds",
+            "minimum_seconds",
+            "opening_hook_seconds",
+            "reveal_seconds",
+            "rewind_seconds",
+            "target_seconds"
+          ],
+          "type": "object"
+        },
+        "hooked_flagship": {
+          "additionalProperties": false,
+          "properties": {
+            "continuation_seconds": {
+              "type": "number"
+            },
+            "decision_seconds": {
+              "type": "number"
+            },
+            "include_complete_replay": {
+              "type": "boolean"
+            },
+            "maximum_seconds": {
+              "type": "integer"
+            },
+            "minimum_seconds": {
+              "type": "integer"
+            },
+            "opening_hook_seconds": {
+              "type": "number"
+            },
+            "play_end_seconds": {
+              "type": "number"
+            },
+            "reveal_end_seconds": {
+              "type": "number"
+            },
+            "reveal_seconds": {
+              "type": "number"
+            },
+            "rewind_seconds": {
+              "type": "number"
+            },
+            "setup_end_seconds": {
+              "type": "number"
+            },
+            "target_seconds": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "continuation_seconds",
+            "decision_seconds",
+            "include_complete_replay",
+            "maximum_seconds",
+            "minimum_seconds",
+            "opening_hook_seconds",
+            "play_end_seconds",
+            "reveal_end_seconds",
+            "reveal_seconds",
+            "rewind_seconds",
+            "setup_end_seconds",
+            "target_seconds"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "decision_clip",
+        "hooked_flagship"
+      ],
+      "type": "object"
+    },
+    "identity": {
+      "additionalProperties": false,
+      "properties": {
+        "default_player_names": {
+          "additionalProperties": false,
+          "properties": {
+            "east": {
+              "type": "string"
+            },
+            "north": {
+              "type": "string"
+            },
+            "south": {
+              "type": "string"
+            },
+            "west": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "east",
+            "north",
+            "south",
+            "west"
+          ],
+          "type": "object"
+        },
+        "enrollment_uri_template": {
+          "type": "string"
+        },
+        "player_name_pool": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "default_player_names",
+        "enrollment_uri_template",
+        "player_name_pool"
+      ],
+      "type": "object"
+    },
+    "layout": {
+      "additionalProperties": false,
+      "properties": {
+        "card_height": {
+          "type": "integer"
+        },
+        "card_width": {
+          "type": "integer"
+        },
+        "keep_played_cards_upright": {
+          "type": "boolean"
+        },
+        "minimum_card_index_size": {
+          "type": "integer"
+        },
+        "orient_side_cards_to_table": {
+          "type": "boolean"
+        },
+        "persist_revealed_projects": {
+          "type": "boolean"
+        },
+        "project_announcement_trick": {
+          "type": "integer"
+        },
+        "project_reveal_trick": {
+          "type": "integer"
+        },
+        "safe_margin": {
+          "type": "integer"
+        },
+        "show_buyer_badge": {
+          "type": "boolean"
+        },
+        "show_dealer_badge": {
+          "type": "boolean"
+        },
+        "show_first_leader_badge": {
+          "type": "boolean"
+        },
+        "show_hidden_hand_counts": {
+          "type": "boolean"
+        },
+        "show_projects": {
+          "type": "boolean"
+        },
+        "show_score_breakdown": {
+          "type": "boolean"
+        },
+        "show_shuffle_commitment": {
+          "type": "boolean"
+        },
+        "show_team_score": {
+          "type": "boolean"
+        },
+        "show_trick_counter": {
+          "type": "boolean"
+        },
+        "table_center_y": {
+          "type": "integer"
+        },
+        "table_radius_x": {
+          "type": "integer"
+        },
+        "table_radius_y": {
+          "type": "integer"
+        },
+        "viewer_card_height": {
+          "type": "integer"
+        },
+        "viewer_card_width": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "card_height",
+        "card_width",
+        "keep_played_cards_upright",
+        "minimum_card_index_size",
+        "orient_side_cards_to_table",
+        "persist_revealed_projects",
+        "project_announcement_trick",
+        "project_reveal_trick",
+        "safe_margin",
+        "show_buyer_badge",
+        "show_dealer_badge",
+        "show_first_leader_badge",
+        "show_hidden_hand_counts",
+        "show_projects",
+        "show_score_breakdown",
+        "show_shuffle_commitment",
+        "show_team_score",
+        "show_trick_counter",
+        "table_center_y",
+        "table_radius_x",
+        "table_radius_y",
+        "viewer_card_height",
+        "viewer_card_width"
+      ],
+      "type": "object"
+    },
+    "localizations": {
+      "additionalProperties": false,
+      "dependentRequired": {
+        "video.analysis.proof_scope.actor_information_set": [
+          "video.analysis.proof_scope.complete_state",
+          "video.analysis.proof_scope.unproven"
+        ],
+        "video.analysis.proof_scope.actor_information_set_tail": [
+          "video.analysis.proof_scope.complete_state_tail",
+          "video.analysis.worst_case_awarded_margin"
+        ],
+        "video.analysis.proof_scope.complete_state": [
+          "video.analysis.proof_scope.actor_information_set",
+          "video.analysis.proof_scope.unproven"
+        ],
+        "video.analysis.proof_scope.complete_state_tail": [
+          "video.analysis.proof_scope.actor_information_set_tail",
+          "video.analysis.worst_case_awarded_margin"
+        ],
+        "video.analysis.proof_scope.unproven": [
+          "video.analysis.proof_scope.actor_information_set",
+          "video.analysis.proof_scope.complete_state"
+        ],
+        "video.analysis.worst_case_awarded_margin": [
+          "video.analysis.proof_scope.actor_information_set_tail",
+          "video.analysis.proof_scope.complete_state_tail"
+        ]
+      },
+      "properties": {
+        "video.accessibility.decision_choices": {
+          "type": "string"
+        },
+        "video.accessibility.decision_choices_en": {
+          "type": "string"
+        },
+        "video.accessibility.hand": {
+          "type": "string"
+        },
+        "video.accessibility.qr": {
+          "type": "string"
+        },
+        "video.accessibility.score_and_game": {
+          "type": "string"
+        },
+        "video.analysis.bounded_proof": {
+          "type": "string"
+        },
+        "video.analysis.contract_rescue": {
+          "type": "string"
+        },
+        "video.analysis.entry_unblocking": {
+          "type": "string"
+        },
+        "video.analysis.expert_reason": {
+          "type": "string"
+        },
+        "video.analysis.kabout_creation": {
+          "type": "string"
+        },
+        "video.analysis.kabout_creation_prevention": {
+          "type": "string"
+        },
+        "video.analysis.kabout_prevention": {
+          "type": "string"
+        },
+        "video.analysis.large_card_sacrifice": {
+          "type": "string"
+        },
+        "video.analysis.multiple_winning_actions": {
+          "type": "string"
+        },
+        "video.analysis.no_salvage": {
+          "type": "string"
+        },
+        "video.analysis.one_winning_action": {
+          "type": "string"
+        },
+        "video.analysis.only_winning_contract_rescue": {
+          "type": "string"
+        },
+        "video.analysis.only_winning_move": {
+          "type": "string"
+        },
+        "video.analysis.partner_enablement": {
+          "type": "string"
+        },
+        "video.analysis.policy_conditioned_proof": {
+          "type": "string"
+        },
+        "video.analysis.proof_failed": {
+          "type": "string"
+        },
+        "video.analysis.proof_incomplete": {
+          "type": "string"
+        },
+        "video.analysis.proof_scope.actor_information_set": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "video.analysis.proof_scope.actor_information_set_tail": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "video.analysis.proof_scope.complete_state": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "video.analysis.proof_scope.complete_state_tail": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "video.analysis.proof_scope.unproven": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "video.analysis.replay_only": {
+          "type": "string"
+        },
+        "video.analysis.small_card_big_gain": {
+          "type": "string"
+        },
+        "video.analysis.trump_control": {
+          "type": "string"
+        },
+        "video.analysis.unique_awarded_margin": {
+          "type": "string"
+        },
+        "video.analysis.verified_tactical": {
+          "type": "string"
+        },
+        "video.analysis.worst_case_awarded_margin": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "video.audio.entry_control_explanation": {
+          "type": "string"
+        },
+        "video.bid.ashkal": {
+          "type": "string"
+        },
+        "video.bid.ashkal_en": {
+          "type": "string"
+        },
+        "video.bid.challenge_question": {
+          "type": "string"
+        },
+        "video.bid.challenge_title": {
+          "type": "string"
+        },
+        "video.bid.hokum": {
+          "type": "string"
+        },
+        "video.bid.hokum_en": {
+          "type": "string"
+        },
+        "video.bid.pass": {
+          "type": "string"
+        },
+        "video.bid.pass_en": {
+          "type": "string"
+        },
+        "video.bid.round.1": {
+          "type": "string"
+        },
+        "video.bid.round.2": {
+          "type": "string"
+        },
+        "video.bid.sun": {
+          "type": "string"
+        },
+        "video.bid.sun_en": {
+          "type": "string"
+        },
+        "video.call.baloot": {
+          "type": "string"
+        },
+        "video.card_back.label": {
+          "type": "string"
+        },
+        "video.card_back.subtitle": {
+          "type": "string"
+        },
+        "video.decision.best_move": {
+          "type": "string"
+        },
+        "video.decision.challenge_question": {
+          "type": "string"
+        },
+        "video.decision.challenge_title": {
+          "type": "string"
+        },
+        "video.decision.choose_best_move": {
+          "type": "string"
+        },
+        "video.decision.generated_question": {
+          "type": "string"
+        },
+        "video.decision.generated_title": {
+          "type": "string"
+        },
+        "video.decision.timer_open": {
+          "type": "string"
+        },
+        "video.decision.your_turn": {
+          "type": "string"
+        },
+        "video.escalation.challenge_question": {
+          "type": "string"
+        },
+        "video.escalation.decline": {
+          "type": "string"
+        },
+        "video.escalation.decline_en": {
+          "type": "string"
+        },
+        "video.escalation.double": {
+          "type": "string"
+        },
+        "video.escalation.double_en": {
+          "type": "string"
+        },
+        "video.escalation.four": {
+          "type": "string"
+        },
+        "video.escalation.four_en": {
+          "type": "string"
+        },
+        "video.escalation.gahwa": {
+          "type": "string"
+        },
+        "video.escalation.gahwa_en": {
+          "type": "string"
+        },
+        "video.escalation.mode.locked": {
+          "type": "string"
+        },
+        "video.escalation.mode.locked_en": {
+          "type": "string"
+        },
+        "video.escalation.mode.open": {
+          "type": "string"
+        },
+        "video.escalation.mode.open_en": {
+          "type": "string"
+        },
+        "video.escalation.triple": {
+          "type": "string"
+        },
+        "video.escalation.triple_en": {
+          "type": "string"
+        },
+        "video.governance.not_publishable": {
+          "type": "string"
+        },
+        "video.governance.research_audit_badge": {
+          "type": "string"
+        },
+        "video.governance.research_short": {
+          "type": "string"
+        },
+        "video.governance.research_title": {
+          "type": "string"
+        },
+        "video.hud.bidding_round": {
+          "type": "string"
+        },
+        "video.hud.purchase": {
+          "type": "string"
+        },
+        "video.hud.session": {
+          "type": "string"
+        },
+        "video.hud.trick": {
+          "type": "string"
+        },
+        "video.notice.sentence": {
+          "type": "string"
+        },
+        "video.notice.title": {
+          "type": "string"
+        },
+        "video.observer.identify_threat": {
+          "type": "string"
+        },
+        "video.observer.infer_distribution": {
+          "type": "string"
+        },
+        "video.observer.insight": {
+          "type": "string"
+        },
+        "video.observer.plan_next_response": {
+          "type": "string"
+        },
+        "video.observer.post_reveal_analysis": {
+          "type": "string"
+        },
+        "video.observer.predict_opponent_play": {
+          "type": "string"
+        },
+        "video.observer.read_partner_signal": {
+          "type": "string"
+        },
+        "video.project.call_label": {
+          "type": "string"
+        },
+        "video.project.challenge_question": {
+          "type": "string"
+        },
+        "video.project.fifty": {
+          "type": "string"
+        },
+        "video.project.fifty_en": {
+          "type": "string"
+        },
+        "video.project.four_hundred": {
+          "type": "string"
+        },
+        "video.project.four_hundred_en": {
+          "type": "string"
+        },
+        "video.project.hundred": {
+          "type": "string"
+        },
+        "video.project.hundred_en": {
+          "type": "string"
+        },
+        "video.project.hundred_four_kind": {
+          "type": "string"
+        },
+        "video.project.hundred_four_kind_en": {
+          "type": "string"
+        },
+        "video.project.hundred_sequence": {
+          "type": "string"
+        },
+        "video.project.hundred_sequence_en": {
+          "type": "string"
+        },
+        "video.project.siri": {
+          "type": "string"
+        },
+        "video.project.siri_en": {
+          "type": "string"
+        },
+        "video.purchase.hokum_summary": {
+          "type": "string"
+        },
+        "video.purchase.plain_summary": {
+          "type": "string"
+        },
+        "video.result.awarded": {
+          "type": "string"
+        },
+        "video.result.baloot": {
+          "type": "string"
+        },
+        "video.result.projects": {
+          "type": "string"
+        },
+        "video.result.round": {
+          "type": "string"
+        },
+        "video.result.them": {
+          "type": "string"
+        },
+        "video.result.title": {
+          "type": "string"
+        },
+        "video.result.total": {
+          "type": "string"
+        },
+        "video.result.us": {
+          "type": "string"
+        },
+        "video.review.bid_question": {
+          "type": "string"
+        },
+        "video.review.bid_title": {
+          "type": "string"
+        },
+        "video.review.historical_question": {
+          "type": "string"
+        },
+        "video.review.historical_title": {
+          "type": "string"
+        },
+        "video.review.play_question": {
+          "type": "string"
+        },
+        "video.review.play_title": {
+          "type": "string"
+        },
+        "video.role.buyer": {
+          "type": "string"
+        },
+        "video.role.dealer": {
+          "type": "string"
+        },
+        "video.scoring.sun_tie.buyer_loses": {
+          "type": "string"
+        },
+        "video.scoring.sun_tie.buyer_makes": {
+          "type": "string"
+        },
+        "video.scoring.sun_tie.legacy_raw_units": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "video.accessibility.decision_choices",
+        "video.accessibility.decision_choices_en",
+        "video.accessibility.hand",
+        "video.accessibility.qr",
+        "video.accessibility.score_and_game",
+        "video.analysis.bounded_proof",
+        "video.analysis.contract_rescue",
+        "video.analysis.entry_unblocking",
+        "video.analysis.expert_reason",
+        "video.analysis.kabout_creation",
+        "video.analysis.kabout_creation_prevention",
+        "video.analysis.kabout_prevention",
+        "video.analysis.large_card_sacrifice",
+        "video.analysis.multiple_winning_actions",
+        "video.analysis.no_salvage",
+        "video.analysis.one_winning_action",
+        "video.analysis.only_winning_contract_rescue",
+        "video.analysis.only_winning_move",
+        "video.analysis.partner_enablement",
+        "video.analysis.policy_conditioned_proof",
+        "video.analysis.proof_failed",
+        "video.analysis.proof_incomplete",
+        "video.analysis.replay_only",
+        "video.analysis.small_card_big_gain",
+        "video.analysis.trump_control",
+        "video.analysis.verified_tactical",
+        "video.audio.entry_control_explanation",
+        "video.bid.ashkal",
+        "video.bid.ashkal_en",
+        "video.bid.challenge_question",
+        "video.bid.challenge_title",
+        "video.bid.hokum",
+        "video.bid.hokum_en",
+        "video.bid.pass",
+        "video.bid.pass_en",
+        "video.bid.round.1",
+        "video.bid.round.2",
+        "video.bid.sun",
+        "video.bid.sun_en",
+        "video.call.baloot",
+        "video.card_back.label",
+        "video.card_back.subtitle",
+        "video.decision.best_move",
+        "video.decision.challenge_question",
+        "video.decision.challenge_title",
+        "video.decision.choose_best_move",
+        "video.decision.generated_question",
+        "video.decision.generated_title",
+        "video.decision.timer_open",
+        "video.decision.your_turn",
+        "video.escalation.challenge_question",
+        "video.escalation.decline",
+        "video.escalation.decline_en",
+        "video.escalation.double",
+        "video.escalation.double_en",
+        "video.escalation.four",
+        "video.escalation.four_en",
+        "video.escalation.gahwa",
+        "video.escalation.gahwa_en",
+        "video.escalation.mode.locked",
+        "video.escalation.mode.locked_en",
+        "video.escalation.mode.open",
+        "video.escalation.mode.open_en",
+        "video.escalation.triple",
+        "video.escalation.triple_en",
+        "video.governance.not_publishable",
+        "video.governance.research_audit_badge",
+        "video.governance.research_short",
+        "video.governance.research_title",
+        "video.hud.bidding_round",
+        "video.hud.purchase",
+        "video.hud.session",
+        "video.hud.trick",
+        "video.notice.sentence",
+        "video.notice.title",
+        "video.observer.identify_threat",
+        "video.observer.infer_distribution",
+        "video.observer.insight",
+        "video.observer.plan_next_response",
+        "video.observer.post_reveal_analysis",
+        "video.observer.predict_opponent_play",
+        "video.observer.read_partner_signal",
+        "video.project.call_label",
+        "video.project.challenge_question",
+        "video.project.fifty",
+        "video.project.fifty_en",
+        "video.project.four_hundred",
+        "video.project.four_hundred_en",
+        "video.project.hundred",
+        "video.project.hundred_en",
+        "video.project.hundred_four_kind",
+        "video.project.hundred_four_kind_en",
+        "video.project.hundred_sequence",
+        "video.project.hundred_sequence_en",
+        "video.project.siri",
+        "video.project.siri_en",
+        "video.purchase.hokum_summary",
+        "video.purchase.plain_summary",
+        "video.result.awarded",
+        "video.result.baloot",
+        "video.result.projects",
+        "video.result.round",
+        "video.result.them",
+        "video.result.title",
+        "video.result.total",
+        "video.result.us",
+        "video.review.bid_question",
+        "video.review.bid_title",
+        "video.review.historical_question",
+        "video.review.historical_title",
+        "video.review.play_question",
+        "video.review.play_title",
+        "video.role.buyer",
+        "video.role.dealer"
+      ],
+      "type": "object"
+    },
+    "majlis": {
+      "additionalProperties": false,
+      "properties": {
+        "decor": {
+          "additionalProperties": false,
+          "properties": {
+            "burner": {
+              "type": "string"
+            },
+            "ceiling": {
+              "type": "string"
+            },
+            "coffee": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "date_dark": {
+              "type": "string"
+            },
+            "date_light": {
+              "type": "string"
+            },
+            "floor_bottom": {
+              "type": "string"
+            },
+            "floor_top": {
+              "type": "string"
+            },
+            "frond": {
+              "type": "string"
+            },
+            "frond_dark": {
+              "type": "string"
+            },
+            "frond_light": {
+              "type": "string"
+            },
+            "lantern_body": {
+              "type": "string"
+            },
+            "lantern_core": {
+              "type": "string"
+            },
+            "lantern_glow": {
+              "type": "string"
+            },
+            "lantern_metal": {
+              "type": "string"
+            },
+            "mud": {
+              "type": "string"
+            },
+            "smoke": {
+              "type": "string"
+            },
+            "tray": {
+              "type": "string"
+            },
+            "tray_rim": {
+              "type": "string"
+            },
+            "tray_shadow": {
+              "type": "string"
+            },
+            "vent": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "burner",
+            "ceiling",
+            "coffee",
+            "date",
+            "date_dark",
+            "date_light",
+            "floor_bottom",
+            "floor_top",
+            "frond",
+            "frond_dark",
+            "frond_light",
+            "lantern_body",
+            "lantern_core",
+            "lantern_glow",
+            "lantern_metal",
+            "mud",
+            "smoke",
+            "tray",
+            "tray_rim",
+            "tray_shadow",
+            "vent"
+          ],
+          "type": "object"
+        },
+        "fixed": {
+          "additionalProperties": false,
+          "properties": {
+            "baloot_edge": {
+              "type": "string"
+            },
+            "baloot_light": {
+              "type": "string"
+            },
+            "brass": {
+              "type": "string"
+            },
+            "brass_light": {
+              "type": "string"
+            },
+            "brown": {
+              "type": "string"
+            },
+            "card_red": {
+              "type": "string"
+            },
+            "cream": {
+              "type": "string"
+            },
+            "decision_red": {
+              "type": "string"
+            },
+            "edge": {
+              "type": "string"
+            },
+            "escalation_badge": {
+              "type": "string"
+            },
+            "escalation_bg": {
+              "type": "string"
+            },
+            "escalation_ink": {
+              "type": "string"
+            },
+            "escalation_red": {
+              "type": "string"
+            },
+            "hud_inner": {
+              "type": "string"
+            },
+            "ink": {
+              "type": "string"
+            },
+            "ink_warm": {
+              "type": "string"
+            },
+            "ledger_line": {
+              "type": "string"
+            },
+            "ledger_plus": {
+              "type": "string"
+            },
+            "meter": {
+              "type": "string"
+            },
+            "muted": {
+              "type": "string"
+            },
+            "parchment": {
+              "type": "string"
+            },
+            "pass_bg": {
+              "type": "string"
+            },
+            "pass_text": {
+              "type": "string"
+            },
+            "pill_edge": {
+              "type": "string"
+            },
+            "research_red": {
+              "type": "string"
+            },
+            "research_tint": {
+              "type": "string"
+            },
+            "sand": {
+              "type": "string"
+            },
+            "team_them": {
+              "type": "string"
+            },
+            "team_them_text": {
+              "type": "string"
+            },
+            "team_us": {
+              "type": "string"
+            },
+            "team_us_text": {
+              "type": "string"
+            },
+            "tile": {
+              "type": "string"
+            },
+            "timer_track": {
+              "type": "string"
+            },
+            "white": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "baloot_edge",
+            "baloot_light",
+            "brass",
+            "brass_light",
+            "brown",
+            "card_red",
+            "cream",
+            "decision_red",
+            "edge",
+            "escalation_badge",
+            "escalation_bg",
+            "escalation_ink",
+            "escalation_red",
+            "hud_inner",
+            "ink",
+            "ink_warm",
+            "ledger_line",
+            "ledger_plus",
+            "meter",
+            "muted",
+            "parchment",
+            "pass_bg",
+            "pass_text",
+            "pill_edge",
+            "research_red",
+            "research_tint",
+            "sand",
+            "team_them",
+            "team_them_text",
+            "team_us",
+            "team_us_text",
+            "tile",
+            "timer_track",
+            "white"
+          ],
+          "type": "object"
+        },
+        "hud": {
+          "type": "string"
+        },
+        "id_box": {
+          "type": "string"
+        },
+        "research_notice": {
+          "type": "boolean"
+        },
+        "score_target": {
+          "type": "integer"
+        },
+        "social": {
+          "additionalProperties": false,
+          "properties": {
+            "instagram": {
+              "type": "string"
+            },
+            "tiktok": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "instagram",
+            "tiktok"
+          ],
+          "type": "object"
+        },
+        "theme": {
+          "type": "string"
+        },
+        "theme_overrides": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "themes": {
+          "additionalProperties": false,
+          "properties": {
+            "blue": {
+              "additionalProperties": false,
+              "properties": {
+                "accent": {
+                  "type": "string"
+                },
+                "c1": {
+                  "type": "string"
+                },
+                "c2": {
+                  "type": "string"
+                },
+                "m1": {
+                  "type": "string"
+                },
+                "m2": {
+                  "type": "string"
+                },
+                "rug": {
+                  "type": "string"
+                },
+                "rug_deep": {
+                  "type": "string"
+                },
+                "rug_line": {
+                  "type": "string"
+                },
+                "w1": {
+                  "type": "string"
+                },
+                "w2": {
+                  "type": "string"
+                },
+                "w3": {
+                  "type": "string"
+                },
+                "wd1": {
+                  "type": "string"
+                },
+                "wd2": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "accent",
+                "c1",
+                "c2",
+                "m1",
+                "m2",
+                "rug",
+                "rug_deep",
+                "rug_line",
+                "w1",
+                "w2",
+                "w3",
+                "wd1",
+                "wd2"
+              ],
+              "type": "object"
+            },
+            "charcoal": {
+              "additionalProperties": false,
+              "properties": {
+                "accent": {
+                  "type": "string"
+                },
+                "c1": {
+                  "type": "string"
+                },
+                "c2": {
+                  "type": "string"
+                },
+                "m1": {
+                  "type": "string"
+                },
+                "m2": {
+                  "type": "string"
+                },
+                "rug": {
+                  "type": "string"
+                },
+                "rug_deep": {
+                  "type": "string"
+                },
+                "rug_line": {
+                  "type": "string"
+                },
+                "w1": {
+                  "type": "string"
+                },
+                "w2": {
+                  "type": "string"
+                },
+                "w3": {
+                  "type": "string"
+                },
+                "wd1": {
+                  "type": "string"
+                },
+                "wd2": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "accent",
+                "c1",
+                "c2",
+                "m1",
+                "m2",
+                "rug",
+                "rug_deep",
+                "rug_line",
+                "w1",
+                "w2",
+                "w3",
+                "wd1",
+                "wd2"
+              ],
+              "type": "object"
+            },
+            "emerald": {
+              "additionalProperties": false,
+              "properties": {
+                "accent": {
+                  "type": "string"
+                },
+                "c1": {
+                  "type": "string"
+                },
+                "c2": {
+                  "type": "string"
+                },
+                "m1": {
+                  "type": "string"
+                },
+                "m2": {
+                  "type": "string"
+                },
+                "rug": {
+                  "type": "string"
+                },
+                "rug_deep": {
+                  "type": "string"
+                },
+                "rug_line": {
+                  "type": "string"
+                },
+                "w1": {
+                  "type": "string"
+                },
+                "w2": {
+                  "type": "string"
+                },
+                "w3": {
+                  "type": "string"
+                },
+                "wd1": {
+                  "type": "string"
+                },
+                "wd2": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "accent",
+                "c1",
+                "c2",
+                "m1",
+                "m2",
+                "rug",
+                "rug_deep",
+                "rug_line",
+                "w1",
+                "w2",
+                "w3",
+                "wd1",
+                "wd2"
+              ],
+              "type": "object"
+            },
+            "red": {
+              "additionalProperties": false,
+              "properties": {
+                "accent": {
+                  "type": "string"
+                },
+                "c1": {
+                  "type": "string"
+                },
+                "c2": {
+                  "type": "string"
+                },
+                "m1": {
+                  "type": "string"
+                },
+                "m2": {
+                  "type": "string"
+                },
+                "rug": {
+                  "type": "string"
+                },
+                "rug_deep": {
+                  "type": "string"
+                },
+                "rug_line": {
+                  "type": "string"
+                },
+                "w1": {
+                  "type": "string"
+                },
+                "w2": {
+                  "type": "string"
+                },
+                "w3": {
+                  "type": "string"
+                },
+                "wd1": {
+                  "type": "string"
+                },
+                "wd2": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "accent",
+                "c1",
+                "c2",
+                "m1",
+                "m2",
+                "rug",
+                "rug_deep",
+                "rug_line",
+                "w1",
+                "w2",
+                "w3",
+                "wd1",
+                "wd2"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "blue",
+            "charcoal",
+            "emerald",
+            "red"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "decor",
+        "fixed",
+        "hud",
+        "id_box",
+        "research_notice",
+        "score_target",
+        "social",
+        "theme",
+        "theme_overrides",
+        "themes"
+      ],
+      "type": "object"
+    },
+    "motion": {
+      "additionalProperties": false,
+      "properties": {
+        "bezier_card_flight": {
+          "type": "boolean"
+        },
+        "card_arc_height_px": {
+          "type": "integer"
+        },
+        "card_scale_from": {
+          "type": "number"
+        },
+        "collect_stagger": {
+          "type": "number"
+        },
+        "collection_steps": {
+          "type": "integer"
+        },
+        "easing": {
+          "type": "string"
+        },
+        "flight_steps": {
+          "type": "integer"
+        },
+        "mode": {
+          "enum": [
+            "normal",
+            "reduced"
+          ],
+          "type": "string"
+        },
+        "per_frame_interpolation": {
+          "type": "boolean"
+        },
+        "physical_trick_collection": {
+          "type": "boolean"
+        },
+        "reduced": {
+          "additionalProperties": false,
+          "properties": {
+            "card_arc_height_px": {
+              "type": "integer"
+            },
+            "card_scale_from": {
+              "type": "number"
+            },
+            "collect_stagger": {
+              "type": "number"
+            },
+            "collection_steps": {
+              "type": "integer"
+            },
+            "flight_steps": {
+              "type": "integer"
+            },
+            "winner_glow": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "card_arc_height_px",
+            "card_scale_from",
+            "collect_stagger",
+            "collection_steps",
+            "flight_steps",
+            "winner_glow"
+          ],
+          "type": "object"
+        },
+        "shadow_strength": {
+          "type": "number"
+        },
+        "table_parallax": {
+          "type": "number"
+        },
+        "transition_steps": {
+          "type": "integer"
+        },
+        "winner_glow": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "bezier_card_flight",
+        "card_arc_height_px",
+        "card_scale_from",
+        "collect_stagger",
+        "collection_steps",
+        "easing",
+        "flight_steps",
+        "mode",
+        "per_frame_interpolation",
+        "physical_trick_collection",
+        "reduced",
+        "shadow_strength",
+        "table_parallax",
+        "transition_steps",
+        "winner_glow"
+      ],
+      "type": "object"
+    },
+    "pacing_profile": {
+      "type": "string"
+    },
+    "presentation": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "player"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "show_developer_card_codes": {
+                "const": false
+              },
+              "show_identity_pill": {
+                "const": true
+              },
+              "show_state_locator": {
+                "const": false
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "contact_sheet_columns": {
+          "type": "integer"
+        },
+        "contact_sheet_labels": {
+          "type": "boolean"
+        },
+        "identity_position": {
+          "type": "string"
+        },
+        "keep_table_visible": {
+          "type": "boolean"
+        },
+        "large_text_panels_before_reveal": {
+          "type": "boolean"
+        },
+        "mode": {
+          "enum": [
+            "player",
+            "expert"
+          ],
+          "type": "string"
+        },
+        "physical_trick_collection": {
+          "type": "boolean"
+        },
+        "qr_quiet_zone_modules": {
+          "type": "integer"
+        },
+        "qr_size_px": {
+          "type": "integer"
+        },
+        "score_separator_style": {
+          "type": "string"
+        },
+        "show_avatar_initials": {
+          "type": "boolean"
+        },
+        "show_deep_analysis_only_after_reveal": {
+          "type": "boolean"
+        },
+        "show_developer_card_codes": {
+          "type": "boolean"
+        },
+        "show_enrollment_qr": {
+          "type": "boolean"
+        },
+        "show_identity_pill": {
+          "type": "boolean"
+        },
+        "show_justification": {
+          "type": "boolean"
+        },
+        "show_justification_text": {
+          "type": "boolean"
+        },
+        "show_micro_seat_markers": {
+          "type": "boolean"
+        },
+        "show_public_callouts": {
+          "type": "boolean"
+        },
+        "show_state_locator": {
+          "type": "boolean"
+        },
+        "show_trick_winner_text": {
+          "type": "boolean"
+        },
+        "state_locator_characters": {
+          "type": "integer"
+        },
+        "table_dominant_layout": {
+          "type": "boolean"
+        },
+        "winner_yellow_glow": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "contact_sheet_columns",
+        "contact_sheet_labels",
+        "identity_position",
+        "keep_table_visible",
+        "large_text_panels_before_reveal",
+        "mode",
+        "physical_trick_collection",
+        "qr_quiet_zone_modules",
+        "qr_size_px",
+        "score_separator_style",
+        "show_avatar_initials",
+        "show_deep_analysis_only_after_reveal",
+        "show_developer_card_codes",
+        "show_enrollment_qr",
+        "show_identity_pill",
+        "show_justification",
+        "show_justification_text",
+        "show_micro_seat_markers",
+        "show_public_callouts",
+        "show_state_locator",
+        "show_trick_winner_text",
+        "state_locator_characters",
+        "table_dominant_layout",
+        "winner_yellow_glow"
+      ],
+      "type": "object"
+    },
+    "preview_copy": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_switcher_aria": {
+          "type": "string"
+        },
+        "brand_aria": {
+          "type": "string"
+        },
+        "brand_mark": {
+          "type": "string"
+        },
+        "brand_name": {
+          "type": "string"
+        },
+        "captions_button": {
+          "type": "string"
+        },
+        "captions_label": {
+          "type": "string"
+        },
+        "chapter_context": {
+          "type": "string"
+        },
+        "chapter_continuation": {
+          "type": "string"
+        },
+        "chapter_hook": {
+          "type": "string"
+        },
+        "chapter_outcome": {
+          "type": "string"
+        },
+        "chapter_question": {
+          "type": "string"
+        },
+        "chapter_replay": {
+          "type": "string"
+        },
+        "chapter_reveal": {
+          "type": "string"
+        },
+        "chapters_aria": {
+          "type": "string"
+        },
+        "decision_label": {
+          "type": "string"
+        },
+        "decision_title": {
+          "type": "string"
+        },
+        "disclosure": {
+          "type": "string"
+        },
+        "flagship_label": {
+          "type": "string"
+        },
+        "flagship_title": {
+          "type": "string"
+        },
+        "fullscreen": {
+          "type": "string"
+        },
+        "identity": {
+          "type": "string"
+        },
+        "page_title": {
+          "type": "string"
+        },
+        "playback_options_aria": {
+          "type": "string"
+        },
+        "qa_summary": {
+          "type": "string"
+        },
+        "resolution": {
+          "type": "string"
+        },
+        "safe_area": {
+          "type": "string"
+        },
+        "scene_label": {
+          "type": "string"
+        },
+        "scene_outcome": {
+          "type": "string"
+        },
+        "scene_poster": {
+          "type": "string"
+        },
+        "scene_reveal": {
+          "type": "string"
+        },
+        "scene_video": {
+          "type": "string"
+        },
+        "speed_aria": {
+          "type": "string"
+        },
+        "speed_label": {
+          "type": "string"
+        },
+        "still_alt": {
+          "type": "string"
+        },
+        "viewer_aria": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_switcher_aria",
+        "brand_aria",
+        "brand_mark",
+        "brand_name",
+        "captions_button",
+        "captions_label",
+        "chapter_context",
+        "chapter_continuation",
+        "chapter_hook",
+        "chapter_outcome",
+        "chapter_question",
+        "chapter_replay",
+        "chapter_reveal",
+        "chapters_aria",
+        "decision_label",
+        "decision_title",
+        "disclosure",
+        "flagship_label",
+        "flagship_title",
+        "fullscreen",
+        "identity",
+        "page_title",
+        "playback_options_aria",
+        "qa_summary",
+        "resolution",
+        "safe_area",
+        "scene_label",
+        "scene_outcome",
+        "scene_poster",
+        "scene_reveal",
+        "scene_video",
+        "speed_aria",
+        "speed_label",
+        "still_alt",
+        "viewer_aria"
+      ],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "render": {
+      "additionalProperties": false,
+      "properties": {
+        "audio_rate": {
+          "type": "integer"
+        },
+        "codec": {
+          "type": "string"
+        },
+        "concurrency": {
+          "type": "integer"
+        },
+        "crf": {
+          "type": "integer"
+        },
+        "direction": {
+          "const": "rtl",
+          "type": "string"
+        },
+        "font_family": {
+          "type": "string"
+        },
+        "fps": {
+          "type": "integer"
+        },
+        "height": {
+          "const": 1920,
+          "type": "integer"
+        },
+        "locale": {
+          "const": "ar-SA",
+          "type": "string"
+        },
+        "pixel_format": {
+          "type": "string"
+        },
+        "play_base_cache_entries": {
+          "type": "integer"
+        },
+        "preset": {
+          "type": "string"
+        },
+        "width": {
+          "const": 1080,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "audio_rate",
+        "codec",
+        "concurrency",
+        "crf",
+        "direction",
+        "font_family",
+        "fps",
+        "height",
+        "locale",
+        "pixel_format",
+        "play_base_cache_entries",
+        "preset",
+        "width"
+      ],
+      "type": "object"
+    },
+    "renderer_plugin": {
+      "type": "string"
+    },
+    "safe_areas": {
+      "additionalProperties": false,
+      "properties": {
+        "bottom_px": {
+          "type": "integer"
+        },
+        "left_px": {
+          "type": "integer"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "right_px": {
+          "type": "integer"
+        },
+        "show_mask_in_player": {
+          "type": "boolean"
+        },
+        "top_px": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "bottom_px",
+        "left_px",
+        "profile",
+        "right_px",
+        "show_mask_in_player",
+        "top_px"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "texture": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "pattern_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "opacity",
+        "pattern_id"
+      ],
+      "type": "object"
+    },
+    "theme": {
+      "type": "string"
+    },
+    "themes": {
+      "additionalProperties": false,
+      "properties": {
+        "emerald": {
+          "additionalProperties": false,
+          "properties": {
+            "accent": {
+              "type": "string"
+            },
+            "background": {
+              "type": "string"
+            },
+            "black": {
+              "type": "string"
+            },
+            "gold": {
+              "type": "string"
+            },
+            "muted": {
+              "type": "string"
+            },
+            "rail": {
+              "type": "string"
+            },
+            "red": {
+              "type": "string"
+            },
+            "table": {
+              "type": "string"
+            },
+            "table_dark": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "accent",
+            "background",
+            "black",
+            "gold",
+            "muted",
+            "rail",
+            "red",
+            "table",
+            "table_dark",
+            "text"
+          ],
+          "type": "object"
+        },
+        "noir": {
+          "additionalProperties": false,
+          "properties": {
+            "accent": {
+              "type": "string"
+            },
+            "background": {
+              "type": "string"
+            },
+            "black": {
+              "type": "string"
+            },
+            "gold": {
+              "type": "string"
+            },
+            "muted": {
+              "type": "string"
+            },
+            "rail": {
+              "type": "string"
+            },
+            "red": {
+              "type": "string"
+            },
+            "table": {
+              "type": "string"
+            },
+            "table_dark": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "accent",
+            "background",
+            "black",
+            "gold",
+            "muted",
+            "rail",
+            "red",
+            "table",
+            "table_dark",
+            "text"
+          ],
+          "type": "object"
+        },
+        "royal": {
+          "additionalProperties": false,
+          "properties": {
+            "accent": {
+              "type": "string"
+            },
+            "background": {
+              "type": "string"
+            },
+            "black": {
+              "type": "string"
+            },
+            "gold": {
+              "type": "string"
+            },
+            "muted": {
+              "type": "string"
+            },
+            "rail": {
+              "type": "string"
+            },
+            "red": {
+              "type": "string"
+            },
+            "table": {
+              "type": "string"
+            },
+            "table_dark": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "accent",
+            "background",
+            "black",
+            "gold",
+            "muted",
+            "rail",
+            "red",
+            "table",
+            "table_dark",
+            "text"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "emerald",
+        "noir",
+        "royal"
+      ],
+      "type": "object"
+    },
+    "timeline": {
+      "additionalProperties": false,
+      "properties": {
+        "between_cards_seconds": {
+          "type": "number"
+        },
+        "bid_call_seconds": {
+          "type": "number"
+        },
+        "bid_gap_seconds": {
+          "type": "number"
+        },
+        "bidding_result_seconds": {
+          "type": "number"
+        },
+        "bidding_seconds": {
+          "type": "number"
+        },
+        "card_flight_seconds": {
+          "type": "number"
+        },
+        "continuation_seconds": {
+          "type": "number"
+        },
+        "contract_hold_seconds": {
+          "type": "number"
+        },
+        "escalation_call_seconds": {
+          "type": "number"
+        },
+        "escalation_seconds": {
+          "type": "number"
+        },
+        "explanation_seconds": {
+          "type": "number"
+        },
+        "final_deal_seconds": {
+          "type": "number"
+        },
+        "final_seconds": {
+          "type": "number"
+        },
+        "initial_deal_seconds": {
+          "type": "number"
+        },
+        "intro_seconds": {
+          "type": "number"
+        },
+        "next_leader_seconds": {
+          "type": "number"
+        },
+        "pause_seconds": {
+          "type": "number"
+        },
+        "project_call_seconds": {
+          "type": "number"
+        },
+        "project_reveal_seconds": {
+          "type": "number"
+        },
+        "project_seconds": {
+          "type": "number"
+        },
+        "public_callout_seconds": {
+          "type": "number"
+        },
+        "reveal_seconds": {
+          "type": "number"
+        },
+        "shared_comparison_seconds": {
+          "type": "number"
+        },
+        "shuffle_seconds": {
+          "type": "number"
+        },
+        "transition_seconds": {
+          "type": "number"
+        },
+        "trick_collect_seconds": {
+          "type": "number"
+        },
+        "trick_hold_seconds": {
+          "type": "number"
+        },
+        "winner_glow_seconds": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "between_cards_seconds",
+        "bid_call_seconds",
+        "bid_gap_seconds",
+        "bidding_result_seconds",
+        "bidding_seconds",
+        "card_flight_seconds",
+        "continuation_seconds",
+        "contract_hold_seconds",
+        "escalation_call_seconds",
+        "escalation_seconds",
+        "explanation_seconds",
+        "final_deal_seconds",
+        "final_seconds",
+        "initial_deal_seconds",
+        "intro_seconds",
+        "next_leader_seconds",
+        "pause_seconds",
+        "project_call_seconds",
+        "project_reveal_seconds",
+        "project_seconds",
+        "public_callout_seconds",
+        "reveal_seconds",
+        "shared_comparison_seconds",
+        "shuffle_seconds",
+        "transition_seconds",
+        "trick_collect_seconds",
+        "trick_hold_seconds",
+        "winner_glow_seconds"
+      ],
+      "type": "object"
+    },
+    "typography": {
+      "additionalProperties": false,
+      "properties": {
+        "display_family": {
+          "type": "string"
+        },
+        "interface_family": {
+          "type": "string"
+        },
+        "maximum_reason_lines": {
+          "type": "integer"
+        },
+        "use_kufi_for_short_display_only": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "display_family",
+        "interface_family",
+        "maximum_reason_lines",
+        "use_kufi_for_short_display_only"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "approved_design",
+    "audio",
+    "audit",
+    "callouts",
+    "card_assets",
+    "challenge_copy",
+    "colors",
+    "exports",
+    "identity",
+    "layout",
+    "localizations",
+    "majlis",
+    "motion",
+    "pacing_profile",
+    "presentation",
+    "preview_copy",
+    "profile",
+    "render",
+    "renderer_plugin",
+    "safe_areas",
+    "schema_version",
+    "texture",
+    "theme",
+    "themes",
+    "timeline",
+    "typography"
+  ],
+  "type": "object"
+}

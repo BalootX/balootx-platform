@@ -1,0 +1,1552 @@
+/* Majlis look. Every colour is a --mj-* variable fed from premium.yaml (majlis.palette). */
+* {
+  box-sizing: border-box;
+}
+
+.canvas {
+  overflow: hidden;
+  color: var(--mj-sand);
+  font-family: NotoSansArabic, Arial, sans-serif;
+  background: radial-gradient(ellipse 80% 55% at 50% 46%, var(--mj-w1) 0%, var(--mj-w2) 48%, var(--mj-w3) 100%);
+}
+
+.canvas b,
+.canvas strong {
+  font-weight: 700;
+}
+
+.kufi,
+.tile b,
+.team-score,
+.medal-word,
+.count,
+.call,
+.xbadge,
+.rhead-icon,
+.rhead-text b,
+.ask strong,
+.timer span,
+.ledger h2,
+.lrow b,
+.ptray-label b {
+  font-family: NotoKufiArabic, NotoSansArabic, sans-serif;
+  font-weight: 700;
+}
+
+/* ---- Decoration: ceiling 0-176, side cushions, floor 1630-1920 ---- */
+.decor-ceiling {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.jalsa {
+  position: absolute;
+  top: 430px;
+  width: 60px;
+  height: 1150px;
+  border: 2px solid var(--mj-edge);
+  border-radius: 30px;
+  background: linear-gradient(90deg, var(--mj-c2), var(--mj-c1));
+  opacity: 0.35;
+}
+
+.jalsa-left {
+  left: -30px;
+}
+
+.jalsa-right {
+  right: -30px;
+}
+
+.floor {
+  position: absolute;
+  top: 1630px;
+  left: 0;
+  width: 1080px;
+  height: 290px;
+  background: linear-gradient(var(--mj-floor-top), var(--mj-floor-bottom));
+}
+
+.decor-runner {
+  position: absolute;
+  top: 1630px;
+  left: 0;
+}
+
+.decor-mat {
+  position: absolute;
+  top: 1646px;
+  left: 0;
+}
+
+.decor-coffee {
+  position: absolute;
+  top: 1648px;
+  left: 40px;
+}
+
+/* ---- Top bar (plaque default): x 72-1008, y 192-320, grid 1fr | 168 | 1fr ---- */
+.broadcast-hud {
+  position: absolute;
+  z-index: 50;
+  top: 192px;
+  left: 72px;
+  width: 936px;
+  height: 128px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 168px minmax(0, 1fr);
+  align-items: center;
+  padding: 0 14px;
+  border: 2px solid var(--mj-brass);
+  border-radius: 28px;
+  background: linear-gradient(180deg, var(--mj-wd1), var(--mj-wd2));
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 6px var(--mj-hud-inner),
+    inset 0 0 0 7px color-mix(in srgb, var(--mj-brass) 35%, transparent);
+}
+
+.cell {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: 14px;
+}
+
+.tile {
+  display: flex;
+  width: 96px;
+  height: 96px;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--mj-brass) 55%, transparent);
+  border-radius: 16px;
+  background: var(--mj-tile);
+  line-height: 1.15;
+}
+
+.tile small {
+  color: var(--mj-muted);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.tile b {
+  color: var(--mj-sand);
+  font-size: 36px;
+  line-height: 1.2;
+}
+
+.tile b span {
+  margin-left: 1px;
+  color: var(--mj-muted);
+  font-size: 20px;
+}
+
+.team {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px;
+}
+
+.team-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.team-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+.team-score {
+  font-size: 52px;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.meter {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--mj-meter);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mj-brass) 30%, transparent);
+}
+
+.meter i {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+}
+
+.team-us .dot,
+.team-us .meter i {
+  background: var(--mj-team-us);
+}
+
+.team-us .team-score {
+  color: var(--mj-team-us-text);
+}
+
+.team-them .dot,
+.team-them .meter i {
+  background: var(--mj-team-them);
+}
+
+.team-them .team-score {
+  color: var(--mj-team-them-text);
+}
+
+.crest {
+  position: relative;
+  width: 168px;
+  height: 128px;
+  flex: none;
+}
+
+.medal {
+  position: absolute;
+  top: -8px;
+  left: 12px;
+  display: flex;
+  width: 144px;
+  height: 144px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 4px solid var(--mj-brass-light);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, var(--mj-m1), var(--mj-m2));
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 6px var(--mj-m2),
+    inset 0 0 0 8px color-mix(in srgb, var(--mj-parchment) 55%, transparent);
+}
+
+.suit-chip {
+  display: flex;
+  width: 58px;
+  height: 58px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--mj-sand);
+  color: var(--mj-ink);
+  font-size: 40px;
+  line-height: 1;
+}
+
+.suit-chip.red,
+.chip.red,
+.project-badge b.red {
+  color: var(--mj-card-red);
+}
+
+.medal-word {
+  color: var(--mj-sand);
+  font-size: 24px;
+  line-height: 1.3;
+}
+
+.medal-card {
+  width: 42px;
+  height: 59px;
+  border-radius: 4px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+}
+
+.xbadge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: flex;
+  width: 50px;
+  height: 50px;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid var(--mj-brass-light);
+  border-radius: 50%;
+  background: var(--mj-sand);
+  color: var(--mj-escalation-badge);
+  font-size: 20px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+/* ID box: QR, game number, or research stamp (96x96). */
+.header-identity {
+  flex: none;
+}
+
+.qr {
+  display: flex;
+  width: 96px;
+  height: 96px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--mj-sand);
+}
+
+.qr svg {
+  display: block;
+}
+
+.idnum {
+  display: flex;
+  width: 96px;
+  height: 96px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: var(--mj-sand);
+  color: var(--mj-ink-warm);
+  line-height: 1.2;
+  --id-width: 88px;
+  --id-font: 26px;
+}
+
+.idnum small {
+  color: var(--mj-brown);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.idnum b {
+  max-width: var(--id-width);
+  font-family: ui-monospace, Menlo, monospace;
+  /* Codes over 5 chars wrap to 2 lines; shrink so --id-cols chars (~0.6em + 1px each) fit the box. */
+  font-size: min(var(--id-font), calc((var(--id-width) / var(--id-cols, 4) - 1px) / 0.62));
+  font-weight: 800;
+  letter-spacing: 1px;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+/* Research notice: research-red code box with sand text (fit logic above is unchanged). */
+.idnum.is-notice {
+  background: var(--mj-research-red);
+  color: var(--mj-sand);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--mj-sand) 55%, transparent);
+}
+
+.idnum.is-notice small {
+  color: var(--mj-sand);
+  opacity: 0.85;
+}
+
+.audit-media-badge {
+  display: flex;
+  width: 96px;
+  height: 96px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: 2px dashed color-mix(in srgb, var(--mj-white) 85%, transparent);
+  border-radius: 16px;
+  background: var(--mj-research-red);
+  color: var(--mj-white);
+  line-height: 1.25;
+  text-align: center;
+}
+
+.audit-media-badge b {
+  font-size: 17px;
+}
+
+.audit-media-badge small {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* HUD: slim (96px tall, no bars, smaller medallion). */
+.hud-slim {
+  top: 200px;
+  height: 96px;
+  grid-template-columns: minmax(0, 1fr) 128px minmax(0, 1fr);
+}
+
+.hud-slim .meter {
+  display: none;
+}
+
+.hud-slim .team-score {
+  font-size: 48px;
+}
+
+.hud-slim .crest {
+  width: 128px;
+  height: 96px;
+}
+
+.hud-slim .medal {
+  top: -10px;
+  left: 6px;
+  width: 116px;
+  height: 116px;
+}
+
+.hud-slim .suit-chip {
+  width: 46px;
+  height: 46px;
+  font-size: 32px;
+}
+
+.hud-slim .medal-word {
+  font-size: 19px;
+}
+
+.hud-slim .tile,
+.hud-slim .qr,
+.hud-slim .idnum,
+.hud-slim .audit-media-badge {
+  width: 76px;
+  height: 76px;
+  border-radius: 12px;
+}
+
+.hud-slim .tile b {
+  font-size: 28px;
+}
+
+.hud-slim .tile small,
+.hud-slim .audit-media-badge small {
+  font-size: 12px;
+}
+
+.hud-slim .audit-media-badge b {
+  font-size: 14px;
+}
+
+.hud-slim .idnum {
+  --id-width: 70px;
+  --id-font: 20px;
+}
+
+/* HUD: cushions (each team on its own cushion, medallion between). */
+.hud-cushions {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1fr);
+}
+
+.hud-cushions .cell {
+  padding: 0 14px;
+  border: 2px solid var(--mj-brass);
+  border-radius: 40px;
+  background: linear-gradient(180deg, var(--mj-c1), var(--mj-c2));
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.45), inset 0 0 0 5px rgba(0, 0, 0, 0.18);
+}
+
+.hud-cushions .crest {
+  width: 150px;
+}
+
+.hud-cushions .medal {
+  left: 3px;
+}
+
+/* ---- Seats: fans, name pills, tags ---- */
+.seat-dock {
+  position: absolute;
+  z-index: 30;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+}
+
+.fan {
+  position: absolute;
+  width: 220px;
+  height: 136px;
+}
+
+.backs-north {
+  top: 380px;
+  left: 430px;
+  transform: rotate(180deg);
+}
+
+.backs-west {
+  top: 770px;
+  left: 40px;
+  transform: rotate(90deg);
+}
+
+.backs-east {
+  top: 770px;
+  left: 820px;
+  transform: rotate(-90deg);
+}
+
+.fan .back {
+  position: absolute;
+  top: 6px;
+  left: 68px;
+  filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.45));
+}
+
+.seat-row {
+  position: absolute;
+  display: flex;
+  justify-content: center;
+}
+
+.row-north {
+  top: 474px;
+  left: 0;
+  width: 1080px;
+}
+
+.row-west {
+  top: 900px;
+  left: 72px;
+  width: 208px;
+}
+
+.row-east {
+  top: 900px;
+  left: 800px;
+  width: 208px;
+}
+
+.row-south {
+  z-index: 45;
+  top: 1234px;
+  left: 0;
+  width: 1080px;
+}
+
+.seat {
+  display: flex;
+  height: 64px;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 6px 6px 24px;
+  border: 2px solid var(--mj-pill-edge);
+  border-radius: 32px;
+  background: linear-gradient(180deg, var(--mj-c1), var(--mj-c2));
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
+}
+
+.count {
+  display: flex;
+  width: 50px;
+  height: 50px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--mj-sand);
+  color: var(--mj-ink);
+  font-size: 24px;
+  box-shadow: inset 0 0 0 3px var(--mj-pill-edge);
+}
+
+.name {
+  font-size: 24px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.seat.active {
+  border-color: var(--mj-team-us);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--mj-team-us) 35%, transparent),
+    0 0 34px color-mix(in srgb, var(--mj-team-us) 50%, transparent);
+}
+
+.seat.active .count {
+  background: var(--mj-team-us);
+  box-shadow: inset 0 0 0 3px var(--mj-sand);
+}
+
+.seat-tags {
+  position: absolute;
+  z-index: 31;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.tags-west {
+  top: 976px;
+  left: 72px;
+  width: 208px;
+}
+
+.tags-east {
+  top: 976px;
+  left: 800px;
+  width: 208px;
+}
+
+/* North and south side items sit in a lane around an invisible copy of the name pill,
+   so long names push them outward instead of overlapping. */
+.seat-lane {
+  position: absolute;
+  z-index: 60;
+  left: 0;
+  display: grid;
+  width: 1080px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 16px;
+  pointer-events: none;
+}
+
+.lane-north {
+  top: 474px;
+  grid-template-rows: 64px;
+}
+
+.lane-south {
+  z-index: 31;
+  top: 1180px;
+  grid-template-rows: 40px;
+}
+
+/* Answer-only reveal: tags, name pill and choice badge share the lane bottom (y 1220),
+   badge beside the pill (column gap), all clear of the raised card below. */
+.lane-south.is-reveal {
+  z-index: 55;
+}
+
+.lane-south.is-reveal .lane-end {
+  align-self: end;
+}
+
+.seat-lane .reveal-reason {
+  position: relative;
+  top: auto;
+  width: auto;
+}
+
+.row-south.is-reveal {
+  top: 1156px;
+}
+
+/* Tray bottom meets the pill-row bottom (y 538): top lands near the design's 420. */
+.lane-north .ptray {
+  align-self: end;
+}
+
+.lane-spacer {
+  height: 0;
+  visibility: hidden;
+}
+
+.lane-side {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lane-start {
+  justify-self: end;
+}
+
+.lane-end {
+  justify-self: start;
+}
+
+.seat-lane .seat-tags,
+.seat-lane .call,
+.seat-lane .ptray,
+.seat-lane .project-badge {
+  position: relative;
+  inset: auto;
+  transform: none;
+}
+
+.tag {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-radius: 20px;
+  color: var(--mj-ink-warm);
+  font-size: 19px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
+.tag.buyer {
+  background: var(--mj-team-us);
+}
+
+.tag.dealer {
+  background: var(--mj-sand);
+}
+
+.pcard {
+  display: inline-block;
+  width: 48px;
+  height: 67px;
+  margin: -14px 0;
+  border-radius: 5px;
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.45);
+  transform: rotate(-6deg);
+}
+
+/* ---- Rug table x 150-930, y 540-1230; centre (540, 885) ---- */
+.play-table {
+  position: absolute;
+  z-index: 10;
+  top: 540px;
+  left: 150px;
+  width: 780px;
+  height: 690px;
+  overflow: hidden;
+}
+
+.rug {
+  position: absolute;
+  top: 0;
+  left: 0;
+  filter: drop-shadow(0 26px 30px rgba(0, 0, 0, 0.55));
+}
+
+.watermark {
+  position: absolute;
+  top: 102px;
+  left: 82px;
+}
+
+.trick-zone {
+  position: absolute;
+  inset: 0;
+}
+
+.card {
+  user-select: none;
+}
+
+.played {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 208px;
+  height: 291px;
+  border-radius: 12px;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.5);
+  transform: translate(-50%, -50%);
+}
+
+.motion-card {
+  z-index: 12;
+}
+
+.is-trick-winner {
+  box-shadow:
+    0 0 0 5px var(--mj-team-us),
+    0 0 44px color-mix(in srgb, var(--mj-team-us) 80%, transparent),
+    0 16px 28px rgba(0, 0, 0, 0.5);
+}
+
+.setup-deck {
+  position: absolute;
+  inset: 0;
+}
+
+.deck {
+  position: absolute;
+  filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.45));
+}
+
+.purchase-card {
+  position: absolute;
+  z-index: 4;
+  top: 176px;
+  left: 336px;
+  width: 208px;
+  height: 291px;
+  border-radius: 12px;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.5);
+  transform: rotate(6deg);
+}
+
+/* ---- Call speech bubbles ---- */
+.call {
+  position: absolute;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 22px;
+  border: 3px solid var(--mj-brass);
+  border-radius: 22px;
+  background: var(--mj-sand);
+  color: var(--mj-ink-warm);
+  font-size: 34px;
+  line-height: 1.3;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+}
+
+.call::after {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: inherit;
+  background: inherit;
+  content: "";
+  transform: rotate(45deg);
+}
+
+.call small {
+  font-family: NotoSansArabic, sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.call-pass {
+  padding: 4px 18px;
+  border-color: var(--mj-edge);
+  background: var(--mj-pass-bg);
+  color: var(--mj-pass-text);
+  font-size: 24px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
+.call-hot {
+  padding: 8px 28px;
+  border-color: var(--mj-sand);
+  background: var(--mj-team-us);
+  font-size: 42px;
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--mj-team-us) 30%, transparent),
+    0 0 40px color-mix(in srgb, var(--mj-team-us) 60%, transparent),
+    0 12px 26px rgba(0, 0, 0, 0.45);
+}
+
+.call-dbl {
+  padding: 8px 26px;
+  border: 4px solid var(--mj-escalation-red);
+  background: var(--mj-escalation-bg);
+  color: var(--mj-escalation-ink);
+  font-size: 42px;
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--mj-escalation-bg) 25%, transparent),
+    0 0 34px color-mix(in srgb, var(--mj-research-red) 55%, transparent),
+    0 12px 26px rgba(0, 0, 0, 0.5);
+}
+
+.call-dbl small,
+.call .x {
+  padding: 0 10px;
+  border-radius: 10px;
+  background: var(--mj-escalation-red);
+  color: var(--mj-white);
+  line-height: 1.6;
+  opacity: 1;
+}
+
+.call .x {
+  padding: 0 8px;
+  border-radius: 12px;
+  font-size: 20px;
+  line-height: 1.5;
+}
+
+.call-proj {
+  flex-direction: column;
+  gap: 0;
+  padding: 4px 26px 8px;
+  border-color: var(--mj-team-us);
+  font-size: 38px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--mj-team-us) 30%, transparent), 0 12px 26px rgba(0, 0, 0, 0.45);
+}
+
+.call-proj small {
+  color: var(--mj-decision-red);
+  font-size: 16px;
+  opacity: 1;
+}
+
+.call-baloot {
+  padding: 8px 14px 8px 26px;
+  border-color: var(--mj-baloot-edge);
+  background: linear-gradient(180deg, var(--mj-baloot-light), var(--mj-brass));
+  font-size: 40px;
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--mj-lantern-glow) 35%, transparent),
+    0 0 44px color-mix(in srgb, var(--mj-lantern-glow) 65%, transparent),
+    0 12px 26px rgba(0, 0, 0, 0.45);
+}
+
+.call .pcard {
+  width: 40px;
+  height: 56px;
+  margin: 0;
+  border-radius: 4px;
+  transform: none;
+}
+
+.minis {
+  display: flex;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--mj-sand);
+  color: var(--mj-ink);
+  font-size: 26px;
+  line-height: 1;
+}
+
+/* Bubble placement: next to the player, tail pointing at them, never over table cards. */
+.call-at-north.call-setup {
+  top: 482px;
+  left: 628px;
+}
+
+.call-at-north.call-play {
+  top: 452px;
+  left: 628px;
+}
+
+.call-at-west.call-setup {
+  top: 896px;
+  left: 298px;
+}
+
+.call-at-east.call-setup {
+  top: 884px;
+  right: 290px;
+}
+
+.call-at-west.call-play {
+  top: 1040px;
+  left: 76px;
+}
+
+.call-at-east.call-play {
+  top: 1040px;
+  right: 76px;
+}
+
+.call-at-south.call-setup {
+  bottom: 713px;
+  left: 540px;
+  transform: translateX(-50%);
+}
+
+.call-at-south.call-play {
+  bottom: 713px;
+  left: 664px;
+}
+
+.call-at-north::after,
+.call-at-west.call-setup::after {
+  top: calc(50% - 11px);
+  left: -11px;
+  border-top: 0;
+  border-right: 0;
+}
+
+.call-at-east.call-setup::after {
+  top: calc(50% - 11px);
+  right: -11px;
+  border-bottom: 0;
+  border-left: 0;
+}
+
+.call-at-west.call-play::after,
+.call-at-east.call-play::after {
+  top: -11px;
+  left: calc(50% - 11px);
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.call-at-south::after {
+  bottom: -11px;
+  left: calc(50% - 11px);
+  border-top: 0;
+  border-left: 0;
+}
+
+/* Project reveal tray (trick 2) and persistent badge. */
+.ptray,
+.project-badge {
+  position: absolute;
+  z-index: 58;
+}
+
+.ptray {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 10px 18px;
+  border: 2px solid var(--mj-team-us);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--mj-tile) 90%, transparent);
+  box-shadow: 0 0 30px color-mix(in srgb, var(--mj-team-us) 35%, transparent), 0 12px 26px rgba(0, 0, 0, 0.5);
+}
+
+.ptray-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+}
+
+.ptray-label small {
+  color: var(--mj-muted);
+  font-size: 15px;
+}
+
+.ptray-label b {
+  color: var(--mj-team-us-text);
+  font-size: 32px;
+}
+
+.ptray-cards {
+  display: flex;
+  gap: 10px;
+}
+
+.tray-card {
+  width: 64px;
+  height: 90px;
+  border-radius: 6px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+.ptray.is-dense .tray-card + .tray-card {
+  margin-right: -40px;
+}
+
+.tray-at-north {
+  top: 420px;
+  left: 636px;
+}
+
+.tray-at-west {
+  top: 1040px;
+  left: 72px;
+}
+
+.tray-at-east {
+  top: 1040px;
+  right: 72px;
+}
+
+.tray-at-south {
+  bottom: 713px;
+  right: 72px;
+}
+
+.project-badge {
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 2px solid var(--mj-team-us);
+  border-radius: 20px;
+  background: var(--mj-sand);
+  color: var(--mj-ink-warm);
+  font-size: 19px;
+  font-weight: 700;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
+.project-badge b {
+  color: var(--mj-ink);
+  font-size: 22px;
+}
+
+/* ---- Decision: question bar, reveal panel, outcome ledger ---- */
+.handglow {
+  position: absolute;
+  z-index: 39;
+  top: 1290px;
+  left: 140px;
+  width: 800px;
+  height: 340px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--mj-team-us) 35%, transparent), transparent 70%);
+}
+
+.decision-prompt {
+  position: absolute;
+  z-index: 55;
+  top: 1200px;
+  left: 0;
+  display: flex;
+  width: 1080px;
+  justify-content: center;
+}
+
+.ask {
+  display: flex;
+  height: 92px;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 12px 10px 34px;
+  border: 3px solid var(--mj-team-us);
+  border-radius: 46px;
+  background: var(--mj-sand);
+  color: var(--mj-ink-warm);
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--mj-team-us) 25%, transparent),
+    0 0 46px color-mix(in srgb, var(--mj-team-us) 55%, transparent),
+    0 14px 28px rgba(0, 0, 0, 0.45);
+}
+
+.timer {
+  display: flex;
+  width: 66px;
+  height: 66px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.timer span {
+  display: flex;
+  width: 50px;
+  height: 50px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--mj-sand);
+  color: var(--mj-decision-red);
+  font-size: 28px;
+}
+
+.ask small {
+  display: block;
+  color: var(--mj-brown);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.ask strong {
+  display: block;
+  font-size: 34px;
+  line-height: 1.3;
+}
+
+.decision-choices {
+  position: absolute;
+  bottom: calc(100% + 16px);
+  left: 72px;
+  display: flex;
+  width: 936px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.decision-choices li {
+  min-width: 120px;
+  padding: 8px 22px;
+  border: 3px solid var(--mj-brass);
+  border-radius: 22px;
+  background: var(--mj-sand);
+  color: var(--mj-ink-warm);
+  font-size: 28px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  text-align: center;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+}
+
+.reveal-reason {
+  position: absolute;
+  z-index: 55;
+  top: 1104px;
+  left: 0;
+  display: flex;
+  width: 1080px;
+  justify-content: center;
+}
+
+.reason {
+  width: 780px;
+  overflow: hidden;
+  border: 2px solid var(--mj-brass);
+  border-radius: 24px;
+  background: var(--mj-sand);
+  color: var(--mj-ink-warm);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.5);
+}
+
+.reason-band {
+  display: block;
+  height: 14px;
+}
+
+/* No justification text: the panel shrinks to the answer box alone. */
+.reason.is-answer-only {
+  width: auto;
+}
+
+/* The band's width attribute must not size the panel; it spans whatever the box needs. */
+.reason.is-answer-only .reason-band {
+  width: 0;
+  min-width: 100%;
+}
+
+.reason-body {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 24px 16px;
+}
+
+.pick {
+  display: flex;
+  width: 96px;
+  height: 100px;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: var(--mj-decision-red);
+  color: var(--mj-sand);
+}
+
+.pick small {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.winning-move-code {
+  font-size: 26px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.pick-card {
+  display: block;
+  width: 46px;
+  height: 64px;
+  margin-top: 2px;
+  border-radius: 4px;
+}
+
+.reason-text {
+  min-width: 0;
+}
+
+.reason p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.reason p.scope {
+  margin-top: 4px;
+  color: var(--mj-brown);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.ledger {
+  position: absolute;
+  z-index: 72;
+  top: 640px;
+  left: 290px;
+  width: 500px;
+  overflow: hidden;
+  border: 2px solid var(--mj-brass);
+  border-radius: 26px;
+  background: var(--mj-sand);
+  color: var(--mj-ink-warm);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.55);
+}
+
+.ledger h2 {
+  margin: 0;
+  padding: 22px 0 12px;
+  color: var(--mj-decision-red);
+  font-size: 40px;
+  text-align: center;
+}
+
+.lrow {
+  display: grid;
+  height: 62px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  padding: 0 28px;
+  border-top: 1px solid var(--mj-ledger-line);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.lrow b {
+  font-size: 28px;
+  text-align: center;
+}
+
+.lrow b.is-plus {
+  color: var(--mj-ledger-plus);
+}
+
+.lhead {
+  height: 46px;
+  border-top: 0;
+  color: var(--mj-brown);
+  font-size: 20px;
+}
+
+.lhead b {
+  font-family: NotoSansArabic, sans-serif;
+  font-size: 20px;
+}
+
+.ltotal {
+  height: 84px;
+  margin: 10px 18px 18px;
+  padding: 0 18px;
+  border-top: 0;
+  border-radius: 18px;
+  background: linear-gradient(180deg, var(--mj-wd1), var(--mj-wd2));
+  color: var(--mj-sand);
+}
+
+.ltotal b {
+  font-size: 42px;
+}
+
+.ltotal .total-us {
+  color: var(--mj-team-us-text);
+}
+
+.ltotal .total-them {
+  color: var(--mj-team-them-text);
+}
+
+/* ---- South: social handles and the hand (212x297, y 1306-1604) ---- */
+.social {
+  position: absolute;
+  z-index: 9;
+  top: 1240px;
+  display: flex;
+  height: 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 0 12px;
+  border: 1px solid color-mix(in srgb, var(--mj-brass) 50%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--mj-tile) 72%, transparent);
+  color: var(--mj-sand);
+  font-size: 20px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.social svg {
+  flex: none;
+}
+
+.social-tiktok {
+  left: 96px;
+}
+
+.social-instagram {
+  right: 96px;
+}
+
+.observer-hand {
+  position: absolute;
+  z-index: 40;
+  top: 1306px;
+  left: 0;
+  width: 1080px;
+  height: 300px;
+}
+
+.observer-hand .card {
+  position: absolute;
+  top: 0;
+  left: 434px;
+  width: 212px;
+  height: 297px;
+  border-radius: 12px;
+  box-shadow: 0 14px 26px rgba(0, 0, 0, 0.5);
+}
+
+.observer-hand .is-recommended {
+  box-shadow:
+    0 0 0 5px var(--mj-team-us),
+    0 0 44px color-mix(in srgb, var(--mj-team-us) 80%, transparent),
+    0 18px 30px rgba(0, 0, 0, 0.5);
+}
+
+.trick-zone .played.is-answer {
+  box-shadow:
+    0 0 0 5px var(--mj-team-us),
+    0 0 44px color-mix(in srgb, var(--mj-team-us) 80%, transparent),
+    0 18px 30px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- Rewind ---- */
+.rewind-mark {
+  position: absolute;
+  z-index: 70;
+  top: 838px;
+  left: 50%;
+  display: grid;
+  width: 94px;
+  height: 94px;
+  place-items: center;
+  border: 2px solid var(--mj-brass);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--mj-tile) 88%, transparent);
+  color: var(--mj-brass);
+  font: 54px NotoSansArabic, sans-serif;
+  transform: translateX(-50%);
+}
+
+.is-rewinding .play-table,
+.is-rewinding .observer-hand,
+.is-rewinding .seat-dock {
+  opacity: 0.62;
+  filter: blur(1.5px);
+}
+
+/* ---- Research-only mode: header band, hazard tape (watermark lives in the rug) ---- */
+.rhead {
+  position: absolute;
+  z-index: 81;
+  top: 40px;
+  left: 40px;
+  display: flex;
+  width: 1000px;
+  height: 116px;
+  align-items: center;
+  gap: 20px;
+  padding: 0 30px;
+  border-radius: 22px;
+  background: var(--mj-research-red);
+  color: var(--mj-white);
+  box-shadow: 0 0 0 4px var(--mj-white), 0 14px 30px rgba(0, 0, 0, 0.55);
+}
+
+.rhead-icon {
+  display: flex;
+  width: 60px;
+  height: 60px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--mj-white);
+  color: var(--mj-research-red);
+  font-size: 36px;
+}
+
+.rhead-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rhead-text b {
+  font-size: 34px;
+  line-height: 1.3;
+}
+
+.rhead-text span {
+  color: var(--mj-research-tint);
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.rhead-text .mono {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 16px;
+  letter-spacing: 0.5px;
+}
+
+/* Research notice sentence: one line; scripts/render_research_notice.py measures it against the band. */
+.rhead-text .notice-sentence {
+  font-size: 24px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.tape {
+  position: absolute;
+  z-index: 80;
+  background: repeating-linear-gradient(45deg, var(--mj-research-red) 0 22px, var(--mj-white) 22px 34px);
+}
+
+.tape-top,
+.tape-bottom {
+  left: 0;
+  width: 1080px;
+  height: 14px;
+}
+
+.tape-top {
+  top: 0;
+}
+
+.tape-bottom {
+  bottom: 0;
+}
+
+.tape-left,
+.tape-right {
+  top: 0;
+  width: 14px;
+  height: 1920px;
+}
+
+.tape-left {
+  left: 0;
+}
+
+.tape-right {
+  right: 0;
+}

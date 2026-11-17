@@ -1,0 +1,22 @@
+schema_version: 1
+profile:
+  id: constrained_particle_belief_v1
+  version: 1.0.0
+  status: production_default
+particles:
+  requested: 256
+  maximum: 4096
+  minimum_effective_fraction: 0.35
+  resampling: systematic
+  rejuvenation_attempts: 3
+construction:
+  exact_when_allocations_below: 20000
+  method: constructive_constraints
+  rejection_fallback: true
+weights:
+  hard_facts_authoritative: true
+  signals_default: false
+  minimum_likelihood: 0.000001
+calibration:
+  enabled: true
+  metrics: [brier, log_loss, reliability]

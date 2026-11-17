@@ -1,0 +1,38 @@
+schema_version: 1
+profile:
+  id: baloot_ortools_research_native_v3_delayed_payoff
+  version: 1.0.0
+  status: draft
+components:
+  rules: rules/saudi_federation_2023_v8.yaml
+  conventions: conventions/conservative_v1.yaml
+  analysis: analysis/deep.yaml
+  video: video/premium.yaml
+  game: game/authoritative_server_v1.yaml
+  product: product/studio_ortools.yaml
+  security: security/local_secure_v1.yaml
+  runtime: runtime/docker_v1.yaml
+  strategy: strategies/balanced_v1.yaml
+  ml: ml/contracts_v1.yaml
+  storage: storage/local_v1.yaml
+  agents: agents/default.yaml
+  learning: learning/continuous_v1.yaml
+  challenge: challenge/native_delayed_payoff_v3.yaml
+  history: history/immutable_v1.yaml
+  audit: audit/replay_intelligence_v1.yaml
+  difficulty: difficulty/online_irt_v1.yaml
+  database: database/postgresql_v1.yaml
+  duplicate: duplicate/competitive_v1.yaml
+  belief: belief/particle_v1.yaml
+  match_value: match_value/exact_dynamic_v2.yaml
+  challenge_contracts: challenge_contracts/truth_v1.yaml
+  identity: identity/optional_simple_v1.yaml
+  shared: shared/standardized_v1.yaml
+  live: live/four_human_v1.yaml
+  adjudication: adjudication/research_events_v2.yaml
+  hitl: hitl/governance_v18.yaml
+  certification: certification/rules_saudi_federation_2023_v8.yaml
+  benchmark: benchmark/strength.yaml
+  operations: operations/slo_v18.yaml
+  configuration: configuration/control-plane.yaml
+  performance: performance/budgets.yaml

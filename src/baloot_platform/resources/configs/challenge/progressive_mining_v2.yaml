@@ -1,0 +1,427 @@
+schema_version: 1
+profile:
+  id: progressive_challenge_mining_v2
+  version: 2.8.4
+  status: governed_candidate
+sources:
+  simulation: true
+  history: true
+  expert_import: true
+request_defaults:
+  source: simulation
+  decision_kind: play
+  seed_start: 1
+  seeds: 100
+  contract: any
+  buyer_relationship: any
+  archetype: any
+  difficulty_min: 35
+  difficulty_max: 100
+  minimum_publishability: 0.64
+  maximum_results: 20
+  require_project: false
+  pause_trick_min: 2
+  pause_trick_max: 7
+  maximum_seconds: 300.0
+  player_profiles:
+    north: strong
+    west: strong
+    south: strong
+    east: strong
+  content_contract: auto
+screening:
+  minimum_legal_actions: 2
+  shallow_samples: 12
+  retain_fraction: 0.15
+  maximum_candidates_per_seed: 4
+  shallow_exact_allocation_limit: 800
+  shallow_exact_search_remaining: 5
+  maximum_sampling_attempts: 1000
+  exact_search_max_nodes: 10000
+  exact_search_max_seconds: 0.03
+confirmation:
+  objective: match_win_probability
+  bid_samples: 192
+  deep_samples: 192
+  maximum_sampling_attempts: 4000
+  exact_allocation_limit: 128
+  exact_search_remaining: 9
+  exact_search_max_nodes: 80000
+  exact_search_max_seconds: 0.4
+  exact_search_max_depth: 32
+  exact_search_max_cache_entries: 100000
+  minimum_confirmation_confidence: 0.75
+  require_legal_replay: true
+stability:
+  reanalysis_samples: 256
+  maximum_sampling_attempts: 6000
+  exact_allocation_limit: 256
+  exact_search_remaining: 9
+  exact_search_max_nodes: 120000
+  exact_search_max_seconds: 0.8
+  seed_offset: 104729
+  maximum_cohorts: 3
+  minimum_agreement: 2
+  third_cohort_on_disagreement: true
+  minimum_regret_gap: 1.0
+  minimum_best_share: 0.5
+  maximum_competence_expected_margin_regret: 1.0
+  maximum_competence_match_win_drop: 0.01
+  maximum_expected_margin_drift: 5.0
+  minimum_hidden_deals: 8
+  require_same_recommended_action: true
+  publish_uncertain: false
+publication:
+  minimum_publishability: 0.64
+  minimum_robustness: 0.35
+  minimum_archetype_score: 0.50
+  require_human_review: true
+  reviewer_quorum: 2
+  reviewer_roles: [expert, referee, admin, service]
+  publisher_roles: [referee, admin, service]
+  require_governor_independence: true
+diversity:
+  fingerprint_version: 1
+  maximum_per_fingerprint: 1
+  maximum_per_archetype_per_batch: 20
+  cell_dimensions:
+    - decision_kind
+    - contract
+    - purchase_round
+    - trump_suit
+    - tactical_detector
+    - trick_number
+    - acting_seat
+    - buyer_relationship
+    - score_pressure
+    - difficulty_band
+    - perspective_breadth
+    - source
+  top_k_per_cell: 5
+  rejected_audit_modulus: 100
+guided_search:
+  schemaVersion: 1
+  id: guided_tactical_opportunity_v1
+  revision: "9"
+  agentProfileId: foundry_balanced
+  candidatesPerSeed: 1
+  targetContracts: []
+  targetEscalations: []
+  targetProjectPresence: false
+  targetMode: any
+  requireProjects: false
+  minimumNonForcedDecisions: 4
+  requireActualDealOpportunity: true
+  minimumActualDealMarginGap: 1.0
+  maximumActualDealDecisions: 4
+  minimumScore: 55.0
+  weights:
+    decisionOpportunity: 2.0
+    scoreCloseness: 1.0
+    actualDealOutcomeGap: 3.0
+  dealConstraint:
+    schemaVersion: 1
+    id: cp_sat_structural_spike_v1
+    revision: "1"
+    enabled: false
+    backend: ortools_cp_sat_v1
+    assumedBuyer: south
+    purchaseSuits: [spades]
+    initialRequiredCards:
+      south: [SJ, S9]
+    initialSuitCountRanges:
+      south:
+        spades: {minimum: 2, maximum: 5}
+    finalSuitCountRanges:
+      south:
+        spades: {minimum: 3, maximum: 8}
+    projectPattern: null
+    maximumSolutions: 1
+    maximumConflicts: 1000000
+    safetyTimeoutSeconds: 30.0
+    solverWorkers: 1
+    seedOffset: 0
+    tags: [guided_structural, engine_validation_required]
+disagreement_search:
+  schemaVersion: 1
+  id: observer_safe_disagreement_pilot_v1
+  revision: "2"
+  candidatesPerSeed: 1
+  maximumDeepDecisionsPerCandidate: 8
+  minimumDeepConfidence: 0.75
+  minimumExpectedMarginGap: 1.0
+  minimumProbabilityGap: 0.02
+  minimumScore: 45.0
+  weights:
+    disagreementCount: 2.0
+    peakMarginGap: 2.0
+    peakProbabilityGap: 2.0
+    deepConfidence: 1.0
+    methodDiversity: 0.5
+context_search:
+  schemaVersion: 1
+  id: natural_history_critical_context_v1
+  revision: "1"
+  minimumAnalysisConfidence: 0.75
+  minimumMatchProbabilityAmplification: 0.05
+  requireSameRecommendation: true
+  maximumContexts: 256
+sakka_generation:
+  schemaVersion: 1
+  id: natural_sakka_generation_v1
+  revision: "1"
+  target: 152
+  maximumRounds: 32
+  seedPolicy: sha256_round_ordinal_v1
+finalist_validation:
+  schemaVersion: 1
+  id: governed_finalist_replay_v1
+  revision: "9"
+  agentProfileId: finalist_candidate
+  maximumTracesPerJob: 4
+  maximumConfirmationDecisionsPerTrace: 64
+  maximumTraceSeconds: 300
+  requireQualifiedAgentReleaseForPublication: true
+  allowLocalPreview: true
+  enableExactTacticalViabilityPrecheck: true
+candidate_resimulation:
+  schemaVersion: 1
+  id: selective_same_deal_resimulation_v1
+  revision: "1"
+  enabled: true
+  agentProfileId: foundry_balanced
+  maximumTraceSeconds: 30
+  requireExactDeckCommitment: true
+  requireParentTraceLink: true
+answer_policy:
+  schemaVersion: 1
+  allowedTruthLabels: [exact_optimal, robust_best_known, debatable]
+  minimumConfidence: 0.75
+  acceptedMarginGap: 0.0
+  acceptedProbabilityGap: 0.0
+  publicMetrics:
+    - expectedRoundMargin
+    - roundLeadProbability
+    - contractSuccessProbability
+    - downsideCvar10
+    - volatility
+    - bestShare
+trace_import_policy:
+  schemaVersion: 1
+  maximumEntries: 1000000
+  allowedRightsStatuses: [cleared, research_only]
+  historicalVerificationStatuses: [verified_action_order]
+  expertVerificationStatuses: [unreviewed, verified_expert, consensus_approved]
+  requireCompleteHiddenState: true
+score_reachability:
+  schemaVersion: 1
+  id: authoritative_score_reachability_v1
+  revision: "1"
+  maximumWitnessTraces: 1000000
+  witnessesPerOutcome: 8
+  maximumRounds: 64
+  maximumStates: 1000000
+tactical_detectors:
+  schemaVersion: 1
+  id: causal_tactical_detector_v1
+  revision: "1"
+  lowCardMaxStrength: 35.0
+  highCardMinStrength: 70.0
+  minimumDelayedGain: 8.0
+  minimumCausalGain: 0.01
+  kaboutProbabilityDelta: 0.20
+  contractProbabilityDelta: 0.20
+  projectConsequenceDelta: 5.0
+  debateMarginGap: 2.0
+  debateDisagreement: 0.25
+research_comparison:
+  schemaVersion: 2
+  id: matched_research_comparison_v2
+  revision: "2"
+  minimumQualifiedPerLane: 1
+  minimumDistinctSelectedFinalistsPerLane: 1
+  minimumAttemptedSeedsPerLane: 1000
+  minimumYieldMultiplier: 2.0
+  minimumCostReduction: 0.40
+  requiredPromotionCpuBoundary: isolated_process_cpu_v1
+  requireZeroSemanticDefects: true
+selection_policy:
+  schemaVersion: 1
+  id: verified_actor_content_selection_v1
+  revision: "6"
+  weights:
+    outcomeImpact: 18.0
+    uniqueness: 14.0
+    disasterAvoidance: 10.0
+    kaboutImpact: 8.0
+    sacrificeValue: 6.0
+    delayedGain: 6.0
+    tacticalDepth: 7.0
+    informationBurden: 7.0
+    robustness: 8.0
+    confidence: 6.0
+    explanationFidelity: 4.0
+    visualClarity: 3.0
+    novelty: 2.0
+    coverage: 1.0
+  allowedTruthLabels: [exact_optimal, robust_best_known, debatable]
+  minimumConfidence: 0.75
+  minimumScore: 50.0
+  requireVerifiedTacticalPlay: true
+  minimumSurroundingQuality: 75.0
+  minimumSurroundingConfidence: 0.75
+  minimumSurroundingMateriality: 25.0
+  maximumSurroundingMaterialMistakes: 0
+  maximumSurroundingUnverifiedDecisions: 0
+  maximumSurroundingCatastrophicCrossings: 0
+thrill_profile:
+  schemaVersion: 1
+  id: professional_complete_laffa_thrill_v1
+  revision: "1"
+  weights:
+    overallPeak: 3.0
+    secondPeak: 1.0
+    topKThrillMass: 1.0
+    criticalDensity: 0.5
+    perspectiveBreadth: 0.5
+    multiAngleYield: 0.5
+    causalChainStrength: 1.5
+    outcomeImportance: 2.0
+    visualClarity: 1.0
+    narrativeArc: 1.0
+  minimumCriticalPoints: 1
+  minimumScore: 45.0
+perspective_policy:
+  schemaVersion: 1
+  id: all_seat_observer_safety_v1
+  revision: "1"
+  actorPrompt: choose_acting_action
+  seatExperiencePrompts:
+    - identify_threat
+    - infer_distribution
+    - plan_next_response
+    - post_reveal_analysis
+    - predict_opponent_play
+    - read_partner_signal
+  requireFourProjections: true
+deep_analysis:
+  schemaVersion: 1
+  id: cascaded_deep_analysis_v1
+  revision: "7"
+  maximumOracleDecisionsPerTrace: 4
+  maximumOracleRemainingCards: 12
+  maximumConfirmationDecisionsPerTrace: 4
+  minimumScreeningScore: 25.0
+  allowPendingSurroundingNominations: true
+  jobPriority: 40
+decision_analysis_executor:
+  schemaVersion: 1
+  id: deterministic_post_trace_executor_v1
+  revision: "1"
+  screening:
+    workerCount: 2
+    maximumPendingPerWorker: 1
+    maximumSeconds: 900.0
+    pollSeconds: 0.05
+  confirmation:
+    workerCount: 2
+    maximumPendingPerWorker: 1
+    maximumSeconds: 900.0
+    pollSeconds: 0.05
+  finalistReanalysis:
+    workerCount: 2
+    maximumPendingPerWorker: 1
+    maximumSeconds: 900.0
+    pollSeconds: 0.05
+campaign_screening:
+  schemaVersion: 1
+  id: organic_intelligent_screen_v2
+  revision: "2"
+  agentProfileId: foundry_balanced
+  minimumLegalActions: 2
+  baseRetainBasisPoints: 10
+  maximumRetainBasisPoints: 100
+  eliteScore: 85.0
+  eliteRetainBasisPoints: 500
+  rejectedAuditModulus: 1000
+  retainKabout: true
+  retainEscalated: true
+  compressionLevel: 9
+campaign_proof:
+  schemaVersion: 1
+  id: bounded_concept_partition_equivalence_v3
+  revision: "3"
+  minimumOrganicRounds: 1000
+  requiredWorkerCounts: [1, 2, 4]
+  requiredFailureSchedules: [none, out_of_order, retry_reclaim]
+  requireAttemptLedger: true
+video_production_batch:
+  schemaVersion: 1
+  id: hooked_laffa_batch_v1
+  revision: "8"
+  defaultTarget: 10
+  maximumTarget: 100
+  laneOrder: [guided]
+  waveSeedCount: 10
+  maximumWaves: 100
+  seedsPerShard: 2
+  simulationWorkerCount: 4
+  simulationTimeoutSeconds: 7200
+  finalistConcurrency: 1
+  useCandidateResimulation: false
+  renderConcurrency: 1
+  renderPolicy: on_demand
+  allowedTruthLabels: [exact_optimal, robust_best_known]
+  minimumSelectionScore: 60.0
+  minimumConfidence: 0.75
+  requirePlayDecision: true
+  requireCritical: true
+resource_limits:
+  maximum_seeds: 5000
+  maximum_seconds: 7200
+scenario_defaults:
+  seed: 917
+  viewer: south
+  dealer: east
+  round_number: 1
+  cut_position: null
+  contract: hokum
+  buyer: null
+  trump_suit: null
+  match_score: [0, 0]
+  escalation: []
+  escalation_level: normal
+  escalation_mode: open
+  require_project: true
+  pause_trick_min: 3
+  pause_trick_max: 6
+  requested_samples: 24
+  exact_allocation_limit: 4000
+  exact_search_max_remaining: 8
+  maximum_sampling_attempts: 50000
+  exact_search_max_nodes: 120000
+  exact_search_max_seconds: 1.0
+  exact_search_max_depth: 32
+  exact_search_max_cache_entries: 100000
+  max_seed_attempts: 200
+  max_candidates_per_seed: 4
+  minimum_hidden_deals: 1
+  minimum_expected_margin_gap: 0.0
+  minimum_win_probability_gap: 0.0
+  require_exact_analysis: false
+  target_debate_score: 65
+  agent_profiles:
+  - [north, strong]
+  - [west, strong]
+  - [south, strong]
+  - [east, strong]
+match_defaults:
+  seed: 1000
+  dealer: east
+  viewer: south
+  maximum_rounds: 16
+  contract: null
+  trump_suit: null
+  require_project: false
+  requested_samples: 8
+  exact_search_max_remaining: 6

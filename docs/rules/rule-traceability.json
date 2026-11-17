@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 3,
+  "rulesProfile": "saudi_common_v1",
+  "rulesVersion": "1.4.0",
+  "rulesSha256": "fba7103ff611e8ee132751350a77bc5045be096994751244a28a3c60f036b994",
+  "certificationStatus": "candidate_external_review_required",
+  "proofBoundary": "Executable software evidence is not official Saudi Baloot rules certification.",
+  "clauses": [
+    {
+      "id": "card-table.sun",
+      "profilePaths": ["card_rules.sun_strength", "card_rules.sun_points"],
+      "evidence": ["examples/rule-fixtures.json", "tests/test_rule_fixtures.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "card-table.hokum-non-trump",
+      "profilePaths": ["card_rules.hokum_non_trump_strength", "card_rules.hokum_non_trump_points"],
+      "evidence": ["examples/rule-fixtures.json", "tests/test_rule_fixtures.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "card-table.hokum-trump",
+      "profilePaths": ["card_rules.hokum_trump_strength", "card_rules.hokum_trump_points"],
+      "evidence": ["examples/rule-fixtures.json", "tests/test_rule_fixtures.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "deal.shuffle-cut-packets",
+      "profilePaths": ["dealing.shuffle_algorithm", "dealing.cut_enabled", "dealing.initial_packets"],
+      "evidence": ["tests/test_core.py", "tests/test_v8_identity_sakka.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "deal.card-conservation",
+      "profilePaths": ["deck.players", "deck.cards_per_player"],
+      "evidence": ["tests/test_core.py", "tests/test_match_and_lifecycle.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "deal.redeal-annul",
+      "profilePaths": ["dealing.all_pass_redeal", "dealing.annulling"],
+      "evidence": ["tests/test_bidding_escalation.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "bid.first-round",
+      "profilePaths": ["bidding.first_round"],
+      "evidence": ["tests/test_bidding_escalation.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "bid.second-round",
+      "profilePaths": ["bidding.second_round"],
+      "evidence": ["tests/test_bidding_escalation.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "bid.ashkal",
+      "profilePaths": ["bidding.ashkal"],
+      "evidence": ["tests/test_core.py", "tests/test_bidding_escalation.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "escalation.hokum-chain",
+      "profilePaths": ["escalation.hokum_chain", "escalation.response_actor_policy"],
+      "evidence": ["tests/test_bidding_escalation.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "escalation.sun-double",
+      "profilePaths": ["escalation.sun_chain", "escalation.sun_score_threshold"],
+      "evidence": ["tests/test_bidding_escalation.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "play.follow-suit",
+      "profilePaths": ["play.must_follow_suit"],
+      "evidence": ["tests/test_core.py", "examples/rules-certification-golden-v18.json"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "play.cut-overtrump-partner",
+      "profilePaths": ["play.must_trump_when_void", "play.must_overtrump_when_possible", "play.partner_winning_exception"],
+      "evidence": ["tests/test_core.py", "tests/test_play_obligations.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "play.ekka",
+      "profilePaths": ["play.ekka_enabled"],
+      "evidence": ["tests/test_play_obligations.py", "tests/test_research_exact_state_ekka.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "projects.detect-compare-reveal",
+      "profilePaths": ["projects.declaration_timing", "projects.comparison_timing", "projects.reveal_timing"],
+      "evidence": ["tests/test_project_compiler_v1.py", "tests/test_projects_scoring_extended.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "projects.values",
+      "profilePaths": ["projects.sequences", "projects.four_of_kind"],
+      "evidence": ["tests/test_projects_scoring_extended.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "projects.baloot",
+      "profilePaths": ["projects.baloot"],
+      "evidence": ["tests/test_projects_scoring_extended.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "score.raw-rounding-contract-loss",
+      "profilePaths": ["scoring.raw_card_totals", "scoring.conversion", "scoring.contract"],
+      "evidence": ["examples/rule-fixtures.json", "tests/test_rule_fixtures.py", "tests/test_projects_scoring_extended.py", "tests/test_core.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "score.kabout-gahwa",
+      "profilePaths": ["scoring.kabout", "scoring.escalation"],
+      "evidence": ["tests/test_projects_scoring_extended.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "match.target-tie-completion",
+      "profilePaths": ["scoring.match"],
+      "evidence": ["tests/test_match_and_lifecycle.py", "examples/rules-certification-golden-v18.json"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "invalid.state-action-boundaries",
+      "profilePaths": ["contracts", "play", "projects", "scoring"],
+      "evidence": ["tests/test_core.py", "tests/test_play_obligations.py", "tests/test_bidding_escalation.py"],
+      "status": "existing_executable_evidence"
+    },
+    {
+      "id": "variants.disputed-options",
+      "profilePaths": ["disputed_options"],
+      "evidence": ["tests/test_bidding_escalation.py", "tests/test_projects_scoring_extended.py"],
+      "status": "existing_executable_evidence"
+    }
+  ]
+}

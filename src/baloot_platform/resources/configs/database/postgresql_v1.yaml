@@ -1,0 +1,32 @@
+schema_version: 1
+profile:
+  id: postgresql_event_store_v1
+  version: 1.0.0
+  status: production_default
+backend:
+  authoritative: postgresql
+  development: sqlite
+  artifact_store: s3_compatible
+  cache: optional_redis
+  analytics_projection: optional_clickhouse
+events:
+  format: canonical_json_v1
+  canonical_binary: protobuf_v3
+  hash_algorithm: sha256
+  append_only: true
+  snapshots_every_events: 32
+  monthly_partitioning: true
+  corrections_are_descendants: true
+security:
+  row_level_security: true
+  tenant_column: tenant_id
+  application_roles: true
+jobs:
+  claim_policy: for_update_skip_locked
+  lease_seconds: 60
+  heartbeat_seconds: 15
+  maximum_attempts: 3
+artifacts:
+  content_addressed: true
+  object_versioning: true
+  published_object_lock: configurable
