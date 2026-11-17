@@ -1,50 +1,50 @@
 {
   "caption": "وش تخلي للنهاية من هالثلاث أوراق؟ وش تلعب؟ توزيع افتراضي من BalootX #بلوت #تحدي_بلوت",
   "construction": {
-    "method": "seeded_shuffle_and_legal_play",
-    "seed": 2026111856
+    "method": "same_hands_canonical_redeal_and_opening_trick_replay",
+    "originSeed": 2026111856
   },
   "exactTracePrefix": {
     "auctionActions": [
       {
         "action": "sun",
-        "actor": "north"
+        "actor": "south"
       }
     ],
-    "dealer": "east",
+    "dealer": "west",
     "deckOrder": [
-      20,
-      19,
-      30,
-      2,
-      12,
-      17,
       3,
       21,
       31,
       22,
       14,
       7,
-      5,
-      25,
-      6,
-      13,
+      20,
+      19,
+      30,
+      2,
+      12,
+      17,
       24,
       16,
       0,
       9,
-      15,
-      4,
-      8,
-      26,
-      11,
-      18,
+      5,
+      25,
+      6,
+      13,
       10,
       1,
       29,
       23,
       28,
-      27
+      27,
+      15,
+      4,
+      8,
+      26,
+      11,
+      18
     ],
     "escalationActions": [],
     "matchScore": [
@@ -53,20 +53,20 @@
     ],
     "playActions": [
       {
-        "actor": "north",
-        "card": "C8"
-      },
-      {
-        "actor": "west",
-        "card": "C9"
-      },
-      {
         "actor": "south",
         "card": "CQ"
       },
       {
         "actor": "east",
         "card": "CJ"
+      },
+      {
+        "actor": "north",
+        "card": "C8"
+      },
+      {
+        "actor": "west",
+        "card": "C9"
       },
       {
         "actor": "south",
@@ -153,7 +153,7 @@
   },
   "expected": {
     "actingSeat": "east",
-    "buyer": "north",
+    "buyer": "south",
     "claimSatisfied": true,
     "completionStatus": "exact_complete",
     "contract": "sun",
@@ -217,7 +217,7 @@
   },
   "rulesMeaning": {
     "actingSeat": "east",
-    "buyer": "north",
+    "buyer": "south",
     "contract": "sun",
     "successMeaning": "west_east wins the round",
     "successThreshold": 1

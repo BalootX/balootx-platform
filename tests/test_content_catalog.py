@@ -91,6 +91,34 @@ def test_new_deals_do_not_reuse_existing_hands_or_openers(rules):
     assert len(fresh) == 4
 
 
+def test_clip03_context_is_a_real_redeal_and_opening_trick_replay(rules):
+    fixture = json.loads(notice.select_deal(NEW_IDS[2])["fixture"].read_text(encoding="utf-8"))
+    prefix = fixture["exactTracePrefix"]
+    normalizer = notice.ExactStateNormalizerV1(rules)
+    initial = normalizer.normalize({**prefix, "playActions": [],
+                                    "projectDeclarations": [], "projectAssertions": [], "stateAssertions": {}})
+    assert {seat: [card["code"] for card in hand] for seat, hand in initial.state["hands"].items()} == {
+        "north": ["SJ", "SQ", "H7", "HA", "D10", "DJ", "C8", "CK"],
+        "west": ["S9", "SK", "H10", "HJ", "HQ", "D8", "D9", "C9"],
+        "south": ["S8", "S10", "H9", "D7", "DQ", "C7", "CQ", "CA"],
+        "east": ["S7", "SA", "H8", "HK", "DK", "DA", "C10", "CJ"],
+    }
+    assert prefix["dealer"] == "west"
+    assert prefix["auctionActions"] == [{"actor": "south", "action": "sun"}]
+    assert prefix["playActions"][:4] == [
+        {"actor": "south", "card": "CQ"}, {"actor": "east", "card": "CJ"},
+        {"actor": "north", "card": "C8"}, {"actor": "west", "card": "C9"},
+    ]
+    decision = normalizer.normalize(prefix)
+    assert decision.next_actor == "east"
+    assert decision.state["buyer"] == "south"
+    assert decision.state["completedTricks"][0]["winner"] == "south"
+    assert _opener(decision) == (("DK", "S7", "SA"), ("C7",))
+    assert prefix["projectDeclarations"] == [
+        {"owner": "west", "kind": "siri", "value": 4, "highRank": 5, "declarationOrder": 1},
+    ]
+
+
 @pytest.mark.parametrize("key", ["caption", "scenarioFamily"])
 @pytest.mark.parametrize("value", ["", "  ", None, 1])
 def test_catalog_content_metadata_rejects_invalid_text(tmp_path, monkeypatch, key, value):

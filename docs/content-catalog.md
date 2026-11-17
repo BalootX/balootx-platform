@@ -19,6 +19,11 @@ differ from the earlier catalog.
 | 03 | DK | Discard the singleton king on the losing club trick; retain both spades for partner's king and the final ace capture. |
 | 04 | DK | Take the diamond lead with the king, then return the low diamond to partner's jack and ace. |
 
+Input 03 keeps its four original synthetic hands with a canonical redeal:
+West deals, South buys Sun and leads the opening club trick. Its recorded
+auction, deck allocation and opening trick agree with that context; the
+featured East hand, unique winning move and final project score are preserved.
+
 Each new fixture supplies `caption` and `scenarioFamily` text. Selection carries
 these into the render manifest and owner-approval document. Earlier fixtures
 keep the existing caption and have no declared family. Family names describe
