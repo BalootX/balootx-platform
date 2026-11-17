@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 import wave
+import unicodedata
 
 import pytest
 import yaml
@@ -24,6 +25,8 @@ def test_public_speech_generation_binds_fresh_audio_to_public_text(tmp_path, mon
         invocations.append((command, kwargs))
         if command[-1] == "--version":
             return SimpleNamespace(stdout="eSpeak NG text-to-speech: 1.51 Data at: /synthetic/data")
+        if command[0] == "dpkg-query":
+            return SimpleNamespace(stdout="1.51+synthetic")
         if "-w" not in command:
             with wave.open(command[-1], "wb") as stream:
                 stream.setparams((1, 2, 48000, 0, "NONE", "not compressed"))
@@ -77,3 +80,22 @@ def test_supported_card_back_matches_both_manifests(root):
         data = (directory / "card-back.svg").read_bytes()
         assert len(data) == item["bytes"]
         assert hashlib.sha256(data).hexdigest() == item["sha256"]
+
+
+def test_synthesis_callouts_preserve_public_arabic_text(root):
+    manifest = json.loads((root / "assets/audio/voice_packs/ar_sa_baloot_v1/generated-manifest.json").read_text(encoding="utf-8"))
+    def letters(text):
+        return "".join(char for char in unicodedata.normalize("NFKD", text) if unicodedata.category(char) != "Mn")
+    for key, text in speech.VOICE_TEXT.items():
+        assert "?" not in text
+        assert any("ARABIC LETTER" in unicodedata.name(char, "") for char in text)
+        assert letters(text) == letters(manifest["clips"][key]["textAr"])
+
+
+def test_public_names_are_short_distinct_and_shared_with_resource_mirror(root):
+    path = Path("configs/video/premium.yaml")
+    profile = yaml.safe_load((root / path).read_bytes())
+    names = profile["identity"]["player_name_pool"]
+    assert len(set(names)) == 16
+    assert all("?" not in name and len(name) <= 7 for name in names)
+    assert (root / path).read_bytes() == (root / "src/baloot_platform/resources" / path).read_bytes()

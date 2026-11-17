@@ -10,7 +10,7 @@
     "variant": "public_v4_no_justification_no_notice"
   },
   "approvedDesignInputs": {
-    "configs/video/premium.yaml": "7d69b313e2dd0a2723d0160464275e3051d44393f32c4840030812cb17dbf34e",
+    "configs/video/premium.yaml": "954368b6e96d6eb5539557190d20382b8ff96047552fc32b45ff264b814e63aa",
     "src/baloot_platform/video/remotion/src/professional-prototype.tsx": "71c1b9eadad2524b0b583112691a3a3ec59db1654462fff1766f2d50a5ae8a98",
     "src/baloot_platform/video/remotion/src/style.css": "c924033914a854c863610f31422519abe60d3e7e2d0fe43c41dc51ee477db676"
   },

@@ -9,7 +9,7 @@ The existing CI lanes generate speech before consuming render assets too.
 Run `python scripts/generate_public_render_audio.py` after installing eSpeak NG
 1.51 and FFmpeg. It synthesizes 16 new utterances from public project text and
 writes the compatible 15-clip and 16-clip packs. It records the generator binary
-hash/version, voice, speed, exact input text, output hashes and measured audio
+hash/version, voice-data package version, voice, speed, exact input text, output hashes and measured audio
 properties. The runtime uses eSpeak NG's built-in `ar` voice, with no MBROLA or
 neural voice model. These are new synthesized outputs; they do not establish
 rights, transcript accuracy or acoustic parity for any previous recording.
@@ -41,7 +41,9 @@ actual synthetic deal04 fixture remains barred before rendering by viewer/buyer
 admission. Tests are not a replacement for historical capture evidence.
 
 The retained design lock pins the unchanged approved component and styles plus
-the fixed neutral identity configuration from the public import. It does not
+the fixed neutral identity configuration. The shared pool uses short Arabic
+synthetic player labels so longer Latin placeholders do not exceed the approved
+contact width. The prototype generator reads this same pool. It does not
 claim pixel equivalence with historical media. Source/input, DOM, PNG, audio,
 ffprobe, playback and final-file checks remain active. Generated artifacts use
 the existing render gate and owner-approval contract; every MP4 remains

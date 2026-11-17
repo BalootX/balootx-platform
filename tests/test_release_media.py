@@ -97,6 +97,7 @@ def test_decision_export_verifier_uses_its_frozen_bundle(
 
 def test_professional_identity_is_seeded_unique_and_bound_to_legal_source(tmp_path):
     module = generate_professional_video_prototypes
+    pool = set(yaml.safe_load(module.PROFILE.read_text(encoding="utf-8"))["identity"]["player_name_pool"])
     identities = []
     for index, seed in enumerate((20261114, 20261114, 20261115)):
         output = tmp_path / str(index)
@@ -105,7 +106,7 @@ def test_professional_identity_is_seeded_unique_and_bound_to_legal_source(tmp_pa
         manifest = json.loads((output / "source-manifest.json").read_text(encoding="utf-8"))
         players = bundle["identity"]["players"]
         assert len(set(players.values())) == 4
-        assert set(players.values()) <= set(module.SAUDI_PLAYER_NAMES)
+        assert set(players.values()) <= pool
         assert manifest["players"] == players and manifest["identitySeed"] == seed
         assert manifest["legalReplay"] == "passed" and manifest["sourcePlays"] == 32
         assert manifest["sourceSha256"] == hashlib.sha256((output / "source.json").read_bytes()).hexdigest()

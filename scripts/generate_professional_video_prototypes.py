@@ -24,7 +24,6 @@ from baloot_platform.video.scene_adapter import build_legacy_episode_scene_packa
 SOURCE = ROOT / "examples/v7-outcome-flip-source.json"
 PROFILE = ROOT / "configs/video/premium.yaml"
 OUTPUT = ROOT / "outputs/professional-video-prototypes"
-SAUDI_PLAYER_NAMES = ('Player 01', 'Player 02', 'Player 03', 'Player 04', 'Player 05', 'Player 06', 'Player 07', 'Player 08', 'Player 09', 'Player 10', 'Player 11', 'Player 12', 'Player 13', 'Player 14', 'Player 15', 'Player 16')
 def _write(path: Path, value: dict[str, object]) -> None:
     atomic_write_text(
         path,
@@ -48,7 +47,7 @@ def generate(
         "enrollmentUri": str(profile["identity"]["enrollment_uri_template"]).format(game_serial=game_serial),
         "players": dict(zip(
             ("north", "west", "east", "south"),
-            random.Random(seed).sample(SAUDI_PLAYER_NAMES, 4), strict=True,
+            random.Random(seed).sample(profile["identity"]["player_name_pool"], 4), strict=True,
         )),
     }
     paths: list[Path] = []

@@ -12,11 +12,21 @@ import wave
 ROOT = Path(__file__).resolve().parents[1]
 TERMS_URL = "https://github.com/espeak-ng/espeak-ng/blob/1.51/COPYING"
 VOICE_TEXT = {
-    "pass": "????", "sun": "????", "hokum": "??????",
-    "hokum_second": "?????? ??????", "ashkal": "????????", "wala": "?????",
-    "double": "??????", "triple": "?????", "four": "?????", "gahwa": "????????",
-    "siri": "?????", "fifty": "?????????", "hundred": "???????",
-    "four_hundred": "???????? ???????", "baloot": "???????",
+    "pass": "بَسْ",
+    "sun": "صَنْ",
+    "hokum": "حُكْمْ",
+    "hokum_second": "حُكْمْ ثَانِي",
+    "ashkal": "أَشْكَلْ",
+    "wala": "وَلَا",
+    "double": "دَبَلْ",
+    "triple": "ثِرِي",
+    "four": "فُورْ",
+    "gahwa": "قَهْوَةْ",
+    "siri": "سِرَا",
+    "fifty": "خَمْسِينْ",
+    "hundred": "مِيَّةْ",
+    "four_hundred": "أَرْبَعْ مِيَّةْ",
+    "baloot": "بَلُوتْ"
 }
 
 
@@ -32,6 +42,7 @@ def generate(root: Path = ROOT) -> None:
     version = _run([engine, "--version"], text=True).stdout.split("Data at:")[0].strip()
     if not version.startswith("eSpeak NG text-to-speech: 1.51"):
         raise RuntimeError("public speech terms are bound to eSpeak NG 1.51")
+    voice_data_version = _run(["dpkg-query", "-W", "-f=${Version}", "espeak-ng-data"], text=True).stdout.strip()
     base = root / "assets/audio/voice_packs"
     first = json.loads((base / "ar_sa_baloot_v1/generated-manifest.json").read_text(encoding="utf-8"))
     second = json.loads((base / "ar_sa_baloot_v2_smooth/manifest.json").read_text(encoding="utf-8"))
@@ -63,7 +74,7 @@ def generate(root: Path = ROOT) -> None:
             for key in keys:
                 shutil.copyfile(stage / f"{key}.wav", directory / f"{key}.wav")
             manifest = {"schemaVersion": 2, "packId": pack, "provider": "espeak-ng-ar-public",
-                        "generatorVersion": version, "voice": "ar", "speed": 180,
+                        "generatorVersion": version, "voiceDataPackageVersion": voice_data_version, "voice": "ar", "speed": 180,
                         "generatorSha256": hashlib.sha256(Path(engine).read_bytes()).hexdigest(),
                         "termsUrl": TERMS_URL, "copiedReferenceAudio": False,
                         "provenance": "fresh synthesis from public project text; no legacy WAV reuse",
