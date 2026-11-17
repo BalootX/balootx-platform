@@ -1,5 +1,7 @@
+import {execFileSync} from "node:child_process";
 import {createRequire} from "node:module";
 import {readFileSync} from "node:fs";
+import {fileURLToPath} from "node:url";
 
 import {expect, test, vi} from "vitest";
 
@@ -74,6 +76,19 @@ const qualifiedOrToolsSource = {
   trace: {initialHand, plays, completedTricks: tricks},
 } as const;
 
+// The governed Majlis palette comes from the real premium profile, as render bundles do.
+const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
+const governedMajlis = JSON.parse(execFileSync("python", ["-c", [
+  "import json, yaml",
+  "from baloot_platform.video.render_bundle import resolve_majlis_presentation",
+  "profile = yaml.safe_load(open('configs/video/premium.yaml', encoding='utf-8'))",
+  "print(json.dumps(resolve_majlis_presentation(profile['majlis'])))",
+].join(";")], {
+  cwd: repositoryRoot,
+  encoding: "utf8",
+  env: {...process.env, PYTHONIOENCODING: "utf-8", PYTHONPATH: `${repositoryRoot}src`},
+})) as Record<string, unknown>;
+
 const layer = (id: string, disclosure: "public" | "observer_private" | "post_reveal_analysis", content: Record<string, unknown>) => ({
   id,
   kind: "test",
@@ -117,6 +132,7 @@ const bundle = {
     layout: {show_projects: false, show_score_breakdown: false},
     timeline: {pause_seconds: 1},
     motion: {collection_steps: 1},
+    majlis: governedMajlis,
   },
   localizations: {
     "video.accessibility.decision_choices": "الخيارات القانونية",
