@@ -8,7 +8,7 @@ import {sha} from '../../scripts/publisher/policy.mjs';
 import {runtimeFixture} from './runtime-fixture.mjs';
 
 test('using the loader without local configuration cannot load an unguarded helper', async () => {
-  const hook = runInNewContext('(' + loaderHook.toString() + ')', {localConfig, process: {env: {}}});
+  const hook = runInNewContext('(' + loaderHook.toString() + ')', {localConfig: path => localConfig(path, {}), process: {env: {}}});
   let loads = 0;
   await assert.rejects(() => hook('file:///synthetic-helper.mjs', {}, async () => { loads++; }), /EXPLICIT_LOCAL_CONFIG/);
   assert.equal(loads, 0);
