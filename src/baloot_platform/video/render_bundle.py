@@ -215,9 +215,28 @@ def validate_majlis_profile(profile: Mapping[str, Any]) -> None:
         raise ValueError(f"majlis call labels exceed {max_lines} x {max_chars} characters: {too_long}")
 
 
-def validate_approved_v4_public_profile(profile: Mapping[str, Any]) -> None:
-    """Fail closed before production renders can fall back to the old premium look."""
+def validate_viewer_buyer_roles(viewer: Any, buyer: Any) -> None:
+    seats = ("north", "west", "south", "east")
+    if viewer not in seats or buyer not in seats:
+        raise ValueError("viewer/buyer render admission requires measured valid seats")
+    if viewer == buyer:
+        raise ValueError("viewer=buyer renders are barred pending approved layout repair")
 
+
+def validate_decision_clip_admission(value: Mapping[str, Any]) -> None:
+    buyers = [
+        layer.get("content", {}).get("buyer")
+        for scene in value.get("scenes", [])
+        for layer in scene.get("layers", [])
+        if layer.get("id") == "public-lifecycle"
+    ]
+    if not buyers or any(buyer != buyers[0] for buyer in buyers):
+        raise ValueError("viewer/buyer render admission requires a consistent lifecycle buyer")
+    validate_viewer_buyer_roles(value.get("observerSeat"), buyers[0])
+
+
+def validate_approved_v4_design_binding(profile: Mapping[str, Any]) -> None:
+    """Validate the reference identity; this does not approve current file bytes."""
     design = profile.get("approved_design")
     if not isinstance(design, Mapping):
         raise ValueError("production video requires the approved-v4 design binding")
@@ -230,6 +249,12 @@ def validate_approved_v4_public_profile(profile: Mapping[str, Any]) -> None:
     for key, value in expected.items():
         if design.get(key) != value:
             raise ValueError(f"approved-v4 design binding mismatch: {key}")
+
+
+def validate_approved_v4_public_profile(profile: Mapping[str, Any]) -> None:
+    """Fail closed before production renders can fall back to the old premium look."""
+
+    validate_approved_v4_design_binding(profile)
     majlis = resolve_majlis_presentation(profile.get("majlis"))
     if majlis["theme"] != "red" or majlis["hud"] != "plaque" or majlis["id_box"] != "number":
         raise ValueError("approved-v4 public render requires the red Majlis number box")

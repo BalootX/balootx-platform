@@ -6,6 +6,8 @@ import {openBrowser, renderMedia, renderStill, selectComposition} from "@remotio
 import {bt709FfmpegOverride} from "./ffmpeg-profile.mjs";
 import {writeFileWithRetry} from "./fs-safe.mjs";
 import {governedH264Options} from "./render-options.mjs";
+import {validateViewerBuyerAdmission} from "./render-admission.mjs";
+import {isPlayDecision, layoutFrames, pngHash, propsHash, sha256, sourceBinding, validateLayoutGeometry} from "./layout-gate.mjs";
 
 const rendererRoot = process.cwd();
 const repositoryRoot = path.resolve(rendererRoot, "../../../..");
@@ -18,6 +20,11 @@ const stillsOnly = process.env.BALOOTX_STILLS_ONLY === "1";
 const playbackEvidence = process.env.BALOOTX_PLAYBACK_EVIDENCE === "1";
 const chromiumOptions = process.platform === "linux" ? {enableMultiProcessOnLinux: true} : undefined;
 const bundleData = JSON.parse(await readFile(inputPath, "utf8"));
+validateViewerBuyerAdmission(bundleData);
+const layoutBinding = {...await sourceBinding(repositoryRoot,
+  process.env.BALOOTX_LAYOUT_SOURCE_IDENTITY ? JSON.parse(process.env.BALOOTX_LAYOUT_SOURCE_IDENTITY) : undefined),
+  bundleFileSha256: sha256(await readFile(inputPath))};
+const geometryFrames = layoutFrames(bundleData);
 const mediaRenderOptions = governedH264Options(bundleData.render);
 const inputProps = {
   bundle: bundleData,
@@ -110,17 +117,28 @@ const checkpoints = completeReplay ? replayCheckpoints() : [
     ? [["08-outcome", middleFrame("outcome"), "outcome", 32]] : []),
 ];
 const evidence = [];
+const layoutEvidence = {schemaVersion: 1, status: "running", items: []};
+const layoutPath = path.join(outputDir, "layout-evidence.json");
+const saveLayout = () => writeFileWithRetry(layoutPath, `${JSON.stringify(layoutEvidence, null, 2)}\n`, "utf8");
+for (const row of geometryFrames) {
+  if (!checkpoints.some(([, frame, phase]) => frame === row.frame && phase === row.phase)) {
+    checkpoints.push([`layout-${row.phase}`, row.frame, row.phase]);
+  }
+}
 for (const [name, frame, phase, completedPlayCount] of checkpoints) {
   let renderedDom;
+  let geometry;
+  const geometryFrame = geometryFrames.find(row => row.frame === frame && row.phase === phase);
+  const captureDom = Boolean((playbackEvidence && phase && completedPlayCount !== undefined) || geometryFrame);
+  const stillProps = {...inputProps, ...(captureDom ? {capturePlaybackDom: true} : {}), ...(geometryFrame ? {layoutBinding} : {})};
   await renderStill({
-    composition: playbackEvidence && phase
-      ? {...composition, props: {...composition.props, capturePlaybackDom: true}}
-      : composition,
+    composition: {...composition, props: {...composition.props, ...stillProps}},
     serveUrl,
     output: path.join(outputDir, `${name}.png`),
-    inputProps: playbackEvidence && phase ? {...inputProps, capturePlaybackDom: true} : inputProps,
+    inputProps: stillProps,
     onArtifact: artifact => {
       if (artifact.filename === "playback-dom.json") renderedDom = JSON.parse(String(artifact.content));
+      if (artifact.filename === "layout-geometry.json") geometry = JSON.parse(String(artifact.content));
     },
     imageFormat: "png",
     frame,
@@ -128,13 +146,30 @@ for (const [name, frame, phase, completedPlayCount] of checkpoints) {
     chromiumOptions,
     puppeteerInstance: browser,
   });
-  if (playbackEvidence && phase) {
+  if (geometryFrame) {
+    const row = {...geometry, source: `${name}.png`, pngSha256: pngHash(await readFile(path.join(outputDir, `${name}.png`)), bundleData.render.width, bundleData.render.height)};
+    layoutEvidence.items.push(row);
+    await saveLayout();
+    try {
+      row.validation = validateLayoutGeometry(geometry, {...geometryFrame, width: bundleData.render.width, height: bundleData.render.height,
+        playDecision: isPlayDecision(bundleData), binding: {...layoutBinding, bundleSha256: bundleData.bundleSha256,
+          propsSha256: propsHash(bundleData), reducedMotion: false, capturePlaybackDom: true}});
+    } catch (error) {
+      row.validation = error.validation ?? {status: "failed", error: String(error)};
+      layoutEvidence.status = "failed"; layoutEvidence.error = String(error); await saveLayout(); throw error;
+    }
+  }
+  if (playbackEvidence && phase && completedPlayCount !== undefined) {
     if (!renderedDom || renderedDom.frame !== frame || renderedDom.completedPlayCount !== completedPlayCount) {
       throw new Error(`Decision-clip DOM checkpoint mismatch: ${JSON.stringify({phase, frame, completedPlayCount, renderedDom})}`);
     }
     evidence.push({phase, completedPlayCount, frame, source: `${name}.png`, renderedDom});
   }
 }
+if (layoutEvidence.items.length !== 3) throw new Error("layout gate missing measured hook/question/reveal");
+layoutEvidence.items.sort((a, b) => geometryFrames.findIndex(row => row.phase === a.phase) - geometryFrames.findIndex(row => row.phase === b.phase));
+layoutEvidence.status = "passed";
+await saveLayout();
 if (playbackEvidence) await writeFileWithRetry(path.join(outputDir, "playback-evidence.json"),
   `${JSON.stringify({schemaVersion: 1, items: evidence}, null, 2)}\n`, "utf8");
 if (!stillsOnly) {

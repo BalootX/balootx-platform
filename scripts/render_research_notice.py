@@ -9,6 +9,7 @@ and hold on the round's final score from the engine. No justification text.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 from pathlib import Path
@@ -27,6 +28,9 @@ from baloot_platform.video.remotion_renderer import (
 )
 from baloot_platform.video.render_bundle import (
     seeded_player_names,
+    validate_decision_clip_admission,
+    validate_viewer_buyer_roles,
+    validate_approved_v4_design_binding,
     validate_approved_v4_public_profile,
 )
 from baloot_platform.video.typography import FONT_BODY_BOLD
@@ -36,30 +40,52 @@ from scripts.render_research_scenario_v4_goldens import build_golden_bundle
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DESIGN_COMMIT = "4fe1f87b3358142728e07abcc8aea8e3ad115b0a"
-# Deliberate, owner-approved re-pin of the guarded design inputs (the guard stays on).
-DESIGN_CHANGE_REASON = "owner 2026-11-05: fix reveal badge/pill overlap for future videos"
-# The approved v4 render used the v4 pins (prototype 0677b648…, style 66e95f35…; reason:
-# faster plays, play to the round's final score, dealer أول/ثاني calls, one-sentence notice).
-DESIGN_INPUT_SHA256 = {
-    "configs/video/premium.yaml": "5c66c96a091dde077aa48589a33e87e213e2dbff28d6d7e672564b693fdc23c9",
-    "src/baloot_platform/video/remotion/src/professional-prototype.tsx": "0f9e8de6e71627a3ebdd9037209a03a1dedfccbf93da562a67f234d2e5014fcf",
-    "src/baloot_platform/video/remotion/src/style.css": "c924033914a854c863610f31422519abe60d3e7e2d0fe43c41dc51ee477db676",
-}
-FIXTURE = ROOT / "examples/research-scenario-v4-ace-sacrifice-seven.json"
-GOLDEN = "sun-hundred-ace-sacrifice-seven"
-# The approved producer's governed deal source is this set of existing V4
-# exact-trace fixtures.  Selection changes the actual proof/render input.
+DESIGN_INPUTS = (
+    "configs/video/premium.yaml",
+    "src/baloot_platform/video/remotion/src/professional-prototype.tsx",
+    "src/baloot_platform/video/remotion/src/style.css",
+)
+DESIGN_BASELINE = "release/approved-v4-design-inputs.json"
+GATE_RESULT = "artifacts/balootx-v4-gate.json"
+FIXTURE = ROOT / "examples/research-scenario-v4-ace-sacrifice-two-aces.json"
+GOLDEN = "sun-hundred-ace-sacrifice-two-aces"
+# Seven is permanently barred after posting; retain its fixture only for history.
+# Selection changes the actual proof/render input, never only the name draw.
 DEAL_SOURCES = (
-    (
-        "sun-hundred-project-ace-sacrifice-seven-v1",
-        "examples/research-scenario-v4-ace-sacrifice-seven.json",
-        "sun-hundred-ace-sacrifice-seven",
-    ),
     (
         "sun-hundred-project-ace-sacrifice-two-aces-v1",
         "examples/research-scenario-v4-ace-sacrifice-two-aces.json",
         "sun-hundred-ace-sacrifice-two-aces",
+    ),
+    (
+        "sun-single-winner-20261116-01-v1",
+        "examples/research-scenario-v4-single-winner-20261116-01.json",
+        "sun-single-winner-20261116-01",
+    ),
+    (
+        "sun-single-winner-20261116-02-v1",
+        "examples/research-scenario-v4-single-winner-20261116-02.json",
+        "sun-single-winner-20261116-02",
+    ),
+    (
+        "sun-single-winner-20261116-03-v1",
+        "examples/research-scenario-v4-single-winner-20261116-03.json",
+        "sun-single-winner-20261116-03",
+    ),
+    (
+        "sun-single-winner-20261116-04-v1",
+        "examples/research-scenario-v4-single-winner-20261116-04.json",
+        "sun-single-winner-20261116-04",
+    ),
+    (
+        "sun-single-winner-20261116-05-v1",
+        "examples/research-scenario-v4-single-winner-20261116-05.json",
+        "sun-single-winner-20261116-05",
+    ),
+    (
+        "sun-single-winner-20261116-06-v1",
+        "examples/research-scenario-v4-single-winner-20261116-06.json",
+        "sun-single-winner-20261116-06",
     ),
 )
 OUTPUT = ROOT / "outputs/research-notice-4"
@@ -92,6 +118,61 @@ SOURCE_SHA = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 def _sha256(path: Path) -> str:
     with path.open("rb") as handle:  # streamed, never read whole
         return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+@contextmanager
+def _gate_check(gate: dict, path: Path, name: str):
+    gate["checks"][name] = {"status": "running"}
+    _json_write(path, gate)
+    try:
+        yield
+    except (Exception, SystemExit) as exc:
+        gate["checks"][name] = {"status": "failed", "error": str(exc), "errorType": type(exc).__name__}
+        gate["status"] = "failed"
+        try:
+            _json_write(path, gate)
+        except OSError as write_error:
+            exc.add_note(f"gate result could not be persisted: {write_error}")
+        raise
+    else:
+        gate["checks"][name] = {"status": "passed"}
+        _json_write(path, gate)
+
+
+def validate_design_input_integrity(profile: dict, evidence: dict) -> None:
+    """Compare measured bytes to a retained approval baseline; never create one."""
+    evidence["approvedDesignBindingStatus"] = "not_validated"
+    measured = evidence["measuredDesignInputs"] = {}
+    for name in DESIGN_INPUTS:
+        measured[name] = _sha256(ROOT / name)
+    validate_approved_v4_design_binding(profile)
+    evidence["approvedDesignBinding"] = dict(profile["approved_design"])
+    try:
+        raw = (ROOT / DESIGN_BASELINE).read_bytes()
+        evidence["designBaseline"] = {"path": DESIGN_BASELINE, "sha256": hashlib.sha256(raw).hexdigest()}
+        baseline = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"approved design baseline unavailable or invalid: {DESIGN_BASELINE}") from exc
+    if (
+        not isinstance(baseline, dict)
+        or type(baseline.get("schemaVersion")) is not int
+        or baseline.get("schemaVersion") != 1
+        or baseline.get("status") != "owner_approved_design_baseline"
+        or baseline.get("approvedDesignBinding") != profile["approved_design"]
+    ):
+        raise ValueError("approved design baseline binding is invalid")
+    approved = baseline.get("approvedDesignInputs")
+    if (
+        not isinstance(approved, dict)
+        or approved.keys() != measured.keys()
+        or any(not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None for value in approved.values())
+    ):
+        raise ValueError("approved design baseline input hashes are invalid")
+    evidence["approvedDesignInputs"] = approved
+    changed = [name for name in measured if measured[name] != approved[name]]
+    if changed:
+        raise ValueError(f"approved Majlis design inputs changed: {', '.join(changed)}")
+    evidence["approvedDesignBindingStatus"] = "matched_retained_baseline"
 
 
 def _css_px(css: str, selector: str, prop: str, index: int = 0) -> int:
@@ -181,15 +262,11 @@ def timeline_outline(value: dict) -> list[dict]:
     return rows
 
 
-def notice_profile(*, public: bool = False) -> dict:
-    # Bind the reviewed design bytes, not ancestry.
-    if not public:
-        for name, digest in DESIGN_INPUT_SHA256.items():
-            if _sha256(ROOT / name) != digest:
-                raise ValueError(f"approved Majlis design input changed: {name}")
+def notice_profile(*, public: bool = False, design_evidence: dict | None = None) -> dict:
     profile = yaml.safe_load(
         (ROOT / "configs/video/premium.yaml").read_text(encoding="utf-8")
     )
+    validate_design_input_integrity(profile, design_evidence if design_evidence is not None else {})
     profile["render"]["concurrency"] = 2
     profile["exports"]["decision_clip"].update({
         **TIMELINE,
@@ -236,9 +313,10 @@ def build_notice_bundle(
     fixture: Path | None = None,
     golden: str | None = None,
 ):
-    profile = profile or notice_profile()
     fixture = fixture or FIXTURE
     golden = golden or GOLDEN
+    validate_notice_fixture_admission(fixture, rules)
+    profile = profile or notice_profile()
     # First pass (plain decision clip) yields the proof continuation; the second
     # carries the complete deal so the bidding can be replayed with the real hand.
     base = yaml.safe_load((ROOT / "configs/video/premium.yaml").read_text(encoding="utf-8"))
@@ -265,6 +343,7 @@ def validate_notice_bundle(
     fixture: Path | None = None,
 ) -> None:
     value = bundle.value
+    validate_decision_clip_admission(value)
     expected = json.loads((fixture or FIXTURE).read_text(encoding="utf-8"))["expected"]
     source = value["source"]
     reveal = next(scene for scene in value["scenes"] if scene["stage"] == "reveal")
@@ -311,6 +390,15 @@ def validate_notice_bundle(
         and len(set(value["identity"]["players"].values())) == 4
     ):
         raise ValueError("research notice requires the qualified, exact synthetic critical decision")
+
+
+def validate_notice_fixture_admission(fixture: Path, rules: RuleBook | None = None) -> dict:
+    rules = rules if rules is not None else RuleBook.load(ROOT / "configs/rules/saudi_common_v1.yaml")
+    source = json.loads(fixture.read_text(encoding="utf-8"))
+    normalized = ExactStateNormalizerV1(rules).normalize(source["exactTracePrefix"])
+    viewer, buyer = normalized.next_actor, normalized.state.get("buyer")
+    validate_viewer_buyer_roles(viewer, buyer)
+    return {"status": "passed", "viewer": viewer, "buyer": buyer, "exactStateId": normalized.exact_state_id}
 
 
 def select_deal(
@@ -396,6 +484,7 @@ def select_deal(
         "source": relative,
         "golden": golden,
         "requestedSeed": None if seed is None else str(seed),
+        "renderAdmission": validate_notice_fixture_admission(fixture),
     }
 
 
@@ -475,9 +564,13 @@ def _write_provenance_notice(
                 "sourceHead": revision,
                 "sourceTree": tree,
             }
-    (output / "provenance-notice.json").write_text(
-        json.dumps(notice, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    notice.update({
+        "scope": "source identity declaration validation only",
+        "checks": {"source_identity_declaration": {"status": notice["status"]}},
+        "checkDescription": "Require sourceHead and sourceTree as lowercase 40- or 64-digit hexadecimal identifiers, supplied explicitly or read from release/source-manifest.json.",
+        "sourceTreeContentsVerified": False,
+    })
+    _json_write(output / "provenance-notice.json", notice)
     return notice
 
 
@@ -495,109 +588,173 @@ def main(
         raise ValueError("deal-id and seed are mutually exclusive")
     if not public and (deal_id is not None or seed is not None):
         raise ValueError("deal-id and seed require --public")
+    output = output_dir.resolve() if output_dir is not None else ROOT / ("outputs/approved-v4-public" if public else "outputs/research-notice-4")
+    if any((output / name).exists() for name in ("owner-approval.json", "SHA256SUMS.txt")):
+        raise ValueError(f"output contains an existing packet receipt or checksum seal; use a fresh output directory: {output}")
     selection = select_deal(deal_id, seed)
     fixture = selection["fixture"]
     golden = selection["golden"]
+    gate_path = output / GATE_RESULT
+    gate = {
+        "schemaVersion": 1,
+        "kind": "render_validation_only",
+        "status": "running",
+        "postingAuthorized": False,
+        "ownerReleaseRequired": "explicit owner release of this exact MP4 SHA256",
+        "approvedDesignBindingStatus": "not_validated",
+        "public": public,
+        "dealIdentifier": selection["identifier"],
+        "dealSeed": selection["requestedSeed"],
+        "fixture": selection["source"],
+        "fixtureSha256": _sha256(fixture),
+        "renderAdmission": selection["renderAdmission"],
+        "checks": {},
+    }
     source_identity_error = None
     try:
         source_head, source_tree = _source_identity(source_head, source_tree)
     except ValueError as exc:
         source_identity_error = str(exc)
         source_head = source_tree = None
-    rules = RuleBook.load(ROOT / "configs/rules/saudi_common_v1.yaml")
-    profile = notice_profile(public=public)
-    renderer = RemotionProfessionalRenderer(
-        profile, repository_root=ROOT, timeout_seconds=render_timeout_seconds(),
-    )
-    bundle = build_notice_bundle(
-        rules, profile, fixture=fixture, golden=golden,
-    )
-    engine_result = engine_round_result(rules, fixture)
-    validate_notice_bundle(bundle, engine_result, public=public, fixture=fixture)
-    output = output_dir.resolve() if output_dir is not None else ROOT / ("outputs/approved-v4-public" if public else "outputs/research-notice-4")
+    gate.update({"sourceHead": source_head, "sourceTree": source_tree})
+    with _gate_check(gate, gate_path, "notice_profile"):
+        profile = notice_profile(public=public, design_evidence=gate)
+    gate["checks"]["validate_design_input_integrity"] = {"status": "passed"}
+    if public:
+        gate["checks"]["validate_approved_v4_public_profile"] = {"status": "passed"}
+    with _gate_check(gate, gate_path, "build_notice_bundle"):
+        rules = RuleBook.load(ROOT / "configs/rules/saudi_common_v1.yaml")
+        renderer = RemotionProfessionalRenderer(
+            profile, repository_root=ROOT, timeout_seconds=render_timeout_seconds(),
+        )
+        bundle = build_notice_bundle(
+            rules, profile, fixture=fixture, golden=golden,
+        )
+    with _gate_check(gate, gate_path, "engine_round_result"):
+        engine_result = engine_round_result(rules, fixture)
+    with _gate_check(gate, gate_path, "validate_notice_bundle"):
+        validate_notice_bundle(bundle, engine_result, public=public, fixture=fixture)
     basename = "balootx-approved-v4-public" if public else BASENAME
-    artifacts = renderer.execute(
-        bundle, export_preset="decision_clip", output_dir=output,
-        basename=basename, playback_evidence=True,
-    )
-    manifest = _record_deal_manifest(artifacts.manifest, selection, bundle, profile)
-    rows = {row["checkpointPhase"]: row for row in manifest["playbackEvidence"]}
-    segments = {row["stage"]: row for row in bundle.value["timeline"]["segments"]}
-    # Thumbnail: the validated renderStill of the first, paused decision frame.
-    thumbnail = output / f"{basename}-thumbnail.png"
-    shutil.copyfile(output / manifest["files"]["playback:hook"]["name"], thumbnail)
-    with Image.open(thumbnail) as image:
-        if image.size != (1080, 1920) or not rows["hook"]["frame"] < segments["setup"]["startFrame"]:
-            raise ValueError("thumbnail must be the portrait paused decision frame")
-    stills = []
-    for index, phase in enumerate(PHASES, start=1):
-        still = output / f"{basename}-qa-{index:02d}-{phase}.png"
-        shutil.copyfile(output / manifest["files"][f"playback:{phase}"]["name"], still)
-        stills.append(still)
-    fps = bundle.value["render"]["fps"]
-    receipt = {
-        "schemaVersion": 1,
-        "status": "awaiting_owner_approval",
-        "postingAuthorized": False,
-        "sourceHead": source_head,
-        "sourceTree": source_tree,
-        "approvedDesignCommit": DESIGN_COMMIT,
-        "approvedDesignInputs": DESIGN_INPUT_SHA256,
-        "approvedDesignChange": DESIGN_CHANGE_REASON,
-        "fixture": selection["source"],
-        "fixtureSha256": _sha256(fixture),
-        "dealIdentifier": selection["identifier"],
-        "dealSeed": selection["requestedSeed"],
-        "nameDraw": manifest["nameDraw"],
-        "synthetic": True,
-        "language": "ar-SA",
-        "caption": CAPTION,
-        "headerText": None if public else {
-            "title": bundle.value["localizations"]["video.notice.title"],
-            "sentence": bundle.value["localizations"]["video.notice.sentence"],
-            "fit": notice_sentence_fit(bundle.value["localizations"]["video.notice.sentence"]),
-            "note": "Design band styling; publish-safe text instead of the audit-only wording.",
-        },
-        "justificationShown": False,
-        "publicResearchNoticeShown": not public,
-        "players": bundle.value["identity"]["players"],
-        "timelineSeconds": {
-            stage: segments[stage]["durationFrames"] / fps for stage in STAGES
-        },
-        "timelineOutline": timeline_outline(bundle.value),
-        "playSeconds": TIMELINE["play_seconds"],
-        "playsToRoundEnd": True,
-        "finalScore": {
-            "matchScore": engine_result["matchScore"],
-            **{key: engine_result["roundScore"][key]
-               for key in ("cardGamePoints", "projectPoints", "balootPoints", "awardedPoints", "winner")},
-        },
-        "proofScope": "complete_state; this fixture only, not an actor-information-set guarantee",
-        "bundleSha256": bundle.bundle_sha256,
-        "decisionReference": bundle.value["source"]["decisionReference"],
-        "thumbnailFrame": rows["hook"]["frame"],
-        "qaStillFrames": {phase: rows[phase]["frame"] for phase in PHASES},
-    }
-    deliverables = [artifacts.video, thumbnail, *stills, artifacts.manifest]
-    receipt["files"] = {path.name: _sha256(path) for path in deliverables}
+    with _gate_check(gate, gate_path, "RemotionProfessionalRenderer.execute"):
+        artifacts = renderer.execute(
+            bundle, export_preset="decision_clip", output_dir=output,
+            basename=basename, playback_evidence=True,
+            source_identity={"sourceHead": source_head, "sourceTree": source_tree},
+        )
+    with _gate_check(gate, gate_path, "render_input_integrity"):
+        if (
+            {name: _sha256(ROOT / name) for name in DESIGN_INPUTS} != gate["measuredDesignInputs"]
+            or _sha256(fixture) != gate["fixtureSha256"]
+            or _sha256(ROOT / DESIGN_BASELINE) != gate["designBaseline"]["sha256"]
+        ):
+            raise ValueError("render inputs changed during rendering")
+    gate.update({"mp4": artifacts.video.name, "mp4Sha256": _sha256(artifacts.video),
+                 "bundleSha256": bundle.bundle_sha256})
+    with _gate_check(gate, gate_path, "validate_rendered_layout_geometry"):
+        manifest = json.loads(artifacts.manifest.read_text(encoding="utf-8"))
+        layout = manifest.get("layoutGeometry")
+        if not isinstance(layout, dict) or layout.get("status") != "passed" or layout.get("mp4Sha256") != gate["mp4Sha256"]:
+            raise ValueError("measured layout geometry gate is missing or unbound to MP4")
+        if any(layout.get("binding", {}).get(key) != gate[key] for key in ("sourceHead", "sourceTree")):
+            raise ValueError("layout geometry source binding mismatch")
+        layout_path = output / layout["path"]
+        if _sha256(layout_path) != layout["sha256"]:
+            raise ValueError("layout geometry result hash mismatch")
+        gate["layoutGeometry"] = layout
+    with _gate_check(gate, gate_path, "render_receipt_content"):
+        manifest = _record_deal_manifest(artifacts.manifest, selection, bundle, profile)
+        rows = {row["checkpointPhase"]: row for row in manifest["playbackEvidence"]}
+        segments = {row["stage"]: row for row in bundle.value["timeline"]["segments"]}
+        # Thumbnail: the validated renderStill of the first, paused decision frame.
+        thumbnail = output / f"{basename}-thumbnail.png"
+        shutil.copyfile(output / manifest["files"]["playback:hook"]["name"], thumbnail)
+        with Image.open(thumbnail) as image:
+            if image.size != (1080, 1920) or not rows["hook"]["frame"] < segments["setup"]["startFrame"]:
+                raise ValueError("thumbnail must be the portrait paused decision frame")
+        stills = []
+        for index, phase in enumerate(PHASES, start=1):
+            still = output / f"{basename}-qa-{index:02d}-{phase}.png"
+            shutil.copyfile(output / manifest["files"][f"playback:{phase}"]["name"], still)
+            stills.append(still)
+        fps = bundle.value["render"]["fps"]
+        receipt = {
+            "schemaVersion": 1,
+            "status": "awaiting_owner_approval",
+            "postingAuthorized": False,
+            "sourceHead": source_head,
+            "sourceTree": source_tree,
+            "renderAdmission": gate["renderAdmission"],
+            "layoutGeometry": layout,
+            "approvedDesignBinding": gate["approvedDesignBinding"],
+            "approvedDesignBindingStatus": gate["approvedDesignBindingStatus"],
+            "approvedDesignInputs": gate["approvedDesignInputs"],
+            "measuredDesignInputs": gate["measuredDesignInputs"],
+            "designBaseline": gate["designBaseline"],
+            "ownerReleaseRequired": gate["ownerReleaseRequired"],
+            "fixture": selection["source"],
+            "fixtureSha256": _sha256(fixture),
+            "dealIdentifier": selection["identifier"],
+            "dealSeed": selection["requestedSeed"],
+            "nameDraw": manifest["nameDraw"],
+            "synthetic": True,
+            "language": "ar-SA",
+            "caption": CAPTION,
+            "headerText": None if public else {
+                "title": bundle.value["localizations"]["video.notice.title"],
+                "sentence": bundle.value["localizations"]["video.notice.sentence"],
+                "fit": notice_sentence_fit(bundle.value["localizations"]["video.notice.sentence"]),
+                "note": "Design band styling; publish-safe text instead of the audit-only wording.",
+            },
+            "justificationShown": False,
+            "publicResearchNoticeShown": not public,
+            "players": bundle.value["identity"]["players"],
+            "timelineSeconds": {
+                stage: segments[stage]["durationFrames"] / fps for stage in STAGES
+            },
+            "timelineOutline": timeline_outline(bundle.value),
+            "playSeconds": TIMELINE["play_seconds"],
+            "playsToRoundEnd": True,
+            "finalScore": {
+                "matchScore": engine_result["matchScore"],
+                **{key: engine_result["roundScore"][key]
+                   for key in ("cardGamePoints", "projectPoints", "balootPoints", "awardedPoints", "winner")},
+            },
+            "proofScope": "complete_state; this fixture only, not an actor-information-set guarantee",
+            "bundleSha256": bundle.bundle_sha256,
+            "decisionReference": bundle.value["source"]["decisionReference"],
+            "thumbnailFrame": rows["hook"]["frame"],
+            "qaStillFrames": {phase: rows[phase]["frame"] for phase in PHASES},
+        }
+    with _gate_check(gate, gate_path, "provenance_notice"):
+        provenance = _write_provenance_notice(
+            output,
+            source_head=source_head,
+            source_tree=source_tree,
+            error=source_identity_error,
+        )
+    gate["checks"]["provenance_notice"] = provenance
+    gate["status"] = "passed" if provenance["status"] == "passed" else "failed"
+    gate["manifestSha256"] = _sha256(artifacts.manifest)
+    _json_write(gate_path, gate)
+    receipt["renderGate"] = {"path": GATE_RESULT, "sha256": _sha256(gate_path), "status": gate["status"]}
+    deliverables = [artifacts.video, thumbnail, *stills, artifacts.manifest,
+                    output / "provenance-notice.json", gate_path, layout_path,
+                    *[output / manifest["files"][f"layout:{phase}"]["name"] for phase in ("hook", "question", "reveal")]]
+    receipt["files"] = {path.relative_to(output).as_posix(): _sha256(path) for path in deliverables}
     approval = output / "owner-approval.json"
-    approval.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _json_write(approval, receipt)
     deliverables.append(approval)
     sums = output / "SHA256SUMS.txt"
     sums.write_text(
-        "".join(f"{_sha256(path)}  {path.name}\n" for path in deliverables), encoding="utf-8",
+        "".join(f"{_sha256(path)}  {path.relative_to(output).as_posix()}\n" for path in deliverables), encoding="utf-8", newline="\n",
     )
     deliverables.append(sums)
-    provenance = _write_provenance_notice(
-        output,
-        source_head=source_head,
-        source_tree=source_tree,
-        error=source_identity_error,
-    )
     if copy_to is not None:
         copy_to.mkdir(parents=True, exist_ok=True)
-        for path in (*deliverables, output / "provenance-notice.json"):  # one file at a time
-            shutil.copyfile(path, copy_to / path.name)
+        for path in deliverables:  # one file at a time
+            destination = copy_to / path.relative_to(output)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, destination)
     print(approval)
     if provenance["status"] != "passed":
         raise SystemExit(1)

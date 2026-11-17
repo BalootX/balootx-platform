@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "metric": "intersection_width_height_in_composition_pixels",
+  "rows": [
+    {
+      "pair": [
+        "namePills:1",
+        "buyerBadge:0"
+      ],
+      "phase": "hook",
+      "observedMaxWidth": 167.578125,
+      "observedMaxHeight": 3.8251953125,
+      "marginEachAxis": 2
+    },
+    {
+      "pair": [
+        "namePills:1",
+        "buyerBadge:0"
+      ],
+      "phase": "question",
+      "observedMaxWidth": 167.578125,
+      "observedMaxHeight": 3.8251953125,
+      "marginEachAxis": 2
+    },
+    {
+      "pair": [
+        "namePills:1",
+        "buyerBadge:0"
+      ],
+      "phase": "reveal",
+      "observedMaxWidth": 167.578125,
+      "observedMaxHeight": 3.8251953125,
+      "marginEachAxis": 2
+    }
+  ]
+}

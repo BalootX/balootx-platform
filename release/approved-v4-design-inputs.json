@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "status": "owner_approved_design_baseline",
+  "approvedDesignBinding": {
+    "source_head": "730500a25ec15c3f6ffa4cd4f7d8e25f01a13850",
+    "source_tree": "3a775aa0a6be8d06de83409c316793d3ef9f5f58",
+    "reference_run_id": "42040257975",
+    "reference_artifact_id": "13421681354",
+    "reference_mp4_sha256": "15492d3f389fcb07be423fc97a6e46fe0b8e385b5beb173f01073e6d11a87bf9",
+    "variant": "public_v4_no_justification_no_notice"
+  },
+  "approvedDesignInputs": {
+    "configs/video/premium.yaml": "7d69b313e2dd0a2723d0160464275e3051d44393f32c4840030812cb17dbf34e",
+    "src/baloot_platform/video/remotion/src/professional-prototype.tsx": "71c1b9eadad2524b0b583112691a3a3ec59db1654462fff1766f2d50a5ae8a98",
+    "src/baloot_platform/video/remotion/src/style.css": "c924033914a854c863610f31422519abe60d3e7e2d0fe43c41dc51ee477db676"
+  },
+  "scope": "Preserved approved geometry and styles; fixed neutral identity configuration from the public source import. No historical media or publication approval is asserted."
+}

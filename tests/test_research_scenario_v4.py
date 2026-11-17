@@ -2505,38 +2505,22 @@ def test_golden_media_script_cli_is_source_checkout_safe(root: Path) -> None:
     assert "Research V4 golden scenarios" in result.stdout
 
 
-def test_historical_golden_media_is_intact_but_not_currently_admissible(root: Path) -> None:
-    output = root / "outputs" / "research-scenario-v4-goldens"
-    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["exportPreset"] == "hooked_flagship"
-    assert len(manifest["entries"]) == 3
-    assert manifest["entries"][-1]["fixture"] == (
-        "examples/research-scenario-v4-ace-sacrifice-two-aces.json"
+def test_stale_golden_renderer_is_not_currently_admissible(root: Path, rules) -> None:
+    from scripts.render_research_scenario_v4_goldens import GOLDENS, build_golden_bundle
+    profile = yaml.safe_load((root / "configs/video/premium.yaml").read_bytes())
+    name, fixture = GOLDENS[-1]
+    bundle = build_golden_bundle(
+        name=name, fixture_path=fixture, rules=rules,
+        renderer=RemotionProfessionalRenderer(profile, repository_root=root),
+        video_profile_hash=canonical_sha256(profile),
     )
-    for entry in manifest["entries"]:
-        assert entry["exportPreset"] == "hooked_flagship"
-        bundle_path = output / entry["bundle"]
-        assert hashlib.sha256(bundle_path.read_bytes()).hexdigest() == entry[
-            "bundleFileSha256"
-        ]
-        bundle = RenderBundleV1(
-            json.loads(bundle_path.read_text(encoding="utf-8"))
-        )
-        # Historical encoded evidence is not proof against the current renderer.
-        with pytest.raises(ValueError, match="current renderer source"):
-            validate_renderer_identity(bundle.value["renderer"], root=root)
-        assert bundle.verify() is False
-        assert bundle.value["exportPreset"] == "hooked_flagship"
-        assert bundle.value["timeline"]["totalFrames"] == 4320
-        render_manifest = json.loads(
-            (output / entry["renderManifest"]).read_text(encoding="utf-8")
-        )
-        assert render_manifest["exportPreset"] == "hooked_flagship"
-        assert render_manifest["mediaProbe"]["durationSeconds"] == 72.0
-        video_path = output / entry["video"]
-        assert hashlib.sha256(video_path.read_bytes()).hexdigest() == entry[
-            "videoSha256"
-        ]
+    assert bundle.verify() is True
+    stale = json.loads(json.dumps(bundle.value))
+    stale["renderer"]["sourceSha256"] = "0" * 64
+    with pytest.raises(ValueError, match="current renderer source"):
+        validate_renderer_identity(stale["renderer"], root=root)
+    assert RenderBundleV1(stale).verify() is False
+
 
 
 def test_exact_proof_budget_exhaustion_returns_only_incomplete_bounds(

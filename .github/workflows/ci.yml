@@ -55,7 +55,7 @@ jobs:
     steps:
       - name: Install hosted native and media prerequisites
         timeout-minutes: 10
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build ffmpeg fonts-noto-core fonts-noto-extra
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build ffmpeg espeak-ng fonts-noto-core fonts-noto-extra
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
@@ -98,6 +98,7 @@ jobs:
         run: |
           python -m ensurepip --upgrade --default-pip
           python -m pip install -e '.[dev,grpc,security]'
+          python scripts/generate_public_render_audio.py
       - name: Locate npm download cache
         id: npm-cache-paths
         run: |
@@ -197,7 +198,7 @@ jobs:
     steps: &fast-steps
       - name: Install hosted native and media prerequisites
         timeout-minutes: 10
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build ffmpeg fonts-noto-core fonts-noto-extra
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build ffmpeg espeak-ng fonts-noto-core fonts-noto-extra
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 1
@@ -246,6 +247,7 @@ jobs:
         run: |
           python -m ensurepip --upgrade --default-pip
           python -m pip install -e '.[dev,grpc,security]'
+          python scripts/generate_public_render_audio.py
       - name: Locate npm download cache
         id: npm-cache-paths
         run: |
@@ -481,7 +483,7 @@ jobs:
     steps:
       - name: Install hosted native and media prerequisites
         timeout-minutes: 10
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build ffmpeg fonts-noto-core fonts-noto-extra
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build ffmpeg espeak-ng fonts-noto-core fonts-noto-extra
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 1
@@ -514,6 +516,7 @@ jobs:
         run: |
           python -m ensurepip --upgrade --default-pip
           python -m pip install -e '.[dev,grpc,security]'
+          python scripts/generate_public_render_audio.py
       - name: Fingerprint native cache toolchain and absolute paths
         id: native-cache-key
         shell: bash
@@ -596,7 +599,7 @@ jobs:
     steps:
       - name: Install hosted native and media prerequisites
         timeout-minutes: 10
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build ffmpeg fonts-noto-core fonts-noto-extra
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build ffmpeg espeak-ng fonts-noto-core fonts-noto-extra
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:

@@ -43,6 +43,7 @@ from .render_bundle import (
     build_export_timeline,
     build_render_bundle,
     seeded_player_names,
+    validate_decision_clip_admission,
 )
 from .audio_postprocess import finish_remotion_audio
 from .media_validation import (
@@ -830,6 +831,24 @@ class RemotionProfessionalRenderer:
                     _terminate_process_tree(process)
 
     @staticmethod
+    def _layout_evidence(work: Path, bundle_path: Path, repository_root: Path, source_identity: Mapping[str, str] | None) -> dict[str, Any]:
+        script = repository_root / "src/baloot_platform/video/remotion/scripts/layout-gate.mjs"
+        command = ["node", str(script), str(repository_root), str(bundle_path), str(work / "layout-evidence.json")]
+        if source_identity is not None:
+            command.append(json.dumps(source_identity))
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", timeout=30,
+                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        if result.returncode:
+            raise ValueError(f"layout geometry validation failed: {result.stderr[-4000:]}")
+        value = json.loads(result.stdout)
+        bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+        for row in value["items"]:
+            with Image.open(work / row["source"]) as image:
+                if image.size != (bundle["render"]["width"], bundle["render"]["height"]):
+                    raise ValueError("layout geometry PNG dimensions mismatch")
+        return value
+
+    @staticmethod
     def _contact_sheet(stills: list[Path], destination: Path) -> None:
         samples = []
         for path in stills[:6]:
@@ -893,6 +912,7 @@ class RemotionProfessionalRenderer:
         else:
             raise TypeError("Remotion renderer requires EpisodeSpec or RenderBundleV1")
 
+        validate_decision_clip_admission(bundle.value)
         output_dir = Path(kwargs.get("output_dir", "outputs")).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
         basename = str(kwargs.get("basename") or bundle.value["identity"]["gameSerial"])
@@ -912,18 +932,47 @@ class RemotionProfessionalRenderer:
             qr_validation_path = work / "qr-validation.json"
             bundle_path = work / "render-bundle.json"
             _json_write(bundle_path, bundle.to_dict())
-            self._run_renderer(
-                script=self.renderer_root / "scripts" / script_name,
-                environment={
-                    "BALOOTX_RENDER_BUNDLE": str(bundle_path),
-                    "BALOOTX_RENDER_OUTPUT": str(work),
-                    "BALOOTX_RENDER_BASENAME": "render",
-                    "BALOOTX_ASSETS_ROOT": str(self.repository_root / "assets"),
-                    "BALOOTX_BATCH_RENDER": "1",
-                    "BALOOTX_PLAYBACK_EVIDENCE": "1" if playback_evidence else "0",
-                },
-                cancel_event=kwargs.get("cancel_event"),
-            )
+            try:
+                self._run_renderer(
+                    script=self.renderer_root / "scripts" / script_name,
+                    environment={
+                        "BALOOTX_RENDER_BUNDLE": str(bundle_path),
+                        "BALOOTX_RENDER_OUTPUT": str(work),
+                        "BALOOTX_RENDER_BASENAME": "render",
+                        "BALOOTX_ASSETS_ROOT": str(self.repository_root / "assets"),
+                        "BALOOTX_BATCH_RENDER": "1",
+                        "BALOOTX_PLAYBACK_EVIDENCE": "1" if playback_evidence else "0",
+                        **({"BALOOTX_LAYOUT_SOURCE_IDENTITY": json.dumps(kwargs["source_identity"])} if kwargs.get("source_identity") is not None else {}),
+                    },
+                    cancel_event=kwargs.get("cancel_event"),
+                )
+                layout_evidence = self._layout_evidence(work, bundle_path, self.repository_root, kwargs.get("source_identity")) if export_preset == "decision_clip" else None
+            except Exception as error:
+                if export_preset == "decision_clip":
+                    try:
+                        raw_path = work / "layout-evidence.json"
+                        failed = json.loads(raw_path.read_text(encoding="utf-8")) if raw_path.is_file() else {"schemaVersion": 1, "items": []}
+                        for row in failed["items"]:
+                            if Path(row["source"]).name != row["source"]:
+                                raise ValueError("invalid failed layout evidence path")
+                            destination = output_dir / f"{basename}-layout-failed-{row['phase']}.png"
+                            shutil.copyfile(work / row["source"], destination)
+                            row["source"] = destination.name
+                        failed.update(status="failed", error=str(error))
+                        _json_write(output_dir / f"{basename}-layout-failed.json", failed)
+                    except Exception as persistence_error:
+                        error.add_note(f"failed layout evidence could not be persisted: {persistence_error}")
+                raise
+            layout_files: dict[str, Path] = {}
+            if layout_evidence is not None:
+                for row in layout_evidence["items"]:
+                    destination = output_dir / f"{basename}-layout-{row['phase']}.png"
+                    shutil.copyfile(work / row["source"], destination)
+                    row["source"] = destination.name
+                    layout_files[f"layout:{row['phase']}"] = destination
+                layout_path = output_dir / f"{basename}-layout.json"
+                _json_write(layout_path, layout_evidence)
+                layout_files["layoutGeometry"] = layout_path
             audio_finishing = finish_remotion_audio(
                 work / "render.mp4",
                 bundle,
@@ -1067,6 +1116,7 @@ class RemotionProfessionalRenderer:
                 f"scene:{path.stem.rsplit('-', 1)[-1]}": path for path in semantic_files
             },
             **playback_files,
+            **layout_files,
         }
         manifest_value = {
             "schemaVersion": 1,
@@ -1098,6 +1148,10 @@ class RemotionProfessionalRenderer:
             "mediaProbe": media_probe,
             "audioFinishing": audio_finishing,
             "playbackEvidence": playback_rows,
+            "layoutGeometry": ({"status": "passed", "path": layout_path.name, "sha256": _sha256(layout_path),
+                                "mp4Sha256": _sha256(video), "binding": layout_evidence["binding"],
+                                "checks": {row["phase"]: row["validation"] for row in layout_evidence["items"]}}
+                               if layout_evidence is not None else None),
             "files": {
                 key: {
                     "name": path.name,

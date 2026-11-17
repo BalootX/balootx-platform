@@ -41,6 +41,49 @@ def _episode(root: Path):
     )
 
 
+@pytest.mark.parametrize("preset", ["decision_clip", "hooked_flagship"])
+def test_viewer_buyer_renderer_refuses_before_output_or_subprocess(root, tmp_path, monkeypatch, preset):
+    renderer = _renderer(root)
+    episode = _episode(root)
+    bundle = renderer.build_render_request(replace(episode, viewer=episode.final_state.buyer), export_preset=preset)
+    assert bundle.verify()
+    monkeypatch.setattr(renderer, "_run_renderer", lambda **kwargs: pytest.fail("barred bundle reached subprocess"))
+    output = tmp_path / "never-created"
+    with pytest.raises(ValueError, match="viewer=buyer"):
+        renderer.execute(bundle, export_preset=preset, output_dir=output)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("measured", [False, True])
+def test_layout_failure_preserves_measurements_and_original_error(root, tmp_path, monkeypatch, measured):
+    renderer = _renderer(root)
+    bundle = renderer.build_render_request(_episode(root), export_preset="decision_clip")
+    message = "layout gate question: intersections" if measured else "layout measurement unavailable"
+    contact = {"first": "promptPill:0", "second": "buyerBadge:0", "width": 46, "height": 36}
+    failed_validation = {"status": "failed", "intersections": [contact], "designedAdjacencies": [], "disallowedIntersections": [contact]}
+
+    def fail_render(*, script, environment, cancel_event):
+        work = Path(environment["BALOOTX_RENDER_OUTPUT"])
+        if measured:
+            Image.new("RGB", (1, 1)).save(work / "question.png")
+            (work / "layout-evidence.json").write_text(json.dumps({"schemaVersion": 1, "items": [
+                {"phase": "question", "source": "question.png", "frame": 30, "measurementMethod": "synthetic_test_only", "validation": failed_validation}
+            ]}), encoding="utf-8")
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(renderer, "_run_renderer", fail_render)
+    with pytest.raises(RuntimeError, match=message):
+        renderer.execute(bundle, export_preset="decision_clip", output_dir=tmp_path, basename="failure-test")
+    result = json.loads((tmp_path / "failure-test-layout-failed.json").read_text(encoding="utf-8"))
+    assert result["status"] == "failed" and result["error"] == message
+    assert len(result["items"]) == int(measured)
+    if measured:
+        assert (tmp_path / result["items"][0]["source"]).read_bytes().startswith(b"\x89PNG")
+        assert result["items"][0]["validation"] == failed_validation
+    assert not (tmp_path / "failure-test.mp4").exists()
+    assert not (tmp_path / "failure-test-manifest.json").exists()
+
+
 def _publication_policy(*, blockers: list[str]) -> dict[str, object]:
     decision_core = {"schemaVersion": 1, "gatePassed": not blockers}
     video_core = {"schemaVersion": 1, "gatePassed": not blockers}
@@ -340,7 +383,8 @@ def test_playback_evidence_derives_all_complete_trace_boundaries(root: Path, vie
 def test_decision_clip_checks_selected_states_without_claiming_full_replay(root: Path, pause) -> None:
     script = (root / "src/baloot_platform/video/remotion/scripts/render-decision-clip.mjs").read_text(encoding="utf-8")
     # Remotion renders resolved composition props, not just inputProps.
-    assert "props: {...composition.props, capturePlaybackDom: true}" in script
+    assert "props: {...composition.props, ...stillProps}" in script
+    assert "...(captureDom ? {capturePlaybackDom: true} : {})" in script
     renderer = _renderer(root)
     raw = renderer.build_render_request(_episode(root), export_preset="decision_clip").to_dict()
     continuation_scene = next(scene for scene in raw["scenes"] if scene["stage"] == "continuation")
@@ -504,6 +548,20 @@ def test_remotion_plugin_packages_complete_artifacts_from_bundle(
         (output / "render.ar.vtt").write_text("WEBVTT\n\n", encoding="utf-8")
 
     monkeypatch.setattr(renderer, "_run_renderer", fake_render)
+    layout_calls = []
+    # Synthetic packaging payload; actual calibrated geometry is covered by Node fixtures.
+    contact = {"first": "namePills:1", "second": "buyerBadge:0", "width": 144.5625, "height": 3.8251953125}
+    layout_validation = {"status": "passed", "intersections": [contact], "designedAdjacencies": [contact], "disallowedIntersections": []}
+
+    def fake_layout(work, bundle_path, repository_root, source_identity):
+        layout_calls.append("layout")
+        assert not (tmp_path / "decision-test.mp4").exists() or len(layout_calls) > 1
+        return {"status": "passed", "binding": {}, "items": [
+            {"phase": phase, "source": f"{name}.png", "validation": layout_validation}
+            for phase, name in (("hook", "01-hook"), ("question", "04-decision"), ("reveal", "05-reveal"))
+        ]}
+
+    monkeypatch.setattr(renderer, "_layout_evidence", fake_layout)
     monkeypatch.setattr(renderer, "_ffprobe", lambda: Path("ffprobe"))
     audio_evidence = {
         "status": "passed",
@@ -554,6 +612,10 @@ def test_remotion_plugin_packages_complete_artifacts_from_bundle(
     assert manifest["bundleSha256"] == bundle.bundle_sha256
     assert manifest["timelineSha256"] == bundle.value["timeline"]["timelineSha256"]
     assert manifest["audioFinishing"] == audio_evidence
+    assert layout_calls == ["layout"]
+    assert manifest["layoutGeometry"]["mp4Sha256"] == remotion_renderer_module._sha256(artifacts.video)
+    assert manifest["files"]["layoutGeometry"]["sha256"]
+    assert manifest["layoutGeometry"]["checks"] == {phase: layout_validation for phase in ("hook", "question", "reveal")}
     assert manifest["source"] is None
     assert manifest["sourceSha256"] is None
     assert "exactStateId" not in manifest
@@ -706,6 +768,7 @@ def test_remotion_subprocess_retains_bounded_failure_diagnostics(
         "_command",
         lambda script: [
             sys.executable,
+            "-X", "utf8",
             "-c",
             f"import sys; sys.{stream}.write('x' * 65536 + {message!r}); sys.exit(3)",
         ],

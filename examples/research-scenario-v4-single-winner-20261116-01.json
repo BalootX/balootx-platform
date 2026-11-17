@@ -1,0 +1,198 @@
+{
+  "exactTracePrefix": {
+    "auctionActions": [
+      {
+        "action": "sun",
+        "actor": "north"
+      }
+    ],
+    "dealer": "east",
+    "deckOrder": [
+      30,
+      17,
+      9,
+      19,
+      22,
+      25,
+      31,
+      28,
+      23,
+      4,
+      10,
+      5,
+      15,
+      18,
+      11,
+      14,
+      24,
+      12,
+      6,
+      2,
+      1,
+      21,
+      3,
+      27,
+      8,
+      7,
+      13,
+      0,
+      16,
+      20,
+      26,
+      29
+    ],
+    "escalationActions": [],
+    "matchScore": [
+      0,
+      0
+    ],
+    "playActions": [
+      {
+        "actor": "north",
+        "card": "DQ"
+      },
+      {
+        "actor": "west",
+        "card": "D10"
+      },
+      {
+        "actor": "south",
+        "card": "DA"
+      },
+      {
+        "actor": "east",
+        "card": "DJ"
+      },
+      {
+        "actor": "south",
+        "card": "CJ"
+      },
+      {
+        "actor": "east",
+        "card": "C9"
+      },
+      {
+        "actor": "north",
+        "card": "CK"
+      },
+      {
+        "actor": "west",
+        "card": "C10"
+      },
+      {
+        "actor": "west",
+        "card": "DK"
+      },
+      {
+        "actor": "south",
+        "card": "D7"
+      },
+      {
+        "actor": "east",
+        "card": "SK"
+      },
+      {
+        "actor": "north",
+        "card": "D8"
+      },
+      {
+        "actor": "west",
+        "card": "H7"
+      },
+      {
+        "actor": "south",
+        "card": "HQ"
+      },
+      {
+        "actor": "east",
+        "card": "H9"
+      },
+      {
+        "actor": "north",
+        "card": "H8"
+      },
+      {
+        "actor": "south",
+        "card": "HJ"
+      },
+      {
+        "actor": "east",
+        "card": "SJ"
+      },
+      {
+        "actor": "north",
+        "card": "HA"
+      },
+      {
+        "actor": "west",
+        "card": "H10"
+      },
+      {
+        "actor": "north",
+        "card": "D9"
+      }
+    ],
+    "projectAssertions": [],
+    "projectDeclarations": [],
+    "roundNumber": 1,
+    "schemaVersion": 1,
+    "stateAssertions": {
+      "phase": "playing"
+    }
+  },
+  "expected": {
+    "actingSeat": "west",
+    "buyer": "north",
+    "claimSatisfied": true,
+    "completionStatus": "exact_complete",
+    "contract": "sun",
+    "legalRootActions": [
+      "C8",
+      "HK",
+      "SA"
+    ],
+    "phase": "playing",
+    "principalVariation": [
+      "C8",
+      "S7",
+      "S9",
+      "S8",
+      "SA",
+      "C7",
+      "SQ",
+      "HK",
+      "CA",
+      "CQ",
+      "S10"
+    ],
+    "rootValues": {
+      "C8": 1.0,
+      "HK": -1.0,
+      "SA": -1.0
+    },
+    "selectedAction": "C8",
+    "winningRootActionCount": 1
+  },
+  "proof": {
+    "budgetProfile": "late_game_exact_v1",
+    "claim": "selected_action_is_unique_winner",
+    "lineUniverse": "all_legal",
+    "mode": "exact",
+    "schemaVersion": 1,
+    "selectedAction": "C8",
+    "successThreshold": 1,
+    "targetTeam": "west_east",
+    "utility": "round_win",
+    "visibility": "complete_state"
+  },
+  "rulesMeaning": {
+    "actingSeat": "west",
+    "buyer": "north",
+    "contract": "sun",
+    "successMeaning": "west_east wins the round",
+    "successThreshold": 1
+  },
+  "scenarioId": "sun-single-winner-20261116-01-v1",
+  "schemaVersion": 1,
+  "titleAr": "?????? ?????? ????? ????? ??? ????"
+}

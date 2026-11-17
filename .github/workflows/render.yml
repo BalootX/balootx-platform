@@ -1,0 +1,102 @@
+name: Hosted render
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-render-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Install public speech and test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends espeak-ng ffmpeg
+          python -m pip install -e '.[dev,grpc,security]'
+          python scripts/generate_public_render_audio.py
+      - name: Check render contracts without a browser
+        run: |
+          python -m pytest -q tests/test_public_render.py tests/test_research_notice.py tests/test_remotion_renderer.py tests/test_render_bundle.py
+          python -m pytest -q tests/test_research_scenario_v4.py -k stale_golden_renderer
+          python -m pytest -q tests/test_video_motion_release.py -k voice_pack
+      - name: Install pinned renderer
+        working-directory: src/baloot_platform/video/remotion
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check TypeScript and renderer tests
+        working-directory: src/baloot_platform/video/remotion
+        run: |
+          npm run typecheck
+          node --test --test-concurrency=4 tests/*.test.mjs
+
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        deal: [sun-single-winner-20261116-01-v1, sun-hundred-project-ace-sacrifice-two-aces-v1]
+    env:
+      PYTHONPATH: src
+      OMP_NUM_THREADS: '4'
+      SOURCE_DATE_EPOCH: '315532800'
+      BALOOT_RENDER_TIMEOUT_SECONDS: '3600'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Install hosted render runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng fonts-noto-core fonts-noto-extra
+          python -m pip install -e '.[grpc,security]'
+          python scripts/generate_public_render_audio.py
+      - name: Install pinned renderer
+        working-directory: src/baloot_platform/video/remotion
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Render and validate synthetic candidate
+        env:
+          DEAL: ${{ matrix.deal }}
+        run: |
+          python -B -m scripts.render_research_notice --public --deal-id "$DEAL" \
+            --output .local-state/hosted-render \
+            --source-head "$(git rev-parse HEAD)" --source-tree "$(git rev-parse 'HEAD^{tree}')"
+          (cd .local-state/hosted-render && sha256sum -c SHA256SUMS.txt)
+      - name: Retain generated render and speech provenance
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-render-${{ matrix.deal }}
+          include-hidden-files: true
+          path: |
+            .local-state/hosted-render
+            assets/audio/voice_packs/ar_sa_baloot_v1/generated-manifest.json
+            assets/audio/voice_packs/ar_sa_baloot_v2_smooth/manifest.json
+          if-no-files-found: error
+          retention-days: 7
