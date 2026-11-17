@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {existsSync, readFileSync} from 'node:fs';
-import {resolve} from 'node:path';
+import {resolve, isAbsolute} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {parseArgs} from 'node:util';
 import {spawn} from 'node:child_process';
@@ -12,6 +12,9 @@ import {readPost, postCaptionDom, tiktokPostDom} from './post-readback.mjs';
 
 export function schedulePlan(runtime) {
   assertActivated(runtime);
+  const adapterPath = runtime.config.operatorAdapterPath;
+  assert(adapterPath && isAbsolute(adapterPath) &&
+    sha(readFileSync(adapterPath)) === runtime.config.operatorAdapterSha256, 'PINNED_LOCAL_ADAPTER_REQUIRED');
   const b = runtime.binding;
   return b.platforms.map(platform => ({taskId: b.scheduledTaskId + '-' + platform.toLowerCase(),
     dueUtc: b.slotUtc, maxAttempts: 1, command: [process.execPath, fileURLToPath(import.meta.url),
@@ -21,7 +24,7 @@ export function schedulePlan(runtime) {
 
 export async function operatorAdapter(runtime, name, argument) {
   const path = runtime.config[name + 'Path'];
-  assert(path && runtime.config[name + 'Sha256'] === sha(readFileSync(path)), 'PINNED_LOCAL_ADAPTER_REQUIRED');
+  assert(path && isAbsolute(path) && runtime.config[name + 'Sha256'] === sha(readFileSync(path)), 'PINNED_LOCAL_ADAPTER_REQUIRED');
   const adapter = await import(pathToFileURL(path).href);
   assert(typeof adapter.default === 'function', 'LOCAL_ADAPTER_FUNCTION_REQUIRED');
   return adapter.default(argument);
@@ -102,7 +105,12 @@ export async function runAction(client, action, {url} = {}) {
       parsed.pathname.match(/^\/(?:[A-Za-z0-9._]+\/)?(?:reel|p)\/([A-Za-z0-9_-]+)\/$/);
     assert(match && (platform !== 'TikTok' || match[1] === b.account), 'ACTUAL_PERMALINK_REQUIRED');
     const account = load(resolve(b.evidenceRoot, key + '-account.json'));
-    assert(!account.baselinePosts.some(post => post.url === url), 'NEW_POST_URL_REQUIRED');
+    assert(!account.baselinePosts.some(post => {
+      const previous = new URL(post.url);
+      const parts = platform === 'TikTok' ? previous.pathname.match(/^\/@[^/]+\/video\/([0-9]+)$/) :
+        previous.pathname.match(/^\/(?:[A-Za-z0-9._]+\/)?(?:reel|p)\/([A-Za-z0-9_-]+)\/$/);
+      return previous.origin === parsed.origin && parts?.at(-1) === match.at(-1);
+    }), 'NEW_POST_URL_REQUIRED');
     const deadline = Date.parse(intent.reservedAtUtc) + 120000;
     assert(Date.now() < deadline, 'CAPTION_120S_DEADLINE');
     await client.op('navigate', url);

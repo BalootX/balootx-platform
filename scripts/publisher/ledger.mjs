@@ -14,13 +14,16 @@ export function validateLedger(ledger, account) {
     assert(row.deal && Number.isFinite(Date.parse(row.slotUtc)), 'LEDGER_RELEASE_SCOPE');
     assert(/^[a-f0-9]{64}$/.test(row.artifactSha256) && /^[a-f0-9]{64}$/.test(row.captionSha256), 'LEDGER_DIGEST');
     assert(row.scenarioFamily && row.visibleOpenerSha256 === visibleFingerprint(row.visibleOpener), 'LEDGER_FINGERPRINT');
-    const key = row.platform + ':' + row.artifactSha256;
-    assert(!keys.has(key), 'DUPLICATE_PLATFORM_ARTIFACT');
+    const key = row.platform + ':' + (row.id || row.deal + ':' + row.artifactSha256 + ':' + row.slotUtc);
+    assert(!keys.has(key), 'DUPLICATE_LEDGER_IDENTITY');
     keys.add(key);
     if (row.id || row.url) assert(row.id && row.url, 'INCOMPLETE_POST_IDENTITY');
     if (row.status === 'POSTED_ACTUAL_CAPTION_CONFIRMED') {
-      assert(row.id && row.url && Number.isFinite(Date.parse(row.postedAtUtc)), 'ACTUAL_POST_REQUIRED');
-      assert(row.applicationAcknowledged === true && row.actualCaptionSha256 === row.captionSha256, 'ACTUAL_ACK_AND_CAPTION_REQUIRED');
+      const posted = row.postedAtUtc || row.publishedAtUtc || row.postedAtUtcRange?.at(-1) ||
+        row.publishedAtUtcCandidates?.at(-1) || row.postedAtUtcCandidates?.at(-1);
+      assert(row.id && row.url && Number.isFinite(Date.parse(posted)), 'ACTUAL_POST_REQUIRED');
+      if (row.applicationAcknowledged !== undefined) assert(row.applicationAcknowledged === true, 'ACTUAL_ACK_AND_CAPTION_REQUIRED');
+      if (row.actualCaptionSha256 !== undefined) assert.equal(row.actualCaptionSha256, row.captionSha256, 'ACTUAL_ACK_AND_CAPTION_REQUIRED');
     }
   }
   return ledger;
@@ -56,7 +59,8 @@ export function confirmPost(path, expectedSha256, binding, platform, post) {
   assert(post.applicationAcknowledged === true && post.exact === true && post.within120s === true &&
     post.actualCaptionSha256 === binding.captionSha256 && sha(post.actualCaption) === binding.captionSha256 &&
     post.id && post.url && Number.isFinite(Date.parse(post.postedAtUtc)), 'ACTUAL_ACK_AND_EXACT_CAPTION_REQUIRED');
-  Object.assign(row, post, {status: 'POSTED_ACTUAL_CAPTION_CONFIRMED'});
+  Object.assign(row, {id: post.id, url: post.url, postedAtUtc: post.postedAtUtc, applicationAcknowledged: true,
+    actualCaptionSha256: post.actualCaptionSha256, status: 'POSTED_ACTUAL_CAPTION_CONFIRMED'});
   validateLedger(ledger, binding.account);
   const temporary = join(dirname(path), '.' + randomUUID() + '.json');
   writeExclusive(temporary, ledger);

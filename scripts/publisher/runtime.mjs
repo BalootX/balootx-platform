@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFileSync, realpathSync} from 'node:fs';
 import {isAbsolute, relative, resolve, sep} from 'node:path';
-import {fileURLToPath} from 'node:url';
 import {sha, releaseAuthority, historyAdmission} from './policy.mjs';
 import {approvedCaption} from './captions.mjs';
 import {currentRow} from './ledger.mjs';
@@ -22,7 +21,27 @@ export function localConfig(path, env = process.env) {
   const url = new URL(config.controlUrl);
   assert(url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.port && url.pathname === '/' &&
     !url.username && !url.password && !url.search && !url.hash, 'LOOPBACK_CONTROL_REQUIRED');
-  return {config, configPath: path, binding: load(config.bindingPath)};
+  const binding = load(config.bindingPath);
+  assert(Array.isArray(binding.platforms) && binding.platforms.length > 0 &&
+    binding.platforms.every(platform => ['Instagram', 'TikTok'].includes(platform)), 'LOCAL_PLATFORMS_REQUIRED');
+  assert(Array.isArray(config.protectedTargetIds) && Array.isArray(config.allowedOrigins), 'LOCAL_TARGET_AND_ORIGIN_SCOPE_REQUIRED');
+  assert(config.allowedOrigins.length > 0 && config.allowedOrigins.every(origin => {
+    const parsed = new URL(origin);
+    return parsed.origin !== 'null' && parsed.origin === origin && parsed.protocol === 'https:';
+  }), 'EXACT_HTTPS_ORIGINS_REQUIRED');
+  assert(typeof config.profileSuffix === 'string' && config.profileSuffix.length > 0 &&
+    /^chrome:\/\/version\/?$/.test(config.profileCheckUrl), 'LOCAL_PROFILE_CONFIG_REQUIRED');
+  for (const platform of binding.platforms) {
+    for (const group of ['profileUrls', 'uploadUrls']) {
+      const parsed = new URL(config[group]?.[platform]);
+      assert(config.allowedOrigins.includes(parsed.origin) && !parsed.username && !parsed.password &&
+        !parsed.search && !parsed.hash, 'EXACT_PLATFORM_URL_REQUIRED');
+    }
+    assert(Array.isArray(config.applicationAckTexts?.[platform]) && config.applicationAckTexts[platform].length > 0 &&
+      config.applicationAckTexts[platform].every(text => typeof text === 'string' && text.trim()), 'APPLICATION_ACK_CONFIG_REQUIRED');
+  }
+  assert(config.startUrl === config.profileCheckUrl || config.allowedOrigins.includes(new URL(config.startUrl).origin), 'LOCAL_START_URL_REQUIRED');
+  return {config, configPath: path, binding};
 }
 
 export function assertDue(binding, nowMs = Date.now()) {
@@ -70,7 +89,7 @@ export function guard(runtime) {
 }
 
 export function validatePacket(runtime, platform, {admission = true} = {}) {
-  guard(runtime);
+  const claim = guard(runtime);
   const b = runtime.binding;
   assert(b.platforms.includes(platform), 'EXPLICIT_PLATFORM_REQUIRED');
   for (const [path, digest] of Object.entries(b.inputPins)) assert.equal(sha(readFileSync(path)), digest, 'STATIC_PACKET_BINDING');
@@ -90,6 +109,10 @@ export function validatePacket(runtime, platform, {admission = true} = {}) {
     request.candidate.slotUtc === b.slotUtc && request.candidate.visibleFingerprintSha256 === b.opener.sha256, 'CONTENT_CANDIDATE');
   assert.equal(sha(readFileSync(b.contentRequestPath)), b.contentRequestSha256, 'CONTENT_REQUEST_BINDING');
   assert.equal(sha(readFileSync(b.contentHandoffPath)), b.contentHandoffSha256, 'CONTENT_HANDOFF_BINDING');
+  const receiving = load(b.receivingPath);
+  assert.equal(receiving.status, 'PASS_ROOT_RECEIVING_CORRECTED_OFFLINE_SUCCESSORS', 'QUALIFIED_CONTENT_RECEIVING');
+  assert(receiving.results.some(row => row.deal === b.dealNumber && row.requestSha256 === b.contentRequestSha256 &&
+    row.handoffSha256 === b.contentHandoffSha256), 'RECEIVING_CONTENT_BINDING');
   const ledgerBytes = readFileSync(b.ledgerPath), ledgerSha256 = sha(ledgerBytes), ledger = JSON.parse(ledgerBytes);
   currentRow(b, ledger, platform);
   let history;
@@ -97,7 +120,8 @@ export function validatePacket(runtime, platform, {admission = true} = {}) {
     const proof = load(ownedPath(b.evidenceRoot, b.admissionProofPaths[platform]));
     const account = load(ownedPath(b.evidenceRoot, resolve(b.evidenceRoot, platform.toLowerCase() + '-account.json')));
     assert(proof.session?.targetId === account.binding.targetId &&
-      proof.session?.claimSha256 === account.binding.claimSha256, 'ACTUAL_PREDECESSOR_ACCOUNT_SESSION');
+      proof.session?.claimSha256 === account.binding.claimSha256 &&
+      proof.session?.claimSha256 === claim.claimSha256, 'ACTUAL_PREDECESSOR_ACCOUNT_SESSION');
     history = historyAdmission(b, ledger, platform, {authority: release, ledgerSha256, actualPredecessor: proof});
     for (const pin of [...proof.evidence, ...(proof.familyReassessment?.evidence || [])]) {
       assert.equal(sha(readFileSync(ownedPath(b.evidenceRoot, pin.path))), pin.sha256, 'FRESH_ADMISSION_EVIDENCE_CHANGED');

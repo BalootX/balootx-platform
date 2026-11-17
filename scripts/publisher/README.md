@@ -40,7 +40,7 @@ The binding carries `platforms`, `account`, `dealNumber`, `deal`, `slotUtc`,
 `approvalPath`, `originalCaptionSha256`, `manifestPath`, `captionPath`,
 `captionSha256`, `captionCharacters`, `captionUtf8Bytes`, `captionPoolIndex`,
 `releasePath`, `releaseSha256`, `contentRequestPath`, `contentRequestSha256`,
-`contentHandoffPath`, `contentHandoffSha256`, `executionPinPath`, `evidenceRoot`,
+`contentHandoffPath`, `contentHandoffSha256`, `receivingPath`, `executionPinPath`, `evidenceRoot`,
 `ledgerPath`, `admissionProofPaths`, `opener`, `familyCases`, `knownMinimumIds`,
 and `inputPins`. File paths are absolute local paths. The reviewed execution pin
 binds the exact configuration, binding, current release, task, slot, platforms,
@@ -58,7 +58,8 @@ The ledger contract is [publisher-ledger-v1.json](../../schemas/publisher-ledger
 It contains every known post, including removed posts, plus the released rows.
 Local history imports must retain their post identity, caption hash, observed
 opening cards, fingerprint, scenario family and actual posting time. Confirmed
-rows also carry the application acknowledgment and actual caption hash.
+new rows also carry the application acknowledgment and actual caption hash;
+existing confirmed history can retain its original fields.
 Do not remove history to admit a repeated opening. No live ledger is shipped.
 
 ## Operator commands

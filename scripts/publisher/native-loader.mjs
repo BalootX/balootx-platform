@@ -35,7 +35,7 @@ process.env.CDP_CTL_PORT = new URL(publisherRuntime.config.controlUrl).port;
         const { op, arg } = JSON.parse(body || '{}');
         if(op === 'navigate') {
           const url = new URL(arg);
-          if(url.origin === 'null' || !publisherRuntime.config.allowedOrigins.includes(url.origin)) throw Error('NAVIGATION_ORIGIN_REQUIRED');
+          if(arg !== publisherRuntime.config.profileCheckUrl && (url.origin === 'null' || !publisherRuntime.config.allowedOrigins.includes(url.origin))) throw Error('NAVIGATION_ORIGIN_REQUIRED');
         }
         if(!['navigate','url','title','eval','text','front','quit','binding','native'].includes(op)) throw Error('OPERATION_NOT_ALLOWED');`;
   const route = `else if(op === 'binding') out = JSON.stringify({targetId, ...publisherClaim});
@@ -49,11 +49,9 @@ process.env.CDP_CTL_PORT = new URL(publisherRuntime.config.controlUrl).port;
 }
 
 export async function load(url, context, nextLoad) {
-  const result = await nextLoad(url, context);
-  // Loading a test module does not read local configuration or load the helper.
-  if (!process.env.PUBLISHER_CONFIG) return result;
   const runtime = localConfig(process.env.PUBLISHER_CONFIG);
-  if (url !== pathToFileURL(runtime.config.helperPath).href) return result;
+  if (url !== pathToFileURL(runtime.config.helperPath).href) return nextLoad(url, context);
   guard(runtime);
+  const result = await nextLoad(url, context);
   return {...result, source: extend(String(result.source), runtime)};
 }

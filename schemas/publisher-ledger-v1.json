@@ -36,7 +36,7 @@
         },
         "allOf": [{
           "if": {"properties": {"status": {"const": "POSTED_ACTUAL_CAPTION_CONFIRMED"}}},
-          "then": {"required": ["id", "url", "postedAtUtc", "applicationAcknowledged", "actualCaptionSha256"], "properties": {"applicationAcknowledged": {"const": true}}}
+          "then": {"required": ["id", "url"], "anyOf": [{"required": ["postedAtUtc"]}, {"required": ["publishedAtUtc"]}, {"required": ["postedAtUtcRange"]}, {"required": ["publishedAtUtcCandidates"]}, {"required": ["postedAtUtcCandidates"]}], "properties": {"applicationAcknowledged": {"const": true}}}
         }, {
           "if": {"properties": {"status": {"const": "RELEASED_SLOT_BOUND_CAPTION_PATH_CONFIRMED"}}},
           "then": {"required": ["maxPosts", "scheduledTaskId", "releaseReceipt"]}

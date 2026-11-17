@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {sha} from './policy.mjs';
-import {guard, validatePacket} from './runtime.mjs';
+import {guard, validatePacket, load} from './runtime.mjs';
 import {pageState, pointerTarget, composerDom, qualify} from './dom.mjs';
 import {waitThenJudge} from './readiness.mjs';
 import {writeExclusive} from './ledger.mjs';
@@ -41,6 +40,7 @@ export function createClient(runtime, platform) {
   }
   async function composer(exact = false) {
     const identity = validatePacket(runtime, platform);
+    await ownSession();
     const result = await waitProof('active-composer', async () => {
       const state = await inspect();
       assert(!state.blocker, 'OWNER_ONLY_PROMPT');
@@ -58,11 +58,18 @@ export function createClient(runtime, platform) {
   }
   async function attach(selector) {
     const proof = validatePacket(runtime, platform);
+    await ownSession();
     const doc = await native('DOM.getDocument');
     const node = await native('DOM.querySelector', {nodeId: doc.root.nodeId, selector});
     assert(node.nodeId, 'FILE_INPUT_MISSING');
     await native('DOM.setFileInputFiles', {nodeId: node.nodeId, files: [b.mediaPath]});
     return {sha256: proof.sha256, bytes: proof.bytes, binding: await op('binding')};
+  }
+  async function ownSession() {
+    const session = await op('binding');
+    const account = load(resolve(b.evidenceRoot, platform.toLowerCase() + '-account.json'));
+    assert(account.binding.targetId === session.targetId && account.binding.claimSha256 === session.claimSha256, 'ACCOUNT_SESSION_CHANGED');
+    return session;
   }
   return {runtime, platform, save, op, dom, native, inspect, waitProof, focus, click, composer, fill, attach};
 }

@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {pointerTarget} from '../../scripts/publisher/dom.mjs';
+globalThis.innerWidth=1368;globalThis.innerHeight=886;
+let y=1493,occluded=false,disabled=false,scroll=true,child=false,pointerEvents='auto';
+const label={};
+const e={tagName:'BUTTON',innerText:'Post',scrollIntoView(){if(scroll)y=400},getBoundingClientRect(){return{x:280,y,width:200,height:36}},contains(n){return n===label},closest(s){return s.startsWith('button,')?e:null},get disabled(){return disabled},getAttribute(){return 'false'}};
+globalThis.location={origin:'https://www.tiktok.com',pathname:'/tiktokstudio/upload'};
+globalThis.getComputedStyle=()=>({pointerEvents});
+globalThis.document={querySelector(){return e},elementFromPoint(){return occluded?{}:child?label:e}};
+let p=pointerTarget('#post');assert.equal(p.x,380);assert.equal(p.y,418);assert(p.sameTarget&&p.enabled);assert.equal(p.viewport.height,886);
+child=true;assert(pointerTarget('#post').containedLabel);child=false;
+document.querySelector=()=>({closest(){return e}});assert.equal(pointerTarget('#svg-label').interactiveTag,'BUTTON');document.querySelector=()=>e;
+y=1493;scroll=false;assert.throws(()=>pointerTarget('#post'),/NOT_IN_VIEW/);
+scroll=true;occluded=true;assert.throws(()=>pointerTarget('#post'),/OCCLUDED/);
+occluded=false;disabled=true;assert.throws(()=>pointerTarget('#post'),/DISABLED/);
+disabled=false;pointerEvents='none';assert.throws(()=>pointerTarget('#post'),/DISABLED/);
+console.log('PASS: scroll below-fold control, fresh geometry and contained-label hit; refuse offscreen, occluded, disabled or pointer-blocked controls. Shared Instagram/TikTok path.');
