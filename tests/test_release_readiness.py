@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from baloot_platform.benchmark import canonical_sha256
 from scripts import generate_security_report as security_report
 
@@ -22,11 +24,24 @@ def _load():
     return module
 
 
+@pytest.fixture(scope="module")
+def candidate_corpus(tmp_path_factory):
+    """Synthetic contract data; no private holdout or qualification evidence."""
+    positions = [{
+        "candidateId": f"synthetic-{index}",
+        "stateSha256": canonical_sha256({"syntheticPosition": index}),
+        "observer": "north", "legalActions": ["SA", "H7"],
+    } for index in range(500)]
+    header = {"datasetId": "synthetic-release-readiness-unit-fixture",
+              "candidateCount": len(positions), "datasetSha256": canonical_sha256(positions)}
+    path = tmp_path_factory.mktemp("release-readiness") / "candidates.jsonl"
+    path.write_text("".join(json.dumps(row) + "\n" for row in [header, *positions]), encoding="utf-8")
+    return _load().load_candidate_jsonl(path)
 
 
-def test_exact_evidence_is_integrity_and_state_bound(tmp_path: Path) -> None:
+def test_exact_evidence_is_integrity_and_state_bound(tmp_path: Path, candidate_corpus) -> None:
     module = _load()
-    candidates = module.load_candidate_jsonl(module.DEFAULT_CANDIDATES)
+    candidates = candidate_corpus
     candidate = candidates["positions"][0]
     value = {
         "schemaVersion": 1,
@@ -55,9 +70,9 @@ def test_exact_evidence_is_integrity_and_state_bound(tmp_path: Path) -> None:
     assert result["exactLabelCount"] == 1
 
 
-def test_missing_external_adjudication_is_pending_not_approved(tmp_path: Path) -> None:
+def test_missing_external_adjudication_is_pending_not_approved(tmp_path: Path, candidate_corpus) -> None:
     module = _load()
-    candidates = module.load_candidate_jsonl(module.DEFAULT_CANDIDATES)
+    candidates = candidate_corpus
     result = module._holdout_gate(
         tmp_path / "missing.jsonl",
         candidates,
@@ -127,9 +142,9 @@ def test_source_gate_ignores_evidence_but_rejects_product_changes(
         subprocess.run(["git", "restore", relative], cwd=tmp_path, check=True)
 
 
-def test_holdout_gate_rejects_forged_manifest(tmp_path: Path) -> None:
+def test_holdout_gate_rejects_forged_manifest(tmp_path: Path, candidate_corpus) -> None:
     module = _load()
-    candidates = module.load_candidate_jsonl(module.DEFAULT_CANDIDATES)
+    candidates = candidate_corpus
     value = {
         "schemaVersion": 1,
         "datasetId": "forged",
@@ -164,9 +179,9 @@ def test_holdout_gate_rejects_forged_manifest(tmp_path: Path) -> None:
     assert result["reason"] == "holdout manifest hash mismatch"
 
 
-def test_holdout_gate_accepts_integrity_bound_adjudication(tmp_path: Path) -> None:
+def test_holdout_gate_accepts_integrity_bound_adjudication(tmp_path: Path, candidate_corpus) -> None:
     module = _load()
-    candidates = module.load_candidate_jsonl(module.DEFAULT_CANDIDATES)
+    candidates = candidate_corpus
     positions = []
     for index, candidate in enumerate(candidates["positions"][:500]):
         action = candidate["legalActions"][0]

@@ -5982,14 +5982,14 @@ def _resolve_quality_continuation_v1(
     def stopped() -> bool:
         return bool(cancel_check is not None and cancel_check()) or cpu_time() >= cpu_deadline
 
-    def remaining(limit: float) -> float:
+    def remaining(limit: float, maximum: float = maximum_decision_seconds) -> float:
         if cancel_check is not None and cancel_check():
             raise InformationSetCompilationStopped("cancelled", stage=stage)
         if cpu_deadline != math.inf and cpu_time() >= cpu_deadline:
             raise InformationSetCompilationStopped("maximum_cpu_seconds", stage=stage)
         if evidence_bytes >= maximum_evidence_bytes:
             raise InformationSetCompilationStopped("maximum_evidence_bytes", stage=stage)
-        value = min(deadline, limit) - time.monotonic()
+        value = min(maximum, min(deadline, limit) - time.monotonic())
         if value <= 0:
             raise InformationSetCompilationStopped("maximum_seconds", stage=stage)
         return value
@@ -6006,7 +6006,7 @@ def _resolve_quality_continuation_v1(
             normalization_seconds = min(normalization_seconds, budgets[initial_request.budget_profile].maximum_wall_seconds)
         normalized = normalize_current(
             current,
-            maximum_seconds=remaining(time.monotonic() + normalization_seconds),
+            maximum_seconds=remaining(time.monotonic() + normalization_seconds, normalization_seconds),
             cancel_check=cancel_check,
         )
         initial_normalization_seconds = time.monotonic() - normalization_started
@@ -6170,7 +6170,7 @@ def _resolve_quality_continuation_v1(
                         incumbent = execution_budget.bid_incumbent_proof
                         pair_synthesis = OrToolsActorInformationSetCompilerV1(rules, native_cp_sat=True)._synthesize_complete_state_policy_pair(
                             normalized, current, pair_request, budget=budget,
-                            maximum_seconds=remaining(decision_deadline), maximum_nodes=nodes,
+                            maximum_seconds=remaining(decision_deadline, declared_decision_seconds), maximum_nodes=nodes,
                             maximum_evidence_bytes=maximum_evidence_bytes - evidence_bytes,
                             cancel_check=proof_cancel_check,
                             **({"play_policies": incumbent["playPolicies"]}
@@ -6189,7 +6189,7 @@ def _resolve_quality_continuation_v1(
                         paired_policy_proofs = pair_synthesis["proofs"]
                 if paired_policy_proofs is not None and normalized.decision_kind == "project":
                     _, policy_artifact = _forced_quality_artifact_v1(normalized, request,
-                        actual_action=request.selected_action, maximum_seconds=remaining(decision_deadline),
+                        actual_action=request.selected_action, maximum_seconds=remaining(decision_deadline, declared_decision_seconds),
                         cancel_check=proof_cancel_check, source_prefix=current)
                 elif paired_policy_proofs is not None:
                     from .result_authority import (verify_native_complete_state_policy_pair_v1,
@@ -6253,7 +6253,7 @@ def _resolve_quality_continuation_v1(
                     policy_artifact = _complete_state_quality_artifact_v1(
                         rules, normalized, current, decision, request,
                         maximum_nodes=nodes, maximum_depth=depth,
-                        maximum_seconds=remaining(decision_deadline), cancel_check=proof_cancel_check,
+                        maximum_seconds=remaining(decision_deadline, declared_decision_seconds), cancel_check=proof_cancel_check,
                         opportunity_order=opportunity_order, budget=budget,
                         execution_budget=execution_budget, progress_callback=checkpoint_callback,
                         _search_generated=search_generated,
@@ -6272,7 +6272,7 @@ def _resolve_quality_continuation_v1(
                 policy_artifact = select_bid(rules, normalized, current, request,
                     budget=budget, execution_budget=execution_budget,
                     maximum_conflicts=search_budget_profiles[request.budget_profile]["maximumConflicts"],
-                    maximum_depth=depth, maximum_seconds=remaining(decision_deadline), cancel_check=proof_cancel_check,
+                    maximum_depth=depth, maximum_seconds=remaining(decision_deadline, declared_decision_seconds), cancel_check=proof_cancel_check,
                     progress_callback=checkpoint_callback,
                     **({"_search_generated": search_generated} if not auditing else {}))
                 timing["nativeExecutionSeconds"] = time.monotonic() - stage_started
@@ -6294,7 +6294,7 @@ def _resolve_quality_continuation_v1(
                     for _ in range(selector["position"]):
                         preferred_completed_trick_winner = preferred_completed_trick_winner.previous()
                 admissible_actions = (_admissible_play_actions(
-                    current, normalized, lambda: remaining(decision_deadline))
+                    current, normalized, lambda: remaining(decision_deadline, declared_decision_seconds))
                     if _admissible_play_actions is not None and not auditing
                     and request.mode == "bounded" and not featured_now else None)
                 policy_artifact, proof, native_execution, timing_kind = _select_quality_play_action_v1(
@@ -6305,7 +6305,7 @@ def _resolve_quality_continuation_v1(
                     **({"admissible_root_actions": admissible_actions}
                        if admissible_actions is not None else {}),
                     preferred_completed_trick_winner=preferred_completed_trick_winner,
-                    remaining_seconds=lambda: remaining(decision_deadline),
+                    remaining_seconds=lambda: remaining(decision_deadline, declared_decision_seconds),
                     cancel_check=proof_cancel_check, private_recall=recall,
                     maximum_worlds=worlds, maximum_depth=depth,
                     escalation_events=escalation_events, opportunity_order=opportunity_order,
@@ -6320,7 +6320,7 @@ def _resolve_quality_continuation_v1(
                     normalized,
                     request,
                     actual_action=recorded_code if auditing else None,
-                    maximum_seconds=remaining(decision_deadline),
+                    maximum_seconds=remaining(decision_deadline, declared_decision_seconds),
                     cancel_check=proof_cancel_check,
                 )
                 timing["forcedSelectionSeconds"] = time.monotonic() - stage_started
@@ -6332,7 +6332,7 @@ def _resolve_quality_continuation_v1(
                 policy_artifact = _observed_play_quality_artifact_v1(rules, normalized, current, request,
                     budget=budget, opportunity_order=opportunity_order, escalation_events=escalation_events,
                     maximum_conflicts=search_budget_profiles[request.budget_profile]["maximumConflicts"],
-                    maximum_depth=depth, maximum_seconds=remaining(decision_deadline),
+                    maximum_depth=depth, maximum_seconds=remaining(decision_deadline, declared_decision_seconds),
                     cancel_check=proof_cancel_check, decision_kind="project",
                     progress_callback=checkpoint_callback)
                 timing["nativeExecutionSeconds"] = time.monotonic() - stage_started
@@ -6340,7 +6340,7 @@ def _resolve_quality_continuation_v1(
                   and normalized.decision_kind == "project"
                   and request.horizon is not None and request.horizon["unit"] == "tricks"):
                 proof, native_execution = OrToolsActorInformationSetCompilerV1(rules, native_cp_sat=True)._prove_observed_project(
-                    normalized, current, request, budget=budget, maximum_seconds=remaining(decision_deadline),
+                    normalized, current, request, budget=budget, maximum_seconds=remaining(decision_deadline, declared_decision_seconds),
                     cancel_check=proof_cancel_check, private_recall=recall,
                     maximum_worlds=worlds, maximum_depth=depth)
                 timing["nativeExecutionSeconds"] = time.monotonic() - stage_started
@@ -6351,7 +6351,7 @@ def _resolve_quality_continuation_v1(
                     rules, normalized, current, decision, request,
                     maximum_nodes=nodes, native_cp_sat=True,
                     maximum_depth=depth, maximum_worlds=worlds,
-                    maximum_seconds=remaining(decision_deadline), cancel_check=proof_cancel_check,
+                    maximum_seconds=remaining(decision_deadline, declared_decision_seconds), cancel_check=proof_cancel_check,
                     declared_maximum_seconds=declared_decision_seconds,
                     opportunity_order=opportunity_order,
                     graph_workers=graph_workers,
@@ -6362,7 +6362,7 @@ def _resolve_quality_continuation_v1(
                 stage_started = time.monotonic()
                 proof = prove_actor_information_set_v1(
                     compilation, request, maximum_nodes=nodes,
-                    maximum_worlds=worlds, maximum_seconds=remaining(decision_deadline),
+                    maximum_worlds=worlds, maximum_seconds=remaining(decision_deadline, declared_decision_seconds),
                     cancel_check=proof_cancel_check, native_action_quality=True,
                     declared_maximum_seconds=declared_decision_seconds,
                     policy_search=budget.policy_search if budget is not None else None,
@@ -6401,7 +6401,7 @@ def _resolve_quality_continuation_v1(
                 if request.mode == "exact":
                     reverify_native_exact_observed_play_artifact_v1(artifact, rules=rules, source_prefix=current,
                         normalized=normalized, request=request, maximum_nodes=nodes, maximum_depth=depth,
-                        maximum_worlds=worlds, maximum_seconds=remaining(decision_deadline),
+                        maximum_worlds=worlds, maximum_seconds=remaining(decision_deadline, declared_decision_seconds),
                         declared_maximum_seconds=declared_decision_seconds,
                         private_recall=recall if private_recall is not None else None, cancel_check=proof_cancel_check,
                         graph_workers=graph_workers, worker_cpu_callback=add_worker_cpu,
@@ -6436,7 +6436,7 @@ def _resolve_quality_continuation_v1(
                             separators=(",", ":")).encode("utf-8")) for key, value in artifact.items()}})
             artifacts[artifact_hash] = artifact
             if _curated_focal_only and policy_artifact is None and native_execution is None:
-                remaining(decision_deadline)
+                remaining(decision_deadline, declared_decision_seconds)
                 failures = _curated_primary_interest_failures_v1(artifact, compilation=compilation,
                     proof=proof, normalized=normalized, request=request, rules=rules,
                     policy=execution_budget.video_interestingness)
@@ -6457,7 +6457,7 @@ def _resolve_quality_continuation_v1(
                 baseline_request = native_basic_policy_quality_request_v1(request)
                 _, baseline = _observer_safe_play_policy_artifact_v1(rules, normalized, baseline_request,
                     actual_action=None, policy_id=execution_budget.video_interestingness["baselinePolicyId"],
-                    maximum_seconds=remaining(decision_deadline), cancel_check=proof_cancel_check)
+                    maximum_seconds=remaining(decision_deadline, declared_decision_seconds), cancel_check=proof_cancel_check)
                 baseline = {**baseline, "sourcePrefix": current.to_dict()}
                 size = len(canonical_json(baseline).encode("utf-8"))
                 if evidence_bytes + artifact_bytes + size > maximum_evidence_bytes:
@@ -6473,12 +6473,12 @@ def _resolve_quality_continuation_v1(
                     win_started = time.monotonic()
                     win_request = native_round_win_quality_request_v1(request)
                     companion_options = dict(budget=budget, nodes=nodes, depth=depth, worlds=worlds,
-                        remaining_seconds=lambda: remaining(decision_deadline), declared_seconds=declared_decision_seconds,
+                        remaining_seconds=lambda: remaining(decision_deadline, declared_decision_seconds), declared_seconds=declared_decision_seconds,
                         cancel_check=proof_cancel_check, private_recall=recall if private_recall is not None else None,
                         graph_workers=graph_workers, worker_cpu_callback=add_worker_cpu)
                     companion = _editorial_play_quality_artifact_v1(rules, normalized, current,
                         win_request, **companion_options)
-                    remaining(decision_deadline)
+                    remaining(decision_deadline, declared_decision_seconds)
                     size = len(canonical_json(companion).encode("utf-8"))
                     if evidence_bytes + artifact_bytes + size > maximum_evidence_bytes:
                         raise InformationSetCompilationStopped("maximum_evidence_bytes", stage="round_win_proof")
@@ -6499,11 +6499,11 @@ def _resolve_quality_continuation_v1(
                         alternate_rule = "buyer_loses" if source_rule == "buyer_makes" else "buyer_makes"
                         variant = native_tie_rule_profile_v1(rules, alternate_rule)
                         variant_state = OrToolsExactStateNormalizerV1(variant, native_cp_sat=True).normalize_play_or_project(
-                            current, maximum_seconds=remaining(decision_deadline), cancel_check=proof_cancel_check)
+                            current, maximum_seconds=remaining(decision_deadline, declared_decision_seconds), cancel_check=proof_cancel_check)
                         _, variant_baseline = _observer_safe_play_policy_artifact_v1(variant, variant_state,
                             baseline_request, actual_action=None,
                             policy_id=execution_budget.video_interestingness["baselinePolicyId"],
-                            maximum_seconds=remaining(decision_deadline), cancel_check=proof_cancel_check)
+                            maximum_seconds=remaining(decision_deadline, declared_decision_seconds), cancel_check=proof_cancel_check)
                         if variant_baseline["proof"]["selectedAction"] != baseline["proof"]["selectedAction"]:
                             raise ValueError("tie comparison changed the observer-safe baseline")
                         alternative = {"rulesSnapshot": variant.data, "rulesHash": variant.sha256,
@@ -6512,7 +6512,7 @@ def _resolve_quality_continuation_v1(
                                 ("roundWin", win_request)):
                             alternative[key] = _editorial_play_quality_artifact_v1(variant, variant_state, current,
                                 comparison_request, **companion_options)
-                        remaining(decision_deadline)
+                        remaining(decision_deadline, declared_decision_seconds)
                         if all(alternative[key]["proof"]["completionStatus"] == "exact_complete" for key in ("margin", "roundWin")):
                             alternative["allocationUniverseHash"] = native_tie_allocation_universe_hash_v1(alternative["margin"])
                             if alternative["allocationUniverseHash"] != universe_hash:
@@ -6531,7 +6531,7 @@ def _resolve_quality_continuation_v1(
                             project_companion = _project_inference_quality_evidence_v1(rules, normalized, current,
                                 artifact, win_companion, budget=budget, maximum_nodes=nodes, maximum_depth=depth,
                                 maximum_conflicts=search_budget_profiles[request.budget_profile]['maximumConflicts'],
-                                remaining_seconds=lambda: remaining(decision_deadline), cancel_check=proof_cancel_check)
+                                remaining_seconds=lambda: remaining(decision_deadline, declared_decision_seconds), cancel_check=proof_cancel_check)
                             if project_companion is not None:
                                 size = len(canonical_json(project_companion).encode('utf-8'))
                                 if evidence_bytes + artifact_bytes + size > maximum_evidence_bytes:
@@ -6740,16 +6740,16 @@ def _resolve_quality_continuation_v1(
         raw_deadline = min(deadline, raw_started + maximum_decision_seconds,
             raw_started + raw_budget.maximum_wall_seconds)
         try:
+            declared = min(maximum_decision_seconds, raw_budget.maximum_wall_seconds)
             if raw_request.visibility == "actor_information_set":
-                declared = min(maximum_decision_seconds, raw_budget.maximum_wall_seconds)
                 raw_compilation = compile_observed_decision_v1(rules, raw_state, raw_prefix, {"kind": "play"}, raw_request,
                     maximum_nodes=raw_nodes, maximum_depth=raw_depth, maximum_worlds=raw_worlds,
-                    maximum_seconds=remaining(raw_deadline), declared_maximum_seconds=declared,
+                    maximum_seconds=remaining(raw_deadline, declared), declared_maximum_seconds=declared,
                     native_cp_sat=True, private_recall=raw_recall, cancel_check=stopped,
                     graph_workers=graph_workers, worker_cpu_callback=add_worker_cpu)
                 raw_proof = prove_actor_information_set_v1(raw_compilation, raw_request,
                     maximum_nodes=raw_nodes, maximum_worlds=raw_worlds,
-                    maximum_seconds=remaining(raw_deadline), declared_maximum_seconds=declared,
+                    maximum_seconds=remaining(raw_deadline, declared), declared_maximum_seconds=declared,
                     native_action_quality=True, cancel_check=stopped, policy_search=raw_budget.policy_search)
                 companion = {"request": raw_request.to_dict(), "proof": raw_proof.to_dict(),
                     "proofModel": raw_proof.model_document(), "graph": raw_compilation.graph.to_dict(),
@@ -6757,8 +6757,8 @@ def _resolve_quality_continuation_v1(
             else:
                 companion = _complete_state_quality_artifact_v1(rules, raw_state, raw_prefix, {"kind": "play"},
                     raw_request, budget=raw_budget, maximum_nodes=raw_nodes, maximum_depth=raw_depth,
-                    maximum_seconds=remaining(raw_deadline), cancel_check=stopped)
-            remaining(raw_deadline)
+                    maximum_seconds=remaining(raw_deadline, declared), cancel_check=stopped)
+            remaining(raw_deadline, declared)
             size = len(json.dumps(companion, ensure_ascii=False, sort_keys=True,
                 separators=(",", ":")).encode("utf-8"))
             if evidence_bytes + size > maximum_evidence_bytes:

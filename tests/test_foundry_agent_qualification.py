@@ -39,7 +39,7 @@ def _lineup(registry, profile_id: str, model_hash: str):
 def _pilot_documents(root, profile):
     manifest = build_workspace_manifest(
         root,
-        extra_paths=(root / "release" / "exact-labels.json",),
+        extra_paths=(root / "tests/fixtures/synthetic-candidates.jsonl",),
     )
     evidence = {
         "schemaVersion": 2,

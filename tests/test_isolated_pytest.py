@@ -598,12 +598,14 @@ def test_measured_slow_files_are_serial_and_dedicated_with_balanced_remaining_wa
     assert history["shardTimingSourceRun"] == 40240390613
     assert history["shardSeconds"][backend] == 2335.493 and history["shardSeconds"][unified] == 935.580
     assert {path for path, seconds in history["shardSeconds"].items() if seconds >= 900} == {backend, unified}
-    assert sorted(path for group in groups for path in group) == files and len(files) == 317
+    assert sorted(path for group in groups for path in group) == files
+    inventory = {path.relative_to(lane.ROOT).as_posix() for path in lane.ROOT.glob("tests/test_*.py")}
+    assert set(files) | lane.node_sharded_files(history) | set(history["versionedNodeShardedFiles"]) == inventory
     walls = []
     for group in groups[1:]:
         workers, serial = [0.0] * 4, 0.0
         for path, _ in lane.schedule(group, history):
-            seconds = history["shardSeconds"][path]
+            seconds = history["shardSeconds"].get(path, history["seconds"].get(path, 1.0))
             if path in history["serialFiles"]:
                 serial += seconds
             else:

@@ -4563,8 +4563,15 @@ def test_native_quality_audits_recorded_interleaved_project_and_play(root, monke
 
 @pytest.mark.real_clock
 @pytest.mark.parametrize("outer_nodes,outer_depth", [(1000, 8), (300, 1)])
-def test_native_quality_applies_each_decisions_frozen_budget(root, monkeypatch, outer_nodes, outer_depth):
+@pytest.mark.parametrize("clock_start", [None, 255.99999999999997])
+def test_native_quality_applies_each_decisions_frozen_budget(root, monkeypatch, outer_nodes, outer_depth, clock_start):
+    from types import SimpleNamespace
     from baloot_platform.research.ortools_information_set_compiler import InformationSetCompilationStopped
+
+    if clock_start is not None:
+        assert clock_start + 15 - clock_start > 15
+        monkeypatch.setattr(executor_module, "time", SimpleNamespace(
+            **{**vars(executor_module.time), "monotonic": lambda: clock_start}))
 
     rules = RuleBook.load(root / "configs/rules/saudi_project_optional_unratified_v1.yaml")
     prefix = ExactTracePrefixV1.build(_optional_project_prefix_v1())
