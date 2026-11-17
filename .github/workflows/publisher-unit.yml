@@ -1,0 +1,26 @@
+name: Publisher unit checks
+
+on:
+  pull_request:
+    paths: ['scripts/publisher/**', 'tests/publisher/**', 'schemas/publisher-ledger-v1.json', '.github/workflows/publisher-unit.yml']
+  push:
+    branches: [main]
+    paths: ['scripts/publisher/**', 'tests/publisher/**', 'schemas/publisher-ledger-v1.json', '.github/workflows/publisher-unit.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  publisher-unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Mock publisher tests only
+        run: node --test --test-concurrency=1 tests/publisher/*.test.mjs

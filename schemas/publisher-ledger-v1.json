@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Local publisher ledger v1",
+  "type": "object",
+  "required": ["schemaVersion", "account", "records"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "account": {"type": "string", "minLength": 1},
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["platform", "deal", "slotUtc", "artifactSha256", "captionSha256", "scenarioFamily", "visibleOpener", "visibleOpenerSha256", "status"],
+        "properties": {
+          "platform": {"enum": ["Instagram", "TikTok"]},
+          "deal": {"type": "string", "minLength": 1},
+          "slotUtc": {"type": "string", "format": "date-time"},
+          "artifactSha256": {"$ref": "#/$defs/sha256"},
+          "captionSha256": {"$ref": "#/$defs/sha256"},
+          "visibleOpenerSha256": {"$ref": "#/$defs/sha256"},
+          "scenarioFamily": {"type": "string", "minLength": 1},
+          "visibleOpener": {
+            "type": "object",
+            "required": ["hand", "table"],
+            "properties": {"hand": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "table": {"type": "array", "items": {"type": "string"}}}
+          },
+          "status": {"type": "string", "minLength": 1},
+          "id": {"type": "string", "minLength": 1},
+          "url": {"type": "string", "format": "uri"},
+          "postedAtUtc": {"type": "string", "format": "date-time"},
+          "maxPosts": {"const": 1},
+          "scheduledTaskId": {"type": "string", "minLength": 1},
+          "releaseReceipt": {"type": "string", "minLength": 1},
+          "applicationAcknowledged": {"type": "boolean"},
+          "actualCaptionSha256": {"$ref": "#/$defs/sha256"}
+        },
+        "allOf": [{
+          "if": {"properties": {"status": {"const": "POSTED_ACTUAL_CAPTION_CONFIRMED"}}},
+          "then": {"required": ["id", "url", "postedAtUtc", "applicationAcknowledged", "actualCaptionSha256"], "properties": {"applicationAcknowledged": {"const": true}}}
+        }, {
+          "if": {"properties": {"status": {"const": "RELEASED_SLOT_BOUND_CAPTION_PATH_CONFIRMED"}}},
+          "then": {"required": ["maxPosts", "scheduledTaskId", "releaseReceipt"]}
+        }]
+      }
+    }
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}
