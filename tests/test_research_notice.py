@@ -345,7 +345,7 @@ def test_notice_selectors_require_public_in_main_and_cli(monkeypatch, capsys, se
 
 @pytest.mark.parametrize("failure", [None, "content", "ffprobe", "design_drift", "fixture_drift", "baseline_drift", "thumbnail", "layout_missing", "layout_source", "layout_drift"])
 def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monkeypatch, failure):
-    selection = notice.select_deal(notice.DEAL_SOURCES[1][0])
+    selection = notice.select_deal("sun-single-winner-20261118-01-v1")
     expected_trace = json.loads(selection["fixture"].read_text(encoding="utf-8"))["exactTracePrefix"]
     source = tmp_path / "source"
     approved_test_design(source, monkeypatch)
@@ -512,6 +512,11 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monk
     receipt = json.loads((output / "owner-approval.json").read_text(encoding="utf-8"))
     assert receipt["dealIdentifier"] == selection["identifier"]
     assert receipt["fixture"] == selection["source"]
+    assert receipt["caption"] == selection["caption"]
+    assert receipt["scenarioFamily"] == selection["scenarioFamily"]
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["caption"] == selection["caption"]
+    assert manifest["scenarioFamily"] == selection["scenarioFamily"]
     gate = json.loads((output / notice.GATE_RESULT).read_text(encoding="utf-8"))
     assert gate["checks"]["validate_approved_v4_public_profile"] == {"status": "passed"}
     assert gate["dealIdentifier"] == selection["identifier"]
@@ -660,7 +665,7 @@ def test_viewer_buyer_real_deal04_refused_before_profile_or_render(tmp_path, mon
     fixture = notice.ROOT / "examples/research-scenario-v4-single-winner-20261116-04.json"
     monkeypatch.setattr(notice, "notice_profile", lambda **kwargs: pytest.fail("barred deal reached profile/render"))
     monkeypatch.setattr(notice, "RemotionProfessionalRenderer", lambda *args, **kwargs: pytest.fail("barred deal reached renderer"))
-    kwargs = {"deal_id": "sun-single-winner-20261116-04-v1"} if selector == "id" else {"seed": "7"} if selector == "seed" else {}
+    kwargs = {"deal_id": "sun-single-winner-20261116-04-v1"} if selector == "id" else {"seed": "12"} if selector == "seed" else {}
     if selector == "default":
         monkeypatch.setattr(notice, "FIXTURE", fixture)
         monkeypatch.setattr(notice, "GOLDEN", "sun-single-winner-20261116-04")

@@ -1,0 +1,227 @@
+{
+  "caption": "?? ???? ?? ??????? ?????? ?? ????? ????? ??????? ?? BalootX #???? #????_????",
+  "construction": {
+    "method": "seeded_shuffle_and_legal_play",
+    "seed": 2026111891
+  },
+  "exactTracePrefix": {
+    "auctionActions": [
+      {
+        "action": "sun",
+        "actor": "north"
+      }
+    ],
+    "dealer": "east",
+    "deckOrder": [
+      20,
+      10,
+      6,
+      16,
+      31,
+      8,
+      22,
+      24,
+      27,
+      5,
+      25,
+      1,
+      23,
+      18,
+      28,
+      19,
+      4,
+      17,
+      2,
+      3,
+      14,
+      26,
+      15,
+      29,
+      12,
+      13,
+      0,
+      9,
+      30,
+      21,
+      7,
+      11
+    ],
+    "escalationActions": [],
+    "matchScore": [
+      0,
+      0
+    ],
+    "playActions": [
+      {
+        "actor": "north",
+        "card": "HK"
+      },
+      {
+        "actor": "west",
+        "card": "H7"
+      },
+      {
+        "actor": "south",
+        "card": "H8"
+      },
+      {
+        "actor": "east",
+        "card": "H10"
+      },
+      {
+        "actor": "east",
+        "card": "S8"
+      },
+      {
+        "actor": "north",
+        "card": "SK"
+      },
+      {
+        "actor": "west",
+        "card": "D10"
+      },
+      {
+        "actor": "south",
+        "card": "SJ"
+      },
+      {
+        "actor": "north",
+        "card": "H9"
+      },
+      {
+        "actor": "west",
+        "card": "HQ"
+      },
+      {
+        "actor": "south",
+        "card": "S7"
+      },
+      {
+        "actor": "east",
+        "card": "C8"
+      },
+      {
+        "actor": "west",
+        "card": "HJ"
+      },
+      {
+        "actor": "south",
+        "card": "CK"
+      },
+      {
+        "actor": "east",
+        "card": "S10"
+      },
+      {
+        "actor": "north",
+        "card": "HA"
+      },
+      {
+        "actor": "north",
+        "card": "C9"
+      },
+      {
+        "actor": "west",
+        "card": "CJ"
+      },
+      {
+        "actor": "south",
+        "card": "C7"
+      },
+      {
+        "actor": "east",
+        "card": "S9"
+      },
+      {
+        "actor": "west",
+        "card": "D7"
+      }
+    ],
+    "projectAssertions": [],
+    "projectDeclarations": [
+      {
+        "declarationOrder": 1,
+        "highRank": 3,
+        "kind": "siri",
+        "owner": "east",
+        "value": 4
+      }
+    ],
+    "roundNumber": 1,
+    "schemaVersion": 1,
+    "stateAssertions": {}
+  },
+  "expected": {
+    "actingSeat": "south",
+    "buyer": "north",
+    "claimSatisfied": true,
+    "completionStatus": "exact_complete",
+    "contract": "sun",
+    "legalRootActions": [
+      "D8",
+      "DK"
+    ],
+    "phase": "playing",
+    "principalVariation": [
+      "DK",
+      "DQ",
+      "D9",
+      "D8",
+      "SQ",
+      "DJ",
+      "CQ",
+      "DA",
+      "CA",
+      "C10",
+      "SA"
+    ],
+    "rootValues": {
+      "D8": -1.0,
+      "DK": 1.0
+    },
+    "roundScore": {
+      "awardedPoints": [
+        22,
+        8
+      ],
+      "balootPoints": [
+        0,
+        0
+      ],
+      "cardGamePoints": [
+        22,
+        4
+      ],
+      "projectPoints": [
+        0,
+        4
+      ],
+      "winner": "north_south"
+    },
+    "selectedAction": "DK",
+    "winningRootActionCount": 1
+  },
+  "proof": {
+    "budgetProfile": "late_game_exact_v1",
+    "claim": "selected_action_is_unique_winner",
+    "lineUniverse": "all_legal",
+    "mode": "exact",
+    "schemaVersion": 1,
+    "selectedAction": "DK",
+    "successThreshold": 1,
+    "targetTeam": "north_south",
+    "utility": "round_win",
+    "visibility": "complete_state"
+  },
+  "rulesMeaning": {
+    "actingSeat": "south",
+    "buyer": "north",
+    "contract": "sun",
+    "successMeaning": "north_south wins the round",
+    "successThreshold": 1
+  },
+  "scenarioFamily": "sun-king-entry-return-partner-long-diamonds",
+  "scenarioId": "sun-single-winner-20261118-04-v1",
+  "schemaVersion": 1,
+  "titleAr": "??: ???? ?????"
+}

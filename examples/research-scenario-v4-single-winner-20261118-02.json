@@ -1,0 +1,233 @@
+{
+  "caption": "???? ???? ?????? ??????? ????? ???????? ?? ????? ????? ??????? ?? BalootX #???? #????_????",
+  "construction": {
+    "method": "seeded_shuffle_and_legal_play",
+    "seed": 2026111905
+  },
+  "exactTracePrefix": {
+    "auctionActions": [
+      {
+        "action": "sun",
+        "actor": "north"
+      }
+    ],
+    "dealer": "east",
+    "deckOrder": [
+      22,
+      18,
+      14,
+      19,
+      2,
+      6,
+      11,
+      20,
+      31,
+      30,
+      17,
+      7,
+      4,
+      25,
+      10,
+      15,
+      1,
+      8,
+      28,
+      12,
+      27,
+      26,
+      23,
+      5,
+      3,
+      9,
+      13,
+      16,
+      29,
+      0,
+      24,
+      21
+    ],
+    "escalationActions": [],
+    "matchScore": [
+      0,
+      0
+    ],
+    "playActions": [
+      {
+        "actor": "north",
+        "card": "C8"
+      },
+      {
+        "actor": "west",
+        "card": "S9"
+      },
+      {
+        "actor": "south",
+        "card": "CQ"
+      },
+      {
+        "actor": "east",
+        "card": "CK"
+      },
+      {
+        "actor": "east",
+        "card": "D8"
+      },
+      {
+        "actor": "north",
+        "card": "DK"
+      },
+      {
+        "actor": "west",
+        "card": "D10"
+      },
+      {
+        "actor": "south",
+        "card": "D7"
+      },
+      {
+        "actor": "west",
+        "card": "SQ"
+      },
+      {
+        "actor": "south",
+        "card": "S8"
+      },
+      {
+        "actor": "east",
+        "card": "SA"
+      },
+      {
+        "actor": "north",
+        "card": "SJ"
+      },
+      {
+        "actor": "east",
+        "card": "DQ"
+      },
+      {
+        "actor": "north",
+        "card": "D9"
+      },
+      {
+        "actor": "west",
+        "card": "H9"
+      },
+      {
+        "actor": "south",
+        "card": "DJ"
+      },
+      {
+        "actor": "east",
+        "card": "CJ"
+      },
+      {
+        "actor": "north",
+        "card": "C9"
+      },
+      {
+        "actor": "west",
+        "card": "SK"
+      },
+      {
+        "actor": "south",
+        "card": "CA"
+      },
+      {
+        "actor": "south",
+        "card": "H7"
+      },
+      {
+        "actor": "east",
+        "card": "HJ"
+      },
+      {
+        "actor": "north",
+        "card": "HK"
+      }
+    ],
+    "projectAssertions": [],
+    "projectDeclarations": [
+      {
+        "declarationOrder": 1,
+        "highRank": 3,
+        "kind": "siri",
+        "owner": "north",
+        "value": 4
+      }
+    ],
+    "roundNumber": 1,
+    "schemaVersion": 1,
+    "stateAssertions": {}
+  },
+  "expected": {
+    "actingSeat": "west",
+    "buyer": "north",
+    "claimSatisfied": true,
+    "completionStatus": "exact_complete",
+    "contract": "sun",
+    "legalRootActions": [
+      "H8",
+      "HA"
+    ],
+    "phase": "playing",
+    "principalVariation": [
+      "HA",
+      "S10",
+      "H10",
+      "S7",
+      "DA",
+      "H8",
+      "HQ",
+      "C7",
+      "C10"
+    ],
+    "rootValues": {
+      "H8": -1.0,
+      "HA": 1.0
+    },
+    "roundScore": {
+      "awardedPoints": [
+        0,
+        30
+      ],
+      "balootPoints": [
+        0,
+        0
+      ],
+      "cardGamePoints": [
+        8,
+        18
+      ],
+      "projectPoints": [
+        4,
+        0
+      ],
+      "winner": "west_east"
+    },
+    "selectedAction": "HA",
+    "winningRootActionCount": 1
+  },
+  "proof": {
+    "budgetProfile": "late_game_exact_v1",
+    "claim": "selected_action_is_unique_winner",
+    "lineUniverse": "all_legal",
+    "mode": "exact",
+    "schemaVersion": 1,
+    "selectedAction": "HA",
+    "successThreshold": 1,
+    "targetTeam": "west_east",
+    "utility": "round_win",
+    "visibility": "complete_state"
+  },
+  "rulesMeaning": {
+    "actingSeat": "west",
+    "buyer": "north",
+    "contract": "sun",
+    "successMeaning": "west_east wins the round",
+    "successThreshold": 1
+  },
+  "scenarioFamily": "sun-ace-entry-cash-side-ten",
+  "scenarioId": "sun-single-winner-20261118-02-v1",
+  "schemaVersion": 1,
+  "titleAr": "??: ????? ???????"
+}

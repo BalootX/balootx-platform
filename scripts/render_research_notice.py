@@ -87,6 +87,26 @@ DEAL_SOURCES = (
         "examples/research-scenario-v4-single-winner-20261116-06.json",
         "sun-single-winner-20261116-06",
     ),
+    (
+        "sun-single-winner-20261118-01-v1",
+        "examples/research-scenario-v4-single-winner-20261118-01.json",
+        "sun-single-winner-20261118-01",
+    ),
+    (
+        "sun-single-winner-20261118-02-v1",
+        "examples/research-scenario-v4-single-winner-20261118-02.json",
+        "sun-single-winner-20261118-02",
+    ),
+    (
+        "sun-single-winner-20261118-03-v1",
+        "examples/research-scenario-v4-single-winner-20261118-03.json",
+        "sun-single-winner-20261118-03",
+    ),
+    (
+        "sun-single-winner-20261118-04-v1",
+        "examples/research-scenario-v4-single-winner-20261118-04.json",
+        "sun-single-winner-20261118-04",
+    ),
 )
 OUTPUT = ROOT / "outputs/research-notice-4"
 BASENAME = "balootx-research-notice-4"
@@ -444,6 +464,7 @@ def select_deal(
     fixture = FIXTURE if deal_id is None and seed is None else ROOT / relative
     if not fixture.is_file():
         raise FileNotFoundError(f"governed deal fixture is missing: {relative}")
+    source = {}
     if deal_id is not None or seed is not None:
         try:
             source = json.loads(fixture.read_text(encoding="utf-8"))
@@ -478,12 +499,19 @@ def select_deal(
             and len(prefix_plays) + len(principal_variation) == 32
         ):
             raise ValueError(f"governed deal fixture is not buildable: {relative}")
+        for key in ("caption", "scenarioFamily"):
+            if key in source and (
+                not isinstance(source[key], str) or not source[key].strip()
+            ):
+                raise ValueError(f"governed deal {key} must be non-empty text: {relative}")
     return {
         "identifier": identifier,
         "fixture": fixture,
         "source": relative,
         "golden": golden,
         "requestedSeed": None if seed is None else str(seed),
+        "caption": source.get("caption", CAPTION),
+        "scenarioFamily": source.get("scenarioFamily"),
         "renderAdmission": validate_notice_fixture_admission(fixture),
     }
 
@@ -502,6 +530,8 @@ def _record_deal_manifest(
     manifest["dealIdentifier"] = selection["identifier"]
     manifest["dealSource"] = selection["source"]
     manifest["dealSeed"] = selection["requestedSeed"]
+    manifest["caption"] = selection["caption"]
+    manifest["scenarioFamily"] = selection["scenarioFamily"]
     manifest["nameDraw"] = {"seed": name_seed, "players": players}
     manifest.pop("manifestSha256", None)
     manifest["manifestSha256"] = hashlib.sha256(
@@ -698,7 +728,8 @@ def main(
             "nameDraw": manifest["nameDraw"],
             "synthetic": True,
             "language": "ar-SA",
-            "caption": CAPTION,
+            "caption": selection["caption"],
+            "scenarioFamily": selection["scenarioFamily"],
             "headerText": None if public else {
                 "title": bundle.value["localizations"]["video.notice.title"],
                 "sentence": bundle.value["localizations"]["video.notice.sentence"],

@@ -1,0 +1,224 @@
+{
+  "caption": "?????? ??? ????? ????? ???? ?????? ?? ????? ????? ??????? ?? BalootX #???? #????_????",
+  "construction": {
+    "method": "seeded_shuffle_and_legal_play",
+    "seed": 2026111815
+  },
+  "exactTracePrefix": {
+    "auctionActions": [
+      {
+        "action": "sun",
+        "actor": "north"
+      }
+    ],
+    "dealer": "east",
+    "deckOrder": [
+      13,
+      31,
+      19,
+      14,
+      0,
+      28,
+      12,
+      21,
+      30,
+      6,
+      26,
+      4,
+      18,
+      5,
+      25,
+      20,
+      27,
+      7,
+      15,
+      24,
+      1,
+      8,
+      2,
+      29,
+      10,
+      22,
+      9,
+      17,
+      16,
+      23,
+      11,
+      3
+    ],
+    "escalationActions": [],
+    "matchScore": [
+      0,
+      0
+    ],
+    "playActions": [
+      {
+        "actor": "north",
+        "card": "S8"
+      },
+      {
+        "actor": "west",
+        "card": "S7"
+      },
+      {
+        "actor": "south",
+        "card": "SA"
+      },
+      {
+        "actor": "east",
+        "card": "SK"
+      },
+      {
+        "actor": "south",
+        "card": "D7"
+      },
+      {
+        "actor": "east",
+        "card": "DA"
+      },
+      {
+        "actor": "north",
+        "card": "D10"
+      },
+      {
+        "actor": "west",
+        "card": "DJ"
+      },
+      {
+        "actor": "east",
+        "card": "H10"
+      },
+      {
+        "actor": "north",
+        "card": "HQ"
+      },
+      {
+        "actor": "west",
+        "card": "H9"
+      },
+      {
+        "actor": "south",
+        "card": "H8"
+      },
+      {
+        "actor": "east",
+        "card": "S10"
+      },
+      {
+        "actor": "north",
+        "card": "S9"
+      },
+      {
+        "actor": "west",
+        "card": "C8"
+      },
+      {
+        "actor": "south",
+        "card": "HJ"
+      },
+      {
+        "actor": "east",
+        "card": "C7"
+      },
+      {
+        "actor": "north",
+        "card": "CA"
+      },
+      {
+        "actor": "west",
+        "card": "CQ"
+      },
+      {
+        "actor": "south",
+        "card": "CK"
+      },
+      {
+        "actor": "north",
+        "card": "SQ"
+      },
+      {
+        "actor": "west",
+        "card": "CJ"
+      }
+    ],
+    "projectAssertions": [],
+    "projectDeclarations": [],
+    "roundNumber": 1,
+    "schemaVersion": 1,
+    "stateAssertions": {}
+  },
+  "expected": {
+    "actingSeat": "south",
+    "buyer": "north",
+    "claimSatisfied": true,
+    "completionStatus": "exact_complete",
+    "contract": "sun",
+    "legalRootActions": [
+      "C10",
+      "D8",
+      "DQ"
+    ],
+    "phase": "playing",
+    "principalVariation": [
+      "DQ",
+      "SJ",
+      "H7",
+      "HK",
+      "D8",
+      "HA",
+      "C9",
+      "D9",
+      "DK",
+      "C10"
+    ],
+    "rootValues": {
+      "C10": -1.0,
+      "D8": -1.0,
+      "DQ": 1.0
+    },
+    "roundScore": {
+      "awardedPoints": [
+        14,
+        12
+      ],
+      "balootPoints": [
+        0,
+        0
+      ],
+      "cardGamePoints": [
+        14,
+        12
+      ],
+      "projectPoints": [
+        0,
+        0
+      ],
+      "winner": "north_south"
+    },
+    "selectedAction": "DQ",
+    "winningRootActionCount": 1
+  },
+  "proof": {
+    "budgetProfile": "late_game_exact_v1",
+    "claim": "selected_action_is_unique_winner",
+    "lineUniverse": "all_legal",
+    "mode": "exact",
+    "schemaVersion": 1,
+    "selectedAction": "DQ",
+    "successThreshold": 1,
+    "targetTeam": "north_south",
+    "utility": "round_win",
+    "visibility": "complete_state"
+  },
+  "rulesMeaning": {
+    "actingSeat": "south",
+    "buyer": "north",
+    "contract": "sun",
+    "successMeaning": "north_south wins the round",
+    "successThreshold": 1
+  },
+  "scenarioFamily": "sun-bank-queen-in-partner-trick",
+  "scenarioId": "sun-single-winner-20261118-01-v1",
+  "schemaVersion": 1,
+  "titleAr": "??: ?????? ??????"
+}
