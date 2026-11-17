@@ -31,6 +31,25 @@ opener, code box, fictional player-name draw, no-justification presentation and
 render checks remain in force. Exact proof concerns the complete state; it is
 not an actor-information-set guarantee.
 
+For Saudi fictional names, pass the new public identity input through the
+existing profile argument; the checked-in base profile remains unchanged:
+
+```python
+profile = notice.notice_profile(public=True)
+profile["identity"] = json.loads(
+    (notice.ROOT / "examples/synthetic-clip-identity.json").read_text(encoding="utf-8")
+)
+notice.validate_approved_v4_public_profile(profile)
+bundle = notice.build_notice_bundle(
+    rules, profile, fixture=selection["fixture"], golden=selection["golden"],
+)
+```
+
+Retain the effective profile and its hash with the bundle. This explicit profile
+input uses newly authored synthetic names; it restores no historical identity
+configuration. Calling the CLI without this profile composition retains its
+base name labels.
+
 Fixtures and scene bundles are inputs, not released clips. Every final MP4 still
 needs its own render evidence and explicit release. A catalog entry grants no
 posting authority or permission to reuse an earlier clip.

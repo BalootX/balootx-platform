@@ -33,8 +33,15 @@ def _deal_signature(fixture, rules):
 def test_new_catalog_deal_builds_exact_complete_scenes(identifier, rules):
     selection = notice.select_deal(identifier)
     fixture = json.loads(selection["fixture"].read_text(encoding="utf-8"))
+    assert "?" not in fixture["caption"] and "?" not in fixture["titleAr"]
+    assert "\ufffd" not in fixture["caption"] and "\ufffd" not in fixture["titleAr"]
     expected = fixture["expected"]
     profile = notice.notice_profile(public=True)
+    profile["identity"] = json.loads((notice.ROOT / "examples/synthetic-clip-identity.json").read_text(encoding="utf-8"))
+    names = profile["identity"]["player_name_pool"]
+    assert len(set(names)) == 16
+    assert all(1 <= len(name) <= 5 and all("\u0621" <= char <= "\u064a" for char in name) for name in names)
+    notice.validate_approved_v4_public_profile(profile)
     bundle = notice.build_notice_bundle(
         rules, profile, fixture=selection["fixture"], golden=selection["golden"],
     )
@@ -53,6 +60,10 @@ def test_new_catalog_deal_builds_exact_complete_scenes(identifier, rules):
     assert selection["renderAdmission"]["viewer"] != selection["renderAdmission"]["buyer"]
     assert selection["caption"] == fixture["caption"]
     assert selection["scenarioFamily"] == fixture["scenarioFamily"]
+    players = bundle.value["identity"]["players"]
+    assert len(set(players.values())) == 4
+    assert set(players.values()) <= set(profile["identity"]["player_name_pool"])
+    assert all(not any(char.isdigit() for char in name) for name in players.values())
 
 
 def test_new_deals_do_not_reuse_existing_hands_or_openers(rules):
