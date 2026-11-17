@@ -2,6 +2,7 @@
 from functools import lru_cache
 import json
 import os
+import platform
 import subprocess
 from pathlib import Path
 import re
@@ -45,7 +46,10 @@ def entries() -> dict:
     if baseline["schemaVersion"] != 1 or baseline["source"]["runId"] != 44039515022:
         raise ValueError("unsupported known-failure baseline")
     result = {}
+    version = ".".join(platform.python_version_tuple()[:2])
     for row in baseline["tests"]:
+        if not any(f"-{version}-" in observation["artifactName"] for observation in row["observations"]):
+            continue
         result.setdefault((row["nodeid"], row["phase"]), []).append(row["signature"])
     return result
 

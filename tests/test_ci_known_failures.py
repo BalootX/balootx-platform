@@ -92,3 +92,15 @@ def test_merge_group_reads_its_trusted_base(monkeypatch, tmp_path):
     monkeypatch.setenv("GITHUB_EVENT_NAME", "merge_group")
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
     assert known.entries()
+
+
+@pytest.mark.parametrize("version,resource,accepted", [
+    ("3.12", "siri.wav", True), ("3.12", "triple.wav", False),
+    ("3.13", "siri.wav", False), ("3.13", "triple.wav", True),
+])
+def test_voice_signature_is_bound_to_the_original_python_matrix(monkeypatch, version, resource, accepted):
+    monkeypatch.setattr(known.platform, "python_version_tuple", lambda: (*version.split("."), "0"))
+    event = {"phase": "call", "outcome": "failed", "xfail": False,
+             "longrepr": "E   FileNotFoundError: [Errno 2] No such file or directory: '/checkout/assets/audio/voice_packs/ar_sa_baloot_v2_smooth/" + resource + "'"}
+    node = "tests/test_video_motion_release.py::test_voice_pack_is_original_and_media_correct"
+    assert known.is_known(node, event) is accepted
