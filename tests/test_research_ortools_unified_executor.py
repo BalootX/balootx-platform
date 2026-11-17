@@ -68,6 +68,56 @@ from baloot_platform.research.sharding import partition_research_shards
 from baloot_platform.research.tail_first_stage_planner import TailFirstStagePlannerV1
 
 
+class _AllowanceReached(RuntimeError):
+    pass
+
+
+def _assert_parent_allowance(*args, maximum_seconds, **kwargs):
+    assert maximum_seconds == 0.1
+    raise _AllowanceReached
+
+
+def test_observed_history_allowance_cannot_round_above_its_parent(rules, monkeypatch):
+    from baloot_platform.research import ortools_nonplay_graphs as graphs
+
+    clock = SimpleNamespace(monotonic=lambda: 1e9)
+    monkeypatch.setattr(executor_module, "time", clock)
+    monkeypatch.setattr(graphs, "time", clock)
+    monkeypatch.setattr(executor_module, "validate_proof_boundary_scope_v1", lambda *_: None)
+    monkeypatch.setattr(graphs.OrToolsEscalationStageV1, "solve", _assert_parent_allowance)
+    normalized = SimpleNamespace(
+        recorded_escalation_history=lambda: None, next_actor="south",
+        state={"declarer": "south", "contract": "hokum"},
+    )
+    prefix = SimpleNamespace(escalation_actions=(), match_score=(0, 0))
+    with pytest.raises(_AllowanceReached):
+        compile_observed_decision_v1(
+            rules, normalized, prefix, {"kind": "project"}, None,
+            maximum_nodes=2, maximum_depth=1, maximum_worlds=1, maximum_seconds=0.1,
+            native_cp_sat=True, private_recall={},
+        )
+
+
+def test_native_depth_query_allowance_cannot_round_above_its_parent(rules, monkeypatch):
+    from baloot_platform.research import ortools_information_set_compiler as information
+
+    monkeypatch.setattr(information, "time", SimpleNamespace(monotonic=lambda: 1e9))
+    monkeypatch.setattr(information, "OrToolsNormalizedExactStateV1", SimpleNamespace)
+    model = SimpleNamespace(
+        model=SimpleNamespace(proto="round"), _model_hash=lambda **_: "model",
+        find_native_continuation_depth_above=_assert_parent_allowance,
+    )
+    compiler = SimpleNamespace(rules=rules, _native_post_auction_root_model=lambda *args, **kwargs: model)
+    exact = SimpleNamespace(next_actor="south", decision_kind="play", legal_actions=[{"code": "7S"}])
+    with pytest.raises(_AllowanceReached):
+        information.OrToolsActorInformationSetCompilerV1._solve_native_post_auction_policy_bounds(
+            compiler, exact, None, Team.NORTH_SOUTH, selected_root_action="7S",
+            opportunity_order=(), escalation_events=(), maximum_iterations=1, maximum_queries=1,
+            maximum_observations=1, maximum_model_bytes=100, maximum_conflicts=1, maximum_depth=1,
+            maximum_seconds=0.1,
+        )
+
+
 @pytest.fixture
 def deterministic_native_budget(monkeypatch):
     clock = [0.0]

@@ -76,18 +76,18 @@ const qualifiedOrToolsSource = {
   trace: {initialHand, plays, completedTricks: tricks},
 } as const;
 
-// The governed Majlis palette comes from the real premium profile, as render bundles do.
+// Use the same governed palette and research labels as production render bundles.
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
-const governedMajlis = JSON.parse(execFileSync("python", ["-c", [
+const governedPresentation = JSON.parse(execFileSync("python", ["-c", [
   "import json, yaml",
   "from baloot_platform.video.render_bundle import resolve_majlis_presentation",
   "profile = yaml.safe_load(open('configs/video/premium.yaml', encoding='utf-8'))",
-  "print(json.dumps(resolve_majlis_presentation(profile['majlis'])))",
+  "print(json.dumps(dict(majlis=resolve_majlis_presentation(profile['majlis']), localizations=profile['localizations'])))",
 ].join(";")], {
   cwd: repositoryRoot,
   encoding: "utf8",
   env: {...process.env, PYTHONIOENCODING: "utf-8", PYTHONPATH: `${repositoryRoot}src`},
-})) as Record<string, unknown>;
+})) as {majlis: Record<string, unknown>; localizations: Record<string, string>};
 
 const layer = (id: string, disclosure: "public" | "observer_private" | "post_reveal_analysis", content: Record<string, unknown>) => ({
   id,
@@ -132,9 +132,10 @@ const bundle = {
     layout: {show_projects: false, show_score_breakdown: false},
     timeline: {pause_seconds: 1},
     motion: {collection_steps: 1},
-    majlis: governedMajlis,
+    majlis: governedPresentation.majlis,
   },
   localizations: {
+    ...governedPresentation.localizations,
     "video.accessibility.decision_choices": "الخيارات القانونية",
     "video.accessibility.hand": "يدك",
     "video.accessibility.score_and_game": "النتيجة",
@@ -570,28 +571,27 @@ test("bid question and reveal keep the five-card pre-contract state beside a com
     for (const seat of seats) {
       expect(decisionMarkup).toContain(`data-seat="${seat}" data-hand-count="5"`);
     }
-    expect(decisionMarkup).not.toContain("buyer-tag");
-    expect(decisionMarkup).not.toContain("project-display");
-    expect(decisionMarkup).not.toContain("project-callout");
-    expect(decisionMarkup).not.toContain("project-reveal");
+    expect(decisionMarkup).not.toContain('class="tag buyer"');
+    expect(decisionMarkup).not.toContain('class="call call-proj ');
+    expect(decisionMarkup).not.toContain('class="ptray ');
     expect(decisionMarkup).not.toContain("project-badge");
     expect(decisionMarkup).not.toContain("outcome-card");
   }
 
   const continuation = markup(5);
   expect(continuation).toContain('data-source-play-count="32"');
-  expect(continuation).toContain("buyer-tag");
+  expect(continuation).toContain('class="tag buyer"');
   expect(continuation).toContain("صن");
   bidBundle.exportPreset = "decision_clip";
   const clipContinuation = markup(5);
   expect(renderedCodes(clipContinuation)).toEqual(decisionHand.map(cardCode).sort());
   expect(clipContinuation).toContain('data-source-play-count="0"');
-  expect(clipContinuation).not.toContain("buyer-tag");
-  expect(clipContinuation).not.toContain("project-display");
+  expect(clipContinuation).not.toContain('class="tag buyer"');
+  expect(clipContinuation).not.toContain('class="ptray ');
   bidBundle.exportPreset = "hooked_flagship";
   const outcome = markup(36);
-  expect(outcome).toContain('class="outcome-card has-breakdown"');
-  expect(outcome).toContain('<span>المجموع</span><strong>7</strong><strong>55</strong>');
+  expect(outcome).toContain('class="outcome-card ledger has-breakdown"');
+  expect(outcome).toContain('<span>المجموع</span><b dir="ltr" class="total-us">7</b><b dir="ltr" class="total-them">55</b>');
 });
 
 test("V3 flagship reveals its project and transitions from pre-round to awarded score", () => {
@@ -652,16 +652,16 @@ test("V3 flagship reveals its project and transitions from pre-round to awarded 
     storyFrame: frame,
     suppressAudio: true,
   }));
-  expect(playbackMarkup(0)).toContain('<div class="project-callout">مية</div>');
-  expect(playbackMarkup(0)).toContain('<strong>مية</strong>');
+  expect(playbackMarkup(0)).toMatch(/class="call call-proj [^"]*"[^>]*><small>مشروع<\/small><b>مية<\/b>/);
+  expect(playbackMarkup(0)).toMatch(/class="ptray-label"><small>مشروع<\/small><b>مية<\/b>/);
   for (const code of ["D9", "D10", "DJ", "DQ", "DK"]) {
-    expect(playbackMarkup(0)).toContain(`data-card-code="${code}"`);
+    expect(playbackMarkup(0)).toContain(`class="card card-small tray-card" data-small-card-code="${code}"`);
   }
-  expect(playbackMarkup(29)).toContain('class="project-callout"');
-  expect(playbackMarkup(29)).toContain('class="project-reveal"');
-  expect(playbackMarkup(30)).not.toContain('class="project-callout"');
-  expect(playbackMarkup(30)).not.toContain('class="project-reveal"');
-  expect(playbackMarkup(30)).toContain('class="project-badge"');
+  expect(playbackMarkup(29)).toContain('class="call call-proj ');
+  expect(playbackMarkup(29)).toContain('class="ptray ');
+  expect(playbackMarkup(30)).not.toContain('class="call call-proj ');
+  expect(playbackMarkup(30)).not.toContain('class="ptray ');
+  expect(playbackMarkup(30)).toContain('class="project-badge ');
 
   scoredBundle.timeline = {
     totalFrames: 2,
@@ -672,11 +672,11 @@ test("V3 flagship reveals its project and transitions from pre-round to awarded 
   };
   const preRound = playbackMarkup(0);
   const outcome = playbackMarkup(1);
-  expect(preRound).toContain('<small>حنا</small><strong>4</strong>');
-  expect(preRound).toContain('<small>هم</small><strong>5</strong>');
-  expect(outcome).toContain('class="outcome-card has-breakdown"');
-  expect(outcome).toContain('class="result-row project-points"><span>المشاريع</span><strong>+20</strong><strong>+0</strong>');
-  expect(outcome).toContain('class="result-total"><span>المجموع</span><strong>4</strong><strong>51</strong>');
+  expect(preRound).toContain('data-score-us="4"');
+  expect(preRound).toContain('data-score-them="5"');
+  expect(outcome).toContain('class="outcome-card ledger has-breakdown"');
+  expect(outcome).toContain('class="lrow result-row project-points"><span>المشاريع</span><b dir="ltr" class="is-plus">+20</b><b dir="ltr">+0</b>');
+  expect(outcome).toContain('class="lrow ltotal result-total"><span>المجموع</span><b dir="ltr" class="total-us">4</b><b dir="ltr" class="total-them">51</b>');
 });
 
 test("hooked flagship holds an interior decision before resuming the full trace", () => {
@@ -831,8 +831,8 @@ test.each([["CJ", 28, "J♣"], ["HJ", 12, "J♥"]] as const)(
       bundle: labelled, compositionFrame: 0, stage: "reveal", reducedMotion: true, suppressAudio: true,
     }));
     expect(markup).toContain(`data-selected-action="${code}"`);
-    expect(markup).toContain(`class="winning-move-code" dir="auto">${label}</strong>`);
-    expect(markup).not.toContain(`class="winning-move-code" dir="auto">${code}</strong>`);
+    expect(markup).toContain(`class="winning-move-code" dir="auto" aria-label="${label}"><img class="card card-small pick-card" data-small-card-code="${code}"`);
+    expect(markup).not.toContain(`class="winning-move-code" dir="auto" aria-label="${code}"`);
   },
 );
 

@@ -191,8 +191,8 @@ class MultiAngleComposerV1(RemotionProfessionalRenderer):
                 reveal_end = reveal_start + int(reveal["durationFrames"])
                 overlap_start = max(segment.source_start_frame, reveal_start)
                 overlap_end = min(segment.source_end_frame, reveal_end)
-                if overlap_end > overlap_start:
-                    reason = MultiAngleComposerV1._reveal_reason(bundle)
+                reason = MultiAngleComposerV1._reveal_reason(bundle)
+                if overlap_end > overlap_start and reason:
                     cues.append((
                         output_start + overlap_start - segment.source_start_frame,
                         output_start + overlap_end - segment.source_start_frame,

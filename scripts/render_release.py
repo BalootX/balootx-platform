@@ -13,6 +13,7 @@ import json
 import os
 import secrets
 import subprocess
+import tarfile
 import sys
 import tempfile
 import time
@@ -224,7 +225,7 @@ def _new_render_evidence_dir() -> Path:
     return destination
 
 
-def finish_release_audio() -> None:
+def finish_release_audio(shard: str | None = None) -> None:
     exports = (
         (
             ROOT
@@ -242,6 +243,8 @@ def finish_release_audio() -> None:
         ),
     )
     for video, bundle_path, evidence_path in exports:
+        if shard is not None and video.parent.name != f"professional-video-{shard}":
+            continue
         bundle = RenderBundleV1(json.loads(bundle_path.read_text(encoding="utf-8")))
         finish_remotion_audio(
             video,
@@ -249,6 +252,45 @@ def finish_release_audio() -> None:
             repository_root=ROOT,
             evidence_path=evidence_path,
         )
+
+
+CI_SHARD_OUTPUTS = {
+    "flagship": ("professional-video-flagship",),
+    "decision": ("professional-video-decision",),
+    "companion": ("professional-video-prototypes", "professional-video-collection"),
+    "parity": ("remotion-plugin-parity",),
+}
+
+
+def render_ci_shard(shard: str) -> None:
+    """Render one independent lane from the supplied CI input bundle artifact."""
+    evidence_dir = _new_render_evidence_dir()
+    outputs = ROOT / "outputs"
+
+    def run(stage: str, command: list[str], **kwargs) -> None:
+        _run(command, stage=stage, evidence_dir=evidence_dir, **kwargs)
+
+    if shard in ("flagship", "decision"):
+        script = "render-flagship.mjs" if shard == "flagship" else "render-decision-clip.mjs"
+        run(shard, _node_command(script), cwd=REMOTION)
+        finish_release_audio(shard)
+        verify = "verify_professional_flagship" if shard == "flagship" else "verify_professional_decision_clip"
+        run(verify, [sys.executable, f"scripts/{verify}.py"])
+    elif shard == "companion":
+        run("prototypes", _node_command("render-prototypes.mjs"), cwd=REMOTION)
+        run("collection", _node_command("render-flagship.mjs"), cwd=REMOTION,
+            environment={"BALOOTX_COLLECTION_ONLY": "1",
+                         "BALOOTX_RENDER_OUTPUT": str(outputs / "professional-video-collection")})
+        run("verify-professional-prototypes", [sys.executable, "scripts/verify_professional_video_prototypes.py"])
+    elif shard == "parity":
+        run("render-plugin-parity", [sys.executable, "scripts/render_remotion_plugin_parity.py"],
+            timeout=render_timeout_seconds() + 60)
+    else:
+        raise ValueError(f"unknown media CI shard: {shard}")
+
+    with tarfile.open(Path(os.environ["RUNNER_TEMP"]) / "media-shard.tar", "w") as archive:
+        for directory in CI_SHARD_OUTPUTS[shard]:
+            archive.add(outputs / directory, arcname=f"outputs/{directory}")
 
 
 def main(*, research_notice: bool = False) -> None:
@@ -318,4 +360,9 @@ if __name__ == "__main__":
         description="Render and verify the governed professional media set."
     )
     parser.add_argument("--research-notice", action="store_true", help="Render only the first research notice and its critical-position thumbnail.")
-    main(research_notice=parser.parse_args().research_notice)
+    parser.add_argument("--ci-shard", choices=CI_SHARD_OUTPUTS)
+    args = parser.parse_args()
+    if args.ci_shard:
+        render_ci_shard(args.ci_shard)
+    else:
+        main(research_notice=args.research_notice)

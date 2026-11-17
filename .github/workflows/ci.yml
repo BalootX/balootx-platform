@@ -1,4 +1,4 @@
-name: Baloot Platform CI
+name: ci
 
 on:
   workflow_dispatch:
@@ -13,317 +13,333 @@ permissions:
   contents: read
 
 concurrency:
-  group: baloot-ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name != 'pull_request' && github.run_id || 'pr' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PIP_RETRIES: '2'
+  PIP_TIMEOUT: '30'
+  NPM_CONFIG_FETCH_RETRIES: '2'
+  NPM_CONFIG_FETCH_TIMEOUT: '40000'
+  CMAKE_BUILD_PARALLEL_LEVEL: '4'
+  PYTHONPATH: src
 
 jobs:
-  preflight:
+  plan:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
+    outputs:
+      full: ${{ steps.plan.outputs.full }}
+      sdk: ${{ steps.plan.outputs.sdk }}
+      foundry: ${{ steps.plan.outputs.foundry }}
+      remotion: ${{ steps.plan.outputs.remotion }}
+      tests: ${{ steps.plan.outputs.tests }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.13'
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: '22'
-          package-manager-cache: false
-      - name: Install preflight tools
-        run: python -m pip install 'pytest>=8.3' 'PyYAML>=6.0' 'ruff>=0.11'
-      - name: Lint and compile Python
-        run: |
-          ruff check --select E9,F63,F7,F82 scripts/media_render_artifact.py tests/test_media_render_artifact.py tests/test_ci_hosted_contract.py tests/test_repository_structure.py sdk/python
-          python -m compileall -q src scripts sdk/python
-      - name: Install Foundry test dependencies
-        working-directory: src/baloot_platform/service/foundry_dashboard
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Check generated client and TypeScript contracts
-        working-directory: src/baloot_platform/service/foundry_dashboard
-        run: npm run check
-      - name: Fast CI policy and repository unit tests
-        run: python -m pytest tests/test_ci_hosted_contract.py tests/test_repository_structure.py tests/test_media_render_artifact.py -q
-
-  media-release-smoke-run:
-    needs: preflight
-    if: &heavy-condition github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      actions: read
-    env:
-      OMP_NUM_THREADS: '4'
-    steps:
-      - name: Install hosted native and media prerequisites
-        timeout-minutes: 10
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build ffmpeg fonts-noto-core fonts-noto-extra
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.13'
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: '22'
-          package-manager-cache: false
-      - name: Verify media runtime prerequisites
-        run: |
-          ffmpeg -version
-          ffprobe -version
-          python - <<'PY'
-          import hashlib, json
-          from pathlib import Path
-          fonts = Path('assets/fonts')
-          for name, item in json.loads((fonts / 'manifest.json').read_text())['fonts'].items():
-              assert hashlib.sha256((fonts / name).read_bytes()).hexdigest() == item['sha256'], name
-          PY
-      - name: Locate Python download caches
-        id: python-cache-paths
-        run: |
-          pip_cache="$(python -m pip cache dir)"
-          echo "pip=$pip_cache" >> "$GITHUB_OUTPUT"
-          if find "$pip_cache" -type f \( -name '*.whl' -o -name '*.body' \) -print -quit 2>/dev/null | grep -q .; then
-            echo "warm=true" >> "$GITHUB_OUTPUT"
-          fi
-          if command -v uv >/dev/null; then
-            echo "uv=$(uv cache dir)" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Cache Python downloads
-        if: steps.python-cache-paths.outputs.warm != 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
-        with:
-          path: |
-            ${{ steps.python-cache-paths.outputs.pip }}
-            ${{ steps.python-cache-paths.outputs.uv }}
-          key: ${{ runner.os }}-${{ runner.arch }}-python-${{ github.job }}-3.13-${{ hashFiles('pyproject.toml', '**/uv.lock', '**/requirements*.txt', '**/requirements*.lock', '.github/workflows/ci.yml') }}
-      - name: Install platform
-        run: |
-          python -m ensurepip --upgrade --default-pip
-          python -m pip install -e '.[dev,grpc,security]'
-      - name: Locate npm download cache
-        id: npm-cache-paths
-        run: |
-          npm_cache="$(npm config get cache)"
-          echo "path=$npm_cache" >> "$GITHUB_OUTPUT"
-          if find "$npm_cache/_cacache/content-v2" -type f -print -quit 2>/dev/null | grep -q .; then
-            echo "warm=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Cache npm downloads
-        if: steps.npm-cache-paths.outputs.warm != 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
-        with:
-          path: ${{ steps.npm-cache-paths.outputs.path }}
-          key: ${{ runner.os }}-${{ runner.arch }}-npm-${{ github.job }}-node22-${{ hashFiles('**/package-lock.json', '.github/workflows/ci.yml') }}
-      - name: Install governed Remotion renderer
-        working-directory: src/baloot_platform/video/remotion
-        run: npm ci --ignore-scripts
-      - name: Cache Remotion Chrome headless shell
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
-        with:
-          path: src/baloot_platform/video/remotion/node_modules/.remotion
-          key: ${{ runner.os }}-${{ runner.arch }}-remotion-chrome-${{ hashFiles('src/baloot_platform/video/remotion/package-lock.json') }}
-      - name: Check Remotion types and audio scheduling
-        working-directory: src/baloot_platform/video/remotion
-        run: npm run typecheck && npm test
-      - name: Identify exact media inputs and installed renderer
-        id: media-identity
-        env:
-          SOURCE_DATE_EPOCH: '315532800'
-        run: python scripts/media_render_artifact.py identity --identity "$RUNNER_TEMP/media-identity.json"
-      - name: Find a successful exact-identity media producer
-        id: media-producer
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python scripts/media_render_artifact.py find --identity "$RUNNER_TEMP/media-identity.json"
-      - name: Download media from the prior successful run
-        id: media-download
-        if: steps.media-producer.outputs.run != ''
-        continue-on-error: true
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          artifact-ids: ${{ steps.media-producer.outputs.artifact }}
-          run-id: ${{ steps.media-producer.outputs.run }}
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/media-promoted
-          digest-mismatch: error
-      - name: Verify promoted manifest and media SHA256 before restoring
-        id: media-restore
-        if: steps.media-download.outcome == 'success'
-        env:
-          MEDIA_PRODUCER_RUN: ${{ steps.media-producer.outputs.run }}
-        run: python scripts/media_render_artifact.py restore --identity "$RUNNER_TEMP/media-identity.json" --package "$RUNNER_TEMP/media-promoted" --run "$MEDIA_PRODUCER_RUN"
-      - name: Render governed professional exports
-        if: steps.media-restore.outputs.reused != 'true'
-        run: |
-          cpus="$(python -c 'import os; print(",".join(map(str, sorted(os.sched_getaffinity(0))[:4])))')"
-          PYTHONPATH=src SOURCE_DATE_EPOCH=315532800 BALOOT_RENDER_TIMEOUT_SECONDS=3600 BALOOT_RENDER_EVIDENCE_DIR="$RUNNER_TEMP/baloot-media-release-evidence" \
-            taskset --cpu-list "$cpus" sh -ec 'test "$(nproc)" -le 4; exec python scripts/render_release.py'
-      - name: Revalidate promoted render-stage checks
-        if: steps.media-restore.outputs.reused == 'true'
-        run: |
-          python scripts/verify_professional_video_prototypes.py
-          python scripts/verify_professional_flagship.py
-          python scripts/verify_professional_decision_clip.py
-          python scripts/verify_remotion_plugin_parity.py
-          python scripts/generate_scene_preview.py --check
-      - name: Validate media
-        run: |
-          python scripts/verify_professional_video_prototypes.py
-          python scripts/verify_professional_flagship.py
-          python scripts/verify_professional_decision_clip.py
-          ffmpeg -v error -threads 4 -i outputs/professional-video-flagship/balootx-complete-laffah-audit.mp4 -filter_threads 4 -filter_complex_threads 4 -threads 4 -f null -
-          ffmpeg -v error -threads 4 -i outputs/professional-video-decision/balootx-decision-clip.mp4 -filter_threads 4 -filter_complex_threads 4 -threads 4 -f null -
-      - name: Generate release evidence
-        run: |
-          PYTHONPATH=src SOURCE_DATE_EPOCH=315532800 python scripts/generate_media_probe.py
-          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
-          PYTHONPATH=src SOURCE_DATE_EPOCH=315532800 python scripts/generate_test_inventory_v20.py --version "$version" --output release/test-inventory.json
-          PYTHONPATH=src SOURCE_DATE_EPOCH=315532800 python scripts/generate_supply_chain.py --sbom-output release/sbom.cdx.json --license-output release/license-inventory.json
-          PYTHONPATH=src SOURCE_DATE_EPOCH=315532800 python scripts/generate_platform_evidence.py
-      - name: Seal newly rendered media for promotion
-        if: steps.media-restore.outputs.reused != 'true' && steps.media-identity.outputs.identity != ''
-        run: python scripts/media_render_artifact.py seal --identity "$RUNNER_TEMP/media-identity.json" --package "$RUNNER_TEMP/media-promotion"
-  python-backend-run:
-    needs: preflight
-    if: *heavy-condition
-    runs-on: ubuntu-24.04
-    env: &fast-env
-      OMP_NUM_THREADS: '4'
-      CMAKE_BUILD_PARALLEL_LEVEL: '4'
-    strategy:
-      fail-fast: false
-      max-parallel: ${{ fromJSON(vars.BALOOT_CI_MAX_PARALLEL || '4') }}
-      matrix:
-        shard: [1, 2, 3, 4, 5]
-        python: ['3.12', '3.13']
-    steps: &fast-steps
-      - name: Install hosted native and media prerequisites
-        timeout-minutes: 10
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build ffmpeg fonts-noto-core fonts-noto-extra
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 2
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        if: matrix.python == '3.13'
+          persist-credentials: false
+      - id: plan
+        run: python3 scripts/ci_scope.py plan
+
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - &checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          python-version: ${{ matrix.python }}
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        if: matrix.python == '3.12'
+          persist-credentials: false
+      - &py313
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          version: '0.13.5'
-          enable-cache: false
-      - name: Set up managed Python 3.12
-        if: matrix.python == '3.12'
-        run: |
-          uv venv --seed --managed-python --python 3.12 "$RUNNER_TEMP/python-3.12"
-          echo "$RUNNER_TEMP/python-3.12/bin" >> "$GITHUB_PATH"
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+          python-version: '3.13'
+      - run: python -m pip install 'pytest>=8.3' 'PyYAML>=6.0' 'ruff>=0.11'
+      - run: |
+          ruff check --select E9,F63,F7,F82 src scripts sdk/python tests
+          python -m compileall -q src scripts sdk/python
+          python -m pytest -q tests/test_ci_hosted_contract.py tests/test_repository_structure.py tests/test_media_render_artifact.py
+
+  dependency-review:
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - *checkout
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          base-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          head-ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+
+  foundry:
+    needs: [plan, python-wheelhouse]
+    if: >-
+      !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.foundry == 'true' &&
+      (needs.python-wheelhouse.result == 'success' ||
+       (needs.plan.outputs.full == 'false' && needs.python-wheelhouse.result == 'skipped'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: src/baloot_platform/service/foundry_dashboard
+    steps:
+      - *checkout
+      - *py313
+      - if: needs.plan.outputs.full == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-wheels-3.13
+          path: ${{ runner.temp }}/wheelhouse
+          digest-mismatch: error
+      - if: needs.plan.outputs.full == 'true'
+        run: python -m pip install --no-index "$RUNNER_TEMP"/wheelhouse/*.whl
+      - if: needs.plan.outputs.full == 'false'
+        working-directory: .
+        run: python -m pip install -e '.[dev,grpc,security]'
+      - &node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '22'
           package-manager-cache: false
-      # Hosted tooling prerequisites are specified in the acceptance plan.
-      - name: Locate Python download caches
-        id: python-cache-paths
-        run: |
-          pip_cache="$(python -m pip cache dir)"
-          echo "pip=$pip_cache" >> "$GITHUB_OUTPUT"
-          if find "$pip_cache" -type f \( -name '*.whl' -o -name '*.body' \) -print -quit 2>/dev/null | grep -q .; then
-            echo "warm=true" >> "$GITHUB_OUTPUT"
-          fi
-          if command -v uv >/dev/null; then
-            echo "uv=$(uv cache dir)" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Cache Python downloads
-        if: steps.python-cache-paths.outputs.warm != 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
-        with:
-          path: |
-            ${{ steps.python-cache-paths.outputs.pip }}
-            ${{ steps.python-cache-paths.outputs.uv }}
-          key: ${{ runner.os }}-${{ runner.arch }}-python-${{ github.job }}-${{ matrix.python }}-${{ hashFiles('pyproject.toml', '**/uv.lock', '**/requirements*.txt', '**/requirements*.lock', '.github/workflows/ci.yml') }}
-      - name: Install native build tools
-        timeout-minutes: 30
-        run: python -m pip install cmake==4.4.4 ninja==1.13.2
-      - name: Install
-        run: |
-          python -m ensurepip --upgrade --default-pip
-          python -m pip install -e '.[dev,grpc,security]'
-      - name: Locate npm download cache
-        id: npm-cache-paths
-        run: |
-          npm_cache="$(npm config get cache)"
-          echo "path=$npm_cache" >> "$GITHUB_OUTPUT"
-          if find "$npm_cache/_cacache/content-v2" -type f -print -quit 2>/dev/null | grep -q .; then
-            echo "warm=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Cache npm downloads
-        if: steps.npm-cache-paths.outputs.warm != 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
-        with:
-          path: ${{ steps.npm-cache-paths.outputs.path }}
-          key: ${{ runner.os }}-${{ runner.arch }}-npm-${{ github.job }}-node22-${{ hashFiles('**/package-lock.json', '.github/workflows/ci.yml') }}
-      - name: Install Foundry test dependencies
+      - &foundry-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: foundry-cache
+        with: &foundry-cache
+          path: ~/.npm
+          key: ${{ runner.os }}-node22-foundry-${{ hashFiles('src/baloot_platform/service/foundry_dashboard/package-lock.json') }}
+      - &foundry-install
         working-directory: src/baloot_platform/service/foundry_dashboard
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Install Remotion test dependencies
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.foundry-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *foundry-cache
+      - &remotion-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: remotion-cache
+        with: &remotion-cache
+          path: ~/.npm
+          key: ${{ runner.os }}-node22-remotion-${{ hashFiles('src/baloot_platform/video/remotion/package-lock.json') }}
+      - &remotion-install
         working-directory: src/baloot_platform/video/remotion
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Fingerprint native cache toolchain and absolute paths
-        id: native-cache-key
-        shell: bash
-        run: |
-          identity="$( { cmake --version; ninja --version; "${CXX:-c++}" --version; command -v cmake ninja "${CXX:-c++}"; ldd --version; cat /etc/os-release; printf '%s\n' "$GITHUB_WORKSPACE" "$CC" "$CXX" "$CFLAGS" "$CXXFLAGS" "$LDFLAGS"; } | sha256sum | cut -d ' ' -f 1)"
-          echo "identity=$identity" >> "$GITHUB_OUTPUT"
-      - name: Cache native CMake builds
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
+      - run: npm run check
+      - run: npm run test:research
+
+  sdks:
+    needs: plan
+    if: needs.plan.outputs.sdk == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - *checkout
+      - *node
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          path: build/native-release
-          key: ${{ runner.os }}-${{ runner.arch }}-native-release-v1-${{ steps.native-cache-key.outputs.identity }}-${{ hashFiles('native/**', '.github/workflows/ci.yml') }}
-      - name: Build native accelerator required by parity tests
+          go-version: '1.23'
+          cache: false
+      - run: npx --yes --package typescript@5.8.3 tsc -p sdk/typescript/tsconfig.json --noEmit
+      - run: go test ./...
+        working-directory: sdk/go
+
+  python-affected:
+    needs: plan
+    if: needs.plan.outputs.tests != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - *checkout
+      - *py313
+      - *node
+      - *foundry-restore
+      - *foundry-install
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-${{ runner.arch }}-pip-3.13-${{ hashFiles('pyproject.toml') }}
+      - run: python -m pip install -e '.[dev,grpc,security]'
+      - env:
+          AFFECTED_TESTS: ${{ needs.plan.outputs.tests }}
         run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from scripts.run_isolated_pytest import run
+          raise SystemExit(run(json.loads(os.environ["AFFECTED_TESTS"]), Path(os.environ["RUNNER_TEMP"], "affected")))
+          PY
+      - if: '!cancelled()'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-affected-results
+          path: ${{ runner.temp }}/affected/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  python-wheelhouse:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+    steps:
+      - *checkout
+      - &matrix-python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache
+        with: &pip-cache
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-${{ runner.arch }}-pip-${{ matrix.python }}-${{ hashFiles('pyproject.toml') }}
+      - run: python -m pip wheel --wheel-dir "$RUNNER_TEMP/wheelhouse" '.[dev,grpc,security]'
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *pip-cache
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-wheels-${{ matrix.python }}
+          path: ${{ runner.temp }}/wheelhouse/*.whl
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  native-build:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - *checkout
+      - name: Fingerprint the native toolchain
+        id: toolchain
+        run: |
+          identity="$( { cmake --version; ninja --version; c++ --version; ldd --version; cat /etc/os-release; printf '%s\n' "$GITHUB_WORKSPACE"; } | sha256sum | cut -d ' ' -f 1)"
+          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache
+        with: &native-cache
+          path: build/native-release
+          key: ${{ runner.os }}-${{ runner.arch }}-native-release-${{ steps.toolchain.outputs.identity }}-${{ hashFiles('native/**') }}
+      - run: |
           cmake -S native -B build/native-release -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native-release
-      - name: Generate contracts and compile
+          ctest --test-dir build/native-release --output-on-failure
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *native-cache
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-release-library
+          path: build/native-release/libbaloot_native.so
+          if-no-files-found: error
+          retention-days: 1
+
+  native-sanitizers:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sanitizer: address
+            extra: ''
+          - sanitizer: undefined
+            extra: -fno-sanitize-recover=all
+    steps:
+      - *checkout
+      - env:
+          SANITIZER: ${{ matrix.sanitizer }}
+          EXTRA: ${{ matrix.extra }}
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: |
+          asan='detect_leaks=1:halt_on_error=1:abort_on_error=1:disable_coredump=1'
+          cmake -S native -B build/sanitizer -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+            "-DCMAKE_CXX_FLAGS=-fsanitize=$SANITIZER -fno-omit-frame-pointer $EXTRA" \
+            "-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=$SANITIZER" \
+            "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=$SANITIZER" \
+            "-DBALOOT_ASAN_OPTIONS=$asan"
+          cmake --build build/sanitizer
+          env -u LD_PRELOAD -u ASAN_OPTIONS timeout 180s \
+            ctest --test-dir build/sanitizer --output-on-failure --timeout 150
+          if [[ "$SANITIZER" == address ]]; then
+            env -u LD_PRELOAD ASAN_OPTIONS="$asan" timeout 150s build/sanitizer/baloot_native_tests
+          fi
+
+  python-fast-run:
+    needs: [plan, python-wheelhouse, native-build]
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        python: ['3.12', '3.13']
+        shard: [1, 2, 3, 4]
+    steps: &python-shard
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - *matrix-python
+      - *node
+      - if: github.job == 'python-fast-run'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *foundry-cache
+      - if: github.job == 'python-fast-run'
+        working-directory: src/baloot_platform/service/foundry_dashboard
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - if: github.job == 'python-fast-run'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *remotion-cache
+      - if: github.job == 'python-fast-run'
+        working-directory: src/baloot_platform/video/remotion
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - &ffmpeg
+        name: Verify FFmpeg is available
+        run: |
+          if ! command -v ffmpeg || ! command -v ffprobe; then
+            sudo apt-get -o Acquire::Retries=2 update
+            sudo apt-get -o Acquire::Retries=2 install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-wheels-${{ matrix.python }}
+          path: ${{ runner.temp }}/wheelhouse
+          digest-mismatch: error
+      - &offline-install
+        run: python -m pip install --no-index "$RUNNER_TEMP"/wheelhouse/*.whl
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-release-library
+          path: build/native-release
+          digest-mismatch: error
+      - name: Check generated contracts
+        if: matrix.shard == 1 && github.job == 'python-fast-run'
         run: |
           python scripts/sync_package_resources.py
           python scripts/generate_openapi.py
           git diff --exit-code -- api/openapi.json
-          python -m compileall -q src scripts sdk/python
-      - name: Fast and integration tests by isolated file
-        shell: bash
+      - name: Run isolated Python shard
+        if: '!cancelled()'
+        env:
+          SHARD: ${{ matrix.shard }}
         run: |
-          set -euo pipefail
-          if [[ "${{ github.job }}" == python-backend-run ]]; then
-            exec python scripts/run_heavy_pytest.py run --versioned --shard "${{ matrix.shard }}" --output "$RUNNER_TEMP/backend-node-results"
-          fi
-          failures=0
-          if [[ "${{ matrix.shard }}" == 1 ]]; then
-            for script in check test:research; do
-              echo "::group::Foundry $script"
-              if ! npm --prefix src/baloot_platform/service/foundry_dashboard run "$script"; then
-                failures=$((failures + 1))
-              fi
-              echo "::endgroup::"
-            done
-          fi
-          if ! python scripts/run_isolated_pytest.py --workers 4 --timeout 900 --shard "${{ matrix.shard }}" --output "$RUNNER_TEMP/python-file-results"; then
-            failures=$((failures + 1))
-          fi
-          if ((failures)); then
-            echo "::error::$failures test commands failed; see per-file Python results for the complete failure set"
-            exit 1
-          fi
-      - name: Upload isolated Python timings and failures
-        if: "!cancelled() && github.job != 'python-backend-run'"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: python-file-results-${{ matrix.python }}-${{ matrix.shard }}
-          path: ${{ runner.temp }}/python-file-results/
-          if-no-files-found: error
-          retention-days: 7
-        continue-on-error: true
-
-      - name: Record final fast lane result
-        if: always() && github.job != 'python-backend-run'
+          case "$GITHUB_JOB" in
+            python-fast-run) python scripts/run_isolated_pytest.py --workers 4 --shard "$SHARD" --output "$RUNNER_TEMP/python-receipts" ;;
+            python-backend-run) python scripts/run_heavy_pytest.py run --versioned --workers 4 --shard "$SHARD" --output "$RUNNER_TEMP/python-receipts" ;;
+            python-heavy) python scripts/run_heavy_pytest.py run --workers 4 --shard "$SHARD" --output "$RUNNER_TEMP/python-receipts" ;;
+            *) exit 1 ;;
+          esac
+      - name: Record final fast shard status
+        if: '!cancelled() && github.job == ''python-fast-run'''
         env:
           FAST_RESULT: ${{ job.status }}
           FAST_PYTHON: ${{ matrix.python }}
@@ -332,399 +348,215 @@ jobs:
           python - <<'PY'
           import json, os
           from pathlib import Path
-          Path(os.environ['RUNNER_TEMP'], 'python-fast-status.json').write_text(json.dumps({
+          path = Path(os.environ['RUNNER_TEMP'], 'python-receipts')
+          files = json.loads((path / 'results.json').read_text(encoding='utf-8'))
+          (path / 'python-fast-status.json').write_text(json.dumps({
               'head': os.environ['GITHUB_SHA'], 'python': os.environ['FAST_PYTHON'],
               'result': os.environ['FAST_RESULT'], 'shard': int(os.environ['FAST_SHARD']),
-              'files': sorted(row['file'] for row in json.loads(
-                  Path(os.environ['RUNNER_TEMP'], 'python-file-results/results.json').read_text(encoding='utf-8')))
-                  if Path(os.environ['RUNNER_TEMP'], 'python-file-results/results.json').is_file() else [],
+              'files': sorted(row['file'] for row in files),
           }), encoding='utf-8')
           PY
-      - name: Upload final fast lane result
-        id: python_fast_status_upload
-        if: "!cancelled() && github.job != 'python-backend-run'"
+      - name: Upload Python shard receipts and logs
+        if: '!cancelled()'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: python-fast-status-${{ matrix.python }}-${{ matrix.shard }}
-          path: ${{ runner.temp }}/python-fast-status.json
+          name: ${{ github.job }}-${{ matrix.python }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/python-receipts/
           if-no-files-found: error
           retention-days: 7
-        continue-on-error: true
-      - name: Upload final fast lane result
-        if: ${{ !cancelled() && (!cancelled() && github.job != 'python-backend-run') && steps.python_fast_status_upload.outcome == 'failure' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: python-fast-status-${{ matrix.python }}-${{ matrix.shard }}
-          path: ${{ runner.temp }}/python-fast-status.json
-          if-no-files-found: error
-          retention-days: 7
-          overwrite: true
-      - name: Upload backend node receipts and logs
-        id: backend_node_results_upload
-        if: "!cancelled() && github.job == 'python-backend-run'"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: backend-node-results-${{ matrix.python }}-${{ matrix.shard }}
-          path: ${{ runner.temp }}/backend-node-results/
-          if-no-files-found: error
-          retention-days: 7
-        continue-on-error: true
-      - name: Upload backend node receipts and logs
-        if: ${{ !cancelled() && (!cancelled() && github.job == 'python-backend-run') && steps.backend_node_results_upload.outcome == 'failure' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: backend-node-results-${{ matrix.python }}-${{ matrix.shard }}
-          path: ${{ runner.temp }}/backend-node-results/
-          if-no-files-found: error
-          retention-days: 7
-          overwrite: true
 
-  python-fast-run:
-    needs: preflight
-    if: *heavy-condition
+  python-backend-run:
+    needs: [plan, python-wheelhouse, native-build]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
-    env: *fast-env
+    timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: ${{ fromJSON(vars.BALOOT_CI_MAX_PARALLEL || '4') }}
+      max-parallel: 10
       matrix:
         python: ['3.12', '3.13']
-        shard: [1, 2, 3, 4]
-    steps: *fast-steps
-
-  python-fast:
-    name: python-fast (${{ matrix.python }})
-    needs: [python-backend-run, python-fast-run, python-heavy-summary]
-    if: always()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      max-parallel: ${{ fromJSON(vars.BALOOT_CI_MAX_PARALLEL || '4') }}
-      matrix:
-        python: ['3.12', '3.13']
-    steps:
-      - &required-gate
-        name: Require non-draft successful producers
-        shell: bash
-        env:
-          IS_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
-          NEEDS_RESULTS: ${{ join(needs.*.result, ',') }}
-        run: |
-          if [[ "$IS_DRAFT" == true ]]; then
-            echo '::error::draft PR: heavy CI not run; mark ready for review'
-            exit 1
-          fi
-          if [[ ! "$NEEDS_RESULTS" =~ ^success(,success)*$ ]]; then
-            echo "::error::Required producers did not all succeed: $NEEDS_RESULTS"
-            exit 1
-          fi
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 1
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.13'
-      - name: Download this Python leg's result
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: python-fast-status-${{ matrix.python }}-*
-          merge-multiple: false
-          path: fast-result
-      - name: Download this Python leg's backend node receipts
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: backend-node-results-${{ matrix.python }}-*
-          merge-multiple: false
-          path: backend-result
-      - name: Require this fast leg and complete heavy coverage
-        env:
-          FAST_PYTHON: ${{ matrix.python }}
-          BACKEND_RESULT: ${{ needs.python-backend-run.result }}
-          FAST_RUN_RESULT: ${{ needs.python-fast-run.result }}
-          HEAVY_RESULT: ${{ needs.python-heavy-summary.result }}
-        run: |
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          from scripts.run_heavy_pytest import validate_union
-          from scripts.run_isolated_pytest import node_sharded_files, validate_shards
-          history = json.loads(Path('.github/python-test-durations.json').read_text(encoding='utf-8'))
-          backend_files = sorted(history['versionedNodeShardedFiles'])
-          excluded = node_sharded_files(history) | set(backend_files)
-          files = sorted(path.as_posix() for path in Path('tests').glob('test_*.py')
-                         if path.as_posix() not in excluded)
-          receipts = [json.loads(path.read_text(encoding='utf-8'))
-                      for path in Path('fast-result').glob('*/python-fast-status.json')]
-          validate_shards(receipts, os.environ['GITHUB_SHA'], os.environ['FAST_PYTHON'], files, history)
-          backend_receipts = [json.loads(path.read_text(encoding='utf-8'))
-                              for path in Path('backend-result').glob('*/receipt.json')]
-          validate_union(backend_receipts, os.environ['GITHUB_SHA'], backend_files,
-                         python=os.environ['FAST_PYTHON'], seconds=history['nodeSeconds'][os.environ['FAST_PYTHON']],
-                         shards=history['versionedNodeShards'])
-          if any(os.environ[name] != 'success' for name in ('BACKEND_RESULT', 'FAST_RUN_RESULT', 'HEAVY_RESULT')):
-              raise SystemExit(f"Fast/heavy qualification failed: backend={os.environ['BACKEND_RESULT']}, fast={os.environ['FAST_RUN_RESULT']}, heavy={os.environ['HEAVY_RESULT']}")
-          PY
+        shard: [1, 2, 3, 4, 5]
+    steps: *python-shard
 
   python-heavy:
-    needs: preflight
-    if: *heavy-condition
+    needs: [plan, python-wheelhouse, native-build]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 130
+    timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: ${{ fromJSON(vars.BALOOT_CI_MAX_PARALLEL || '4') }}
+      max-parallel: 10
       matrix:
+        python: ['3.13']
         shard: [1, 2, 3, 4]
-    env:
-      OMP_NUM_THREADS: '4'
-      CMAKE_BUILD_PARALLEL_LEVEL: '4'
-    steps:
-      - name: Install hosted native and media prerequisites
-        timeout-minutes: 10
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build ffmpeg fonts-noto-core fonts-noto-extra
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 1
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.13'
-      - name: Locate Python download caches
-        id: python-cache-paths
-        run: |
-          pip_cache="$(python -m pip cache dir)"
-          echo "pip=$pip_cache" >> "$GITHUB_OUTPUT"
-          if find "$pip_cache" -type f \( -name '*.whl' -o -name '*.body' \) -print -quit 2>/dev/null | grep -q .; then
-            echo "warm=true" >> "$GITHUB_OUTPUT"
-          fi
-          if command -v uv >/dev/null; then
-            echo "uv=$(uv cache dir)" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Cache Python downloads
-        if: steps.python-cache-paths.outputs.warm != 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
-        with:
-          path: |
-            ${{ steps.python-cache-paths.outputs.pip }}
-            ${{ steps.python-cache-paths.outputs.uv }}
-          key: ${{ runner.os }}-${{ runner.arch }}-python-${{ github.job }}-3.13-${{ hashFiles('pyproject.toml', '**/uv.lock', '**/requirements*.txt', '**/requirements*.lock', '.github/workflows/ci.yml') }}
-      - name: Install native build tools
-        timeout-minutes: 30
-        run: python -m pip install cmake==4.4.4 ninja==1.13.2
-      - name: Install platform
-        run: |
-          python -m ensurepip --upgrade --default-pip
-          python -m pip install -e '.[dev,grpc,security]'
-      - name: Fingerprint native cache toolchain and absolute paths
-        id: native-cache-key
-        shell: bash
-        run: |
-          identity="$( { cmake --version; ninja --version; "${CXX:-c++}" --version; command -v cmake ninja "${CXX:-c++}"; ldd --version; cat /etc/os-release; printf '%s\n' "$GITHUB_WORKSPACE" "$CC" "$CXX" "$CFLAGS" "$CXXFLAGS" "$LDFLAGS"; } | sha256sum | cut -d ' ' -f 1)"
-          echo "identity=$identity" >> "$GITHUB_OUTPUT"
-      - name: Cache native CMake builds
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
-        with:
-          path: build/native-release
-          key: ${{ runner.os }}-${{ runner.arch }}-native-release-v1-${{ steps.native-cache-key.outputs.identity }}-${{ hashFiles('native/**', '.github/workflows/ci.yml') }}
-      - name: Build native accelerator required by parity tests
-        run: |
-          cmake -S native -B build/native-release -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/native-release
-          python scripts/sync_package_resources.py
-      - name: Run deterministic heavy node shard
-        timeout-minutes: 100
-        env:
-          HEAVY_SHARD: ${{ matrix.shard }}
-        run: python scripts/run_heavy_pytest.py run --shard "$HEAVY_SHARD" --output "$RUNNER_TEMP/python-heavy"
-      - name: Upload heavy shard timings, node receipts and logs
-        id: python_heavy_shard_upload
-        if: "!cancelled()"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: python-heavy-shard-3.13-${{ matrix.shard }}
-          path: ${{ runner.temp }}/python-heavy/
-          if-no-files-found: error
-          retention-days: 7
-        continue-on-error: true
-      - name: Upload heavy shard timings, node receipts and logs
-        if: ${{ !cancelled() && (!cancelled()) && steps.python_heavy_shard_upload.outcome == 'failure' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: python-heavy-shard-3.13-${{ matrix.shard }}
-          path: ${{ runner.temp }}/python-heavy/
-          if-no-files-found: error
-          retention-days: 7
-          overwrite: true
+    steps: *python-shard
 
-  python-heavy-summary:
-    needs: python-heavy
-    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+  python-coverage:
+    needs: [plan, python-fast-run, python-backend-run, python-heavy]
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - *checkout
+      - *py313
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: python-{fast-run,backend-run,heavy}-*
+          path: ${{ runner.temp }}/python-coverage
+          digest-mismatch: error
+      - run: python scripts/ci_scope.py coverage "$RUNNER_TEMP/python-coverage"
+
+  media-inputs:
+    needs: [plan, python-wheelhouse]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 1
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.13'
-      - name: Download all heavy shard receipts
+      - *checkout
+      - *py313
+      - &media-wheels
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: python-heavy-shard-3.13-*
-          path: outputs/python-heavy-shards
-          merge-multiple: false
-      - name: Prove collected equals executed across all four shards
-        env:
-          HEAVY_RESULT: ${{ needs.python-heavy.result }}
+          name: python-wheels-3.13
+          path: ${{ runner.temp }}/wheelhouse
+          digest-mismatch: error
+      - *offline-install
+      - name: Verify governed font hashes
         run: |
-          python -c 'import os; raise SystemExit(0 if os.environ["HEAVY_RESULT"] == "success" else "Heavy matrix final result was not successful")'
-          python scripts/run_heavy_pytest.py summary --receipts outputs/python-heavy-shards --output outputs/python-heavy-summary.json
-      - name: Upload heavy coverage summary
-        if: "!cancelled()"
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          fonts = Path("assets/fonts")
+          for name, item in json.loads((fonts / "manifest.json").read_bytes())["fonts"].items():
+              if hashlib.sha256((fonts / name).read_bytes()).hexdigest() != item["sha256"]:
+                  raise ValueError(f"governed font hash differs: {name}")
+          PY
+      - env:
+          SOURCE_DATE_EPOCH: '315532800'
+        run: python scripts/generate_professional_video_prototypes.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: media-bundles
+          path: outputs/professional-video-prototypes/
+          if-no-files-found: error
+          retention-days: 1
+
+  remotion-checks:
+    needs: plan
+    if: needs.plan.outputs.remotion == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: src/baloot_platform/video/remotion
+    steps:
+      - *checkout
+      - *node
+      - *remotion-restore
+      - *remotion-install
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.remotion-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *remotion-cache
+      - run: npm run typecheck && npm test
+
+  media-render:
+    needs: [plan, media-inputs]
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [flagship, decision, companion, parity]
+    defaults:
+      run:
+        working-directory: src/baloot_platform/video/remotion
+    env:
+      SOURCE_DATE_EPOCH: '315532800'
+      BALOOT_RENDER_TIMEOUT_SECONDS: '1200'
+      OMP_NUM_THREADS: '4'
+    steps:
+      - *checkout
+      - *py313
+      - *node
+      - *remotion-restore
+      - *remotion-install
+      - *ffmpeg
+      - *media-wheels
+      - *offline-install
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: media-bundles
+          path: outputs/professional-video-prototypes
+          digest-mismatch: error
+      - name: Render the governed media shard
+        working-directory: .
+        env:
+          SHARD: ${{ matrix.shard }}
+          BALOOT_RENDER_EVIDENCE_DIR: ${{ runner.temp }}/media-stage-logs
+        run: |
+          cpus="$(python -c 'import os; print(",".join(map(str, sorted(os.sched_getaffinity(0))[:4])))')"
+          taskset --cpu-list "$cpus" sh -ec 'test "$(nproc)" -le 4; exec python scripts/render_release.py --ci-shard "$SHARD"'
+      - name: Upload shard media
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: python-heavy-summary
-          path: outputs/python-heavy-summary.json
+          name: media-render-${{ matrix.shard }}
+          path: ${{ runner.temp }}/media-shard.tar
+          compression-level: 0
           if-no-files-found: error
+          retention-days: 1
+      - name: Retain render stage logs
+        if: '!cancelled()'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: media-stage-logs-${{ matrix.shard }}
+          path: ${{ runner.temp }}/media-stage-logs/
+          if-no-files-found: ignore
           retention-days: 7
-        continue-on-error: true
-
-  native-run:
-    needs: [preflight, sdks-run]
-    if: &ordered-heavy-condition "!cancelled() && needs.preflight.result == 'success' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)"
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Install hosted native and media prerequisites
-        timeout-minutes: 10
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build ffmpeg fonts-noto-core fonts-noto-extra
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.13'
-      - name: Locate Python download caches
-        id: python-cache-paths
-        run: |
-          pip_cache="$(python -m pip cache dir)"
-          echo "pip=$pip_cache" >> "$GITHUB_OUTPUT"
-          if find "$pip_cache" -type f \( -name '*.whl' -o -name '*.body' \) -print -quit 2>/dev/null | grep -q .; then
-            echo "warm=true" >> "$GITHUB_OUTPUT"
-          fi
-          if command -v uv >/dev/null; then
-            echo "uv=$(uv cache dir)" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Cache Python downloads
-        if: steps.python-cache-paths.outputs.warm != 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
-        with:
-          path: |
-            ${{ steps.python-cache-paths.outputs.pip }}
-            ${{ steps.python-cache-paths.outputs.uv }}
-          key: ${{ runner.os }}-${{ runner.arch }}-python-${{ github.job }}-3.13-${{ hashFiles('pyproject.toml', '**/uv.lock', '**/requirements*.txt', '**/requirements*.lock', '.github/workflows/ci.yml') }}
-      - name: Install native build tools
-        timeout-minutes: 30
-        run: python -m pip install cmake==4.4.4 ninja==1.13.2
-      - name: Fingerprint native cache toolchain and absolute paths
-        id: native-cache-key
-        shell: bash
-        run: |
-          identity="$( { cmake --version; ninja --version; "${CXX:-c++}" --version; command -v cmake ninja "${CXX:-c++}"; ldd --version; cat /etc/os-release; printf '%s\n' "$GITHUB_WORKSPACE" "$CC" "$CXX" "$CFLAGS" "$CXXFLAGS" "$LDFLAGS"; } | sha256sum | cut -d ' ' -f 1)"
-          echo "identity=$identity" >> "$GITHUB_OUTPUT"
-      - name: Cache native CMake builds
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
-        with:
-          path: build/native-*
-          key: ${{ runner.os }}-${{ runner.arch }}-native-sanitizers-v1-${{ steps.native-cache-key.outputs.identity }}-${{ hashFiles('native/**', '.github/workflows/ci.yml') }}
-      - name: Configure and test Release
-        run: |
-          cmake -S native -B build/native-release -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/native-release
-          ctest --test-dir build/native-release --output-on-failure
-      - name: Configure and test ASan without preloading CTest
-        shell: bash
-        run: |
-          set -euo pipefail
-          ASAN_OPTIONS_VALUE="detect_leaks=1:halt_on_error=1:abort_on_error=1:disable_coredump=1"
-          cmake -S native -B build/native-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-            '-DCMAKE_CXX_FLAGS=-fsanitize=address -fno-omit-frame-pointer' \
-            '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address' \
-            '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address' \
-            -DBALOOT_ASAN_OPTIONS="$ASAN_OPTIONS_VALUE"
-          cmake --build build/native-asan
-          env -u LD_PRELOAD -u ASAN_OPTIONS timeout 180s \
-            ctest --test-dir build/native-asan --output-on-failure --timeout 150
-          env -u LD_PRELOAD -u ASAN_OPTIONS cmake -E env \
-            "ASAN_OPTIONS=$ASAN_OPTIONS_VALUE" \
-            "$PWD/build/native-asan/baloot_native_tests"
-      - name: Configure and test UBSan
-        run: |
-          cmake -S native -B build/native-ubsan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-            '-DCMAKE_CXX_FLAGS=-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer' \
-            '-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=undefined' \
-            '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=undefined'
-          cmake --build build/native-ubsan
-          UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ctest --test-dir build/native-ubsan --output-on-failure
-
-  sdks-run:
-    needs: [preflight, python-fast-run]
-    if: *ordered-heavy-condition
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: '22'
-          package-manager-cache: false
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: '1.23'
-          cache: false
-      - name: Locate npm download cache
-        id: npm-cache-paths
-        run: |
-          npm_cache="$(npm config get cache)"
-          echo "path=$npm_cache" >> "$GITHUB_OUTPUT"
-          if find "$npm_cache/_cacache/content-v2" -type f -print -quit 2>/dev/null | grep -q .; then
-            echo "warm=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Cache npm downloads
-        if: steps.npm-cache-paths.outputs.warm != 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
-        with:
-          path: ${{ steps.npm-cache-paths.outputs.path }}
-          key: ${{ runner.os }}-${{ runner.arch }}-npm-${{ github.job }}-node22-${{ hashFiles('**/package-lock.json', '.github/workflows/ci.yml') }}
-      - name: TypeScript SDK
-        run: npx --yes --package typescript@5.8.3 tsc -p sdk/typescript/tsconfig.json --noEmit
-      - name: Go SDK
-        working-directory: sdk/go
-        run: go test ./...
-
-  native:
-    needs: [preflight, native-run]
-    if: always()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps: &required-steps
-      - *required-gate
-
-  sdks:
-    needs: [preflight, sdks-run]
-    if: always()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps: *required-steps
 
   media-release-smoke:
-    needs: [preflight, media-release-smoke-run]
-    if: always()
+    needs: [plan, media-render]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps: *required-steps
+    timeout-minutes: 12
+    env:
+      SOURCE_DATE_EPOCH: '315532800'
+    steps:
+      - *checkout
+      - *py313
+      - *ffmpeg
+      - *media-wheels
+      - *offline-install
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: media-render-*
+          path: ${{ runner.temp }}/media-shards
+          digest-mismatch: error
+      - run: |
+          for shard in flagship decision companion parity; do
+            tar -xf "$RUNNER_TEMP/media-shards/media-render-$shard/media-shard.tar"
+          done
+          mv outputs/professional-video-collection/trick-collection-sample.mp4 outputs/professional-video-flagship/
+          python scripts/verify_remotion_plugin_parity.py
+          python scripts/generate_scene_preview.py --refresh
+          for video in outputs/professional-video-{flagship/balootx-complete-laffah-audit,decision/balootx-decision-clip}.mp4; do
+            ffmpeg -v error -xerror -threads 4 -i "$video" -filter_threads 4 -filter_complex_threads 4 -threads 4 -f null -
+          done
+          python scripts/generate_media_probe.py
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          python scripts/generate_test_inventory_v20.py --version "$version" --output release/test-inventory.json
+          python scripts/generate_supply_chain.py --sbom-output release/sbom.cdx.json --license-output release/license-inventory.json
+          python scripts/generate_platform_evidence.py
 
-  ci-result:
+  ci-gate:
+    # Keep the protected context until the coordinated branch cutover.
     name: CI result
-    needs: [python-fast, native, sdks, media-release-smoke]
+    needs: [plan, preflight, dependency-review, foundry, sdks, python-affected, python-wheelhouse, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, media-render, media-release-smoke]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    steps: *required-steps
+    steps:
+      - *checkout
+      - env:
+          CI_RESULTS: ${{ toJSON(needs) }}
+        run: python3 scripts/ci_scope.py gate

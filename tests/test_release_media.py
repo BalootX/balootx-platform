@@ -22,6 +22,7 @@ from scripts import (
     render_release,
     render_remotion_plugin_parity,
     verify_professional_decision_clip,
+    verify_professional_flagship,
     verify_remotion_plugin_parity,
 )
 
@@ -93,6 +94,30 @@ def test_decision_export_verifier_uses_its_frozen_bundle(
         assert manifest["bundleSha256"] == bundle["bundleSha256"]
         if no_text:
             assert manifest["captions"] == {"policy": "no_justification_text", "present": False}
+
+
+@pytest.mark.parametrize("show_justification", [False, True])
+def test_flagship_captions_match_governed_text_and_timing(show_justification):
+    bundle = {
+        "presentation": {"presentation": {"show_justification_text": show_justification}},
+        "scenes": [{"stage": "reveal", "layers": [
+            {"id": "analysis", "content": {"reasonKey": "video.analysis.expert_reason"}}
+        ]}],
+        "localizations": {"video.analysis.expert_reason": "ورقة الدخول"},
+        "timeline": {"segments": [{"stage": "reveal", "startFrame": 3180}]},
+        "render": {"fps": 60},
+    }
+    header = "WEBVTT\n\n"
+    cue = "00:00:53.000 --> 00:00:57.000\nورقة الدخول\n"
+    expected = header + cue if show_justification else header
+    verify_professional_flagship.verify_captions(bundle, expected)
+    for invalid in (header if show_justification else header + cue, expected + "extra\n"):
+        with pytest.raises(ValueError, match="flagship Arabic captions"):
+            verify_professional_flagship.verify_captions(bundle, invalid)
+    if show_justification:
+        for invalid in (expected.replace("53.000", "52.000"), expected.replace("ورقة الدخول", "ورقة أخرى")):
+            with pytest.raises(ValueError, match="flagship Arabic captions"):
+                verify_professional_flagship.verify_captions(bundle, invalid)
 
 
 def test_professional_identity_is_seeded_unique_and_bound_to_legal_source(tmp_path):

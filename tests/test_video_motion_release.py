@@ -509,7 +509,7 @@ def test_voice_pack_is_original_and_media_correct(root: Path) -> None:
     assert required <= set(manifest["clips"])
     assert manifest["copiedReferenceAudio"] is False
     assert 8 <= manifest["clips"]["explanation"]["durationSeconds"] <= 14
-    for key in required:
+    for key in sorted(required):
         with wave.open(str(directory / manifest["clips"][key]["file"]), "rb") as wav:
             assert wav.getframerate() == 48_000 and wav.getnchannels() == 1
 

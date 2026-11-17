@@ -93,68 +93,27 @@ def test_verifier_container_uses_current_responsibility_entrypoint(root: Path) -
     ) == ["premium.yaml"]
 
 
-def test_python_ci_installs_foundry_parser_and_collects_the_failure_wave(
-    root: Path,
-) -> None:
-    workflow = yaml.safe_load(
-        (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    )
-    steps = workflow["jobs"]["python-fast-run"]["steps"]
-
-    uv = next(step for step in steps if step.get("uses", "").startswith("astral-sh/setup-uv@"))
-    managed = next(step for step in steps if step.get("name") == "Set up managed Python 3.12")
-    assert managed == {
-        "name": "Set up managed Python 3.12",
-        "if": "matrix.python == '3.12'",
-        "run": (
-            'uv venv --seed --managed-python --python 3.12 "$RUNNER_TEMP/python-3.12"\n'
-            'echo "$RUNNER_TEMP/python-3.12/bin" >> "$GITHUB_PATH"\n'
-        ),
-    }
-    build_tools = next(step for step in steps if step.get("name") == "Install native build tools")
-    assert steps.index(uv) < steps.index(managed) < steps.index(build_tools)
-    gate_python = next(step for step in workflow["jobs"]["python-fast"]["steps"]
-                       if step.get("uses", "").startswith("actions/setup-python@"))
-    assert gate_python["with"] == {"python-version": "3.13"}
-
-    setup_node = next(
-        step for step in steps if "actions/setup-node@" in step.get("uses", "")
-    )
-    assert setup_node["with"] == {
-        "node-version": "22",
-        "package-manager-cache": False,
-    }
-    install = next(
-        step
-        for step in steps
-        if step.get("name") == "Install Foundry test dependencies"
-    )
-    assert install["working-directory"] == (
-        "src/baloot_platform/service/foundry_dashboard"
-    )
-    assert install["run"] == "npm ci --ignore-scripts --no-audit --no-fund"
-    test_step = next(
-        step
-        for step in steps
-        if step.get("name") == "Fast and integration tests by isolated file"
-    )
-    remotion_install = next(step for step in steps if step.get("working-directory") ==
-        "src/baloot_platform/video/remotion" and step.get("run") ==
-        "npm ci --ignore-scripts --no-audit --no-fund")
-    assert steps.index(remotion_install) < steps.index(test_step)
-    tests = test_step["run"]
-    backend = workflow["jobs"]["python-backend-run"]
-    assert backend["steps"] == steps
-    assert 'exec python scripts/run_heavy_pytest.py run --versioned' in tests
-    assert tests.index("run_heavy_pytest.py") < tests.index("failures=0")
-    assert "failures=0" in tests
-    assert 'if ! python scripts/run_isolated_pytest.py --workers 4 --timeout 900' in tests
-    assert 'echo "::error::$failures test commands failed; see per-file Python results for the complete failure set"' in tests
-    media = workflow["jobs"]["media-release-smoke-run"]
-    prerequisite = next(step for step in media["steps"] if step.get("name") == "Verify media runtime prerequisites")
-    assert "ffmpeg -version" in prerequisite["run"] and "ffprobe -version" in prerequisite["run"]
-    assert "assets/fonts" in prerequisite["run"] and "sha256" in prerequisite["run"]
-    assert next(step for step in media["steps"] if step.get("name") == "Install hosted native and media prerequisites")["timeout-minutes"] == 10
+def test_ci_shards_receive_builds_and_required_node_dependencies(root: Path) -> None:
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    steps = jobs["python-fast-run"]["steps"]
+    installs = {step.get("working-directory") for step in steps
+                if step.get("run", "").startswith("npm ci ")}
+    assert installs == {"src/baloot_platform/service/foundry_dashboard",
+                        "src/baloot_platform/video/remotion"}
+    assert jobs["python-backend-run"]["steps"] == steps == jobs["python-heavy"]["steps"]
+    for name in ("python-backend-run", "python-fast-run", "python-heavy"):
+        assert jobs[name]["needs"] == ["plan", "python-wheelhouse", "native-build"]
+    downloads = {step["with"]["name"] for step in steps if "download-artifact@" in step.get("uses", "")}
+    assert downloads == {"python-wheels-${{ matrix.python }}", "native-release-library"}
+    assert all(step.get("with", {}).get("digest-mismatch") == "error" for step in steps
+               if "download-artifact@" in step.get("uses", ""))
+    foundry = jobs["foundry"]["steps"]
+    assert any(step.get("run") == "npm run test:research" for step in foundry)
+    assert installs <= {step.get("working-directory") for step in foundry
+                        if step.get("run", "").startswith("npm ci ")}
+    assert jobs["media-render"]["strategy"]["matrix"]["shard"] == ["flagship", "decision", "companion", "parity"]
+    assert jobs["media-release-smoke"]["needs"] == ["plan", "media-render"]
+    assert any(step.get("name") == "Verify governed font hashes" for step in jobs["media-inputs"]["steps"])
 
 
 def test_workflows_use_node24_artifact_upload_action(root: Path) -> None:

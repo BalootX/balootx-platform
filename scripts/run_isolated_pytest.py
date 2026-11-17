@@ -63,7 +63,13 @@ def resource_snapshot() -> dict:
             files[name] = Path(name).read_text(encoding="ascii").strip()
         except (OSError, UnicodeError):
             files[name] = None
-    return {"monotonicSeconds": time.monotonic(),
+    cpu_seconds = None
+    if sys.platform != "win32":
+        import resource
+
+        usage = (resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN))
+        cpu_seconds = sum(item.ru_utime + item.ru_stime for item in usage)
+    return {"monotonicSeconds": time.monotonic(), "processCpuSeconds": cpu_seconds,
             "affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
             "files": files}
 

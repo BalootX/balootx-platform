@@ -890,7 +890,7 @@ def enumerate_escalation_prior_histories_v1(
     def allowance(cost):
         nonlocal solves, reason
         cancelled = cancel_check is not None and cancel_check()
-        seconds = deadline - time.monotonic()
+        seconds = min(maximum_seconds, deadline - time.monotonic())
         reason = ("cancelled" if cancelled else
                   "maximum_seconds" if seconds <= 0 else
                   "maximum_nodes" if solves + cost > budget.maximum_nodes else None)

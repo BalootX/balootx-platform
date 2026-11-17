@@ -584,25 +584,24 @@ def test_fast_shards_balance_recorded_durations_and_cover_every_file_once():
         lane.split_files(files, {**history, "shardSeconds": {files[0]: float('nan')}})
 
 
-def test_measured_slow_files_are_serial_and_dedicated_with_balanced_remaining_wall_time():
+def test_measured_slow_files_keep_exact_union_with_balanced_wall_time():
     history = json.loads((lane.ROOT / ".github/python-test-durations.json").read_text())
-    files = sorted(path.relative_to(lane.ROOT).as_posix() for path in lane.ROOT.glob("tests/test_*.py"))
     files = lane.fast_files(history)
     groups = lane.split_files(files, history)
     backend = "tests/test_research_ortools_backend_service.py"
     unified = "tests/test_research_ortools_unified_executor.py"
-    assert groups[0] == [unified] and all(backend not in group for group in groups)
-    assert history["versionedNodeShardedFiles"] == [backend] and history["versionedNodeShards"] == 5
+    assert all(backend not in group and unified not in group for group in groups)
+    assert {backend, unified} <= set(history["versionedNodeShardedFiles"])
+    assert history["versionedNodeShards"] == 5
     assert {backend, unified} <= set(history["serialFiles"])
-    assert all("40240390613" in history["serialRationale"][path] for path in (backend, unified))
-    assert history["shardTimingSourceRun"] == 40240390613
-    assert history["shardSeconds"][backend] == 2335.493 and history["shardSeconds"][unified] == 935.580
-    assert {path for path, seconds in history["shardSeconds"].items() if seconds >= 900} == {backend, unified}
+    assert history["shardTimingSourceRun"] == 44068917758
+    assert history["shardSeconds"][unified] == 869.454
+    assert set(files) <= set(history["shardSeconds"])
     assert sorted(path for group in groups for path in group) == files
     inventory = {path.relative_to(lane.ROOT).as_posix() for path in lane.ROOT.glob("tests/test_*.py")}
     assert set(files) | lane.node_sharded_files(history) | set(history["versionedNodeShardedFiles"]) == inventory
     walls = []
-    for group in groups[1:]:
+    for group in groups:
         workers, serial = [0.0] * 4, 0.0
         for path, _ in lane.schedule(group, history):
             seconds = history["shardSeconds"].get(path, history["seconds"].get(path, 1.0))
@@ -624,7 +623,7 @@ def test_outcome_generator_files_keep_timing_weights_and_exactly_once_fast_cover
     )}
     scheduled = [path for group in lane.split_files(lane.fast_files(history), history) for path in group]
     assert all(scheduled.count(path) == 1 for path in added)
-    assert all(history["seconds"][path] == history["shardSeconds"][path] > 0 for path in added)
+    assert all(history["seconds"][path] > 0 and history["shardSeconds"][path] > 0 for path in added)
     assert all("40356050071" in history["additionalSources"][path] for path in added)
 
 
@@ -633,7 +632,7 @@ def test_timeout_boundary_files_keep_weights_serial_isolation_and_exactly_once_c
     added = {"tests/test_search_timeout_boundaries.py", "tests/test_time_censored_service_boundaries.py"}
     scheduled = [path for group in lane.split_files(lane.fast_files(history), history) for path in group]
     assert all(scheduled.count(path) == 1 for path in added)
-    assert all(history["seconds"][path] == history["shardSeconds"][path] > 0 for path in added)
+    assert all(history["seconds"][path] > 0 and history["shardSeconds"][path] > 0 for path in added)
     assert all("PR17" in history["additionalSources"][path] for path in added)
     assert added <= set(history["serialFiles"]) == set(history["serialRationale"])
     assert all(dict(lane.schedule(scheduled, history))[path] == 900 for path in added)

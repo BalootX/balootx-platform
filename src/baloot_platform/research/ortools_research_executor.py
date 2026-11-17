@@ -3489,7 +3489,7 @@ def compile_observed_decision_v1(
         if cancel_check is not None and cancel_check():
             raise InformationSetCompilationStopped("cancelled", stage="observed_decision",
                 evidence={"priorHistoryCoverage": prior_coverage} if prior_coverage is not None else None)
-        value = deadline - time.monotonic()
+        value = min(maximum_seconds, deadline - time.monotonic())
         if value <= 0:
             raise InformationSetCompilationStopped("maximum_seconds", stage="observed_decision",
                 evidence={"priorHistoryCoverage": prior_coverage} if prior_coverage is not None else None)

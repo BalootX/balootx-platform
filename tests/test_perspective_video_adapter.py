@@ -121,6 +121,7 @@ def test_actor_perspective_emits_legal_choices_and_recommendation(root: Path) ->
 
 def test_dynamic_arabic_reason_isolates_inline_card_labels(root: Path) -> None:
     profile = yaml.safe_load((root / "configs/video/premium.yaml").read_text(encoding="utf-8"))
+    profile["presentation"]["show_justification_text"] = True
     projection = _projection(Seat.SOUTH, Seat.SOUTH)
     evidence = _evidence(Seat.SOUTH, Seat.SOUTH, "choose_acting_action")
     variant = _variant(Seat.SOUTH, "actor_challenge", "choose_acting_action")
@@ -145,6 +146,7 @@ def test_dynamic_arabic_reason_isolates_inline_card_labels(root: Path) -> None:
 
 def test_partner_perspective_has_typed_inference_and_no_actor_answer(root: Path) -> None:
     profile = yaml.safe_load((root / "configs/video/premium.yaml").read_text(encoding="utf-8"))
+    profile["presentation"]["show_justification_text"] = True
     projection = _projection(Seat.SOUTH, Seat.NORTH)
     evidence = _evidence(Seat.SOUTH, Seat.NORTH, "read_partner_signal")
     variant = _variant(Seat.SOUTH, "partner_inference", "read_partner_signal")

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import math
 import os
@@ -95,7 +96,9 @@ def _pytest(arguments: list[str], output: Path, name: str, seconds: int) -> tupl
     return code, json.loads(target.read_text(encoding="utf-8")) if target.exists() else None
 
 
-def run_shard(shard: int, output: Path, versioned: bool = False) -> int:
+def run_shard(shard: int, output: Path, versioned: bool = False, *, workers: int = 1) -> int:
+    if not 1 <= workers <= 4:
+        raise ValueError("node shard workers must be 1..4")
     resources = {"beforeAffinity": resource_snapshot()}
     os.sched_setaffinity(0, sorted(os.sched_getaffinity(0))[:4])
     output = output.resolve()
@@ -104,7 +107,7 @@ def run_shard(shard: int, output: Path, versioned: bool = False) -> int:
                   for name in ("collection", "execution") for extension in ("json", "jsonl", "log")))
     history = json.loads((ROOT / ".github/python-test-durations.json").read_text(encoding="utf-8"))
     files = sorted(history["versionedNodeShardedFiles"] if versioned else node_sharded_files(history))
-    seconds = history["nodeSeconds"][".".join(platform.python_version().split(".")[:2])] if versioned else None
+    seconds = history["nodeSeconds"][".".join(platform.python_version().split(".")[:2])] if versioned else history.get("heavyNodeSeconds")
     shards = history["versionedNodeShards"] if versioned else 4
     limit = 3600 if versioned else 5400
     started = time.monotonic()
@@ -127,13 +130,31 @@ def run_shard(shard: int, output: Path, versioned: bool = False) -> int:
         selected = split_nodes(nodes, shard, seconds, shards)
         receipt.update(collected=nodes, selected=selected)
         print(f"Heavy shard {shard}: {len(selected)}/{len(nodes)} nodes; execution limit {limit}s", flush=True)
-        if selected:
-            code, execution = _pytest(selected, output, "execution", limit)
-        else:
-            code, execution = 0, {"exitstatus": 0, "collected": [], "deselected": [], "collectionIssues": [], "reports": {}}
+        worker_count = min(workers, len(selected))
+        assignments = [split_nodes(selected, index, seconds, worker_count)
+                       for index in range(1, worker_count + 1)]
+
+        def execute(index, nodes):
+            name = "execution" if workers == 1 else f"execution-{index}"
+            return _pytest(nodes, output, name, limit)
+
+        execution = {"exitstatus": 0, "collected": [], "deselected": [], "collectionIssues": [], "reports": {}}
+        errors = []
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            runs = [pool.submit(execute, index, nodes) for index, nodes in enumerate(assignments, 1)]
+            for index, (nodes, result) in enumerate(zip(assignments, runs, strict=True), 1):
+                try:
+                    code, part = result.result()
+                    if code or part is None:
+                        raise ValueError(f"node worker execution incomplete or failed (exit {code})")
+                    validate_execution(nodes, part)
+                    execution["collected"].extend(part["collected"])
+                    execution["reports"].update(part["reports"])
+                except (OSError, ValueError) as exc:
+                    errors.append(f"worker {index}: {exc}")
         receipt["execution"] = execution
-        if code or execution is None:
-            raise ValueError(f"heavy shard execution incomplete or failed (exit {code})")
+        if errors:
+            raise ValueError("; ".join(errors))
         validate_execution(selected, execution)
         receipt["status"] = "passed"
         return 0
@@ -174,6 +195,7 @@ def main() -> int:
     parser.add_argument("mode", choices=("run", "summary"))
     parser.add_argument("--shard", type=int)
     parser.add_argument("--versioned", action="store_true")
+    parser.add_argument("--workers", type=int, default=1, choices=range(1, 5))
     parser.add_argument("--python", choices=("3.12", "3.13"), default="3.13")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--receipts", type=Path)
@@ -181,13 +203,13 @@ def main() -> int:
     if args.mode == "run":
         if args.shard is None:
             parser.error("run requires --shard")
-        return run_shard(args.shard, args.output, args.versioned)
+        return run_shard(args.shard, args.output, args.versioned, workers=args.workers)
     if args.receipts is None:
         parser.error("summary requires --receipts")
     history = json.loads((ROOT / ".github/python-test-durations.json").read_text(encoding="utf-8"))
     receipts = [json.loads(path.read_text(encoding="utf-8")) for path in args.receipts.glob("*/receipt.json")]
     files = sorted(history["versionedNodeShardedFiles"] if args.versioned else node_sharded_files(history))
-    seconds = history["nodeSeconds"][args.python] if args.versioned else None
+    seconds = history["nodeSeconds"][args.python] if args.versioned else history.get("heavyNodeSeconds")
     shards = history["versionedNodeShards"] if args.versioned else 4
     result = validate_union(receipts, os.environ.get("GITHUB_SHA"), files, args.python, seconds, shards)
     args.output.parent.mkdir(parents=True, exist_ok=True)
