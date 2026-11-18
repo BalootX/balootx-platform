@@ -5472,7 +5472,7 @@ class OrToolsActorInformationSetCompilerV1:
             if seconds <= 0 or used >= maximum_queries:
                 raise InformationSetCompilationStopped("maximum_seconds" if seconds <= 0 else "maximum_queries",
                     stage="observed_bid_dominance")
-            return seconds
+            return min(seconds, maximum_seconds)  # float rounding at large monotonic values can exceed the cap
 
         common = dict(maximum_branches=maximum_branches, maximum_model_bytes=maximum_model_bytes,
             maximum_conflicts=maximum_conflicts, maximum_depth=maximum_depth,
