@@ -5037,7 +5037,7 @@ def test_actor_hokum_compiles_and_proves_exactly(root: Path, rules, mode, maximu
         OrToolsExactNormalizationReceiptV1({"sha256": "2" * 64}),
     )
     request_builder = _bounded_actor_request if mode == "bounded" else _actor_request
-    request = request_builder(claim="winning_root_action_count")
+    request = request_builder(threshold=case["expectedMargin"], claim="winning_root_action_count")
     if horizon is not None:
         request_value = request.to_dict()
         request_value.pop("sha256")

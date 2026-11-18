@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from baloot_platform.video.render_bundle import RenderBundleV1
+from baloot_platform.video.remotion_renderer import _timestamp
 from baloot_platform.video.media_validation import run_media_command
 from baloot_platform.filesystem import atomic_write_text
 
@@ -42,6 +43,21 @@ STILLS = (
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def verify_captions(bundle: dict, captions: str) -> None:
+    expected = "WEBVTT\n\n"
+    if bundle["presentation"]["presentation"].get("show_justification_text") is not False:
+        reveal = next(scene for scene in bundle["scenes"] if scene["stage"] == "reveal")
+        analysis = next((layer["content"] for layer in reveal["layers"] if layer["id"] == "analysis"), {})
+        reason = bundle["localizations"].get(analysis.get("reasonKey", "video.analysis.expert_reason"))
+        if not reason:
+            raise ValueError("flagship Arabic captions lack governed text")
+        start = next(item["startFrame"] for item in bundle["timeline"]["segments"] if item["stage"] == "reveal")
+        fps = bundle["render"]["fps"]
+        expected += f"{_timestamp(start, fps)} --> {_timestamp(start + 240, fps)}\n{reason}\n"
+    if captions != expected:
+        raise ValueError("flagship Arabic captions differ from the governed export")
 
 
 def main() -> None:
@@ -186,9 +202,7 @@ def main() -> None:
                 raise ValueError(f"invalid flagship checkpoint: {name} {image.size}")
         stills[name] = {"bytes": path.stat().st_size, "sha256": _sha(path)}
 
-    captions = CAPTIONS.read_text(encoding="utf-8")
-    if "00:00:53.000 --> 00:00:57.000" not in captions:
-        raise ValueError("flagship Arabic captions are missing or mistimed")
+    verify_captions(bundle.value, CAPTIONS.read_text(encoding="utf-8"))
 
     manifest = {
         "schemaVersion": 1,

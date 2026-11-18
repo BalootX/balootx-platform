@@ -561,10 +561,10 @@ def test_remotion_plugin_packages_complete_artifacts_from_bundle(
     assert manifest["publicProjectionHash"] is None
     assert manifest["qrValidation"] == {
         "schemaVersion": 1,
-        "policy": "required",
-        "reason": "profile_enabled",
+        "policy": "forbidden",
+        "reason": "profile_hides_qr",
         "passed": True,
-        "decodedValue": bundle.value["identity"]["enrollmentUri"],
+        "decodedValue": None,
     }
     assert manifest["files"]["audioEvidence"]["sha256"]
     assert artifacts.video.read_bytes() == b"deterministic-test-video"
@@ -614,6 +614,11 @@ def test_remotion_plugin_packages_complete_artifacts_from_bundle(
         "forbidden",
         "profile_disabled",
     )
+    qr_bundle = bundle.to_dict()
+    qr_bundle["presentation"]["majlis"]["id_box"] = "qr"
+    qr_bundle.pop("bundleSha256")
+    qr_bundle["bundleSha256"] = content_hash(qr_bundle)
+    assert renderer._qr_expectation(RenderBundleV1(qr_bundle)) == ("required", "profile_enabled")
 
 
 def test_remotion_subprocess_honors_cancellation(

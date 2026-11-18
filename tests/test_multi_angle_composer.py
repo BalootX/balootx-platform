@@ -155,13 +155,16 @@ def _source_manifest(directory: Path, bundle, basename: str) -> Path:
 
 
 @pytest.mark.parametrize("fps", [30, 60])
+@pytest.mark.parametrize("show_justification", [False, True])
 def test_multi_angle_composer_preserves_isolation_and_validates_output(
-    root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fps: int
+    root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fps: int,
+    show_justification: bool,
 ) -> None:
     profile = yaml.safe_load(
         (root / "configs/video/premium.yaml").read_text(encoding="utf-8")
     )
     profile["exports"]["decision_clip"]["fps"] = fps
+    profile["presentation"]["show_justification_text"] = show_justification
     south = _bundle(root, "south", "SOUTH1", profile=profile)
     north = _bundle(root, "north", "NORTH1", profile=profile)
     bundles = {item.bundle_sha256: item for item in (south, north)}
@@ -199,6 +202,7 @@ def test_multi_angle_composer_preserves_isolation_and_validates_output(
 
     monkeypatch.setattr(composer_module, "_probe_media", fake_probe)
     composer = MultiAngleComposerV1(profile, repository_root=root)
+    monkeypatch.setattr(composer, "_ffprobe", lambda: Path("fixture-ffprobe"))
     monkeypatch.setattr(composer, "_run_renderer", fake_render)
     artifacts = composer.execute(
         plan,
@@ -220,7 +224,12 @@ def test_multi_angle_composer_preserves_isolation_and_validates_output(
     assert len(manifest["sourceMedia"]) == 2
     assert record["observerIsolation"] == "separately_rendered_media_only"
     assert "scenes" not in record and "hands" not in record
-    assert "يحفظ ورقة الدخول" in artifacts.captions.read_text(encoding="utf-8")
+    if show_justification:
+        assert "يحفظ ورقة الدخول" in artifacts.captions.read_text(encoding="utf-8")
+    else:
+        assert artifacts.captions.read_text(encoding="utf-8") == ""
+        assert artifacts.captions_vtt.read_text(encoding="utf-8") == "WEBVTT\n"
+        assert artifacts.transcript.read_text(encoding="utf-8") == ""
     assert artifacts.video.is_file() and artifacts.poster.is_file()
     assert artifacts.contact_sheet.is_file() and len(calls) == 1
     assert [

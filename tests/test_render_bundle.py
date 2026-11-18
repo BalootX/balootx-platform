@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import shutil
+import wave
 from pathlib import Path
 
 import pytest
 import yaml
 
 from baloot_platform.audit.models import content_hash
-from baloot_platform.video.media_validation import REMOTION_RENDERER_VERSION
+from baloot_platform.video.media_validation import (
+    REMOTION_RENDERER_VERSION,
+    renderer_source_files,
+    validate_renderer_identity,
+)
 from baloot_platform.video.render_bundle import (
     RENDER_SOURCE_KEYS,
     RenderBundleV1,
@@ -450,6 +458,44 @@ def test_render_source_v3_exposes_only_public_scenario_references() -> None:
         normalize_render_source(leaked_policy, observer="south")
 
 
+def test_historical_golden_media_is_intact_but_not_currently_admissible(root: Path) -> None:
+    originals = os.environ.get("BALOOTX_PRIVATE_GOLDENS_DIR")
+    if not originals:
+        pytest.skip("needs private original artifacts")
+    output = Path(originals)
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["exportPreset"] == "hooked_flagship"
+    assert len(manifest["entries"]) == 3
+    assert manifest["entries"][-1]["fixture"] == (
+        "examples/research-scenario-v4-ace-sacrifice-two-aces.json"
+    )
+    for entry in manifest["entries"]:
+        assert entry["exportPreset"] == "hooked_flagship"
+        bundle_path = output / entry["bundle"]
+        assert hashlib.sha256(bundle_path.read_bytes()).hexdigest() == entry[
+            "bundleFileSha256"
+        ]
+        bundle = RenderBundleV1(
+            json.loads(bundle_path.read_text(encoding="utf-8"))
+        )
+        # Historical encoded evidence is not proof against the current renderer.
+        with pytest.raises(ValueError, match="current renderer source"):
+            validate_renderer_identity(bundle.value["renderer"], root=root)
+        assert bundle.verify() is False
+        assert bundle.value["exportPreset"] == "hooked_flagship"
+        assert bundle.value["timeline"]["totalFrames"] == 4320
+        render_manifest = json.loads(
+            (output / entry["renderManifest"]).read_text(encoding="utf-8")
+        )
+        assert render_manifest["exportPreset"] == "hooked_flagship"
+        assert render_manifest["mediaProbe"]["durationSeconds"] == 72.0
+        video_path = output / entry["video"]
+        assert hashlib.sha256(video_path.read_bytes()).hexdigest() == entry[
+            "videoSha256"
+        ]
+
+
+
 def test_bundle_with_internally_consistent_but_stale_renderer_identity_is_rejected(
     root: Path,
 ) -> None:
@@ -477,8 +523,31 @@ def test_bundle_with_internally_consistent_but_stale_renderer_identity_is_reject
     assert not RenderBundleV1(bundle).verify()
 
 
-def test_render_bundle_only_cues_an_exact_governed_voice_transcript(root: Path) -> None:
+def test_render_bundle_only_cues_an_exact_governed_voice_transcript(root: Path, tmp_path: Path) -> None:
     profile, scenes = _inputs(root)
+    source_assets = [
+        profile["card_assets"]["manifest"],
+        "assets/fonts/NotoSansArabic-Regular.ttf",
+        "assets/fonts/NotoSansArabic-Bold.ttf",
+        "assets/fonts/NotoKufiArabic-Bold.ttf",
+        "assets/video/professional/card-back.svg",
+    ]
+    for source in [*(root / path for path in source_assets), *renderer_source_files(root)]:
+        destination = tmp_path / source.relative_to(root)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+
+    audio = profile["audio"]
+    audio["voice_pack_directory"] = "assets/audio/voice_packs/unit-transcript"
+    directory = tmp_path / audio["voice_pack_directory"]
+    directory.mkdir(parents=True)
+    clip = {"file": audio["explanation_voice_file"], "textAr": audio["explanation_voice_transcript"]}
+    (directory / audio["voice_pack_manifest"]).write_text(
+        json.dumps({"clips": {"explanation": clip}}), encoding="utf-8",
+    )
+    with wave.open(str(directory / clip["file"]), "wb") as stream:
+        stream.setparams((1, 2, 48_000, 0, "NONE", "not compressed"))
+        stream.writeframes(bytes(96))
     transcript_key = "video.analysis.expert_reason"
     profile["audio"]["one_piece_explanation"] = True
     profile["audio"]["explanation_voice_localization_key"] = transcript_key
@@ -501,7 +570,7 @@ def test_render_bundle_only_cues_an_exact_governed_voice_transcript(root: Path) 
         export_preset="decision_clip",
         localizations=profile["localizations"],
         identity=identity,
-        repository_root=root,
+        repository_root=tmp_path,
     )
     assert exact.verify()
     assert exact.value["presentation"]["audio"]["explanation_voice_transcript"] == profile["audio"]["explanation_voice_transcript"]
@@ -509,7 +578,7 @@ def test_render_bundle_only_cues_an_exact_governed_voice_transcript(root: Path) 
         {
             "stage": "reveal",
             "assetId": "voice-explanation",
-            "path": "audio/voice_packs/ar_sa_baloot_v2_smooth/explanation.wav",
+            "path": "audio/voice_packs/unit-transcript/explanation.wav",
             "volume": 0.78,
             "transcriptKey": transcript_key,
             "transcriptSha256": exact.value["audioCues"][0]["transcriptSha256"],
@@ -529,7 +598,7 @@ def test_render_bundle_only_cues_an_exact_governed_voice_transcript(root: Path) 
         export_preset="decision_clip",
         localizations=mismatched,
         identity=identity,
-        repository_root=root,
+        repository_root=tmp_path,
     )
     assert silent.verify()
     assert silent.value["audioCues"] == []

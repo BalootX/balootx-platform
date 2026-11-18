@@ -252,7 +252,7 @@
           "family": "video",
           "id": "premium_video",
           "path": "configs/video/premium.yaml",
-          "sha256": "ed267ea6d82ff91a0a173d97a4c07ac5da3b87c6cd7963b882090a27062a7994",
+          "sha256": "2778b48f971bddcafaa739bcdd3fe5fb1d393853493e438c663b8bfb5105261c",
           "status": "governed_candidate",
           "version": "21.3.5"
         }
@@ -263,7 +263,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "2506c0ff997054c814b6366d46dbe523b3e1e796e230ebe8132d1aa0243b2428"
+      "sha256": "766340873d31be827acbec420b423e19f7dd10351ed5608d118f61b2bece074e"
     },
     "hokum_only": {
       "components": {
@@ -517,7 +517,7 @@
           "family": "video",
           "id": "premium_video",
           "path": "configs/video/premium.yaml",
-          "sha256": "ed267ea6d82ff91a0a173d97a4c07ac5da3b87c6cd7963b882090a27062a7994",
+          "sha256": "2778b48f971bddcafaa739bcdd3fe5fb1d393853493e438c663b8bfb5105261c",
           "status": "governed_candidate",
           "version": "21.3.5"
         }
@@ -528,7 +528,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "60f3a67be1d3b2d20539c331c397f6c2f34a8dc5cb4f553eb21fda12d2535c90"
+      "sha256": "b45eb8a56f610bafff160227f7a05451091bf43a5a3622b20cf89f873b1e2599"
     },
     "sun_only": {
       "components": {
@@ -782,7 +782,7 @@
           "family": "video",
           "id": "premium_video",
           "path": "configs/video/premium.yaml",
-          "sha256": "ed267ea6d82ff91a0a173d97a4c07ac5da3b87c6cd7963b882090a27062a7994",
+          "sha256": "2778b48f971bddcafaa739bcdd3fe5fb1d393853493e438c663b8bfb5105261c",
           "status": "governed_candidate",
           "version": "21.3.5"
         }
@@ -793,7 +793,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "aa0e9a4b5ed232efe21571bb77ac7be2fa65d2038e23e3869113cfa6c60a2a3c"
+      "sha256": "c6f66ef34a828969d99d84df62d95bd6fcc3b8548706af0d89dcbc9065d293cc"
     }
   },
   "schemaVersion": 1

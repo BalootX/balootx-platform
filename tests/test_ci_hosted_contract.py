@@ -1,16 +1,59 @@
-"""Public build-policy contracts; private hygiene data is kept outside the tree."""
+"""Hosted workflow policy and its fail-closed producer contract."""
+import json
+import re
+
+import pytest
+import yaml
+
+from scripts import ci_scope
+
+
 def test_hosted_ci_contract(root):
-    import yaml
-    workflow=yaml.safe_load((root/'.github/workflows/ci.yml').read_bytes())
-    assert workflow['permissions']=={'contents':'read'}
-    jobs=workflow['jobs']
+    workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
+    triggers = workflow[True]  # PyYAML's YAML 1.1 spelling of on.
+    assert triggers["merge_group"]["types"] == ["checks_requested"]
+    assert "pull_request_target" not in triggers
+    assert not {"paths", "paths-ignore"} & triggers["pull_request"].keys()
+    assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
+    jobs = workflow["jobs"]
     for job in jobs.values():
-        assert job['runs-on']=='ubuntu-24.04'
-        for step in job.get('steps',[]):
-            if step.get('uses'):
-                assert len(step['uses'].rsplit('@',1)[-1])==40
-    assert jobs['ci-result']['name']=='CI result'
-    assert jobs['ci-result']['needs']==['python-fast','native','sdks','media-release-smoke']
-    assert jobs['ci-result']['if']=='always()'
-    for name in ('media-release-smoke-run','python-backend-run','python-fast-run','python-heavy','native-run'):
-        assert next(step for step in jobs[name]['steps'] if step.get('name')=='Install hosted native and media prerequisites')['timeout-minutes']==10
+        assert job["runs-on"] == "ubuntu-24.04"
+        assert job["timeout-minutes"] > 0
+        for step in job["steps"]:
+            if "uses" in step:
+                assert re.fullmatch(r"[0-9a-f]{40}", step["uses"].rsplit("@", 1)[-1])
+            assert not step.get("continue-on-error")
+    assert jobs["ci-gate"]["name"] == "${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'CI result' }}"
+    assert jobs["plan"]["if"] == "github.event_name != 'pull_request' || !github.event.pull_request.draft"
+    gate_step = jobs["ci-gate"]["steps"][-1]
+    assert gate_step["env"]["IS_DRAFT"] == "${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}"
+    assert "exit 1" in gate_step["run"].split("python3 scripts/ci_scope.py gate")[0]
+    assert set(jobs["ci-gate"]["needs"]) == jobs.keys() - {"ci-gate"}
+    assert jobs["ci-gate"]["if"] == "always()"
+
+
+@pytest.mark.parametrize("event", ["pull_request", "merge_group", "push", "workflow_dispatch"])
+def test_gate_rejects_unproven_full_producers(event):
+    plan = {key: json.dumps(value) for key, value in ci_scope.current_plan().items()}
+    results = {job: {"result": "success"} for job in {"plan", "preflight", "dependency-review",
+               "python-affected", *ci_scope.FULL, *ci_scope.SCOPED}}
+    results["plan"]["outputs"] = plan
+    results["dependency-review"]["result"] = ("success" if event in {"pull_request", "merge_group"} else "skipped")
+    results["python-affected"]["result"] = "skipped"
+    ci_scope.validate_results(event, results)
+    for job in results:
+        old = results[job]["result"]
+        for bad in {"failure", "cancelled", "skipped", "success", ""} - {old}:
+            results[job]["result"] = bad
+            with pytest.raises(ValueError):
+                ci_scope.validate_results(event, results)
+        results[job]["result"] = old
+    for key in ("full", "sdk", "remotion"):
+        plan[key] = "false"
+        with pytest.raises(ValueError):
+            ci_scope.validate_results(event, results)
+        plan[key] = "true"
+    results.pop("python-heavy")
+    with pytest.raises(ValueError):
+        ci_scope.validate_results(event, results)

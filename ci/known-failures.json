@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "repository": "BalootX/balootx-platform",
+    "runId": 44039515022,
+    "head": "df6c989866606df0558be53ae07c9ecf67eacdcd"
+  },
+  "policy": "The first-run resource exceptions are retired. This baseline has no active entries.",
+  "tests": []
+}

@@ -12,6 +12,9 @@ from scripts import benchmark_ortools_research_v4 as ortools_benchmark
 from scripts import generate_performance_evidence as evidence
 
 
+_build_bundle = functools.lru_cache(maxsize=None)(evidence.build_bundle)
+
+
 @functools.lru_cache(maxsize=1)
 def _current_research_document():
     return research_benchmark.run_benchmark(evidence.ROOT)
@@ -139,17 +142,24 @@ def _fresh_inputs(
     *,
     research_document=None,
 ):
-    original = evidence.load
+    monkeypatch.setattr(evidence, "build_bundle", lambda *args, **kwargs: copy.deepcopy(_build_bundle(*args, **kwargs)))
     research_document = research_document or _current_research_document()
     source = copy.deepcopy(research_document["source"])
+    # These test inputs exercise aggregation, never historical performance claims.
     documents = {
-        path.name: copy.deepcopy(original(path))
-        for path in (
-            evidence.SEARCH,
-            evidence.RESEARCH_V4,
-            evidence.BASELINE,
-            evidence.MEDIA,
-        )
+        evidence.SEARCH.name: {
+            "status": "passed", "exactSearchObservation": {"completionStatus": "exact"},
+            "hardware": {"measurement": "synthetic_unit_fixture"},
+            "measurements": {}, "throughput": {},
+        },
+        evidence.BASELINE.name: {
+            "status": "passed", "bundleHash": "a" * 64,
+            "environment": {"measurement": "synthetic_unit_fixture"}, "measurements": {},
+        },
+        evidence.MEDIA.name: {
+            "status": "passed",
+            "media": [{"path": "synthetic.mp4", "width": 1080, "height": 1920}],
+        },
     }
     documents[evidence.RESEARCH_V4.name] = copy.deepcopy(research_document)
     documents[evidence.ORTOOLS_RESEARCH_V4.name] = copy.deepcopy(

@@ -1,7 +1,7 @@
+from collections import Counter
 from copy import deepcopy
 import json
 import os
-import shlex
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -9,11 +9,14 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
+from scripts import ci_scope
 from scripts import run_heavy_pytest as heavy
+from scripts import run_isolated_pytest as isolated
 
 
 FILE = "tests/test_ortools_scenario_model.py"
 BACKEND = "tests/test_research_ortools_backend_service.py"
+UNIFIED = "tests/test_research_ortools_unified_executor.py"
 
 
 def execution(nodes):
@@ -128,15 +131,21 @@ def test_weighted_backend_union_preserves_every_node_and_rejects_corruption(pyth
 
 def test_backend_profile_retains_both_versions_and_legacy_heavy_scope():
     history = json.loads((heavy.ROOT / ".github/python-test-durations.json").read_text())
-    assert history["versionedNodeShardedFiles"] == [BACKEND]
+    expected = {
+        BACKEND: 210, UNIFIED: 745,
+        "tests/test_research_foundry.py": 29,
+        "tests/test_research_ortools_information_set_proof.py": 342,
+        "tests/test_research_ortools_nonplay_complete_graph.py": 177,
+        "tests/test_research_ortools_real_executor_predicate_matrix.py": 429,
+    }
+    assert set(history["versionedNodeShardedFiles"]) == expected.keys()
     assert heavy.node_sharded_files(history) == {FILE}
     assert history["versionedNodeShards"] == 5
     assert set(history["nodeSeconds"]) == {"3.12", "3.13"}
-    for version, weights in history["nodeSeconds"].items():
-        nodes = sorted(weights)
-        assert len(nodes) == 210 and {node.split("::", 1)[0] for node in nodes} == {BACKEND}
-        rows = receipts(nodes, BACKEND, version, weights, 5)
-        assert heavy.validate_union(rows, "head", [BACKEND], version, weights, 5)["executed"] == 210
+    for weights in history["nodeSeconds"].values():
+        assert Counter(node.split("::", 1)[0] for node in weights) == expected
+    assert len(history["heavyNodeSeconds"]) == 582
+    assert all(node.startswith(f"{FILE}::") for node in history["heavyNodeSeconds"])
 
 
 def test_shard_parent_uses_separate_collection_and_execution_with_90min_limit(tmp_path, monkeypatch):
@@ -199,13 +208,13 @@ def test_cli_selects_only_the_requested_node_profile(tmp_path, monkeypatch, vers
                                       *(["--versioned"] if versioned else [])])
     calls = []
 
-    def run(shard, output, selected_versioned):
-        calls.append((shard, output, selected_versioned))
+    def run(shard, output, selected_versioned, *, workers):
+        calls.append((shard, output, selected_versioned, workers))
         return 0
 
     monkeypatch.setattr(heavy, "run_shard", run)
     assert heavy.main() == 0
-    assert calls == [(3, tmp_path, versioned)]
+    assert calls == [(3, tmp_path, versioned, 1)]
 
 
 @pytest.mark.parametrize("name", ["collection", "execution"])
@@ -250,138 +259,93 @@ def test_real_pytest_plugin_records_collection_and_rejects_skips(tmp_path):
     assert target.with_suffix(".jsonl").exists()
 
 
-def test_heavy_workflow_keeps_required_fast_names_and_checks_complete_union(root):
-    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())["jobs"]
+@pytest.mark.parametrize("fail_worker", [False, True])
+def test_four_worker_shard_proves_exact_union(tmp_path, monkeypatch, fail_worker):
+    nodes = sorted(f"{FILE}::test_case[{index}]" for index in range(16))
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _: set(range(4)), raising=False)
+    monkeypatch.setattr(os, "sched_setaffinity", lambda *_: None, raising=False)
+    calls = {}
+
+    def run(arguments, output, name, seconds):
+        calls[name] = arguments
+        if name == "execution-2" and fail_worker:
+            return 1, None
+        return 0, execution(nodes if name == "collection" else arguments)
+
+    monkeypatch.setattr(heavy, "_pytest", run)
+    assert heavy.run_shard(1, tmp_path, workers=4) == int(fail_worker)
+    receipt = json.loads((tmp_path / "receipt.json").read_bytes())
+    assert sorted(calls) == ["collection", "execution-1", "execution-2", "execution-3", "execution-4"]
+    assert sorted(node for name, args in calls.items() if name != "collection" for node in args) == receipt["selected"]
+    if fail_worker:
+        assert receipt["status"] == "failed" and "worker 2" in receipt["error"]
+    else:
+        assert receipt["status"] == "passed"
+        heavy.validate_execution(receipt["selected"], receipt["execution"])
+
+
+def test_full_workflow_requires_coverage_for_all_matrices(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
     assert jobs["python-backend-run"]["strategy"]["matrix"] == {"shard": [1, 2, 3, 4, 5], "python": ["3.12", "3.13"]}
     assert jobs["python-fast-run"]["strategy"]["matrix"] == {"python": ["3.12", "3.13"], "shard": [1, 2, 3, 4]}
-    lane = jobs["python-heavy"]
-    assert lane["runs-on"] == "ubuntu-24.04"
-    assert lane["strategy"] == {"fail-fast": False, "max-parallel": "${{ fromJSON(vars.BALOOT_CI_MAX_PARALLEL || '4') }}", "matrix": {"shard": [1, 2, 3, 4]}}
-    assert lane["env"] == {"OMP_NUM_THREADS": "4", "CMAKE_BUILD_PARALLEL_LEVEL": "4"}
-    setup = next(step for step in lane["steps"] if "setup-python@" in step.get("uses", ""))
-    assert setup["with"]["python-version"] == "3.13"
-    run = next(step for step in lane["steps"] if step.get("name") == "Run deterministic heavy node shard")
-    assert run["timeout-minutes"] == 100 and "--shard" in run["run"]
-    summary = jobs["python-heavy-summary"]
-    assert summary["runs-on"] == "ubuntu-24.04"
-    assert summary["needs"] == "python-heavy"
-    assert summary["if"] == "always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)"
-    download = next(step for step in summary["steps"] if "download-artifact@" in step.get("uses", ""))
-    assert download["with"]["merge-multiple"] is False
-    verify = next(step for step in summary["steps"] if " summary " in step.get("run", ""))
-    assert verify["env"] == {"HEAVY_RESULT": "${{ needs.python-heavy.result }}"}
-    guard, proof = verify["run"].splitlines()
-    assert "scripts/run_heavy_pytest.py summary" in proof
-    command = shlex.split(guard)
-    assert command[:2] == ["python", "-c"]
-    for status in ("success", "failure", "cancelled", "skipped", ""):
-        result = subprocess.run([sys.executable, *command[1:]], env={**os.environ, "HEAVY_RESULT": status},
-            capture_output=True, text=True, timeout=30)
-        assert (result.returncode == 0) == (status == "success"), result.stderr
+    assert jobs["python-heavy"]["strategy"]["matrix"] == {"python": ["3.13"], "shard": [1, 2, 3, 4]}
+    for name in ("python-backend-run", "python-fast-run", "python-heavy"):
+        assert jobs[name]["strategy"]["max-parallel"] == 10
+        assert jobs[name]["strategy"]["fail-fast"] is False
+        assert any("--workers 4" in step.get("run", "") for step in jobs[name]["steps"])
+    assert jobs["python-coverage"]["needs"] == ["plan", "python-fast-run", "python-backend-run", "python-heavy"]
+    assert jobs["python-coverage"]["steps"][-1]["run"].startswith("python scripts/ci_scope.py coverage ")
 
 
-def test_required_fast_checks_gate_each_version_and_heavy_summary(root, tmp_path):
-    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())["jobs"]
-    gate = jobs["python-fast"]
-    assert gate["name"] == "python-fast (${{ matrix.python }})"
-    assert gate["strategy"]["matrix"] == {"python": ["3.12", "3.13"]}
-    assert gate["needs"] == ["python-backend-run", "python-fast-run", "python-heavy-summary"] and gate["if"] == "always()"
-    assert gate["runs-on"] == "ubuntu-24.04"
-    assert gate["timeout-minutes"] == 10
-    worker = jobs["python-fast-run"]
-    record = next(step for step in worker["steps"] if step.get("name") == "Record final fast lane result")
-    file_condition = "always() && github.job != 'python-backend-run'"
-    assert record["if"] == file_condition and record["env"] == {
-        "FAST_RESULT": "${{ job.status }}", "FAST_PYTHON": "${{ matrix.python }}", "FAST_SHARD": "${{ matrix.shard }}"}
-    upload = next(step for step in worker["steps"] if step.get("name") == "Upload final fast lane result")
-    download, backend_download = [step for step in gate["steps"] if "download-artifact@" in step.get("uses", "")]
-    # Uploads skip on cancelled jobs (403 "job is completed"); the result record still runs always().
-    assert upload["if"] == "!cancelled() && github.job != 'python-backend-run'"
-    assert upload["with"]["if-no-files-found"] == "error"
-    assert upload["with"]["name"] == "python-fast-status-${{ matrix.python }}-${{ matrix.shard }}"
-    assert download["with"]["pattern"] == "python-fast-status-${{ matrix.python }}-*"
-    assert download["with"]["merge-multiple"] is False
-    assert backend_download["with"] == {"pattern": "backend-node-results-${{ matrix.python }}-*",
-                                         "merge-multiple": False, "path": "backend-result"}
-    require = gate["steps"][-1]
-    assert require["env"] == {"FAST_PYTHON": "${{ matrix.python }}",
-                             "BACKEND_RESULT": "${{ needs.python-backend-run.result }}",
-                             "FAST_RUN_RESULT": "${{ needs.python-fast-run.result }}",
-                             "HEAVY_RESULT": "${{ needs.python-heavy-summary.result }}"}
-    status_dir = tmp_path / "fast-result"
-    status_dir.mkdir()
-    from scripts.run_isolated_pytest import split_files
+def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path, monkeypatch):
     files = [f"tests/test_sample_{index}.py" for index in range(12)]
-    (tmp_path / "tests").mkdir()
-    for path in files + [FILE, BACKEND]:
-        (tmp_path / path).touch()
-    (tmp_path / ".github").mkdir()
-    backend_nodes = [f"{BACKEND}::test_case[{index:03d}]" for index in range(210)]
+    monkeypatch.setattr(ci_scope, "fast_files", lambda _history: files)
+    backend_nodes = [f"{BACKEND}::test_case[{index:03d}]" for index in range(15)]
+    heavy_nodes = [f"{FILE}::test_case[{index:03d}]" for index in range(12)]
+    weights = {node: index + 1 for index, node in enumerate(backend_nodes)}
+    heavy_weights = {node: index + 1 for index, node in enumerate(heavy_nodes)}
     history = {"seconds": {}, "incompleteFiles": [], "nodeShardedFiles": [FILE],
                "versionedNodeShardedFiles": [BACKEND], "versionedNodeShards": 5,
-               "nodeSeconds": {"3.12": {node: index + 1 for index, node in enumerate(backend_nodes)},
-                               "3.13": {node: (index % 17 + 1) ** 2 for index, node in enumerate(backend_nodes)}}}
-    (tmp_path / ".github/python-test-durations.json").write_text(json.dumps(history))
-    record_script = record["run"].split("\n", 1)[1].rsplit("\nPY", 1)[0]
-    require_script = require["run"].split("\n", 1)[1].rsplit("\nPY", 1)[0]
-    for version in ("3.12", "3.13"):
-        env = {**os.environ, "GITHUB_SHA": "head", "FAST_PYTHON": version, "FAST_RESULT": "success",
-               "BACKEND_RESULT": "success", "FAST_RUN_RESULT": "success", "RUNNER_TEMP": str(status_dir), "PYTHONPATH": str(root)}
-        for index, group in enumerate(split_files(files, history), 1):
-            results = status_dir / "python-file-results"
-            results.mkdir(exist_ok=True)
-            (results / "results.json").write_text(json.dumps([{"file": path} for path in group]))
-            result = subprocess.run([sys.executable, "-c", record_script], env={**env, "FAST_SHARD": str(index)},
-                capture_output=True, text=True, timeout=30)
-            assert result.returncode == 0, result.stderr
-            artifact = status_dir / f"python-fast-status-{version}-{index}"
-            artifact.mkdir()
-            (status_dir / "python-fast-status.json").replace(artifact / "python-fast-status.json")
-        backend_dir = tmp_path / "backend-result"
-        backend_dir.mkdir(exist_ok=True)
-        backend_rows = receipts(backend_nodes, BACKEND, version, history["nodeSeconds"][version], 5)
-        for row in backend_rows:
-            artifact = backend_dir / f"backend-node-results-{version}-{row['shard']}"
-            artifact.mkdir()
-            (artifact / "receipt.json").write_text(json.dumps(row))
-        status_file = status_dir / f"python-fast-status-{version}-1/python-fast-status.json"
-        saved = json.loads(status_file.read_text())
-        for name in ("BACKEND_RESULT", "FAST_RUN_RESULT", "HEAVY_RESULT"):
-            for status in ("success", "failure", "cancelled", "skipped", ""):
-                result = subprocess.run([sys.executable, "-c", require_script], cwd=tmp_path,
-                    env={**env, "HEAVY_RESULT": "success", name: status}, capture_output=True, text=True, timeout=30)
-                assert (result.returncode == 0) == (status == "success"), result.stderr
-        backend_file = backend_dir / f"backend-node-results-{version}-1/receipt.json"
-        backend_saved = json.loads(backend_file.read_text())
-        for field, value in (("head", "stale"), ("python", "3.13.9" if version == "3.12" else "3.12.9"),
-                             ("shard", 2), ("selected", []), ("files", [FILE]), ("status", "failed")):
-            backend_file.write_text(json.dumps({**backend_saved, field: value}))
-            result = subprocess.run([sys.executable, "-c", require_script], cwd=tmp_path,
-                env={**env, "HEAVY_RESULT": "success"}, capture_output=True, text=True, timeout=30)
-            assert result.returncode != 0
-        backend_file.unlink()
-        result = subprocess.run([sys.executable, "-c", require_script], cwd=tmp_path,
-            env={**env, "HEAVY_RESULT": "success"}, capture_output=True, text=True, timeout=30)
-        assert result.returncode != 0
-        backend_file.write_text(json.dumps(backend_saved))
-        duplicate = backend_dir / "duplicate"
-        duplicate.mkdir(exist_ok=True)
-        (duplicate / "receipt.json").write_text(json.dumps(backend_saved))
-        result = subprocess.run([sys.executable, "-c", require_script], cwd=tmp_path,
-            env={**env, "HEAVY_RESULT": "success"}, capture_output=True, text=True, timeout=30)
-        assert result.returncode != 0
-        (duplicate / "receipt.json").unlink()
-        for field, value in (("result", "failure"), ("result", "cancelled"), ("result", "skipped"),
-                             ("head", "old"), ("python", "other"), ("shard", 2), ("files", []), ("files", files)):
-            status_file.write_text(json.dumps({**saved, field: value}))
-            result = subprocess.run([sys.executable, "-c", require_script], cwd=tmp_path,
-                env={**env, "HEAVY_RESULT": "success"}, capture_output=True, text=True, timeout=30)
-            assert result.returncode != 0
-        status_file.unlink()
-        result = subprocess.run([sys.executable, "-c", require_script], cwd=tmp_path,
-            env={**env, "HEAVY_RESULT": "success"}, capture_output=True, text=True, timeout=30)
-        assert result.returncode != 0  # A skipped shard without an artifact must never pass.
-        for path in status_dir.glob("*/python-fast-status.json"):
-            path.unlink()
-        for path in backend_dir.glob("*/receipt.json"):
-            path.unlink()
+               "nodeSeconds": {version: weights for version in ci_scope.VERSIONS},
+               "heavyNodeSeconds": heavy_weights}
+
+    def write(name, filename, value):
+        target = tmp_path / name / filename
+        target.parent.mkdir(exist_ok=True)
+        target.write_text(json.dumps(value))
+        return target
+
+    for version in ci_scope.VERSIONS:
+        for index, group in enumerate(isolated.split_files(files, history), 1):
+            write(f"python-fast-run-{version}-{index}", "python-fast-status.json",
+                  {"head": "head", "python": version, "result": "success", "shard": index, "files": group})
+        for row in receipts(backend_nodes, BACKEND, version, weights, 5):
+            write(f"python-backend-run-{version}-{row['shard']}", "receipt.json", row)
+    for row in receipts(heavy_nodes, FILE, "3.13", heavy_weights):
+        write(f"python-heavy-3.13-{row['shard']}", "receipt.json", row)
+
+    coverage = ci_scope.validate_coverage(tmp_path, "head", history)
+    assert {key: value["executed"] for key, value in coverage.items()} == {
+        "backend-3.12": 15, "backend-3.13": 15, "heavy": 12,
+    }
+    for name, filename, changes in (
+        ("python-fast-run-3.12-1", "python-fast-status.json",
+         {"head": "stale", "python": "3.13", "shard": 2, "files": [], "result": "cancelled"}),
+        ("python-backend-run-3.13-1", "receipt.json",
+         {"head": "stale", "python": "3.12.9", "shard": 2, "selected": [], "status": "failed", "files": [FILE]}),
+        ("python-heavy-3.13-1", "receipt.json", {"status": "failed"}),
+    ):
+        path = tmp_path / name / filename
+        saved = json.loads(path.read_bytes())
+        for field, value in changes.items():
+            write(name, filename, {**saved, field: value})
+            with pytest.raises(ValueError):
+                ci_scope.validate_coverage(tmp_path, "head", history)
+        path.unlink()
+        with pytest.raises(ValueError):
+            ci_scope.validate_coverage(tmp_path, "head", history)
+        write(name, filename, saved)
+        duplicate = write(name + "-duplicate", filename, saved)
+        with pytest.raises(ValueError):
+            ci_scope.validate_coverage(tmp_path, "head", history)
+        duplicate.unlink()

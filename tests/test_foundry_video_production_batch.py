@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import yaml
+
 from baloot_platform.challenge.analysis_catalog import NoPlayableFinalistCandidateError
 from baloot_platform.challenge.video_production_batch import (
     FoundryVideoBatchServiceV1,
@@ -597,24 +599,18 @@ def test_profile_is_closed_and_hashable():
     assert profile.use_candidate_resimulation is False
 
 
-def test_production_lane_allocation_is_governed_by_retained_evidence(root: Path):
-    evidence = json.loads(
-        (root / "release" / "foundry-lane-allocation-evidence.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert evidence["mixedAllocation"]["roundsGenerated"] == 390
-    assert evidence["lanes"]["guided"]["finalistsAccepted"] == 5
-    assert evidence["lanes"]["organic"]["finalistsAccepted"] == 0
-    assert evidence["lanes"]["disagreement"]["finalistsAccepted"] == 0
-    assert evidence["decision"] == {
-        "profileId": "hooked_laffa_batch_v1",
-        "revision": "7",
-        "laneOrder": ["guided"],
-        "truthGatesChanged": False,
-        "renderPolicyChanged": False,
-        "coverageLanesRemovedFromPlatform": False,
-    }
+def test_production_lane_allocation_preserves_truth_and_coverage_contracts(root: Path):
+    settings = yaml.safe_load((root / "configs/challenge/intelligent_research.yaml").read_text(
+        encoding="utf-8"))["video_production_batch"]
+    profile = HookedLaffaBatchProfileV1.build(settings)
+    assert profile.lane_order == ("guided",)
+    assert profile.allowed_truth_labels == ("exact_optimal", "robust_best_known")
+    assert profile.minimum_selection_score == 60.0
+    assert profile.minimum_confidence == 0.75
+    assert profile.require_play_decision and profile.require_critical
+    assert profile.render_policy == "on_demand"
+    for lane in ("guided", "organic", "disagreement"):
+        assert HookedLaffaBatchProfileV1.build({**settings, "laneOrder": [lane]}).lane_order == (lane,)
 
 
 def test_candidate_ranking_is_quality_first_and_hash_stable():

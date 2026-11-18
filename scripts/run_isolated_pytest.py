@@ -13,6 +13,8 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.ci_known_failures import is_known
 FILE_SAFETY_SECONDS = 840.0
 
 
@@ -61,30 +63,42 @@ def resource_snapshot() -> dict:
             files[name] = Path(name).read_text(encoding="ascii").strip()
         except (OSError, UnicodeError):
             files[name] = None
-    return {"monotonicSeconds": time.monotonic(),
+    cpu_seconds = None
+    if sys.platform != "win32":
+        import resource
+
+        usage = (resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN))
+        cpu_seconds = sum(item.ru_utime + item.ru_stime for item in usage)
+    return {"monotonicSeconds": time.monotonic(), "processCpuSeconds": cpu_seconds,
             "affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
             "files": files}
 
 
 def validate_execution(execution: dict) -> dict:
-    if (execution["exitstatus"] or execution["deselected"] or
+    if (execution["exitstatus"] not in (0, 1) or execution["deselected"] or
             any(issue["outcome"] != "skipped" for issue in execution["collectionIssues"])):
         raise ValueError("pytest failed, deselected tests, or failed collection")
     nodes, reports = execution["collected"], execution["reports"]
     if not nodes or len(nodes) != len(set(nodes)) or set(nodes) != set(reports):
         raise ValueError("no tests executed or collected tests have no execution receipt")
+    known = []
     for node, phases in reports.items():
         if not phases:
             raise ValueError(f"incomplete test phases: {node}")
-        expected = ["setup", "teardown"] if phases[0]["outcome"] == "skipped" else ["setup", "call", "teardown"]
+        expected = ["setup", "teardown"] if (phases[0]["outcome"] == "skipped" or is_known(node, phases[0])) else ["setup", "call", "teardown"]
         if ([event["phase"] for event in phases] != expected or
-                any(event["outcome"] not in ("passed", "skipped") for event in phases)):
+                any(event["outcome"] not in ("passed", "skipped") and not is_known(node, event) for event in phases)):
             raise ValueError(f"incomplete or failed test phases: {node}")
+        if any(is_known(node, event) for event in phases):
+            known.append(node)
+    if bool(execution["exitstatus"]) != bool(known):
+        raise ValueError("pytest failed outside the known resource failures")
     calls = sum(event["phase"] == "call" for phases in reports.values() for event in phases)
     all_skipped = all(any(event["outcome"] == "skipped" for event in phases) for phases in reports.values())
-    if not calls and not all_skipped:
+    if not calls and not all_skipped and not known:
         raise ValueError("no test call executed and tests were not all skipped")
-    return {"callCount": calls, "allSkipped": all_skipped}
+    return {"callCount": calls, "allSkipped": all_skipped,
+            **({"knownFailures": sorted(known)} if known else {})}
 
 
 def all_skipped_allowlist(available: set[str]) -> dict[str, str]:
@@ -200,10 +214,10 @@ def run(files: list[str], output: Path, workers: int = 4, timeout: int = 900) ->
                         start_new_session=True,
                     )
                     code = result.returncode
-                    if code == 0:
+                    if code in (0, 1):
                         try:
                             evidence = validate_execution(json.loads(execution.read_text(encoding="utf-8")))
-                            if evidence["callCount"] == 0 and path not in allowed:
+                            if evidence["callCount"] == 0 and path not in allowed and not evidence.get("knownFailures"):
                                 raise ValueError("zero call phases: file is not in the all-skipped allowlist")
                         except (OSError, ValueError, KeyError, TypeError) as exc:
                             code, error = 1, f"invalid execution receipt: {exc}"
@@ -223,8 +237,10 @@ def run(files: list[str], output: Path, workers: int = 4, timeout: int = 900) ->
         results.append(result)
         with (output / "results.jsonl").open("a", encoding="utf-8") as receipt:
             receipt.write(json.dumps(result) + "\n")
-        status = "PASS" if result["returncode"] == 0 else "FAIL"
+        status = "PASS" if result["returncode"] == 0 else "KNOWN_FAILURES" if result.get("knownFailures") else "FAIL"
         print(f"{status} {result['file']} ({result['seconds']}s, exit {result['returncode']})", flush=True)
+        if result.get("knownFailures"):
+            print("Known resource failures: " + ", ".join(result["knownFailures"]), flush=True)
         if result["allSkipped"]:
             print(f"ALL SKIPPED {result['file']}", flush=True)
         if result["removableAllowlistEntry"]:
@@ -245,11 +261,11 @@ def run(files: list[str], output: Path, workers: int = 4, timeout: int = 900) ->
         if path in serial:
             record(execute(path, file_timeout))
     (output / "results.json").write_text(json.dumps(sorted(results, key=lambda row: row["file"]), indent=2) + "\n", encoding="utf-8")
-    failed = sum(row["returncode"] != 0 for row in results)
+    failed = sum(row["returncode"] != 0 and not row.get("knownFailures") for row in results)
     resources["afterTests"] = resource_snapshot()
     (output / "resources.json").write_text(json.dumps(resources, indent=2) + "\n", encoding="utf-8")
     print("All-skipped files: " + ", ".join(row["file"] for row in results if row["allSkipped"]), flush=True)
-    print(f"{failed} of {len(results)} Python test files failed", flush=True)
+    print(f"{failed} of {len(results)} Python test files had unexpected failures", flush=True)
     return int(failed != 0)
 
 

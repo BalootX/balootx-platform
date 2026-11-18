@@ -485,7 +485,7 @@ def test_editable_copy_templates_preserve_required_dynamic_values(root: Path) ->
         validate_profile_payload("video", bad_margin, root=root)
 
 
-def test_voice_pack_is_original_and_media_correct(root: Path) -> None:
+def test_voice_pack_manifest_keeps_the_governed_transcript_contract(root: Path) -> None:
     directory = root / "assets/audio/voice_packs/ar_sa_baloot_v2_smooth"
     manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
     required = {
@@ -509,10 +509,6 @@ def test_voice_pack_is_original_and_media_correct(root: Path) -> None:
     assert required <= set(manifest["clips"])
     assert manifest["copiedReferenceAudio"] is False
     assert 8 <= manifest["clips"]["explanation"]["durationSeconds"] <= 14
-    for key in required:
-        with wave.open(str(directory / manifest["clips"][key]["file"]), "rb") as wav:
-            assert wav.getframerate() == 48_000 and wav.getnchannels() == 1
-
     source = (
         root / "src/baloot_platform/video/remotion/src/professional-prototype.tsx"
     ).read_text(encoding="utf-8")

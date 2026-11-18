@@ -1030,11 +1030,12 @@ class OrToolsActorInformationSetCompilerV1:
             return {**core, "sha256": canonical_sha256(core)}
 
         def remaining():
-            reason = "cancelled" if cancel_check is not None and cancel_check() else (
-                "maximum_seconds" if time.monotonic() >= deadline else None)
-            if reason:
+            cancelled = cancel_check is not None and cancel_check()
+            seconds = min(maximum_seconds, deadline - time.monotonic())
+            if cancelled or seconds <= 0:
+                reason = "cancelled" if cancelled else "maximum_seconds"
                 raise InformationSetCompilationStopped(reason, stage="native_post_auction_bounds")
-            return deadline - time.monotonic()
+            return seconds
 
         def reserve():
             nonlocal queries_used
@@ -5471,7 +5472,7 @@ class OrToolsActorInformationSetCompilerV1:
             if seconds <= 0 or used >= maximum_queries:
                 raise InformationSetCompilationStopped("maximum_seconds" if seconds <= 0 else "maximum_queries",
                     stage="observed_bid_dominance")
-            return seconds
+            return min(seconds, maximum_seconds)  # float rounding at large monotonic values can exceed the cap
 
         common = dict(maximum_branches=maximum_branches, maximum_model_bytes=maximum_model_bytes,
             maximum_conflicts=maximum_conflicts, maximum_depth=maximum_depth,
