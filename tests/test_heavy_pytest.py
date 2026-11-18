@@ -289,8 +289,9 @@ def test_full_workflow_requires_coverage_for_all_matrices(root):
     assert jobs["python-backend-run"]["strategy"]["matrix"] == {"shard": [1, 2, 3, 4, 5], "python": ["3.12", "3.13"]}
     assert jobs["python-fast-run"]["strategy"]["matrix"] == {"python": ["3.12", "3.13"], "shard": [1, 2, 3, 4]}
     assert jobs["python-heavy"]["strategy"]["matrix"] == {"python": ["3.13"], "shard": [1, 2, 3, 4]}
-    for name in ("python-backend-run", "python-fast-run", "python-heavy"):
-        assert jobs[name]["strategy"]["max-parallel"] == 10
+    caps = {"python-backend-run": 4, "python-fast-run": 4, "python-heavy": 2}
+    for name, cap in caps.items():
+        assert jobs[name]["strategy"]["max-parallel"] == cap
         assert jobs[name]["strategy"]["fail-fast"] is False
         assert any("--workers 4" in step.get("run", "") for step in jobs[name]["steps"])
     assert jobs["python-coverage"]["needs"] == ["plan", "python-fast-run", "python-backend-run", "python-heavy"]
