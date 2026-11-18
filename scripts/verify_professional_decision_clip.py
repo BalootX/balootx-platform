@@ -124,9 +124,12 @@ def main() -> None:
         stills[name] = {"bytes": path.stat().st_size, "sha256": _sha(path)}
 
     if bundle.value["presentation"]["presentation"].get("show_justification_text") is False:
-        if CAPTIONS.exists():
-            raise ValueError("justification captions are forbidden by the frozen bundle")
-        captions_evidence = {"policy": "no_justification_text", "present": False}
+        present = CAPTIONS.exists()
+        captions_evidence = {"policy": "no_justification_text", "present": present}
+        if present:
+            if CAPTIONS.read_text(encoding="utf-8") != "WEBVTT\n\n":
+                raise ValueError("justification captions are forbidden by the frozen bundle")
+            captions_evidence.update(bytes=CAPTIONS.stat().st_size, sha256=_sha(CAPTIONS))
     else:
         captions = CAPTIONS.read_text(encoding="utf-8")
         reveal = segments["reveal"]

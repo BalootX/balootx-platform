@@ -4180,12 +4180,13 @@ def validate_native_observed_bid_quality_artifact_v1(artifact, *, rules, request
     prefix = ExactTracePrefixV1.build(allocation.get("sourcePrefix"))
     if prefix.sha256 != source_prefix_hash:
         raise ValueError("observed bid readback source substitution")
-    deadline = time.monotonic() + min(maximum_seconds, budget.maximum_wall_seconds, budget.maximum_cpu_seconds)
+    started = time.monotonic()
+    time_limit = min(maximum_seconds, budget.maximum_wall_seconds, budget.maximum_cpu_seconds)
 
     def remaining():
         if cancel_check is not None and cancel_check():
             raise InformationSetCompilationStopped("cancelled", stage="observed_bid_readback")
-        seconds = deadline - time.monotonic()
+        seconds = time_limit - (time.monotonic() - started)
         if seconds <= 0:
             raise InformationSetCompilationStopped("maximum_seconds", stage="observed_bid_readback")
         return seconds

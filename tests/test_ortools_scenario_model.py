@@ -1902,6 +1902,7 @@ def test_observed_last_bid_pass_has_real_native_dominance_certificate(root, tmp_
 @pytest.mark.parametrize("case", ("valid", "owner", "graph", "request", "state", "cancelled", "deadline"))
 def test_observed_bid_readback_owns_normalization_and_one_deadline(root, monkeypatch, case):
     from copy import deepcopy
+    from math import nextafter
     import yaml
     import time
     from baloot_platform.research import result_authority as authority
@@ -1930,7 +1931,8 @@ def test_observed_bid_readback_owns_normalization_and_one_deadline(root, monkeyp
         artifact["graph"] = {}
     if case == "request":
         artifact["request"] = {}
-    clock, calls = [time.monotonic()], []
+    # Adding ten seconds to this clock value rounds the deadline upward.
+    clock, calls = [nextafter(247.0, 0.0)], []
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
     def normalize(self, value, **kwargs):
         assert value == prefix and 0 < kwargs["maximum_seconds"] <= 10

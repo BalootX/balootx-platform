@@ -9,8 +9,25 @@ from scripts import ci_known_failures as known
 from scripts.run_isolated_pytest import validate_execution
 
 
+RESOURCE_NODE = "tests/test_resource.py::test_reads_optional_fixture"
+
+
 @pytest.fixture(autouse=True)
 def trusted_test_baseline(monkeypatch, tmp_path):
+    baseline = tmp_path / "ci" / "known-failures.json"
+    baseline.parent.mkdir()
+    baseline.write_text(json.dumps({
+        "schemaVersion": 1,
+        "source": {"runId": 44039515022},
+        "tests": [
+            {"nodeid": RESOURCE_NODE, "phase": "call",
+             "signature": {"exception": "FileNotFoundError", "resourceKind": "missing_file",
+                           "resource": f"assets/test-fixture-{version}.wav"},
+             "observations": [{"artifactName": f"python-file-results-{version}-1"}]}
+            for version in ("3.12", "3.13")
+        ],
+    }), encoding="utf-8")
+    monkeypatch.setattr(known, "BASELINE", baseline)
     event = tmp_path / "event.json"
     event.write_text(json.dumps({"pull_request": {"base": {"sha": "a" * 40}}}), encoding="utf-8")
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
@@ -25,7 +42,9 @@ def trusted_test_baseline(monkeypatch, tmp_path):
 
 
 def _failure():
-    row = json.loads(known.BASELINE.read_text(encoding="utf-8"))["tests"][0]
+    version = ".".join(known.platform.python_version_tuple()[:2])
+    row = next(row for row in json.loads(known.BASELINE.read_text(encoding="utf-8"))["tests"]
+               if f"-{version}-" in row["observations"][0]["artifactName"])
     node, phase, signature = row["nodeid"], row["phase"], row["signature"]
     event = {"phase": phase, "outcome": "failed", "xfail": False,
              "longrepr": "E   FileNotFoundError: [Errno 2] No such file or directory: '/checkout/" + signature["resource"] + "'"}
@@ -54,7 +73,7 @@ def test_a_new_cause_inside_a_listed_test_stays_red(change):
     elif change == "phase":
         event["phase"] = "teardown"
     elif change == "resource":
-        event["longrepr"] = event["longrepr"].replace("manifest.json", "another.json")
+        event["longrepr"] = event["longrepr"].replace("test-fixture-", "different-fixture-")
     elif change == "exception":
         event["longrepr"] = "E   AssertionError: new product failure"
     else:
@@ -94,13 +113,29 @@ def test_merge_group_reads_its_trusted_base(monkeypatch, tmp_path):
     assert known.entries()
 
 
-@pytest.mark.parametrize("version,resource,accepted", [
-    ("3.12", "siri.wav", True), ("3.12", "triple.wav", False),
-    ("3.13", "siri.wav", False), ("3.13", "triple.wav", True),
+@pytest.mark.parametrize("event,ref,admitted", [
+    ("push", "refs/heads/main", True),
+    ("push", "refs/heads/feature", False),
+    ("workflow_dispatch", "refs/heads/main", False),
+    ("workflow_dispatch", "refs/heads/feature", False),
+    (None, "refs/heads/main", False),
 ])
-def test_voice_signature_is_bound_to_the_original_python_matrix(monkeypatch, version, resource, accepted):
+def test_only_main_push_can_use_the_checked_out_baseline(monkeypatch, event, ref, admitted):
+    if event is None:
+        monkeypatch.delenv("GITHUB_EVENT_NAME")
+    else:
+        monkeypatch.setenv("GITHUB_EVENT_NAME", event)
+    monkeypatch.setenv("GITHUB_REF", ref)
+    node, failure = _failure()
+    assert known.is_known(node, failure) is admitted
+
+
+@pytest.mark.parametrize("version,resource,accepted", [
+    ("3.12", "test-fixture-3.12.wav", True), ("3.12", "test-fixture-3.13.wav", False),
+    ("3.13", "test-fixture-3.12.wav", False), ("3.13", "test-fixture-3.13.wav", True),
+])
+def test_fixture_signature_is_bound_to_the_recorded_python_matrix(monkeypatch, version, resource, accepted):
     monkeypatch.setattr(known.platform, "python_version_tuple", lambda: (*version.split("."), "0"))
     event = {"phase": "call", "outcome": "failed", "xfail": False,
-             "longrepr": "E   FileNotFoundError: [Errno 2] No such file or directory: '/checkout/assets/audio/voice_packs/ar_sa_baloot_v2_smooth/" + resource + "'"}
-    node = "tests/test_video_motion_release.py::test_voice_pack_is_original_and_media_correct"
-    assert known.is_known(node, event) is accepted
+             "longrepr": "E   FileNotFoundError: [Errno 2] No such file or directory: '/checkout/assets/" + resource + "'"}
+    assert known.is_known(RESOURCE_NODE, event) is accepted

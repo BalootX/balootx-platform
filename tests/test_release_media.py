@@ -71,8 +71,8 @@ def test_decision_export_verifier_uses_its_frozen_bundle(
     start = reveal["startFrame"]
     cue = f"{_timestamp(start, fps)} --> {_timestamp(start + min(240, reveal['durationFrames']), fps)}"
     no_text = bundle["presentation"]["presentation"].get("show_justification_text") is False
-    if not no_text or invalid == "captions":
-        module.CAPTIONS.write_text("WEBVTT\n\n" + ("wrong cue" if invalid == "captions" else cue), encoding="utf-8")
+    cue_text = "wrong cue" if invalid == "captions" else "" if no_text else cue
+    module.CAPTIONS.write_text("WEBVTT\n\n" + cue_text, encoding="utf-8")
     for name in module.STILLS:
         Image.new("RGB", (1080, 1920)).save(tmp_path / name)
     probe = {"streams": [{
@@ -93,7 +93,12 @@ def test_decision_export_verifier_uses_its_frozen_bundle(
         assert manifest["story"]["durationFrames"] == frames
         assert manifest["bundleSha256"] == bundle["bundleSha256"]
         if no_text:
-            assert manifest["captions"] == {"policy": "no_justification_text", "present": False}
+            assert manifest["captions"] == {
+                "policy": "no_justification_text",
+                "present": True,
+                "bytes": module.CAPTIONS.stat().st_size,
+                "sha256": hashlib.sha256(module.CAPTIONS.read_bytes()).hexdigest(),
+            }
 
 
 @pytest.mark.parametrize("show_justification", [False, True])

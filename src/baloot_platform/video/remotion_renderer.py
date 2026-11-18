@@ -857,22 +857,25 @@ class RemotionProfessionalRenderer:
         ):
             return "forbidden", "profile_disabled"
         source = bundle.value.get("source")
-        if source is None:
-            return "required", "profile_enabled"
-        exact_publishable = bool(
-            source.get("auditOnly") is False
-            and source.get("publicationEligible") is True
-            and source.get("renderPurpose") == "content_candidate"
-            and source.get("qualificationStatus") == "qualified"
-            and source.get("qualificationFailures") == []
-            and source.get("publicationBlockers") == []
-        )
-        if exact_publishable and source.get("qrActionable") is True:
-            return "required", "actionable_exact_state"
-        return (
-            "forbidden",
-            "research_audit" if not exact_publishable else "non_actionable_source",
-        )
+        if source is not None:
+            exact_publishable = (
+                source.get("auditOnly") is False
+                and source.get("publicationEligible") is True
+                and source.get("renderPurpose") == "content_candidate"
+                and source.get("qualificationStatus") == "qualified"
+                and source.get("qualificationFailures") == []
+                and source.get("publicationBlockers") == []
+            )
+            if not exact_publishable:
+                return "forbidden", "research_audit"
+            if source.get("qrActionable") is not True:
+                return "forbidden", "non_actionable_source"
+        if (
+            presentation.get("show_identity_pill") is not True
+            or bundle.value["presentation"]["majlis"]["id_box"] != "qr"
+        ):
+            return "forbidden", "profile_hides_qr"
+        return "required", "profile_enabled" if source is None else "actionable_exact_state"
 
     def execute(self, request: Any, **kwargs: Any) -> RenderArtifacts:
         export_preset = str(kwargs.get("export_preset", "hooked_flagship"))

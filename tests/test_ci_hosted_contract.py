@@ -24,7 +24,11 @@ def test_hosted_ci_contract(root):
             if "uses" in step:
                 assert re.fullmatch(r"[0-9a-f]{40}", step["uses"].rsplit("@", 1)[-1])
             assert not step.get("continue-on-error")
-    assert jobs["ci-gate"]["name"] == "CI result"
+    assert jobs["ci-gate"]["name"] == "${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'CI result' }}"
+    assert jobs["plan"]["if"] == "github.event_name != 'pull_request' || !github.event.pull_request.draft"
+    gate_step = jobs["ci-gate"]["steps"][-1]
+    assert gate_step["env"]["IS_DRAFT"] == "${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}"
+    assert "exit 1" in gate_step["run"].split("python3 scripts/ci_scope.py gate")[0]
     assert set(jobs["ci-gate"]["needs"]) == jobs.keys() - {"ci-gate"}
     assert jobs["ci-gate"]["if"] == "always()"
 

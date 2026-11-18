@@ -5,59 +5,6 @@
     "runId": 44039515022,
     "head": "df6c989866606df0558be53ae07c9ecf67eacdcd"
   },
-  "policy": "Generated from the first run under explicit owner authorization. Tests still execute; every unlisted node or changed exception/resource stays red. Additions require new Portfolio authorization.",
-  "tests": [
-    {
-      "nodeid": "tests/test_research_scenario_v4.py::test_historical_golden_media_is_intact_but_not_currently_admissible",
-      "phase": "call",
-      "signature": {
-        "exception": "FileNotFoundError",
-        "resourceKind": "missing_file",
-        "resource": "outputs/research-scenario-v4-goldens/manifest.json"
-      },
-      "reason": "Historical generated golden-media output is excluded from public source; no historical media qualification is asserted.",
-      "observations": [
-        {
-          "artifactId": 14309399523,
-          "artifactName": "python-file-results-3.13-2"
-        },
-        {
-          "artifactId": 14309392013,
-          "artifactName": "python-file-results-3.12-2"
-        }
-      ]
-    },
-    {
-      "nodeid": "tests/test_video_motion_release.py::test_voice_pack_is_original_and_media_correct",
-      "phase": "call",
-      "signature": {
-        "exception": "FileNotFoundError",
-        "resourceKind": "missing_file",
-        "resource": "assets/audio/voice_packs/ar_sa_baloot_v2_smooth/siri.wav"
-      },
-      "reason": "Held voice recording is excluded from public source; no substitute recording or qualification is asserted.",
-      "observations": [
-        {
-          "artifactId": 14309725115,
-          "artifactName": "python-file-results-3.12-3"
-        }
-      ]
-    },
-    {
-      "nodeid": "tests/test_video_motion_release.py::test_voice_pack_is_original_and_media_correct",
-      "phase": "call",
-      "signature": {
-        "exception": "FileNotFoundError",
-        "resourceKind": "missing_file",
-        "resource": "assets/audio/voice_packs/ar_sa_baloot_v2_smooth/triple.wav"
-      },
-      "reason": "Held voice recording is excluded from public source; no substitute recording or qualification is asserted.",
-      "observations": [
-        {
-          "artifactId": 14310102035,
-          "artifactName": "python-file-results-3.13-3"
-        }
-      ]
-    }
-  ]
+  "policy": "The first-run resource exceptions are retired. This baseline has no active entries.",
+  "tests": []
 }

@@ -26,6 +26,7 @@ env:
 
 jobs:
   plan:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -550,7 +551,7 @@ jobs:
 
   ci-gate:
     # Keep the protected context until the coordinated branch cutover.
-    name: CI result
+    name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'CI result' }}
     needs: [plan, preflight, dependency-review, foundry, sdks, python-affected, python-wheelhouse, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, media-render, media-release-smoke]
     if: always()
     runs-on: ubuntu-24.04
@@ -559,4 +560,10 @@ jobs:
       - *checkout
       - env:
           CI_RESULTS: ${{ toJSON(needs) }}
-        run: python3 scripts/ci_scope.py gate
+          IS_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
+        run: |
+          if [[ "$IS_DRAFT" == true ]]; then
+            echo '::error::Draft PR. Mark ready for review to run full CI.'
+            exit 1
+          fi
+          python3 scripts/ci_scope.py gate

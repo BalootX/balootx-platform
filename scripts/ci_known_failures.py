@@ -41,8 +41,10 @@ def entries() -> dict:
         except subprocess.CalledProcessError as exc:
             raise ValueError("known-failure baseline is absent from the trusted base; explicit Portfolio bootstrap admission is required") from exc
         baseline = json.loads(result.stdout)
-    else:
+    elif event_name == "push" and os.environ.get("GITHUB_REF") == "refs/heads/main":
         baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
+    else:
+        return {}
     if baseline["schemaVersion"] != 1 or baseline["source"]["runId"] != 44039515022:
         raise ValueError("unsupported known-failure baseline")
     result = {}

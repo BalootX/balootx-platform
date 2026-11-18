@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import shutil
 import wave
 from pathlib import Path
@@ -9,7 +11,11 @@ import pytest
 import yaml
 
 from baloot_platform.audit.models import content_hash
-from baloot_platform.video.media_validation import REMOTION_RENDERER_VERSION, renderer_source_files
+from baloot_platform.video.media_validation import (
+    REMOTION_RENDERER_VERSION,
+    renderer_source_files,
+    validate_renderer_identity,
+)
 from baloot_platform.video.render_bundle import (
     RENDER_SOURCE_KEYS,
     RenderBundleV1,
@@ -450,6 +456,44 @@ def test_render_source_v3_exposes_only_public_scenario_references() -> None:
     leaked_policy["publicationPolicy"]["sha256"] = content_hash(policy_hash_core)
     with pytest.raises(ValueError, match="private proof identity"):
         normalize_render_source(leaked_policy, observer="south")
+
+
+def test_historical_golden_media_is_intact_but_not_currently_admissible(root: Path) -> None:
+    originals = os.environ.get("BALOOTX_PRIVATE_GOLDENS_DIR")
+    if not originals:
+        pytest.skip("needs private original artifacts")
+    output = Path(originals)
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["exportPreset"] == "hooked_flagship"
+    assert len(manifest["entries"]) == 3
+    assert manifest["entries"][-1]["fixture"] == (
+        "examples/research-scenario-v4-ace-sacrifice-two-aces.json"
+    )
+    for entry in manifest["entries"]:
+        assert entry["exportPreset"] == "hooked_flagship"
+        bundle_path = output / entry["bundle"]
+        assert hashlib.sha256(bundle_path.read_bytes()).hexdigest() == entry[
+            "bundleFileSha256"
+        ]
+        bundle = RenderBundleV1(
+            json.loads(bundle_path.read_text(encoding="utf-8"))
+        )
+        # Historical encoded evidence is not proof against the current renderer.
+        with pytest.raises(ValueError, match="current renderer source"):
+            validate_renderer_identity(bundle.value["renderer"], root=root)
+        assert bundle.verify() is False
+        assert bundle.value["exportPreset"] == "hooked_flagship"
+        assert bundle.value["timeline"]["totalFrames"] == 4320
+        render_manifest = json.loads(
+            (output / entry["renderManifest"]).read_text(encoding="utf-8")
+        )
+        assert render_manifest["exportPreset"] == "hooked_flagship"
+        assert render_manifest["mediaProbe"]["durationSeconds"] == 72.0
+        video_path = output / entry["video"]
+        assert hashlib.sha256(video_path.read_bytes()).hexdigest() == entry[
+            "videoSha256"
+        ]
+
 
 
 def test_bundle_with_internally_consistent_but_stale_renderer_identity_is_rejected(
