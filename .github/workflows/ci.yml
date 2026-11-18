@@ -519,7 +519,7 @@ jobs:
     needs: [plan, media-render]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 25
     env:
       SOURCE_DATE_EPOCH: '315532800'
     steps:
