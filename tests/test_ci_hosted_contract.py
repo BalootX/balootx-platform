@@ -57,3 +57,31 @@ def test_gate_rejects_unproven_full_producers(event):
     results.pop("python-heavy")
     with pytest.raises(ValueError):
         ci_scope.validate_results(event, results)
+
+
+def test_one_run_never_holds_more_than_twenty_hosted_jobs(root):
+    # Shared Actions capacity: the largest set of mutually independent jobs, weighted by matrix width.
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    needs = {name: set([job["needs"]] if isinstance(job.get("needs"), str) else job.get("needs", ())) for name, job in jobs.items()}
+    def ancestors(name):
+        found = set(needs[name])
+        for parent in needs[name]:
+            found |= ancestors(parent)
+        return found
+    before = {name: ancestors(name) for name in jobs}
+    def width(job):
+        strategy = job.get("strategy") or {}
+        size = 1
+        for values in (strategy.get("matrix") or {}).values():
+            size *= len(values) if isinstance(values, list) else 1
+        return min(size, strategy.get("max-parallel", size))
+    names = sorted(jobs)
+    def peak(index, chosen):
+        if index == len(names):
+            return 0
+        name = names[index]
+        best = peak(index + 1, chosen)
+        if all(name not in before[other] and other not in before[name] for other in chosen):
+            best = max(best, width(jobs[name]) + peak(index + 1, chosen | {name}))
+        return best
+    assert peak(0, frozenset()) <= 20
