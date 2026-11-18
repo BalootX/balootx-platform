@@ -1324,13 +1324,13 @@ def test_dashboard_build_and_wheel_inputs_are_exactly_pinned(root):
         / "package-lock.json"
     ).read_text(encoding="utf-8")
     pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
-    assert '"react": "19.2.8"' in package
-    assert '"@tanstack/react-table": "9.0.0"' in package
-    assert '"vite": "8.2.0"' in package
+    assert '"react": "19.3.1"' in package
+    assert '"@tanstack/react-table": "9.3.1"' in package
+    assert '"vite": "8.3.8"' in package
     assert '"typescript": "6.0.2"' in package
-    assert '"@babel/parser": "8.0.4"' in package
-    assert '"@hey-api/openapi-ts": "0.97.3"' in package
-    assert '"vitest": "4.1.10"' in package
+    assert '"@babel/parser": "8.1.2"' in package
+    assert '"@hey-api/openapi-ts": "0.99.0"' in package
+    assert '"vitest": "5.1.0"' in package
     assert '"js-yaml": "4.3.1"' in package
     assert '"nanoid": "3.3.18"' in package
     assert (

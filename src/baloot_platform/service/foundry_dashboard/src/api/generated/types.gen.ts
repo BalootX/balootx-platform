@@ -7967,15 +7967,7 @@ export type ResearchRecipeListResponse = {
     /**
      * Items
      */
-    items: Array<({
-        schemaVersion: 1;
-    } & StoredResearchRecipeResponse) | ({
-        schemaVersion: 2;
-    } & StoredResearchRecipeV2Response) | ({
-        schemaVersion: 3;
-    } & StoredResearchRecipeV3Response) | ({
-        schemaVersion: 4;
-    } & StoredResearchRecipeV4Response)>;
+    items: Array<StoredResearchRecipeResponse | StoredResearchRecipeV2Response | StoredResearchRecipeV3Response | StoredResearchRecipeV4Response>;
     /**
      * Nextcursor
      */
@@ -9168,11 +9160,7 @@ export type ResearchResultListResponse = {
     /**
      * Items
      */
-    items: Array<({
-        schemaVersion: 1;
-    } & LegacyResearchResultResponse) | ({
-        schemaVersion: 2;
-    } & ResearchScenarioPublicResultResponse)>;
+    items: Array<LegacyResearchResultResponse | ResearchScenarioPublicResultResponse>;
     /**
      * Limit
      */
@@ -10129,11 +10117,7 @@ export type ResearchSemanticDisagreementListResponse = {
     /**
      * Items
      */
-    items: Array<({
-        schemaVersion: 1;
-    } & ResearchSemanticDisagreementV1Response) | ({
-        schemaVersion: 2;
-    } & ResearchSemanticDisagreementV2Response)>;
+    items: Array<ResearchSemanticDisagreementV1Response | ResearchSemanticDisagreementV2Response>;
 };
 
 /**
