@@ -1331,7 +1331,7 @@ def test_dashboard_build_and_wheel_inputs_are_exactly_pinned(root):
     assert '"@babel/parser": "8.1.2"' in package
     assert '"@hey-api/openapi-ts": "0.99.0"' in package
     assert '"vitest": "5.1.0"' in package
-    assert '"js-yaml": "4.3.1"' in package
+    assert '"js-yaml": "4.3.2"' in package
     assert '"nanoid": "3.3.18"' in package
     assert (
         '"generate:api": "openapi-ts --file openapi-ts.config.mjs --no-log-file"'

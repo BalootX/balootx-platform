@@ -12,7 +12,7 @@
     "test:operator-e2e": "playwright test --config e2e/playwright.config.cjs"
   },
   "overrides": {
-    "js-yaml": "4.3.1",
+    "js-yaml": "4.3.2",
     "nanoid": "3.3.18"
   },
   "dependencies": {
