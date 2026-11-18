@@ -23,6 +23,8 @@ updates:
     groups:
       npm:
         patterns: ["*"]
+        # TypeScript majors change the compiler API; review them in their own PR.
+        exclude-patterns: ["typescript"]
   - package-ecosystem: gomod
     directory: /sdk/go
     schedule:

@@ -122,7 +122,7 @@ def test_workflows_use_node24_artifact_upload_action(root: Path) -> None:
     uploads = [step["uses"] for source in sources
                for job in yaml.safe_load(source)["jobs"].values() for step in job["steps"]
                if step.get("uses", "").startswith("actions/upload-artifact")]
-    approved = {"actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"}  # Node 24, v7.0.1
+    approved = {"actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"}  # Node 24, v7.0.2
     assert uploads and set(uploads) <= approved
 
 
