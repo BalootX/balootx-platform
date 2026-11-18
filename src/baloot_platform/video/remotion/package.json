@@ -12,7 +12,7 @@
     "render:multi-angle": "node scripts/render-multi-angle.mjs"
   },
   "dependencies": {
-    "@remotion/bundler": "4.0.503",
+    "@remotion/bundler": "4.0.544",
     "@remotion/renderer": "4.0.503",
     "jpeg-js": "0.4.4",
     "jsqr": "1.4.0",
