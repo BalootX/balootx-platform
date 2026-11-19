@@ -23,6 +23,15 @@ mediabunny, its encoder packages and lightningcss variants declare MPL-2.0 in
 the npm locks. Remotion uses separate custom terms; a licence inventory does not
 grant production-rendering rights. Retain its exact vendor notices and obtain
 the required approval before commercial rendering/distribution.
+Remotion record (19 Nov 2026): the pinned remotion is 4.0.503 (src/baloot_platform/video/
+remotion/package-lock.json, "SEE LICENSE IN LICENSE.md"). Upstream tag v4.0.503
+(commit 9f4e47ef457ade757a3287968bbc1110da9bf635) LICENSE.md, 2,823 bytes,
+SHA-256 bd65083b940f61904f6ef298aade918a7cad72a3e35bc406e36fab365844b673.
+Its Free License covers individuals, for-profit organisations with up to 3
+employees and non-profits; 4 or more employees need a paid Company License.
+Owner confirmed on 19 Nov 2026 that the owning company is one person, so the
+Free License applies. A Company License becomes required if the company
+grows to 4 or more employees.
 
 BUNDLED ASSETS
 Noto Arabic fonts: SIL Open Font License 1.1 (OFL-1.1). The unmodified OFL text,
