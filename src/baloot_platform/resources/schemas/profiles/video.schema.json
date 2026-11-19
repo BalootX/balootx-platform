@@ -15,6 +15,10 @@
         "reference_run_id": {
           "type": "string"
         },
+        "reference_variant": {
+          "description": "Variant depicted by the reference MP4 when it differs from the selected design variant.",
+          "type": "string"
+        },
         "source_head": {
           "type": "string"
         },

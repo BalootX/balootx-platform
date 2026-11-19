@@ -1,3 +1,4 @@
+import hashlib
 import json
 import runpy
 import sys
@@ -7,6 +8,39 @@ from PIL import Image
 import pytest
 
 from scripts import render_research_notice as notice
+
+
+def test_public_notice_profile_builds_a_qualified_bundle_with_the_exact_notice():
+    profile = notice.notice_profile(public=True)
+    design = profile["approved_design"]
+    assert design["variant"] == "public_v4_no_justification_red_notice"
+    assert design["reference_variant"] == "public_v4_no_justification_no_notice"
+    assert design["reference_mp4_sha256"] == "15492d3f389fcb07be423fc97a6e46fe0b8e385b5beb173f01073e6d11a87bf9"
+
+    rules = notice.RuleBook.load(notice.ROOT / "configs/rules/saudi_common_v1.yaml")
+    bundle = notice.build_notice_bundle(rules, profile)
+    notice.validate_notice_bundle(bundle, notice.engine_round_result(rules), public=True)
+    sentence = bundle.value["localizations"]["video.notice.sentence"]
+    assert sentence == "هذا الفيديو لأغراض البحث فقط، ويُمنع تداوله."
+    assert hashlib.sha256(sentence.encode("utf-8")).hexdigest() == "93ff9d2bd274a95b3160bee0e519b258abcf1702801284f9f797fc4c535d5860"
+    assert bundle.value["presentation"]["majlis"]["research_notice"] is True
+    presentation = bundle.value["presentation"]["presentation"]
+    assert presentation["show_justification"] is presentation["show_justification_text"] is False
+
+
+@pytest.mark.parametrize(("section", "key", "value", "error"), [
+    ("majlis", "research_notice", False, "research notice must match"),
+    ("localizations", "video.notice.sentence", "changed", "sentence hash mismatch"),
+    ("approved_design", "reference_variant", "public_v4_no_justification_red_notice", "binding mismatch: reference_variant"),
+    ("approved_design", "reference_mp4_sha256", "0" * 64, "binding mismatch: reference_mp4_sha256"),
+    ("presentation", "show_justification", True, "disable all justification text"),
+    ("presentation", "show_justification_text", True, "disable all justification text"),
+])
+def test_public_notice_profile_rejects_unapproved_changes(section, key, value, error):
+    profile = notice.notice_profile(public=True)
+    profile[section][key] = value
+    with pytest.raises(ValueError, match=error):
+        notice.validate_approved_v4_public_profile(profile)
 
 
 def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch):
@@ -238,7 +272,8 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monk
     output.mkdir()
     events = []
     monkeypatch.setattr(notice, "RuleBook", SimpleNamespace(load=lambda path: object()))
-    monkeypatch.setattr(notice, "notice_profile", lambda *, public=False: events.append("design") or {})
+    design = notice.notice_profile(public=True)["approved_design"]
+    monkeypatch.setattr(notice, "notice_profile", lambda *, public=False: events.append("design") or {"approved_design": design})
 
     bundle = SimpleNamespace(
         value={
@@ -335,3 +370,6 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monk
     receipt = json.loads((output / "owner-approval.json").read_text(encoding="utf-8"))
     assert receipt["dealIdentifier"] == selection["identifier"]
     assert receipt["fixture"] == selection["source"]
+    assert receipt["publicResearchNoticeShown"] is True
+    assert receipt["headerText"]["sentence"] == bundle.value["localizations"]["video.notice.sentence"]
+    assert receipt["approvedDesignBinding"]["variant"] == "public_v4_no_justification_red_notice"

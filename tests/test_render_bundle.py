@@ -882,3 +882,19 @@ def test_approved_v4_public_gate_rejects_old_premium_theme(root: Path) -> None:
     profile["majlis"]["theme"] = "emerald"
     with pytest.raises(ValueError, match="red Majlis number box"):
         validate_approved_v4_public_profile(profile)
+
+
+def test_approved_v4_historical_public_binding_requires_no_notice(root: Path) -> None:
+    profile = yaml.safe_load((root / "configs/video/premium.yaml").read_text(encoding="utf-8"))
+    profile["exports"]["decision_clip"]["include_complete_replay"] = True
+    profile["motion"]["flight_steps"] = 15
+    assert profile["approved_design"]["variant"] == "public_v4_no_justification_no_notice"
+    validate_approved_v4_public_profile(profile)
+
+    profile["majlis"]["research_notice"] = True
+    with pytest.raises(ValueError, match="research notice must match"):
+        validate_approved_v4_public_profile(profile)
+
+    profile["approved_design"]["variant"] = "unapproved_notice"
+    with pytest.raises(ValueError, match="binding mismatch: variant"):
+        validate_approved_v4_public_profile(profile)
