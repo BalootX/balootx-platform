@@ -26,6 +26,8 @@ from baloot_platform.video.remotion_renderer import (
     _json_write,
 )
 from baloot_platform.video.render_bundle import (
+    APPROVED_V4_NO_NOTICE,
+    APPROVED_V4_RED_NOTICE,
     seeded_player_names,
     validate_approved_v4_public_profile,
 )
@@ -199,9 +201,12 @@ def notice_profile(*, public: bool = False) -> dict:
         "maximum_seconds": TARGET_SECONDS,
     })
     profile["motion"]["flight_steps"] = FLIGHT_STEPS
-    profile["majlis"]["research_notice"] = not public
     profile["presentation"]["show_justification"] = False
+    profile["majlis"]["research_notice"] = True
     if public:
+        profile["approved_design"].update(
+            variant=APPROVED_V4_RED_NOTICE, reference_variant=APPROVED_V4_NO_NOTICE,
+        )
         validate_approved_v4_public_profile(profile)
     return profile
 
@@ -305,7 +310,7 @@ def validate_notice_bundle(
         and value["presentation"]["presentation"]["show_justification"] is False
         and value["presentation"]["presentation"]["show_justification_text"] is False
         and not any(cue.get("assetId") == "voice-explanation" for cue in value.get("audioCues") or ())
-        and value["presentation"]["majlis"]["research_notice"] is (not public)
+        and value["presentation"]["majlis"]["research_notice"] is True
         and (not public or value["presentation"]["majlis"]["id_box"] == "number")
         and fit["widthPx"] <= fit["availablePx"]
         and len(set(value["identity"]["players"].values())) == 4
@@ -541,9 +546,6 @@ def main(
         "postingAuthorized": False,
         "sourceHead": source_head,
         "sourceTree": source_tree,
-        "approvedDesignCommit": DESIGN_COMMIT,
-        "approvedDesignInputs": DESIGN_INPUT_SHA256,
-        "approvedDesignChange": DESIGN_CHANGE_REASON,
         "fixture": selection["source"],
         "fixtureSha256": _sha256(fixture),
         "dealIdentifier": selection["identifier"],
@@ -552,14 +554,14 @@ def main(
         "synthetic": True,
         "language": "ar-SA",
         "caption": CAPTION,
-        "headerText": None if public else {
+        "headerText": {
             "title": bundle.value["localizations"]["video.notice.title"],
             "sentence": bundle.value["localizations"]["video.notice.sentence"],
             "fit": notice_sentence_fit(bundle.value["localizations"]["video.notice.sentence"]),
             "note": "Design band styling; publish-safe text instead of the audit-only wording.",
         },
         "justificationShown": False,
-        "publicResearchNoticeShown": not public,
+        "publicResearchNoticeShown": True,
         "players": bundle.value["identity"]["players"],
         "timelineSeconds": {
             stage: segments[stage]["durationFrames"] / fps for stage in STAGES
@@ -578,6 +580,14 @@ def main(
         "thumbnailFrame": rows["hook"]["frame"],
         "qaStillFrames": {phase: rows[phase]["frame"] for phase in PHASES},
     }
+    if public:
+        receipt["approvedDesignBinding"] = profile["approved_design"]
+    else:
+        receipt.update(
+            approvedDesignCommit=DESIGN_COMMIT,
+            approvedDesignInputs=DESIGN_INPUT_SHA256,
+            approvedDesignChange=DESIGN_CHANGE_REASON,
+        )
     deliverables = [artifacts.video, thumbnail, *stills, artifacts.manifest]
     receipt["files"] = {path.name: _sha256(path) for path in deliverables}
     approval = output / "owner-approval.json"
@@ -607,7 +617,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--copy-to", type=Path, help="Also copy the deliverables to this directory.")
     parser.add_argument("--output", type=Path, help="Write the render and evidence into this directory.")
-    parser.add_argument("--public", action="store_true", help="Render the approved public v4 variant without the private notice.")
+    parser.add_argument("--public", action="store_true", help="Render the approved public v4 variant with the red research notice.")
     parser.add_argument("--source-head", help="Pinned source commit SHA for archive execution.")
     parser.add_argument("--source-tree", help="Pinned source tree SHA for archive execution.")
     selection = parser.add_mutually_exclusive_group()

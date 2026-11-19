@@ -85,6 +85,9 @@ MAJLIS_LOCALIZATION_KEYS = (
 APPROVED_V4_SOURCE_HEAD = "730500a25ec15c3f6ffa4cd4f7d8e25f01a13850"
 APPROVED_V4_SOURCE_TREE = "3a775aa0a6be8d06de83409c316793d3ef9f5f58"
 APPROVED_V4_REFERENCE_MP4_SHA256 = "15492d3f389fcb07be423fc97a6e46fe0b8e385b5beb173f01073e6d11a87bf9"
+APPROVED_V4_NO_NOTICE = "public_v4_no_justification_no_notice"
+APPROVED_V4_RED_NOTICE = "public_v4_no_justification_red_notice"
+APPROVED_V4_NOTICE_SENTENCE_SHA256 = "93ff9d2bd274a95b3160bee0e519b258abcf1702801284f9f797fc4c535d5860"
 _HEX_COLOUR = re.compile(r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$")
 
 
@@ -221,20 +224,33 @@ def validate_approved_v4_public_profile(profile: Mapping[str, Any]) -> None:
     design = profile.get("approved_design")
     if not isinstance(design, Mapping):
         raise ValueError("production video requires the approved-v4 design binding")
+    variant = design.get("variant")
+    if variant not in (APPROVED_V4_NO_NOTICE, APPROVED_V4_RED_NOTICE):
+        raise ValueError("approved-v4 design binding mismatch: variant")
+    show_notice = variant == APPROVED_V4_RED_NOTICE
     expected = {
         "source_head": APPROVED_V4_SOURCE_HEAD,
         "source_tree": APPROVED_V4_SOURCE_TREE,
         "reference_mp4_sha256": APPROVED_V4_REFERENCE_MP4_SHA256,
-        "variant": "public_v4_no_justification_no_notice",
     }
+    if show_notice or "reference_variant" in design:
+        expected["reference_variant"] = APPROVED_V4_NO_NOTICE
     for key, value in expected.items():
         if design.get(key) != value:
             raise ValueError(f"approved-v4 design binding mismatch: {key}")
     majlis = resolve_majlis_presentation(profile.get("majlis"))
     if majlis["theme"] != "red" or majlis["hud"] != "plaque" or majlis["id_box"] != "number":
         raise ValueError("approved-v4 public render requires the red Majlis number box")
-    if majlis["research_notice"] is not False:
-        raise ValueError("public renders must disable the private research notice")
+    if majlis["research_notice"] is not show_notice:
+        raise ValueError("approved-v4 public research notice must match the design variant")
+    if show_notice:
+        localizations = profile.get("localizations")
+        sentence = localizations.get("video.notice.sentence") if isinstance(localizations, Mapping) else None
+        if (
+            not isinstance(sentence, str)
+            or hashlib.sha256(sentence.encode("utf-8")).hexdigest() != APPROVED_V4_NOTICE_SENTENCE_SHA256
+        ):
+            raise ValueError("approved-v4 public research notice sentence hash mismatch")
     presentation = profile.get("presentation")
     if not isinstance(presentation, Mapping):
         raise ValueError("approved-v4 public render is missing presentation settings")
