@@ -9,6 +9,29 @@ import yaml
 from scripts import ci_scope
 
 
+def test_codeowners_covers_hosted_ci_and_release_controls(root):
+    text = (root / ".github/CODEOWNERS").read_text(encoding="utf-8")
+    rules = [line.split() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    assert all(owners == ["@BalootX/maintainers"] for _, *owners in rules)
+    paths = {pattern for pattern, *_ in rules}
+    assert "/" not in paths and "*" not in paths
+    workflow_scripts = {
+        "/" + script
+        for workflow in (root / ".github/workflows").glob("*.yml")
+        for script in re.findall(r"\bscripts/[\w.]+\.py\b", workflow.read_text(encoding="utf-8"))
+    }
+    required = {
+        "/.github/", "/ci/", "/scripts/ci_known_failures.py", "/tests/test_ci_hosted_contract.py",
+        "/scripts/build_reproducible_wheel.py", "/scripts/package_release*.py", "/scripts/verify_release*.py",
+        "/scripts/check_release_readiness.py", "/scripts/migrate_postgres.py", "/migrations/", "/Dockerfile",
+        "/pyproject.toml", "/sdk/go/go.mod", "/sdk/typescript/package.json",
+        "/src/baloot_platform/service/foundry_dashboard/package.json",
+        "/src/baloot_platform/service/foundry_dashboard/package-lock.json",
+        "/src/baloot_platform/video/remotion/package.json", "/src/baloot_platform/video/remotion/package-lock.json",
+    }
+    assert required | workflow_scripts <= paths
+
+
 def test_hosted_ci_contract(root):
     workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
     triggers = workflow[True]  # PyYAML's YAML 1.1 spelling of on.

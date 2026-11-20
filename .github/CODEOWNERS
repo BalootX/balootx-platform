@@ -1,0 +1,57 @@
+# Hosted CI and its test and coverage controls.
+/.github/ @BalootX/maintainers
+/ci/ @BalootX/maintainers
+/scripts/ci_scope.py @BalootX/maintainers
+/scripts/ci_known_failures.py @BalootX/maintainers
+/scripts/run_isolated_pytest.py @BalootX/maintainers
+/scripts/run_heavy_pytest.py @BalootX/maintainers
+/tests/conftest.py @BalootX/maintainers
+/tests/test_ci_hosted_contract.py @BalootX/maintainers
+/tests/test_repository_structure.py @BalootX/maintainers
+/tests/test_media_render_artifact.py @BalootX/maintainers
+/tests/test_ci_known_failures.py @BalootX/maintainers
+/tests/test_isolated_pytest.py @BalootX/maintainers
+/tests/test_heavy_pytest.py @BalootX/maintainers
+/src/baloot_platform/service/foundry_dashboard/scripts/check-generated-api.mjs @BalootX/maintainers
+
+# Generated contracts and hosted media release evidence.
+/scripts/sync_package_resources.py @BalootX/maintainers
+/scripts/generate_openapi.py @BalootX/maintainers
+/scripts/generate_professional_video_prototypes.py @BalootX/maintainers
+/scripts/render_release.py @BalootX/maintainers
+/scripts/render_remotion_plugin_parity.py @BalootX/maintainers
+/scripts/verify_remotion_plugin_parity.py @BalootX/maintainers
+/scripts/verify_professional_flagship.py @BalootX/maintainers
+/scripts/verify_professional_decision_clip.py @BalootX/maintainers
+/scripts/verify_professional_video_prototypes.py @BalootX/maintainers
+/scripts/generate_scene_preview.py @BalootX/maintainers
+/scripts/generate_media_probe.py @BalootX/maintainers
+/scripts/generate_test_inventory_v20.py @BalootX/maintainers
+/scripts/generate_supply_chain.py @BalootX/maintainers
+/scripts/generate_platform_evidence.py @BalootX/maintainers
+/src/baloot_platform/video/remotion/scripts/ @BalootX/maintainers
+
+# Packaging, release verification, and deployment inputs.
+/scripts/build_reproducible_wheel.py @BalootX/maintainers
+/scripts/package_release*.py @BalootX/maintainers
+/scripts/verify_release*.py @BalootX/maintainers
+/scripts/verify_archive*.py @BalootX/maintainers
+/scripts/check_release_readiness.py @BalootX/maintainers
+/scripts/run_verifier_container.py @BalootX/maintainers
+/scripts/verifier_preflight*.py @BalootX/maintainers
+/scripts/migrate_postgres.py @BalootX/maintainers
+/migrations/ @BalootX/maintainers
+/Dockerfile @BalootX/maintainers
+/.dockerignore @BalootX/maintainers
+/configs/runtime/docker_v1.yaml @BalootX/maintainers
+/src/baloot_platform/resources/configs/runtime/docker_v1.yaml @BalootX/maintainers
+/native/CMakeLists.txt @BalootX/maintainers
+
+# Dependency manifests and lockfiles.
+/pyproject.toml @BalootX/maintainers
+/sdk/go/go.mod @BalootX/maintainers
+/sdk/typescript/package.json @BalootX/maintainers
+/src/baloot_platform/service/foundry_dashboard/package.json @BalootX/maintainers
+/src/baloot_platform/service/foundry_dashboard/package-lock.json @BalootX/maintainers
+/src/baloot_platform/video/remotion/package.json @BalootX/maintainers
+/src/baloot_platform/video/remotion/package-lock.json @BalootX/maintainers
