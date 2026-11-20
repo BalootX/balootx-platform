@@ -1,1 +1,2 @@
 Proof C dummy; never merged.
+Proof C stale-review follow-up.
