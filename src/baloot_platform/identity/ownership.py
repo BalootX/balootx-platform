@@ -3,6 +3,7 @@
 from contextvars import ContextVar
 
 # New ID first; the legacy ID can only match an existing record in this request.
+# Remove this temporary legacy SVC alias once no rows carry legacy IDs.
 SERVICE_SUBJECT_OWNER: ContextVar[tuple[str, str] | None] = ContextVar(
     "baloot_service_subject_owner", default=None,
 )

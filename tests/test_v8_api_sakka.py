@@ -242,7 +242,7 @@ def test_api_key_reads_real_legacy_board_and_run_over_http_and_grpc(
     _grpc_probe(tmp_path, monkeypatch, probe)
 
 
-def test_service_ownership_startup_is_idempotent(legacy_service_records):
+def test_service_ownership_survives_repeated_startup(legacy_service_records):
     from baloot_platform.service.api import SAKKA
 
     board, code, run = legacy_service_records

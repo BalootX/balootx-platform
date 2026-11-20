@@ -191,7 +191,7 @@ def build_hitl_router(service: ReviewGovernanceServiceV18, identities: IdentityS
         if not owns_subject(identity.subject_id, reviewer):
             _privileged(request, policy, Scope.MODEL_ADMIN)
         try:
-            return service.assign(case_id, reviewer_id=identity.subject_id, device_id=body.deviceId,
+            return service.assign(case_id, reviewer_id=reviewer, device_id=body.deviceId,
                                   network_id=body.networkId, ttl_hours=body.ttlHours)
         except KeyError as exc:
             raise HTTPException(404, "review case not found") from exc
@@ -302,7 +302,7 @@ def build_hitl_router(service: ReviewGovernanceServiceV18, identities: IdentityS
         identity, _ = require_identity(request, identities)
         if not owns_subject(identity.subject_id, subject_id):
             _privileged(request, policy, Scope.MODEL_ADMIN)
-        return service.get_reviewer_profile(identity.subject_id)
+        return service.get_reviewer_profile(subject_id)
 
     @router.put("/reviewers/{subject_id}")
     def set_reviewer(subject_id: str, body: ReviewerProfileRequest, request: Request):
