@@ -13,6 +13,7 @@ from baloot_platform.core.cards import Card, iter_mask
 from baloot_platform.core.enums import GamePhase, Seat
 from baloot_platform.service.game import GameManager, GameSession
 from baloot_platform.storage.codec_v7 import decode, encode
+from baloot_platform.identity.ownership import owns_subject
 from baloot_platform.shared import (
     SharedScope, build_shared_environment, environment_hash, verify_shared_environment,
 )
@@ -378,7 +379,7 @@ class SakkaService:
         decisions = store.list_decisions(game_id, limit=10_000)
         for decision in reversed(decisions):
             metadata = decision.get("decisionMetadata") or {}
-            if metadata.get("source") == "sakka_player" and metadata.get("subjectId") == subject_id:
+            if metadata.get("source") == "sakka_player" and owns_subject(subject_id, metadata.get("subjectId")):
                 return str(decision["decisionId"])
         return None
 
@@ -425,7 +426,7 @@ class SakkaService:
         if loaded is None:
             raise KeyError(run_id)
         run, payload = loaded
-        if run.subject_id != subject_id:
+        if not owns_subject(subject_id, run.subject_id):
             raise PermissionError("run belongs to another player")
         if run.status != "active":
             raise ValueError("shared run is not active")
@@ -571,7 +572,7 @@ class SakkaService:
         if loaded is None:
             raise KeyError(run_id)
         run, _payload = loaded
-        if subject_id is not None and run.subject_id != subject_id:
+        if subject_id is not None and not owns_subject(subject_id, run.subject_id):
             raise PermissionError("run belongs to another player")
         board_item = self.store.get_board(run.board_id)
         if board_item is None:
@@ -646,7 +647,7 @@ class SakkaService:
         if loaded is None:
             raise KeyError(run_id)
         run, payload = loaded
-        if run.subject_id != subject_id:
+        if not owns_subject(subject_id, run.subject_id):
             raise PermissionError("run belongs to another player")
         board_item = self.store.get_board(run.board_id)
         room = self.store.get_room(run.room_id)
@@ -708,7 +709,7 @@ class SakkaService:
                 str(item["subject_id"] if "subject_id" in item else item.get("subjectId"))
                 for item in self.store.members(room_a.room_id) + self.store.members(room_b.room_id)
             }
-            if requester_subject_id not in allowed:
+            if not any(owns_subject(requester_subject_id, subject) for subject in allowed):
                 raise PermissionError("comparison is available only to room members")
 
         board_item = self.store.get_board(run_a.board_id)
@@ -809,7 +810,7 @@ class SakkaService:
         if loaded is None:
             raise KeyError(run_id)
         run, _payload = loaded
-        if run.subject_id != created_by:
+        if not owns_subject(created_by, run.subject_id):
             raise PermissionError("run belongs to another player")
         actions = self.store.actions(run_id, include_private=True)
         item = next((value for value in actions if int(value["sequence"]) == int(sequence)), None)
@@ -835,7 +836,7 @@ class SakkaService:
         if loaded is None:
             raise KeyError(run_id)
         run, payload = loaded
-        if run.subject_id != subject_id:
+        if not owns_subject(subject_id, run.subject_id):
             raise PermissionError("run belongs to another player")
         if run.status != "completed":
             raise PermissionError("run analysis is available after completion only")
@@ -918,7 +919,7 @@ class SakkaService:
         if loaded is None:
             raise KeyError(run_id)
         run, _payload = loaded
-        if run.subject_id != subject_id:
+        if not owns_subject(subject_id, run.subject_id):
             raise PermissionError("run belongs to another player")
         if run.status != "completed":
             raise PermissionError("run analysis is available after completion only")
@@ -931,7 +932,7 @@ class SakkaService:
         if loaded is None:
             raise KeyError(run_id)
         run, _payload = loaded
-        if run.subject_id != subject_id:
+        if not owns_subject(subject_id, run.subject_id):
             raise PermissionError("run belongs to another player")
         row = next(
             (item for item in self.store.actions(run_id) if int(item["sequence"]) == int(sequence)),

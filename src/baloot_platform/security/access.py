@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Iterable, Mapping
 
+from baloot_platform.identity.ownership import owns_subject
+
 
 class Scope(StrEnum):
     READ = "baloot.read"
@@ -156,4 +158,4 @@ class AuthorizationPolicy:
             return True
         if role in {"admin", "referee", "service"}:
             return True
-        return owner_subject_id is not None and subject_id == owner_subject_id
+        return owns_subject(subject_id, owner_subject_id)

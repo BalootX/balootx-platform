@@ -2,22 +2,86 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI, Request
+from fastapi.testclient import TestClient
 
 from baloot_platform.agents.profiles import AgentProfileRegistry
 from baloot_platform.audit.service import ReplayAuditService
 from baloot_platform.core.enums import Seat
 from baloot_platform.hitl import ReviewGovernanceServiceV18, SQLiteReviewGovernanceStore
+from baloot_platform.identity import IdentityService, SQLiteIdentityStore
 from baloot_platform.learning.service import LearningService
 from baloot_platform.learning.store import LearningStore
+from baloot_platform.security import AuthorizationPolicy, Scope, SignedAccessTokenService
 from baloot_platform.service.game import GameManager
+from baloot_platform.service.routes.auth import request_token
+from baloot_platform.service.routes.hitl import build_hitl_router
 from baloot_platform.storage.game_store import SQLiteGameStore
 from baloot_platform.video.hitl_review_v18 import HitlReviewClipRendererV18
 from baloot_platform.video import media_validation
 
 from hitl_helpers import hitl_profile, make_service, submit_review
+
+
+@pytest.fixture
+def hitl_reviewer_routes(root: Path, tmp_path: Path):
+    service, store, _ = make_service(root, tmp_path)
+    identities = IdentityService(SQLiteIdentityStore(tmp_path / "identity.sqlite3"))
+    tokens = SignedAccessTokenService(secrets.token_bytes(32))
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def authenticate(request: Request, call_next):
+        token = request_token(request)
+        if token:
+            request.state.access_claims = tokens.verify(token)
+        return await call_next(request)
+
+    profile = hitl_profile(root)
+    app.include_router(build_hitl_router(
+        service, identities, AuthorizationPolicy(), HitlReviewClipRendererV18(profile["review_clip"]),
+        tmp_path, profile,
+    ))
+    admin = tokens.issue(subject_id="TEST-ADMIN", role="admin", scopes=[Scope.MODEL_ADMIN])
+    player = tokens.issue(subject_id="TEST-PLAYER", role="player", scopes=[Scope.READ])
+    try:
+        with TestClient(app) as client:
+            yield client, service, {"Authorization": f"Bearer {admin}"}, {"Authorization": f"Bearer {player}"}
+    finally:
+        store.close()
+
+
+def test_hitl_admin_assigns_the_requested_reviewer(hitl_reviewer_routes):
+    client, service, admin, player = hitl_reviewer_routes
+    case = service.create_case("DEC-HITL-1", created_by="TEST-AUTHOR")
+    case_id = case["caseId"]
+    url = f"/api/v1/hitl/cases/{case_id}/assignments"
+    body = {"reviewerId": "TEST-REVIEWER"}
+
+    assert client.post(url, headers=player, json=body).status_code == 403
+
+    response = client.post(url, headers=admin, json=body)
+    assert response.status_code == 201
+    assert response.json()["reviewerId"] == "TEST-REVIEWER"
+    assert service.store.find_assignment(case_id, "TEST-ADMIN") is None
+
+
+def test_hitl_admin_reads_the_requested_reviewer_profile(hitl_reviewer_routes):
+    client, service, admin, player = hitl_reviewer_routes
+    service.set_reviewer_profile("TEST-ADMIN", calibration=0.25)
+    service.set_reviewer_profile("TEST-REVIEWER", calibration=0.75)
+    url = "/api/v1/hitl/reviewers/TEST-REVIEWER"
+
+    assert client.get(url, headers=player).status_code == 403
+
+    response = client.get(url, headers=admin)
+    assert response.status_code == 200
+    assert response.json()["subjectId"] == "TEST-REVIEWER"
+    assert response.json()["calibration"] == 0.75
 
 
 def _eligible_case(root: Path, tmp_path: Path):

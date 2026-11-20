@@ -12,8 +12,9 @@ from typing import Any
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SOURCE = REPOSITORY_ROOT / "src"
-if str(SOURCE) not in sys.path:
-    sys.path.insert(0, str(SOURCE))
+for import_root in (REPOSITORY_ROOT, SOURCE):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
 
 from baloot_platform.analysis.belief_v7 import BeliefPolicy
 from baloot_platform.analysis.hidden_deals import generate_hidden_deals
@@ -30,12 +31,11 @@ from baloot_platform.config import build_bundle, platform_root
 from baloot_platform.core.engine import BalootEngine
 from baloot_platform.core.scenario import ScenarioRequest
 
+from scripts.generate_holdout_candidates import load_replay_recipes
+
 
 DEFAULT_CANDIDATES = Path(
     "private-inputs/strength-candidates.jsonl"
-)
-DEFAULT_TRUSTED = Path(
-    ".release-runtime/strength-holdout/trusted-replay-recipes.json"
 )
 DEFAULT_OUTPUT = Path(
     ".release-runtime/strength-holdout/exact-labels.json"
@@ -260,10 +260,9 @@ def main() -> None:
     args = parser.parse_args()
     root = platform_root()
     candidate_path = args.candidates or root / DEFAULT_CANDIDATES
-    trusted_path = args.trusted or root / DEFAULT_TRUSTED
     output = args.output or root / DEFAULT_OUTPUT
     candidates = load_candidate_jsonl(candidate_path)
-    trusted = json.loads(trusted_path.read_text(encoding="utf-8"))
+    trusted = load_replay_recipes(candidates, root=root, path=args.trusted)
     value = label_exact_positions(
         candidates,
         trusted,

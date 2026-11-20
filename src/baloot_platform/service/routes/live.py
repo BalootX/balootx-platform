@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisco
 from pydantic import BaseModel, Field, model_validator
 
 from baloot_platform.core.enums import Seat
+from baloot_platform.identity.ownership import owns_subject
 from baloot_platform.identity import IdentityService
 from baloot_platform.live import LiveTableService
 from baloot_platform.service.game import GameManager
@@ -234,7 +235,10 @@ def build_live_router(service: LiveTableService, identities: IdentityService, ga
         room = service.store.get(identifier)
         if room is None:
             raise HTTPException(404, "live room not found")
-        if identity.subject_id not in {room.owner_subject_id, room.referee_subject_id}:
+        if not (
+            owns_subject(identity.subject_id, room.owner_subject_id)
+            or owns_subject(identity.subject_id, room.referee_subject_id)
+        ):
             raise HTTPException(403, "only owner or referee may enforce deadlines")
         return service.enforce_deadline(identifier)
 
@@ -244,7 +248,10 @@ def build_live_router(service: LiveTableService, identities: IdentityService, ga
         room = service.store.get(identifier)
         if room is None:
             raise HTTPException(404, "live room not found")
-        if identity.subject_id not in {room.owner_subject_id, room.referee_subject_id}:
+        if not (
+            owns_subject(identity.subject_id, room.owner_subject_id)
+            or owns_subject(identity.subject_id, room.referee_subject_id)
+        ):
             raise HTTPException(403, "only owner or referee may enforce reconnect grace")
         return service.enforce_reconnect_grace(identifier)
 

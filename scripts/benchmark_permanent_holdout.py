@@ -15,8 +15,9 @@ from typing import Any
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SOURCE = REPOSITORY_ROOT / "src"
-if str(SOURCE) not in sys.path:
-    sys.path.insert(0, str(SOURCE))
+for import_root in (REPOSITORY_ROOT, SOURCE):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
 
 from baloot_platform.agents.profiles import (
     AdaptiveBiddingStrategy,
@@ -38,10 +39,11 @@ from baloot_platform.core.bidding_machine import BiddingMachine
 from baloot_platform.core.engine import BalootEngine
 from baloot_platform.core.enums import Seat
 
+from scripts.generate_holdout_candidates import load_replay_recipes
+
 
 DEFAULT_HOLDOUT = Path("release/permanent-holdout.jsonl")
 DEFAULT_CANDIDATES = Path("private-inputs/strength-candidates.jsonl")
-DEFAULT_TRUSTED = Path(".release-runtime/strength-holdout/trusted-replay-recipes.json")
 DEFAULT_EXCLUSIONS = Path("release/strength-holdout-excluded-groups.json")
 DEFAULT_OUTPUT = Path("release/agent-qualification/permanent-holdout-evaluation.json")
 
@@ -170,12 +172,12 @@ def build_predictions(
 
 
 def evaluate(
-    *, root: Path, candidates_path: Path, trusted_path: Path,
+    *, root: Path, candidates_path: Path, trusted_path: Path | None,
     holdout_path: Path, exclusions_path: Path, policy_id: str,
     source_revision: str, source_tree: str,
 ) -> dict[str, Any]:
     candidates = load_candidate_jsonl(candidates_path)
-    trusted = json.loads(trusted_path.read_text(encoding="utf-8"))
+    trusted = load_replay_recipes(candidates, root=root, path=trusted_path)
     holdout = load_adjudicated_holdout_jsonl(holdout_path)
     excluded = json.loads(exclusions_path.read_text(encoding="utf-8"))
     required = {"dealHash", "episodeId", "sourceGroup", "seedGroup"}
@@ -213,7 +215,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--holdout", type=Path, default=DEFAULT_HOLDOUT)
     parser.add_argument("--candidates", type=Path, required=True)
-    parser.add_argument("--trusted", type=Path, default=DEFAULT_TRUSTED)
+    parser.add_argument("--trusted", type=Path)
     parser.add_argument("--excluded-groups", type=Path, default=DEFAULT_EXCLUSIONS)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--policy")
@@ -229,7 +231,7 @@ def main() -> None:
     value = evaluate(
         root=root,
         candidates_path=(root / args.candidates).resolve(),
-        trusted_path=(root / args.trusted).resolve(),
+        trusted_path=(root / args.trusted).resolve() if args.trusted is not None else None,
         holdout_path=(root / args.holdout).resolve(),
         exclusions_path=(root / args.excluded_groups).resolve(),
         policy_id=policy_id,

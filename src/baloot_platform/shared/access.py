@@ -6,6 +6,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 
+from baloot_platform.identity.ownership import owns_subject
 from baloot_platform.core.enums import Seat
 
 
@@ -65,7 +66,7 @@ class SharedDecisionAccessV1:
         return (
             self.run_status == "active"
             and bool(subject_id)
-            and subject_id == self.owner_subject_id
+            and owns_subject(subject_id, self.owner_subject_id)
             and self.actor_relation == "self"
         )
 

@@ -7,6 +7,7 @@ No Baloot rules are duplicated in this adapter.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
 import uuid
@@ -16,6 +17,12 @@ from typing import Any
 from baloot_platform.audit import build_video_audit_map
 from baloot_platform.analysis.search_errors import SearchTimeBudgetExceeded
 from baloot_platform.config import data_root, platform_root
+from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER, owns_subject
+from baloot_platform.service.client_identity import (
+    initialize_service_subject_ownership,
+    service_client_identity,
+    service_subject_ownership,
+)
 from baloot_platform.version import __version__
 
 ROOT = platform_root()
@@ -74,6 +81,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
     from baloot_platform.certification import verify_certification_candidate
     from baloot_platform.storage.game_store import SQLiteGameStore
 
+    initialize_service_subject_ownership()
     runtime = Path(os.environ.get("BALOOT_RUNTIME", data_root() / "runtime")).expanduser().resolve()
     runtime.mkdir(parents=True, exist_ok=True)
     manager = GameManager(ROOT, SQLiteGameStore(runtime / "grpc-games.sqlite3"))
@@ -82,8 +90,10 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         return {str(item.key).lower(): str(item.value) for item in context.invocation_metadata()}
 
     async def _require_api(context) -> None:
-        configured = os.environ.get("BALOOT_API_KEY", "")
-        if configured and _metadata(context).get("x-api-key", "") != configured:
+        configured_key = os.environ.get("BALOOT_API_KEY")
+        if configured_key and not hmac.compare_digest(
+            configured_key.encode("utf-8"), _metadata(context).get("x-api-key", "").encode("utf-8"),
+        ):
             await context.abort(grpc.StatusCode.UNAUTHENTICATED, "authentication required")
 
     async def _identity(context):
@@ -94,12 +104,11 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         if identity is not None:
             return identity
         await _require_api(context)
-        from baloot_platform.identity import Identity
-        subject_id = metadata.get("x-baloot-subject-id", "").strip()
-        if not subject_id:
-            import hashlib
-            subject_id = "SVC-" + hashlib.sha256(metadata.get("x-api-key", "").encode()).hexdigest()[:20].upper()
-        return Identity(subject_id, "service", metadata.get("x-baloot-subject-name", "gRPC Client")[:40], None, True, None)
+        # gRPC gives each RPC a separate Context, inherited by the handler.
+        SERVICE_SUBJECT_OWNER.set(service_subject_ownership(
+            metadata, configured_key=os.environ.get("BALOOT_API_KEY"), keyless=True,
+        ))
+        return service_client_identity(metadata, "gRPC Client")
 
     async def _require_private_decision(context, decision_id: str) -> dict[str, Any]:
         decision = LEARNING_STORE.get_decision(decision_id)
@@ -711,14 +720,14 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         async def GetBoard(self, request, context):
             identity = await _identity(context)
             item = SAKKA.store.get_board(request.value)
-            if item is None or (item[0].visibility == "private" and item[0].created_by != identity.subject_id):
+            if item is None or (item[0].visibility == "private" and not owns_subject(identity.subject_id, item[0].created_by)):
                 await context.abort(grpc.StatusCode.NOT_FOUND, "Sakka board not found")
-            return await self._result(item[0].to_dict(include_hashes=item[0].created_by == identity.subject_id))
+            return await self._result(item[0].to_dict(include_hashes=owns_subject(identity.subject_id, item[0].created_by)))
 
         async def VerifyBoard(self, request, context):
             identity = await _identity(context)
             item = SAKKA.store.get_board(request.value)
-            if item is None or (item[0].visibility == "private" and item[0].created_by != identity.subject_id):
+            if item is None or (item[0].visibility == "private" and not owns_subject(identity.subject_id, item[0].created_by)):
                 await context.abort(grpc.StatusCode.NOT_FOUND, "Sakka board not found")
             return await self._result(SAKKA.verify_board(request.value))
 
@@ -887,7 +896,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             if loaded is None:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "shared run not found")
             run, payload = loaded
-            if run.subject_id != identity.subject_id:
+            if not owns_subject(identity.subject_id, run.subject_id):
                 await context.abort(grpc.StatusCode.PERMISSION_DENIED, "run belongs to another player")
             board_item = SAKKA.store.get_board(run.board_id)
             room = SAKKA.store.get_room(run.room_id)
@@ -936,15 +945,15 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         async def GetBoard(self, request, context):
             identity = await _identity(context)
             item = SAKKA.store.get_board(request.value)
-            if item is None or (item[0].visibility == "private" and item[0].created_by != identity.subject_id):
+            if item is None or (item[0].visibility == "private" and not owns_subject(identity.subject_id, item[0].created_by)):
                 await context.abort(grpc.StatusCode.NOT_FOUND, "shared board not found")
             board = item[0]
-            return await self._result(self._scope_payload(board, board.to_dict(include_hashes=board.created_by == identity.subject_id)))
+            return await self._result(self._scope_payload(board, board.to_dict(include_hashes=owns_subject(identity.subject_id, board.created_by))))
 
         async def VerifyBoard(self, request, context):
             identity = await _identity(context)
             item = SAKKA.store.get_board(request.value)
-            if item is None or (item[0].visibility == "private" and item[0].created_by != identity.subject_id):
+            if item is None or (item[0].visibility == "private" and not owns_subject(identity.subject_id, item[0].created_by)):
                 await context.abort(grpc.StatusCode.NOT_FOUND, "shared board not found")
             return await self._result(SAKKA.verify_board(request.value))
 

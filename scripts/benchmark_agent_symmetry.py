@@ -12,14 +12,17 @@ import sys
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SOURCE = REPOSITORY_ROOT / "src"
-if str(SOURCE) not in sys.path:
-    sys.path.insert(0, str(SOURCE))
+for import_root in (REPOSITORY_ROOT, SOURCE):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
 
 from baloot_platform.agents.profiles import AgentProfileRegistry
 from baloot_platform.agents.symmetry_qualification import evaluate_agent_symmetry
 from baloot_platform.benchmark import load_candidate_jsonl, validate_trusted_sidecar
 from baloot_platform.config import build_bundle, platform_root
 from baloot_platform.core.engine import BalootEngine
+
+from scripts.generate_holdout_candidates import load_replay_recipes
 
 
 def _git_identity(root: Path) -> tuple[str, str]:
@@ -43,7 +46,7 @@ def _git_identity(root: Path) -> tuple[str, str]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--candidates", type=Path, required=True)
-    parser.add_argument("--trusted", type=Path, default=Path(".release-runtime/strength-holdout/trusted-replay-recipes.json"))
+    parser.add_argument("--trusted", type=Path)
     parser.add_argument("--exact-labels", type=Path, default=Path("release/exact-labels.json"))
     parser.add_argument("--output", type=Path, default=Path("release/agent-qualification/symmetry.json"))
     args = parser.parse_args()
@@ -53,7 +56,8 @@ def main() -> None:
     policy = bundle.component("benchmark")["paired_comparison"]
     symmetry = bundle.component("benchmark")["symmetry"]
     candidates = load_candidate_jsonl((root / args.candidates).resolve())
-    trusted = json.loads((root / args.trusted).resolve().read_text(encoding="utf-8"))
+    trusted_path = (root / args.trusted).resolve() if args.trusted is not None else None
+    trusted = load_replay_recipes(candidates, root=root, path=trusted_path)
     validate_trusted_sidecar(candidates, trusted)
     exact = json.loads((root / args.exact_labels).resolve().read_text(encoding="utf-8"))
     profile = AgentProfileRegistry.from_bundle(root).get(str(policy["candidate_profile_id"]))

@@ -28,12 +28,12 @@ from baloot_platform.config import platform_root
 from baloot_platform.agents.qualification import workspace_source_paths
 
 from scripts.benchmark_strength import run_preanalysis
+from scripts.generate_holdout_candidates import DEFAULT_TRUSTED, SYNTHETIC_PURPOSE, load_replay_recipes
 
 
 DEFAULT_OUTPUT = Path(".local-state/evidence/finalist-preanalysis.json")
 DEFAULT_MANIFEST = Path(".local-state/evidence/finalist-source-manifest.json")
 DEFAULT_CANDIDATES = Path("private-inputs/strength-candidates.jsonl")
-DEFAULT_TRUSTED = Path(".release-runtime/strength-holdout/trusted-replay-recipes.json")
 DEFAULT_EXACT = Path("release/exact-labels.json")
 _SOURCE_SUFFIXES = frozenset({".py", ".yaml", ".yml", ".json"})
 
@@ -143,21 +143,25 @@ def main() -> None:
     args = parser.parse_args()
     root = platform_root()
     candidate_path = (args.candidates or root / DEFAULT_CANDIDATES).resolve()
-    trusted_path = (args.trusted or root / DEFAULT_TRUSTED).resolve()
+    candidates = load_candidate_jsonl(candidate_path)
+    trusted_path = args.trusted.resolve() if args.trusted is not None else None
+    if trusted_path is None and candidates.get("purpose") != SYNTHETIC_PURPOSE:
+        trusted_path = root / DEFAULT_TRUSTED
+    trusted_input = trusted_path or root / "scripts/generate_holdout_candidates.py"
     exact_path = (args.exact_labels or root / DEFAULT_EXACT).resolve()
     output = (args.output or root / DEFAULT_OUTPUT).resolve()
     manifest_path = (args.manifest or root / DEFAULT_MANIFEST).resolve()
     manifest = build_workspace_manifest(
         root,
-        extra_paths=(candidate_path, trusted_path, exact_path),
+        extra_paths=(candidate_path, trusted_input, exact_path),
     )
     comparison_policies = tuple(args.comparison_policy or ("foundry_balanced",))
     policy_ids = tuple(
         dict.fromkeys(("finalist_candidate", *comparison_policies, str(args.baseline)))
     )
     result = run_preanalysis(
-        load_candidate_jsonl(candidate_path),
-        json.loads(trusted_path.read_text(encoding="utf-8")),
+        candidates,
+        load_replay_recipes(candidates, root=root, path=trusted_path),
         json.loads(exact_path.read_text(encoding="utf-8")),
         root=root,
         policy_ids=policy_ids,

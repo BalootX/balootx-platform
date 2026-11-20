@@ -5,6 +5,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from .ownership import ownership_ids
+
 
 class SQLiteIdentityStore:
     """Durable development identity store.
@@ -172,8 +174,8 @@ class SQLiteIdentityStore:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 """SELECT * FROM identity_friend_requests_v8
-                   WHERE request_id=? AND recipient_id=? AND status='pending'""",
-                (request_id, recipient_id),
+                   WHERE request_id=? AND recipient_id IN (?,?) AND status='pending'""",
+                (request_id, *ownership_ids(recipient_id)),
             ).fetchone()
             if row is None:
                 raise KeyError(request_id)
@@ -193,13 +195,14 @@ class SQLiteIdentityStore:
     def list_friends(self, subject_id: str) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
-                """SELECT u.subject_id,u.kind,u.username,u.display_name,u.created_at
+                """SELECT DISTINCT u.subject_id,u.kind,u.username,u.display_name,u.created_at
                    FROM identity_friendships_v8 f
                    JOIN identity_subjects_v8 u
-                     ON u.subject_id = CASE WHEN f.subject_low=? THEN f.subject_high ELSE f.subject_low END
-                   WHERE f.subject_low=? OR f.subject_high=?
+                     ON u.subject_id = CASE WHEN f.subject_low IN (?,?) THEN f.subject_high ELSE f.subject_low END
+                   WHERE (f.subject_low IN (?,?) OR f.subject_high IN (?,?))
+                     AND u.subject_id NOT IN (?,?)
                    ORDER BY u.display_name""",
-                (subject_id, subject_id, subject_id),
+                ownership_ids(subject_id) * 4,
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -209,9 +212,9 @@ class SQLiteIdentityStore:
                 """SELECT r.*,u.display_name AS sender_display_name,u.username AS sender_username
                    FROM identity_friend_requests_v8 r
                    JOIN identity_subjects_v8 u ON u.subject_id=r.sender_id
-                   WHERE r.recipient_id=? AND r.status='pending'
+                   WHERE r.recipient_id IN (?,?) AND r.status='pending'
                    ORDER BY r.created_at DESC""",
-                (subject_id,),
+                ownership_ids(subject_id),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -333,8 +336,9 @@ class PostgresIdentityStore:
     def respond_friend_request(self, *, request_id: str, recipient_id: str, accept: bool, responded_at: str) -> None:
         with self.pool.connection() as conn, conn.transaction():
             row=conn.execute(
-                "SELECT sender_id,recipient_id FROM identity.friend_requests WHERE request_id=%s AND recipient_id=%s AND status='pending' FOR UPDATE",
-                (request_id,recipient_id),
+                """SELECT sender_id,recipient_id FROM identity.friend_requests
+                   WHERE request_id=%s AND recipient_id IN (%s,%s) AND status='pending' FOR UPDATE""",
+                (request_id, *ownership_ids(recipient_id)),
             ).fetchone()
             if not row:raise KeyError(request_id)
             status='accepted' if accept else 'declined'
@@ -346,11 +350,13 @@ class PostgresIdentityStore:
     def list_friends(self, subject_id: str) -> list[dict[str, Any]]:
         with self.pool.connection() as conn:
             rows=conn.execute(
-                """SELECT u.subject_id,u.kind,u.username,u.display_name,u.created_at
+                """SELECT DISTINCT u.subject_id,u.kind,u.username,u.display_name,u.created_at
                    FROM identity.friendships f JOIN identity.subjects u
-                     ON u.subject_id=CASE WHEN f.subject_low=%s THEN f.subject_high ELSE f.subject_low END
-                   WHERE f.subject_low=%s OR f.subject_high=%s ORDER BY u.display_name""",
-                (subject_id,subject_id,subject_id),
+                     ON u.subject_id=CASE WHEN f.subject_low IN (%s,%s) THEN f.subject_high ELSE f.subject_low END
+                   WHERE (f.subject_low IN (%s,%s) OR f.subject_high IN (%s,%s))
+                     AND u.subject_id NOT IN (%s,%s)
+                   ORDER BY u.display_name""",
+                ownership_ids(subject_id) * 4,
             ).fetchall()
         return [{"subject_id":r[0],"kind":r[1],"username":r[2],"display_name":r[3],"created_at":r[4].isoformat()} for r in rows]
 
@@ -360,7 +366,7 @@ class PostgresIdentityStore:
                 """SELECT r.request_id,r.sender_id,r.recipient_id,r.status,r.created_at,
                           u.display_name,u.username FROM identity.friend_requests r
                    JOIN identity.subjects u ON u.subject_id=r.sender_id
-                   WHERE r.recipient_id=%s AND r.status='pending' ORDER BY r.created_at DESC""",
-                (subject_id,),
+                   WHERE r.recipient_id IN (%s,%s) AND r.status='pending' ORDER BY r.created_at DESC""",
+                ownership_ids(subject_id),
             ).fetchall()
         return [{"request_id":r[0],"sender_id":r[1],"recipient_id":r[2],"status":r[3],"created_at":r[4].isoformat(),"sender_display_name":r[5],"sender_username":r[6]} for r in rows]

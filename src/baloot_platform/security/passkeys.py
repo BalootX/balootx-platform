@@ -6,6 +6,8 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
+from baloot_platform.identity.ownership import owns_subject
+
 
 @dataclass(frozen=True, slots=True)
 class PasskeyCredential:
@@ -75,7 +77,7 @@ class PasskeyChallengeService:
             item = self._challenges.pop(digest, None)
         if item is None:
             raise ValueError("unknown, expired or reused passkey challenge")
-        if int(item["expires_at"]) <= current or item["subject_id"] != subject_id or item["purpose"] != purpose:
+        if int(item["expires_at"]) <= current or not owns_subject(subject_id, item["subject_id"]) or item["purpose"] != purpose:
             raise ValueError("passkey challenge binding mismatch")
         return item
 
@@ -122,7 +124,7 @@ class PasskeyChallengeService:
                                   credential_id: str, sign_count: int) -> PasskeyCredential:
         self.consume(challenge, subject_id=subject_id, purpose="authenticate")
         item = self._get(credential_id)
-        if item is None or item.subject_id != subject_id:
+        if item is None or not owns_subject(subject_id, item.subject_id):
             raise ValueError("unknown passkey credential")
         if item.sign_count and int(sign_count) <= item.sign_count:
             raise ValueError("passkey sign counter did not advance")
@@ -137,7 +139,7 @@ class PasskeyChallengeService:
         if self.adapter is None:
             raise RuntimeError("no WebAuthn adapter is configured")
         item = self._get(credential_id)
-        if item is None or item.subject_id != subject_id:
+        if item is None or not owns_subject(subject_id, item.subject_id):
             raise ValueError("unknown passkey credential")
         self.consume(challenge, subject_id=subject_id, purpose="authenticate")
         verified = self.adapter.verify_authentication(
@@ -155,7 +157,7 @@ class PasskeyChallengeService:
             values = self.backend.list_credentials(subject_id)
             items = [PasskeyCredential(**value) for value in values]
         else:
-            items = [item for item in self._credentials.values() if item.subject_id == subject_id]
+            items = [item for item in self._credentials.values() if owns_subject(subject_id, item.subject_id)]
         return [{"credentialId": item.credential_id, "subjectId": item.subject_id,
                  "signCount": item.sign_count, "transports": list(item.transports),
                  "createdAt": item.created_at, "lastUsedAt": item.last_used_at,

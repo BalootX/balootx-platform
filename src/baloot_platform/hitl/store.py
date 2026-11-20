@@ -6,6 +6,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from baloot_platform.identity.ownership import ownership_ids
+
 from .models import (
     AdjudicationRecord, BlindAssignment, ChallengerEvaluation, ConsensusSnapshot,
     ConsentRecord, GovernedReviewCase, ImprovementEvaluation, ImprovementProposal,
@@ -312,8 +314,10 @@ class SQLiteReviewGovernanceStore:
     def find_assignment(self, case_id: str, reviewer_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT payload_json FROM hitl_assignments WHERE case_id=? AND reviewer_id=?",
-                (case_id, reviewer_id),
+                """SELECT payload_json FROM hitl_assignments
+                   WHERE case_id=? AND reviewer_id IN (?,?)
+                   ORDER BY reviewer_id=? DESC LIMIT 1""",
+                (case_id, *ownership_ids(reviewer_id), reviewer_id),
             ).fetchone()
         return None if row is None else _loads(row[0], {})
 
@@ -425,8 +429,9 @@ class SQLiteReviewGovernanceStore:
     def get_profile(self, subject_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT payload_json FROM hitl_reviewer_profiles WHERE subject_id=?",
-                (subject_id,),
+                """SELECT payload_json FROM hitl_reviewer_profiles WHERE subject_id IN (?,?)
+                   ORDER BY subject_id=? DESC LIMIT 1""",
+                (*ownership_ids(subject_id), subject_id),
             ).fetchone()
         return None if row is None else _loads(row[0], {})
 
@@ -442,7 +447,9 @@ class SQLiteReviewGovernanceStore:
     def get_consent(self, subject_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT payload_json FROM hitl_consent WHERE subject_id=?", (subject_id,)
+                """SELECT payload_json FROM hitl_consent WHERE subject_id IN (?,?)
+                   ORDER BY subject_id=? DESC LIMIT 1""",
+                (*ownership_ids(subject_id), subject_id),
             ).fetchone()
         return None if row is None else _loads(row[0], {})
 
@@ -894,9 +901,9 @@ class PostgresReviewGovernanceStore:
     def find_assignment(self, case_id: str, reviewer_id: str) -> dict[str, Any] | None:
         values = self._list_payloads(
             "hitl.blind_assignments",
-            where="case_id=%s AND reviewer_id=%s",
-            params=(case_id, reviewer_id),
-            order="created_at DESC",
+            where="case_id=%s AND reviewer_id IN (%s,%s)",
+            params=(case_id, *ownership_ids(reviewer_id), reviewer_id),
+            order="(reviewer_id=%s) DESC, created_at DESC",
             limit=1,
         )
         return values[0] if values else None
@@ -969,7 +976,11 @@ class PostgresReviewGovernanceStore:
         )
 
     def get_profile(self, subject_id: str) -> dict[str, Any] | None:
-        return self._get_payload("hitl.reviewer_profiles", "subject_id", subject_id)
+        current, legacy = ownership_ids(subject_id)
+        stored = self._get_payload("hitl.reviewer_profiles", "subject_id", current)
+        if stored is None and legacy != current:
+            return self._get_payload("hitl.reviewer_profiles", "subject_id", legacy)
+        return stored
 
     def put_consent(self, consent: ConsentRecord) -> dict[str, Any]:
         return self._put_payload(
@@ -978,7 +989,11 @@ class PostgresReviewGovernanceStore:
         )
 
     def get_consent(self, subject_id: str) -> dict[str, Any] | None:
-        return self._get_payload("hitl.consent", "subject_id", subject_id)
+        current, legacy = ownership_ids(subject_id)
+        stored = self._get_payload("hitl.consent", "subject_id", current)
+        if stored is None and legacy != current:
+            return self._get_payload("hitl.consent", "subject_id", legacy)
+        return stored
 
     def put_flag(self, flag: ModerationFlag) -> dict[str, Any]:
         payload = flag.to_dict()

@@ -17,6 +17,7 @@ from .challenge_publication import (
     validate_manual_status_transition,
     validate_reviewer_role,
 )
+from baloot_platform.identity.ownership import ownership_ids
 from baloot_platform.history.provenance_v4 import game_serial
 from baloot_platform.storage.codec_v7 import decode as decode_payload, encode as encode_payload
 
@@ -1240,6 +1241,12 @@ class LearningStore:
                 raise KeyError(challenge_id)
             if str(row[0]) != "review":
                 raise ValueError("challenge reviews are accepted only while status is review")
+            _, legacy = ownership_ids(reviewer_id)
+            if legacy != reviewer_id and conn.execute(
+                "SELECT 1 FROM challenge_publication_reviews_v21 "
+                "WHERE challenge_id=? AND reviewer_id=?", (challenge_id, legacy),
+            ).fetchone():
+                raise ValueError("reviewer has already submitted an immutable review")
             try:
                 conn.execute("""INSERT INTO challenge_publication_reviews_v21
                     (review_id,challenge_id,reviewer_id,reviewer_role,decision,evidence_sha256,comment,created_at)

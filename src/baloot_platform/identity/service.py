@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .models import Identity, utc_now
+from .ownership import owns_subject
 from .store import SQLiteIdentityStore
 
 _USERNAME = re.compile(r"^[A-Za-z0-9_\-.]{3,32}$")
@@ -168,7 +169,7 @@ class IdentityService:
         return [self._identity(row).to_dict() for row in self.store.search_subjects(query, limit=limit)]
 
     def request_friend(self, sender_id: str, recipient_id: str) -> dict[str, Any]:
-        if sender_id == recipient_id:
+        if owns_subject(sender_id, recipient_id):
             raise ValueError("cannot add yourself")
         if self.store.get_subject(recipient_id) is None:
             raise KeyError(recipient_id)

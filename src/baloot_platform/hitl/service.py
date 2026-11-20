@@ -13,6 +13,8 @@ from baloot_platform.audit.models import action_key
 from baloot_platform.review.models import FeedbackReason
 from baloot_platform.version import __version__
 
+from baloot_platform.identity.ownership import owns_subject
+
 from .models import (
     AdjudicationRecord,
     BlindAssignment,
@@ -303,7 +305,7 @@ class ReviewGovernanceServiceV18:
         if (
             assignment is None
             or assignment.get("caseId") != case_id
-            or assignment.get("reviewerId") != reviewer_id
+            or not owns_subject(reviewer_id, assignment.get("reviewerId"))
         ):
             raise ValueError("invalid blind assignment")
         if assignment.get("status") != "active":
@@ -429,8 +431,9 @@ class ReviewGovernanceServiceV18:
         existing = self.store.get_consent(subject_id) or {}
         revoke = bool(values.get("revoke", False))
         revoked_at = utc_now() if revoke else values.get("revoked_at")
+        stored_subject = existing.get("subjectId", subject_id)
         consent = ConsentRecord(
-            subject_id=subject_id,
+            subject_id=stored_subject,
             version=str(values.get("version", existing.get("version", "1"))),
             allow_training=False if revoke else bool(values.get("allow_training", existing.get("allowTraining", False))),
             allow_research=False if revoke else bool(values.get("allow_research", existing.get("allowResearch", False))),
@@ -445,9 +448,9 @@ class ReviewGovernanceServiceV18:
         if revoke:
             value["withdrawalImpact"] = self._invalidate_consent_lineage(subject_id)
         self.store.append_event(
-            "consent", subject_id, "consent_revoked" if revoke else "consent_updated",
+            "consent", stored_subject, "consent_revoked" if revoke else "consent_updated",
             {
-                "subjectId": subject_id,
+                "subjectId": stored_subject,
                 "version": value.get("version"),
                 "revokedAt": value.get("revokedAt"),
                 "withdrawalImpact": value.get("withdrawalImpact"),
@@ -460,7 +463,7 @@ class ReviewGovernanceServiceV18:
         candidate_ids: list[str] = []
         case_ids: set[str] = set()
         for candidate in self.store.list_candidates():
-            if subject_id not in set(candidate.get("consentSubjects") or ()):
+            if not any(owns_subject(subject_id, value) for value in candidate.get("consentSubjects") or ()):
                 continue
             candidate_id = str(candidate["candidateId"])
             case_id = str(candidate["caseId"])
@@ -489,7 +492,7 @@ class ReviewGovernanceServiceV18:
                 metadata = dict(manifest.get("metadata") or {})
                 lineage = list(metadata.get("governedHitlLineage") or [])
                 if any(
-                    subject_id in set(item.get("consentSubjects") or ())
+                    any(owns_subject(subject_id, value) for value in item.get("consentSubjects") or ())
                     or str(item.get("candidateId")) in candidate_ids
                     for item in lineage
                 ):
@@ -591,9 +594,7 @@ class ReviewGovernanceServiceV18:
             by_action[action_key(submission["preferredAction"])].append(
                 (submission, weight, profile)
             )
-            assignment = self.store.find_assignment(
-                case_id, submission["reviewerId"]
-            ) or {}
+            assignment = self.store.get_assignment(submission["assignmentId"]) or {}
             clusters.add(
                 (
                     assignment.get("deviceClusterHash")

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import os
-import hashlib
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from baloot_platform.identity import Identity, IdentityService
+from baloot_platform.service.client_identity import service_client_identity
 
 COOKIE_NAME = "baloot_session"
 
@@ -68,11 +68,7 @@ def require_identity(request: Request, service: IdentityService) -> tuple[Identi
     if identity is not None and session is not None:
         return identity, session
     if bool(getattr(request.state, "api_key_valid", False)):
-        supplied = request.headers.get("x-api-key", "")
-        explicit = request.headers.get("x-baloot-subject-id", "").strip()
-        subject_id = explicit or f"SVC-{hashlib.sha256(supplied.encode()).hexdigest()[:20].upper()}"
-        display = request.headers.get("x-baloot-subject-name", "API Client")[:40]
-        return Identity(subject_id, "service", display, None, True, None), {"csrf_token": ""}
+        return service_client_identity(request.headers, "API Client"), {"csrf_token": ""}
     raise HTTPException(401, "ابدأ كضيف أو سجّل الدخول")
 
 

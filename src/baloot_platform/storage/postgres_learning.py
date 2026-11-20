@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
+from baloot_platform.identity.ownership import ownership_ids
 from baloot_platform.learning.challenge_publication import (
     validate_evidence_sha256,
     validate_governed_transition,
@@ -458,6 +459,12 @@ class PostgresLearningStore:
             row=conn.execute("SELECT status FROM learning_challenges WHERE challenge_id=%s FOR UPDATE",(challenge_id,)).fetchone()
             if row is None: raise KeyError(challenge_id)
             if str(row[0])!="review": raise ValueError("challenge reviews are accepted only while status is review")
+            _, legacy = ownership_ids(reviewer_id)
+            if legacy != reviewer_id and conn.execute(
+                "SELECT 1 FROM learning_challenge_publication_reviews_v21 "
+                "WHERE challenge_id=%s AND reviewer_id=%s", (challenge_id, legacy),
+            ).fetchone():
+                raise ValueError("reviewer has already submitted an immutable review")
             try:
                 conn.execute("""INSERT INTO learning_challenge_publication_reviews_v21
                     (review_id,challenge_id,reviewer_id,reviewer_role,decision,evidence_sha256,comment,created_at)
