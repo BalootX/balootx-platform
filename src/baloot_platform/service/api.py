@@ -107,6 +107,11 @@ from baloot_platform.service.routes import (
     build_foundry_admin_v2_router,
 )
 from baloot_platform.service.container import PlatformContainer, build_container
+from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER
+from baloot_platform.service.client_identity import (
+    initialize_service_subject_ownership,
+    service_subject_ownership,
+)
 from baloot_platform.service.routes.auth import request_token, require_identity
 from baloot_platform.shared import (
     SharedDecisionAccessError,
@@ -322,6 +327,7 @@ _METRICS: dict[tuple[str, str, int], int] = defaultdict(int)
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
+    initialize_service_subject_ownership()
     # In-process recovery is deliberately local-only. Distributed deployments
     # use separately supervised, leased workers so multiple API replicas cannot
     # execute the same persisted job concurrently.
@@ -772,10 +778,15 @@ async def platform_security(request: Request, call_next):
             ),
         )
     )
+    ownership_token = SERVICE_SUBJECT_OWNER.set(
+        service_subject_ownership(request.headers, configured_key=api_key)
+        if api_key_valid and not session_valid else None
+    )
     started = time.monotonic()
     try:
         response = await call_next(request)
     finally:
+        SERVICE_SUBJECT_OWNER.reset(ownership_token)
         CURRENT_DATABASE_IDENTITY.reset(context_token)
     elapsed = time.monotonic() - started
     with _METRIC_LOCK:

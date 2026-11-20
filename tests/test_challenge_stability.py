@@ -293,7 +293,8 @@ def test_rest_publication_uses_authenticated_identity_not_request_reviewer(
     )
     client = TestClient(api.app)
     base = {"x-api-key": "v21-publication-key"}
-    first = {**base, "x-baloot-subject-id": "REVIEWER-A"}
+    # This is the original default SHA-256 subject for the fixture key.
+    first = {**base, "x-baloot-subject-id": "SVC-22AE3A94AFA700B03C94"}
     second = {**base, "x-baloot-subject-id": "REVIEWER-B"}
     governor = {**base, "x-baloot-subject-id": "GOVERNOR-A"}
     assert client.post(
@@ -308,6 +309,13 @@ def test_rest_publication_uses_authenticated_identity_not_request_reviewer(
         )
         assert response.status_code == 201
         assert response.json()["reviewerId"] == headers["x-baloot-subject-id"]
+    duplicate = client.post(
+        "/api/v1/challenges/CHL-V21-API/publication-reviews",
+        headers=base,
+        json={"decision": "approve", "evidenceSha256": "e" * 64, "comment": "duplicate review"},
+    )
+    assert duplicate.status_code == 409
+    assert "already submitted" in duplicate.json()["detail"]
     assert client.post(
         "/api/v1/challenges/CHL-V21-API:approve", headers=governor,
         json={"evidenceSha256": "c" * 64},

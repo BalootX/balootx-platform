@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from baloot_platform.core.enums import Seat
 from baloot_platform.explain import ExplanationService
+from baloot_platform.identity.ownership import owns_subject
 from baloot_platform.identity import IdentityService
 from baloot_platform.review import DecisionReviewService
 from baloot_platform.sakka import SakkaService
@@ -111,7 +112,7 @@ def _owned_run(service: SakkaService, run_id: str, subject_id: str):
     if loaded is None:
         raise HTTPException(404, "shared run not found")
     run, payload = loaded
-    if run.subject_id != subject_id:
+    if not owns_subject(subject_id, run.subject_id):
         raise HTTPException(403, "run belongs to another player")
     board_item = service.store.get_board(run.board_id)
     room = service.store.get_room(run.room_id)
@@ -187,9 +188,9 @@ def build_shared_router(
         if item is None:
             raise HTTPException(404, "shared board not found")
         board = item[0]
-        if board.visibility == "private" and board.created_by != identity.subject_id:
+        if board.visibility == "private" and not owns_subject(identity.subject_id, board.created_by):
             raise HTTPException(404, "shared board not found")
-        return _board_payload(service, board, owner=board.created_by == identity.subject_id)
+        return _board_payload(service, board, owner=owns_subject(identity.subject_id, board.created_by))
 
     @router.get("/boards/{identifier}/verification")
     def verify_board(identifier: str, request: Request):
@@ -198,7 +199,7 @@ def build_shared_router(
         if item is None:
             raise HTTPException(404, "shared board not found")
         board = item[0]
-        if board.visibility == "private" and board.created_by != identity.subject_id:
+        if board.visibility == "private" and not owns_subject(identity.subject_id, board.created_by):
             raise HTTPException(404, "shared board not found")
         return service.verify_board(identifier)
 
@@ -209,7 +210,7 @@ def build_shared_router(
         if item is None:
             raise HTTPException(404, "shared board not found")
         board = item[0]
-        if board.visibility == "private" and board.created_by != identity.subject_id:
+        if board.visibility == "private" and not owns_subject(identity.subject_id, board.created_by):
             raise HTTPException(403, "only the board owner may create a room")
         try:
             room = service.open_room(

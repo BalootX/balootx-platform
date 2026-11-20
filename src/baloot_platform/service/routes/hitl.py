@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from baloot_platform.hitl import ReviewGovernanceServiceV18
 from baloot_platform.identity import IdentityService
+from baloot_platform.identity.ownership import owns_subject
 from baloot_platform.security import AuthorizationPolicy, Scope
 from baloot_platform.video.hitl_review_v18 import HitlReviewClipRendererV18
 
@@ -187,10 +188,10 @@ def build_hitl_router(service: ReviewGovernanceServiceV18, identities: IdentityS
     def assign(case_id: str, body: AssignmentRequest, request: Request):
         identity, _ = require_identity(request, identities)
         reviewer = body.reviewerId or identity.subject_id
-        if reviewer != identity.subject_id:
+        if not owns_subject(identity.subject_id, reviewer):
             _privileged(request, policy, Scope.MODEL_ADMIN)
         try:
-            return service.assign(case_id, reviewer_id=reviewer, device_id=body.deviceId,
+            return service.assign(case_id, reviewer_id=identity.subject_id, device_id=body.deviceId,
                                   network_id=body.networkId, ttl_hours=body.ttlHours)
         except KeyError as exc:
             raise HTTPException(404, "review case not found") from exc
@@ -299,9 +300,9 @@ def build_hitl_router(service: ReviewGovernanceServiceV18, identities: IdentityS
     @router.get("/reviewers/{subject_id}")
     def reviewer(subject_id: str, request: Request):
         identity, _ = require_identity(request, identities)
-        if subject_id != identity.subject_id:
+        if not owns_subject(identity.subject_id, subject_id):
             _privileged(request, policy, Scope.MODEL_ADMIN)
-        return service.get_reviewer_profile(subject_id)
+        return service.get_reviewer_profile(identity.subject_id)
 
     @router.put("/reviewers/{subject_id}")
     def set_reviewer(subject_id: str, body: ReviewerProfileRequest, request: Request):

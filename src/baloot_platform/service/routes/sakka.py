@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisco
 from pydantic import BaseModel, Field, model_validator
 
 from baloot_platform.core.enums import Seat
+from baloot_platform.identity.ownership import owns_subject
 from baloot_platform.identity import IdentityService
 from baloot_platform.sakka import SakkaService
 from .auth import require_identity
@@ -121,9 +122,9 @@ def build_sakka_router(service: SakkaService, identities: IdentityService) -> AP
         if item is None:
             raise HTTPException(404, "Sakka board not found")
         board = item[0]
-        if board.visibility == "private" and board.created_by != identity.subject_id:
+        if board.visibility == "private" and not owns_subject(identity.subject_id, board.created_by):
             raise HTTPException(404, "Sakka board not found")
-        return board.to_dict(include_hashes=board.created_by == identity.subject_id)
+        return board.to_dict(include_hashes=owns_subject(identity.subject_id, board.created_by))
 
     @router.get("/boards/{identifier}/verification")
     def verify_board(identifier: str, request: Request):
@@ -132,7 +133,7 @@ def build_sakka_router(service: SakkaService, identities: IdentityService) -> AP
         if item is None:
             raise HTTPException(404, "Sakka board not found")
         board = item[0]
-        if board.visibility == "private" and board.created_by != identity.subject_id:
+        if board.visibility == "private" and not owns_subject(identity.subject_id, board.created_by):
             raise HTTPException(404, "Sakka board not found")
         return service.verify_board(identifier)
 
@@ -143,7 +144,7 @@ def build_sakka_router(service: SakkaService, identities: IdentityService) -> AP
         if item is None:
             raise HTTPException(404, "Sakka board not found")
         board = item[0]
-        if board.visibility == "private" and board.created_by != identity.subject_id:
+        if board.visibility == "private" and not owns_subject(identity.subject_id, board.created_by):
             raise HTTPException(403, "only the board owner may create a room")
         try:
             room = service.open_room(

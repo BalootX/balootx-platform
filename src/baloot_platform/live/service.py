@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, TYPE_CHECKING
 
 from baloot_platform.core.cards import Card, iter_mask
+from baloot_platform.identity.ownership import owns_subject
 from baloot_platform.core.enums import Seat, Suit
 from baloot_platform.service.game import GameManager
 
@@ -78,10 +79,10 @@ class LiveTableService:
             parsed = Seat.parse(seat)
             key = parsed.name.lower()
             current = room.seats.get(key)
-            if current and current.subject_id != subject_id:
+            if current and not owns_subject(subject_id, current.subject_id):
                 raise ValueError("seat is already occupied")
             for other_key, assignment in list(room.seats.items()):
-                if assignment.subject_id == subject_id and other_key != key:
+                if owns_subject(subject_id, assignment.subject_id) and other_key != key:
                     del room.seats[other_key]
             token = secrets.token_urlsafe(32)
             room.seats[key] = SeatAssignment(
@@ -105,7 +106,7 @@ class LiveTableService:
 
     def assign_referee(self, identifier: str, *, owner_subject_id: str, referee_subject_id: str) -> LiveRoom:
         room = self._require(identifier)
-        if room.owner_subject_id != owner_subject_id:
+        if not owns_subject(owner_subject_id, room.owner_subject_id):
             raise PermissionError("only the room owner may assign the referee")
         room.referee_subject_id = referee_subject_id
         room.append_event("REFEREE_ASSIGNED", subject_id=owner_subject_id, payload={"refereeSubjectId": referee_subject_id})
@@ -115,7 +116,7 @@ class LiveTableService:
     def start(self, identifier: str, *, requested_by: str) -> LiveRoom:
         with self._lock:
             room = self._require(identifier)
-            if requested_by != room.owner_subject_id and requested_by != room.referee_subject_id:
+            if not (owns_subject(requested_by, room.owner_subject_id) or owns_subject(requested_by, room.referee_subject_id)):
                 raise PermissionError("only owner or referee may start")
             if room.status != LiveStatus.WAITING:
                 raise ValueError("room is not waiting")
@@ -196,7 +197,7 @@ class LiveTableService:
 
     def pause(self, identifier: str, *, requested_by: str, reason: str) -> LiveRoom:
         room = self._require(identifier)
-        if requested_by not in {room.owner_subject_id, room.referee_subject_id}:
+        if not (owns_subject(requested_by, room.owner_subject_id) or owns_subject(requested_by, room.referee_subject_id)):
             raise PermissionError("only owner or referee may pause")
         if room.status != LiveStatus.ACTIVE:
             raise ValueError("only an active table may be paused")
@@ -206,7 +207,7 @@ class LiveTableService:
 
     def resume(self, identifier: str, *, requested_by: str) -> LiveRoom:
         room = self._require(identifier)
-        if requested_by not in {room.owner_subject_id, room.referee_subject_id}:
+        if not (owns_subject(requested_by, room.owner_subject_id) or owns_subject(requested_by, room.referee_subject_id)):
             raise PermissionError("only owner or referee may resume")
         if room.status != LiveStatus.PAUSED:
             raise ValueError("table is not paused")
@@ -275,7 +276,7 @@ class LiveTableService:
         game = self.games.get(room.game_id)
         assignment = None
         if subject_id:
-            assignment = next((item for item in room.seats.values() if item.subject_id == subject_id), None)
+            assignment = next((item for item in room.seats.values() if owns_subject(subject_id, item.subject_id)), None)
         state = game.to_dict(reveal_hands=False)
         own_hand: list[str] = []
         if assignment is not None:
@@ -321,7 +322,7 @@ class LiveTableService:
 
     @staticmethod
     def _assignment(room: LiveRoom, subject_id: str) -> SeatAssignment:
-        assignment = next((item for item in room.seats.values() if item.subject_id == subject_id), None)
+        assignment = next((item for item in room.seats.values() if owns_subject(subject_id, item.subject_id)), None)
         if assignment is None:
             raise PermissionError("subject does not own a seat")
         return assignment

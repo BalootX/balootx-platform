@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from baloot_platform.identity.ownership import ownership_ids
 from baloot_platform.storage.request_context import contextual_connection
 
 
@@ -77,7 +78,7 @@ class SQLiteSecurityStateStore:
     def consume_challenge(self, challenge_hash: str, subject_id: str, purpose: str, now: int) -> dict[str,Any] | None:
         with self._lock,self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row=conn.execute("SELECT * FROM security_passkey_challenges_v20 WHERE challenge_hash=? AND subject_id=? AND purpose=? AND consumed_at IS NULL",(challenge_hash,subject_id,purpose)).fetchone()
+            row=conn.execute("SELECT * FROM security_passkey_challenges_v20 WHERE challenge_hash=? AND subject_id IN (?,?) AND purpose=? AND consumed_at IS NULL",(challenge_hash,*ownership_ids(subject_id),purpose)).fetchone()
             if row is None or int(row["expires_at"])<=int(now): conn.execute("ROLLBACK"); return None
             conn.execute("UPDATE security_passkey_challenges_v20 SET consumed_at=? WHERE challenge_hash=? AND consumed_at IS NULL",(int(now),challenge_hash)); conn.commit()
         return json.loads(row["payload_json"])
@@ -94,7 +95,7 @@ class SQLiteSecurityStateStore:
         d=dict(row); d["transports"]=tuple(json.loads(d.pop("transports_json"))); return d
 
     def list_credentials(self, subject_id: str) -> list[dict[str,Any]]:
-        with self._connect() as conn: rows=conn.execute("SELECT * FROM security_passkey_credentials_v20 WHERE subject_id=? ORDER BY created_at",(subject_id,)).fetchall()
+        with self._connect() as conn: rows=conn.execute("SELECT * FROM security_passkey_credentials_v20 WHERE subject_id IN (?,?) ORDER BY created_at",ownership_ids(subject_id)).fetchall()
         result=[]
         for row in rows:
             d=dict(row); d["transports"]=tuple(json.loads(d.pop("transports_json"))); result.append(d)
@@ -134,7 +135,7 @@ class PostgresSecurityStateStore:
     def save_challenge(self,challenge_hash,subject_id,purpose,payload,expires_at):
         with contextual_connection(self.pool) as conn: conn.execute("INSERT INTO security.passkey_challenges(challenge_hash,subject_id,purpose,payload_json,expires_at) VALUES(%s,%s,%s,%s::jsonb,to_timestamp(%s)) ON CONFLICT(challenge_hash) DO UPDATE SET payload_json=excluded.payload_json,expires_at=excluded.expires_at,consumed_at=NULL",(challenge_hash,subject_id,purpose,json.dumps(payload,ensure_ascii=False),expires_at))
     def consume_challenge(self,challenge_hash,subject_id,purpose,now):
-        with contextual_connection(self.pool) as conn: row=conn.execute("UPDATE security.passkey_challenges SET consumed_at=to_timestamp(%s) WHERE challenge_hash=%s AND subject_id=%s AND purpose=%s AND consumed_at IS NULL AND expires_at>to_timestamp(%s) RETURNING payload_json",(now,challenge_hash,subject_id,purpose,now)).fetchone()
+        with contextual_connection(self.pool) as conn: row=conn.execute("UPDATE security.passkey_challenges SET consumed_at=to_timestamp(%s) WHERE challenge_hash=%s AND subject_id IN (%s,%s) AND purpose=%s AND consumed_at IS NULL AND expires_at>to_timestamp(%s) RETURNING payload_json",(now,challenge_hash,*ownership_ids(subject_id),purpose,now)).fetchone()
         return dict(row[0]) if row else None
     def put_credential(self,item):
         with contextual_connection(self.pool) as conn: conn.execute("INSERT INTO security.passkey_credentials(credential_id,subject_id,public_key_cose,sign_count,transports_json,created_at,last_used_at,label) VALUES(%s,%s,%s,%s,%s::jsonb,to_timestamp(%s),CASE WHEN %s IS NULL THEN NULL ELSE to_timestamp(%s) END,%s) ON CONFLICT(credential_id) DO UPDATE SET sign_count=excluded.sign_count,last_used_at=excluded.last_used_at,label=excluded.label",(item["credential_id"],item["subject_id"],item["public_key_cose"],item["sign_count"],json.dumps(list(item.get("transports",()))),item["created_at"],item.get("last_used_at"),item.get("last_used_at"),item.get("label","Passkey")))
@@ -142,7 +143,7 @@ class PostgresSecurityStateStore:
         with contextual_connection(self.pool) as conn: row=conn.execute("SELECT credential_id,subject_id,public_key_cose,sign_count,transports_json,extract(epoch from created_at)::bigint,extract(epoch from last_used_at)::bigint,label FROM security.passkey_credentials WHERE credential_id=%s",(credential_id,)).fetchone()
         return {"credential_id":row[0],"subject_id":row[1],"public_key_cose":bytes(row[2]),"sign_count":int(row[3]),"transports":tuple(row[4]),"created_at":int(row[5]),"last_used_at":int(row[6]) if row[6] is not None else None,"label":row[7]} if row else None
     def list_credentials(self,subject_id):
-        with contextual_connection(self.pool) as conn: rows=conn.execute("SELECT credential_id,subject_id,public_key_cose,sign_count,transports_json,extract(epoch from created_at)::bigint,extract(epoch from last_used_at)::bigint,label FROM security.passkey_credentials WHERE subject_id=%s ORDER BY created_at",(subject_id,)).fetchall()
+        with contextual_connection(self.pool) as conn: rows=conn.execute("SELECT credential_id,subject_id,public_key_cose,sign_count,transports_json,extract(epoch from created_at)::bigint,extract(epoch from last_used_at)::bigint,label FROM security.passkey_credentials WHERE subject_id IN (%s,%s) ORDER BY created_at",ownership_ids(subject_id)).fetchall()
         return [{"credential_id":r[0],"subject_id":r[1],"public_key_cose":bytes(r[2]),"sign_count":int(r[3]),"transports":tuple(r[4]),"created_at":int(r[5]),"last_used_at":int(r[6]) if r[6] is not None else None,"label":r[7]} for r in rows]
     def get_external_identity(self,provider_id,issuer,external_subject):
         with contextual_connection(self.pool) as conn: row=conn.execute("SELECT local_subject_id,claims_json,linked_at FROM security.external_identities WHERE provider_id=%s AND issuer=%s AND external_subject=%s",(provider_id,issuer,external_subject)).fetchone()

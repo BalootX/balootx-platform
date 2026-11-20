@@ -144,65 +144,203 @@ def test_guest_can_upgrade_in_place_without_losing_identity():
         assert current['identity']['subjectId'] == subject_id
 
 
-def test_api_key_service_identity_matches_between_http_and_grpc(tmp_path, monkeypatch):
+_SERVICE_KEY = "synthetic-service-key"
+# The SHA-256 subject IDs used by the pre-upgrade server for these fixtures.
+_LEGACY_SERVICE = "SVC-FC90545E2119AD22B93F"
+_LEGACY_KEYLESS_ONE = "SVC-F04BE659D2BE04575D83"
+_BOARDS = "/api/v1/sakka/boards"
+_ROOMS = "/api/v1/sakka/rooms"
+_RUNS = "/api/v1/sakka/runs"
+
+
+@pytest.fixture
+def legacy_service_records(monkeypatch):
+    monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
+    monkeypatch.delenv("BALOOT_API_SUBJECT_ID", raising=False)
+    with TestClient(app) as client:
+        headers = {"x-api-key": _SERVICE_KEY, "x-baloot-subject-id": _LEGACY_SERVICE}
+        board = client.post(_BOARDS, json={"visibility": "private", "seed": 6029}, headers=headers)
+        assert board.status_code == 201, board.text
+        board = board.json()
+        assert board["createdBy"] == _LEGACY_SERVICE
+        room = client.post(_ROOMS, json={"boardIdentifier": board["boardId"]}, headers=headers)
+        assert room.status_code == 201, room.text
+        code = room.json()["room"]["roomCode"]
+        run = client.post(f"{_ROOMS}/{code}/runs", headers=headers)
+        assert run.status_code == 201, run.text
+        assert run.json()["run"]["subjectId"] == _LEGACY_SERVICE
+        return board, code, run.json()["run"]
+
+
+def _grpc_probe(tmp_path, monkeypatch, probe):
     grpc = pytest.importorskip("grpc")
-    from baloot_platform.generated import sakka_pb2, sakka_pb2_grpc
+    from baloot_platform.generated import sakka_pb2_grpc
     from baloot_platform.service.grpc_service import serve
 
-    api_key = "synthetic-service-key"
-    legacy_subject = "SVC-0123456789ABCDEF0123"
-    monkeypatch.setenv("BALOOT_API_KEY", api_key)
-    monkeypatch.delenv("BALOOT_API_SUBJECT_ID", raising=False)
     monkeypatch.setenv("BALOOT_RUNTIME", str(tmp_path))
     monkeypatch.delenv("BALOOT_GRPC_TLS_CERT", raising=False)
     monkeypatch.delenv("BALOOT_GRPC_TLS_KEY", raising=False)
-    headers = {"x-api-key": api_key}
-    boards = "/api/v1/sakka/boards"
-    with TestClient(app) as client:
-        legacy = client.post(
-            boards, json={"visibility": "private", "seed": 6029},
-            headers={**headers, "x-baloot-subject-id": legacy_subject},
-        )
-        assert legacy.status_code == 201, legacy.text
-        legacy_id = legacy.json()["boardId"]
-        monkeypatch.setenv("BALOOT_API_SUBJECT_ID", legacy_subject)
-        assert client.get(f"{boards}/{legacy_id}", headers=headers).status_code == 200
-        monkeypatch.delenv("BALOOT_API_SUBJECT_ID")
+    make_server = grpc.aio.server
 
-        created = client.post(boards, json={"visibility": "private", "seed": 6030}, headers=headers)
-        assert created.status_code == 201, created.text
-        board_id = created.json()["boardId"]
-        assert client.get(f"{boards}/{legacy_id}", headers=headers).status_code == 404
-        assert client.get(f"{boards}/{board_id}", headers={"x-api-key": "wrong"}).status_code == 401
+    async def run():
+        server = None
 
-    async def verify_grpc():
-        server = grpc.aio.server()
-        port = server.add_insecure_port("127.0.0.1:0")
+        def create_server(**options):
+            nonlocal server
+            server = make_server(**options)
+            port = server.add_insecure_port("127.0.0.1:0")
 
-        async def probe_after_start():
-            async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
-                stub = sakka_pb2_grpc.SakkaPlatformStub(channel)
-                identity = sakka_pb2.Identifier(value=board_id)
-                result = await stub.GetBoard(identity, metadata=tuple(headers.items()), timeout=5)
-                assert json.loads(result.canonical_json)["boardId"] == board_id
+            async def after_start():
+                async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
+                    await probe(grpc, sakka_pb2_grpc.SakkaPlatformStub(channel))
 
-                monkeypatch.setenv("BALOOT_API_SUBJECT_ID", legacy_subject)
-                result = await stub.GetBoard(
-                    sakka_pb2.Identifier(value=legacy_id),
-                    metadata=tuple(headers.items()),
-                    timeout=5,
-                )
-                assert json.loads(result.canonical_json)["boardId"] == legacy_id
-                with pytest.raises(grpc.aio.AioRpcError) as rejected:
-                    await stub.GetBoard(identity, metadata=(("x-api-key", "wrong"),), timeout=5)
-                assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED
+            monkeypatch.setattr(server, "add_insecure_port", lambda _address: port)
+            monkeypatch.setattr(server, "wait_for_termination", after_start)
+            return server
 
-        monkeypatch.setattr(server, "add_insecure_port", lambda _address: port)
-        monkeypatch.setattr(server, "wait_for_termination", probe_after_start)
-        monkeypatch.setattr(grpc.aio, "server", lambda **_options: server)
+        monkeypatch.setattr(grpc.aio, "server", create_server)
         try:
             await serve()
         finally:
-            await server.stop(0)
+            if server is not None:
+                await server.stop(0)
 
-    asyncio.run(verify_grpc())
+    asyncio.run(run())
+
+
+def test_api_key_reads_real_legacy_board_and_run_over_http_and_grpc(
+    legacy_service_records, tmp_path, monkeypatch,
+):
+    from baloot_platform.generated import sakka_pb2
+
+    legacy_board, _, legacy_run = legacy_service_records
+    board_id, run_id = legacy_board["boardId"], legacy_run["runId"]
+    headers = {"x-api-key": _SERVICE_KEY}
+
+    with TestClient(app) as client:
+        assert client.get(f"{_BOARDS}/{board_id}", headers=headers).status_code == 200
+        run = client.get(f"{_RUNS}/{run_id}", headers=headers)
+        assert run.status_code == 200, run.text
+        assert run.json()["run"]["runId"] == run_id
+        verified = client.get(f"{_BOARDS}/{board_id}/verification", headers=headers)
+        assert verified.status_code == 200 and verified.json()["signatureValid"]
+        created = client.post(_BOARDS, json={"visibility": "private", "seed": 6030}, headers=headers)
+        assert created.status_code == 201, created.text
+        assert created.json()["createdBy"] == "SVC-A748F51287ECF77FE4FA"
+
+    async def probe(grpc, stub):
+        for method, value, key in ((stub.GetBoard, board_id, "boardId"), (stub.GetRun, run_id, "runId")):
+            wire = await method(sakka_pb2.Identifier(value=value), metadata=tuple(headers.items()), timeout=5)
+            output = json.loads(wire.canonical_json)
+            assert output.get("run", output)[key] == value
+        with pytest.raises(grpc.aio.AioRpcError) as rejected:
+            await stub.GetBoard(
+                sakka_pb2.Identifier(value=board_id), metadata=(("x-api-key", "wrong"),), timeout=5,
+            )
+        assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED
+
+    _grpc_probe(tmp_path, monkeypatch, probe)
+
+
+def test_service_ownership_startup_is_idempotent(legacy_service_records):
+    from baloot_platform.service.api import SAKKA
+
+    board, code, run = legacy_service_records
+    board_id, run_id = board["boardId"], run["runId"]
+    room = SAKKA.store.get_room(code)
+    before = SAKKA.store.members(room.room_id)
+    for _ in range(2):
+        with TestClient(app) as client:
+            headers = {"x-api-key": _SERVICE_KEY}
+            listed = client.get(_BOARDS, headers=headers)
+            assert listed.status_code == 200
+            assert any(item["boardId"] == board_id for item in listed.json()["items"])
+            reopened = client.post(f"{_ROOMS}/{code}/runs", headers=headers)
+            assert reopened.status_code == 201, reopened.text
+            assert reopened.json()["run"]["runId"] == run_id
+    assert SAKKA.store.members(room.room_id) == before
+    assert SAKKA.store.get_board(board_id)[0].created_by == _LEGACY_SERVICE
+    assert SAKKA.store.get_run(run_id)[0].subject_id == _LEGACY_SERVICE
+
+
+def test_service_ownership_leaves_other_subjects_and_explicit_callers_separate(legacy_service_records):
+    from baloot_platform.service.api import SAKKA
+
+    legacy_board, _, _ = legacy_service_records
+    legacy_id = legacy_board["boardId"]
+    default = {"x-api-key": _SERVICE_KEY}
+    explicit = {**default, "x-baloot-subject-id": "SVC-ANOTHER-OWNER"}
+    with TestClient(app) as client:
+        created = client.post(_BOARDS, json={"visibility": "private", "seed": 6031}, headers=explicit)
+        assert created.status_code == 201, created.text
+        other_id = created.json()["boardId"]
+        before = SAKKA.store.get_board(other_id)
+        assert client.get(f"{_BOARDS}/{legacy_id}", headers=default).status_code == 200
+        assert client.get(f"{_BOARDS}/{other_id}", headers=default).status_code == 404
+        assert client.get(f"{_BOARDS}/{legacy_id}", headers=explicit).status_code == 404
+        assert client.get(f"{_BOARDS}/{other_id}", headers=explicit).status_code == 200
+        assert SAKKA.store.get_board(other_id) == before
+
+
+def test_keyless_grpc_keeps_caller_ownership_separate(tmp_path, monkeypatch):
+    from baloot_platform.generated import sakka_pb2
+    from baloot_platform.service.api import SAKKA
+    from baloot_platform.core.enums import Seat
+
+    monkeypatch.delenv("BALOOT_API_KEY", raising=False)
+    old_board = SAKKA.create_board_from_new_game(
+        created_by=_LEGACY_KEYLESS_ONE, seed=6040, dealer=Seat.EAST, visibility="private",
+    )
+
+    async def probe(grpc, stub):
+        one = (("x-api-key", "keyless-one"),)
+        two = (("x-api-key", "keyless-two"),)
+        identifier = sakka_pb2.Identifier(value=old_board.board_id)
+        legacy = await stub.GetBoard(identifier, metadata=one, timeout=5)
+        assert json.loads(legacy.canonical_json)["boardId"] == old_board.board_id
+        with pytest.raises(grpc.aio.AioRpcError) as rejected:
+            await stub.GetBoard(identifier, metadata=two, timeout=5)
+        assert rejected.value.code() == grpc.StatusCode.NOT_FOUND
+
+        payload = sakka_pb2.JsonPayload(canonical_json=b'{"visibility":"private","seed":6041}')
+        created = await stub.CreateBoard(payload, metadata=one, timeout=5)
+        board = json.loads(created.canonical_json)
+        identifier = sakka_pb2.Identifier(value=board["boardId"])
+        assert board["createdBy"].startswith("SVC-KL-")
+        assert (await stub.GetBoard(identifier, metadata=one, timeout=5)).canonical_json
+        with pytest.raises(grpc.aio.AioRpcError) as rejected:
+            await stub.GetBoard(identifier, metadata=two, timeout=5)
+        assert rejected.value.code() == grpc.StatusCode.NOT_FOUND
+
+    _grpc_probe(tmp_path, monkeypatch, probe)
+
+
+def test_service_ownership_keeps_legacy_live_seat_and_event_chain(monkeypatch):
+    from baloot_platform.service.api import LIVE
+
+    monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
+    monkeypatch.delenv("BALOOT_API_SUBJECT_ID", raising=False)
+    default = {"x-api-key": _SERVICE_KEY}
+    legacy = {**default, "x-baloot-subject-id": _LEGACY_SERVICE}
+    rooms = "/api/v1/live/rooms"
+    with TestClient(app) as client:
+        response = client.post(rooms, json={"seed": 6050}, headers=legacy)
+        assert response.status_code == 201, response.text
+        room_id = response.json()["room"]["roomId"]
+        url = f"{rooms}/{room_id}"
+        claimed = client.post(
+            f"{url}/seats", json={"seat": "south", "displayName": "Legacy fixture"}, headers=legacy,
+        )
+        assert claimed.status_code == 201, claimed.text
+        before = LIVE.verify(room_id)
+        assert before["valid"]
+
+        listed = client.get(rooms, headers=default)
+        assert any(room["roomId"] == room_id for room in listed.json()["items"])
+        legacy_projection = client.get(url, headers=legacy).json()
+        assert legacy_projection["viewerSeat"] == "south"
+        assert client.get(url, headers=default).json() == legacy_projection
+        assert LIVE.verify(room_id) == before
+        ready = client.post(f"{url}/ready", json={"ready": True}, headers=default)
+        assert ready.status_code == 200, ready.text
+        assert LIVE.verify(room_id)["valid"]

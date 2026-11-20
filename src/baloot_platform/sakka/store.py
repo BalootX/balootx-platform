@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from baloot_platform.core.enums import Seat
+from baloot_platform.identity.ownership import ownership_ids
 from .models import SakkaBoard, SakkaRoom, SakkaRun
 
 
@@ -261,9 +262,9 @@ class SQLiteSakkaStore:
             if subject_id:
                 rows = conn.execute(
                     """SELECT * FROM sakka_boards_v8
-                       WHERE created_by=? OR visibility='public'
+                       WHERE created_by IN (?,?) OR visibility='public'
                        ORDER BY created_at DESC LIMIT ?""",
-                    (subject_id, max(1, min(500, int(limit)))),
+                    (*ownership_ids(subject_id), max(1, min(500, int(limit)))),
                 ).fetchall()
             else:
                 rows = conn.execute(
@@ -298,10 +299,13 @@ class SQLiteSakkaStore:
             if room is None:
                 raise KeyError(room_id)
             existing = conn.execute(
-                "SELECT 1 FROM sakka_members_v8 WHERE room_id=? AND subject_id=?", (room_id, subject_id)
+                "SELECT 1 FROM sakka_members_v8 WHERE room_id=? AND subject_id IN (?,?)",
+                (room_id, *ownership_ids(subject_id)),
             ).fetchone()
             count = int(conn.execute("SELECT COUNT(*) FROM sakka_members_v8 WHERE room_id=?", (room_id,)).fetchone()[0])
-            if existing is None and count >= int(room["max_players"]):
+            if existing is not None:
+                return
+            if count >= int(room["max_players"]):
                 raise ValueError("room is full")
             conn.execute(
                 "INSERT OR IGNORE INTO sakka_members_v8(room_id,subject_id,display_name) VALUES(?,?,?)",
@@ -369,7 +373,9 @@ class SQLiteSakkaStore:
     def get_run_for_subject(self, room_id: str, subject_id: str) -> tuple[SakkaRun, bytes] | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM sakka_runs_v8 WHERE room_id=? AND subject_id=?", (room_id, subject_id)
+                """SELECT * FROM sakka_runs_v8 WHERE room_id=? AND subject_id IN (?,?)
+                   ORDER BY subject_id=? DESC LIMIT 1""",
+                (room_id, *ownership_ids(subject_id), subject_id),
             ).fetchone()
         return None if row is None else (self._run(row), bytes(row["session_payload"]))
 
@@ -611,9 +617,9 @@ class PostgresSakkaStore:
                               trusted_payload_hash,created_by,visibility,status,label,created_at,
                               signature_algorithm,signature_key_id,board_signature,environment_hash,deal_schedule_hash,
                           agent_snapshot_hash,shared_profile_hash,terminology_version
-                       FROM duplicate.boards WHERE created_by=%s OR visibility='public'
+                       FROM duplicate.boards WHERE created_by IN (%s,%s) OR visibility='public'
                        ORDER BY created_at DESC LIMIT %s""",
-                    (subject_id, max(1, min(500, int(limit)))),
+                    (*ownership_ids(subject_id), max(1, min(500, int(limit)))),
                 ).fetchall()
             else:
                 rows = conn.execute(
@@ -656,9 +662,14 @@ class PostgresSakkaStore:
             room=conn.execute("SELECT max_players FROM duplicate.rooms WHERE room_id=%s",(room_id,)).fetchone()
             if not room:
                 raise KeyError(room_id)
-            exists=conn.execute("SELECT 1 FROM duplicate.members WHERE room_id=%s AND subject_id=%s",(room_id,subject_id)).fetchone()
+            exists=conn.execute(
+                "SELECT 1 FROM duplicate.members WHERE room_id=%s AND subject_id IN (%s,%s)",
+                (room_id, *ownership_ids(subject_id)),
+            ).fetchone()
+            if exists:
+                return
             count=int(conn.execute("SELECT COUNT(*) FROM duplicate.members WHERE room_id=%s",(room_id,)).fetchone()[0])
-            if not exists and count>=int(room[0]):
+            if count>=int(room[0]):
                 raise ValueError("room is full")
             conn.execute(
                 """INSERT INTO duplicate.members(room_id,subject_id,display_name)
@@ -734,7 +745,9 @@ class PostgresSakkaStore:
                 """SELECT run_id,room_id,board_id,subject_id,comparison_key,status,version,rounds_completed,
                           session_payload,state_hash,result_json,analysis_status,started_at,completed_at,
                           game_id
-                   FROM duplicate.runs WHERE room_id=%s AND subject_id=%s""",(room_id,subject_id),
+                   FROM duplicate.runs WHERE room_id=%s AND subject_id IN (%s,%s)
+                   ORDER BY (subject_id=%s) DESC LIMIT 1""",
+                (room_id, *ownership_ids(subject_id), subject_id),
             ).fetchone()
         return None if not row else (self._run(row),bytes(row[8]))
 

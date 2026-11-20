@@ -11,12 +11,23 @@ from typing import Any
 from baloot_platform.storage.request_context import contextual_connection
 
 from baloot_platform.core.enums import Seat
+from baloot_platform.identity.ownership import ownership_ids
 
 from .models import LiveEvent, LiveRoom, LiveStatus, SeatAssignment, utc_now
 
 
 class LiveVersionConflict(RuntimeError):
     pass
+
+
+
+def _visible_to(room: dict[str, Any], subject_id: str) -> bool:
+    subjects = ownership_ids(subject_id)
+    return (
+        room.get("ownerSubjectId") in subjects
+        or any(seat.get("subjectId") in subjects for seat in room.get("seats", {}).values())
+        or any(subject in room.get("spectators", {}) for subject in subjects)
+    )
 
 
 class SQLiteLiveStore:
@@ -226,7 +237,7 @@ class SQLiteLiveStore:
         for row in rows:
             value=json.loads(row["payload_json"]); value["version"]=int(row["version"]); value["roomHash"]=row["room_hash"]; values.append(value)
         if subject_id:
-            values=[v for v in values if v.get("ownerSubjectId")==subject_id or any(i.get("subjectId")==subject_id for i in v.get("seats",{}).values()) or subject_id in v.get("spectators",{})]
+            values=[v for v in values if _visible_to(v, subject_id)]
         return values
 
     def claim_outbox(self, *, limit: int = 100) -> list[dict[str, Any]]:
@@ -294,7 +305,7 @@ class PostgresLiveStore:
         values=[]
         for row in rows:
             value=dict(row[0]); value["version"]=int(row[1]); value["roomHash"]=row[2]; values.append(value)
-        if subject_id: values=[v for v in values if v.get("ownerSubjectId")==subject_id or any(i.get("subjectId")==subject_id for i in v.get("seats",{}).values()) or subject_id in v.get("spectators",{})]
+        if subject_id: values=[v for v in values if _visible_to(v, subject_id)]
         return values
 
     def claim_outbox(self, *, limit: int=100) -> list[dict[str,Any]]:
