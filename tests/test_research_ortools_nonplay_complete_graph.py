@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import copy
+from math import nextafter
 import time
 
 import pytest
@@ -644,6 +645,41 @@ def test_native_quality_proof_binds_the_recorded_escalation_transition(rules, se
         assert event["visibility"] == "public"
         assert len(result["nextPublicPrefix"]["escalationActions"]) == 1
     assert result["sha256"] == canonical_sha256({key: value for key, value in result.items() if key != "sha256"})
+
+
+@pytest.mark.controlled_clock
+@pytest.mark.parametrize("proof_wall_seconds", [None, 7.0], ids=["replay", "narrower-proof"])
+def test_escalation_quality_caps_rounded_runtime_allowance(rules, root, monkeypatch, proof_wall_seconds):
+    import yaml
+    import baloot_platform.research.ortools_research_executor as executor
+
+    raw = _request("bounded").to_dict()
+    raw.pop("sha256")
+    raw.update(visibility="actor_information_set", strategyClass="pure_deterministic", targetTeam="west_east")
+    profiles = None
+    maximum_seconds = 15.0
+    boundary = nextafter(1024.0, 0.0)
+    limit = proof_wall_seconds if proof_wall_seconds is not None else maximum_seconds
+    assert (boundary + limit) - boundary > limit
+    initially = boundary
+    if proof_wall_seconds is not None:
+        authored = yaml.safe_load((root / "configs/challenge/progressive_mining_ortools_v3.yaml").read_text(encoding="utf-8"))
+        profiles = {"test": {**authored["scenarioResearchV4"]["proofBudgets"]["profiles"]["late_game_exact_v1"],
+            "maximumHiddenWorlds": 2, "maximumWallSeconds": proof_wall_seconds}}
+        initially = 1020.0  # Spend time before replay so only the narrower proof deadline rounds up.
+    set_monotonic(monkeypatch, executor, initially, boundary)
+
+    result = executor.resolve_quality_escalation_opportunity_v1(rules, _escalation_prefix(),
+        {"kind": "escalation", "selector": {"actingSeat": "west"}}, ScenarioProofRequestV1.build(raw),
+        maximum_nodes=1000, maximum_depth=8, maximum_worlds=2, maximum_seconds=maximum_seconds,
+        proof_budget_profiles=profiles, prior_private_events=({"actor": "east", "actionCode": "decline"},),
+        opportunity_order=("east", "west", "south", "north"))
+
+    assert result["status"] == "recorded"
+    assert result["privateHistoryReplay"]["limits"]["maximumSeconds"] == maximum_seconds
+    assert result["privateHistoryReplay"]["completedEvents"] == 1
+    assert result["proof"]["completionStatus"] == "bounded_complete"
+    assert result["transition"]["limits"]["maximumSeconds"] == limit
 
 
 def test_escalation_opportunity_rejects_foreign_or_corrupted_normalizer(rules):

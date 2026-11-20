@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 import inspect
 import itertools
 import json
+from math import nextafter
 import multiprocessing
 import multiprocessing.connection
 import os
@@ -4088,8 +4089,12 @@ def test_native_actor_kabout_uses_owned_public_winner_sums(root, rules, tactic, 
             bindings(candidate_for(changed_proof, state), changed_proof, changed_graph)
 
 
-def test_actor_kabout_failure_is_not_a_uniform_opponent_prevention_certificate(root, rules):
+@pytest.mark.controlled_clock
+def test_actor_kabout_failure_is_not_a_uniform_opponent_prevention_certificate(root, rules, monkeypatch):
     """A different hidden-world witness defeats each proposed stopping policy."""
+    import baloot_platform.research.ortools_information_set_compiler as compiler_module
+    import baloot_platform.research.ortools_information_set_proof as proof_module
+
     raw = _actor_request(threshold=1, claim="winning_root_action_count").to_dict()
     raw.pop("sha256")
     request = ScenarioProofRequestV1.build({**raw, "utility": "kabout", "targetTeam": "west_east"})
@@ -4117,16 +4122,22 @@ def test_actor_kabout_failure_is_not_a_uniform_opponent_prevention_certificate(r
     compilation = OrToolsActorInformationSetCompilerV1(rules, native_cp_sat=True)._bind_observer_scope(
         ActorInformationSetCompilationV1(graph, node_count=10), exact, request, states)
     graph = compilation.graph
-    proof = prove_actor_information_set_v1(compilation, request,
-        maximum_nodes=100, maximum_worlds=2, maximum_seconds=2, native_action_quality=True, native_opponent_stop=True)
+    boundary = nextafter(1024.0, 0.0)
+    assert (boundary + 2.0) - boundary > 2.0
+    with monkeypatch.context() as patch:
+        set_monotonic(patch, compiler_module, boundary)
+        set_monotonic(patch, proof_module, boundary)
+        proof = prove_actor_information_set_v1(compilation, request,
+            maximum_nodes=100, maximum_worlds=2, maximum_seconds=2, native_action_quality=True, native_opponent_stop=True)
     assert proof.completion_status == "exact_complete"
     assert {row.action_code: row.value for row in proof.root_actions} == {"H7": -1, "D7": -1, "S7": 1}
     assert proof.selected_action == "H7"
     assert all(any(world[action] == 1 for world in utilities) for action in range(2))
     from baloot_platform.research.scenario_predicate_capabilities_v3 import NATIVE_V3_ACTOR_ROOT_TACTIC_IDS
     assert "kabout_prevention" in NATIVE_V3_ACTOR_ROOT_TACTIC_IDS
-    assert {row["rootAction"]: row["robustValue"]
-        for row in proof.model_document()["opponentStopCertificate"]["roots"]} == {"H7": -1, "D7": 1, "S7": -1}
+    companion = proof.model_document()["opponentStopCertificate"]
+    assert companion["completionStatus"] == "exact_complete", companion.get("exhaustionReason")
+    assert {row["rootAction"]: row["robustValue"] for row in companion["roots"]} == {"H7": -1, "D7": 1, "S7": -1}
     from baloot_platform.research.ortools_research_executor import (
         OrToolsNeutralCandidateV1, OrToolsResearchCompilerV1, OrToolsResearchStageReceiptV1,
         _proof_stage_bindings_v1,

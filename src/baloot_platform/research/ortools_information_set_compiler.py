@@ -10446,7 +10446,7 @@ def prove_actor_information_set_v1(
             try:
                 dual = prover._opponent_stop_problem(compilation.graph.problem,
                     maximum_nodes=maximum_nodes, deadline=deadline, cancel_check=cancel_check)
-                remaining = deadline - time.monotonic()
+                remaining = min(maximum_seconds, deadline - time.monotonic())
                 if remaining <= 0:
                     raise _FiniteProofBudgetExceeded("cancelled_or_wall_time")
                 stop = prover.prove(dual, budget=budget, claim="winning_root_action_count",
