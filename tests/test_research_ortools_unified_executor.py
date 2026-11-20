@@ -99,7 +99,11 @@ def test_observed_history_allowance_cannot_round_above_its_parent(rules, monkeyp
         )
 
 
-def test_native_depth_query_allowance_cannot_round_above_its_parent(rules, monkeypatch):
+@pytest.mark.parametrize("allowance,error,match", [
+    pytest.param(0.1, _AllowanceReached, None, id="capped-query"),
+    pytest.param(math.nextafter(0.1, math.inf), ValueError, "runtime allowance exceeds the declared cap", id="over-cap"),
+])
+def test_native_depth_query_allowance_cannot_round_above_its_parent(rules, monkeypatch, allowance, error, match):
     from baloot_platform.research import ortools_information_set_compiler as information
 
     monkeypatch.setattr(information, "time", SimpleNamespace(monotonic=lambda: 1e9))
@@ -110,12 +114,12 @@ def test_native_depth_query_allowance_cannot_round_above_its_parent(rules, monke
     )
     compiler = SimpleNamespace(rules=rules, _native_post_auction_root_model=lambda *args, **kwargs: model)
     exact = SimpleNamespace(next_actor="south", decision_kind="play", legal_actions=[{"code": "7S"}])
-    with pytest.raises(_AllowanceReached):
+    with pytest.raises(error, match=match):
         information.OrToolsActorInformationSetCompilerV1._solve_native_post_auction_policy_bounds(
             compiler, exact, None, Team.NORTH_SOUTH, selected_root_action="7S",
             opportunity_order=(), escalation_events=(), maximum_iterations=1, maximum_queries=1,
             maximum_observations=1, maximum_model_bytes=100, maximum_conflicts=1, maximum_depth=1,
-            maximum_seconds=0.1,
+            maximum_seconds=0.1, runtime_maximum_seconds=allowance,
         )
 
 

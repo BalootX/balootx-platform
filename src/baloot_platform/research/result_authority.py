@@ -2020,7 +2020,7 @@ def reverify_native_bid_incumbent_floor_v1(value, *, rules, source_prefix, norma
     def remaining():
         if cancel_check is not None and cancel_check():
             raise InformationSetCompilationStopped("cancelled", stage="native_bid_incumbent_verification")
-        available = min(deadline - time.monotonic(), cpu_deadline - time.process_time())
+        available = min(maximum_seconds, deadline - time.monotonic(), cpu_deadline - time.process_time())
         if available <= 0:
             raise InformationSetCompilationStopped("maximum_seconds", stage="native_bid_incumbent_verification")
         return available
@@ -2035,7 +2035,8 @@ def reverify_native_bid_incumbent_floor_v1(value, *, rules, source_prefix, norma
         maximum_iterations=strategy_limits["masterIterations"], maximum_queries=limits["queries"],
         maximum_observations=strategy_limits["observations"], maximum_branches=limits["branches"],
         maximum_model_bytes=limits["modelBytes"], maximum_conflicts=limits["conflictsPerSolve"],
-        maximum_depth=limits["maximumDepth"], maximum_seconds=seconds, cancel_check=stopped,
+        maximum_depth=limits["maximumDepth"], maximum_seconds=seconds,
+        runtime_maximum_seconds=min(seconds, remaining()), cancel_check=stopped,
         opportunity_order=opportunity_order, incumbent_native_play_policy_id=native_play_policy_id,
         **({"incumbent_nonplay_policy": nonplay_policy} if nonplay_policy is not None else {}),
         incumbent_only=True, **({"incumbent_threshold": threshold} if threshold is not None else {}))
@@ -3537,7 +3538,7 @@ def compose_native_observed_bid_dominance_v1(*, rules, exact, source_prefix,
     def remaining():
         if cancel_check is not None and cancel_check():
             raise InformationSetCompilationStopped("cancelled", stage="native_observed_bid_dominance")
-        seconds = deadline - time.monotonic()
+        seconds = min(maximum_seconds, deadline - time.monotonic())
         if seconds <= 0:
             raise InformationSetCompilationStopped("maximum_seconds", stage="native_observed_bid_dominance")
         return seconds

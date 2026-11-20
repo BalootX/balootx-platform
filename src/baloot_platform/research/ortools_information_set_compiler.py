@@ -1399,14 +1399,20 @@ class OrToolsActorInformationSetCompilerV1:
     def _search_observed_bid_information_set_upper(self, exact, prefix, *, selected_action, upper_bound,
             maximum_seconds, maximum_queries, maximum_iterations, maximum_observations,
             maximum_branches, maximum_model_bytes, maximum_evidence_bytes, maximum_conflicts,
-            maximum_depth, opportunity_order=None, cancel_check=None, progress_callback=None):
+            maximum_depth, opportunity_order=None, cancel_check=None, progress_callback=None,
+            runtime_maximum_seconds=None):
         """Refute a stronger all-world strategy; never restrict it to a fallback policy."""
         from .result_authority import validate_native_observed_bid_refuted_upper_v1
 
         if (type(upper_bound) is not int or not -(2**31) <= upper_bound < 2**31
-                or type(maximum_evidence_bytes) is not int or maximum_evidence_bytes < 1):
+                or type(maximum_evidence_bytes) is not int or maximum_evidence_bytes < 1
+                or type(maximum_seconds) not in {int, float} or not math.isfinite(maximum_seconds)
+                or maximum_seconds <= 0):
             raise ValueError("information-set upper search requires typed bound and evidence budget")
-        deadline = time.monotonic() + maximum_seconds
+        runtime_seconds = maximum_seconds if runtime_maximum_seconds is None else runtime_maximum_seconds
+        if type(runtime_seconds) not in {int, float} or not 0 < runtime_seconds <= maximum_seconds:
+            raise ValueError("information-set upper search runtime allowance exceeds the declared cap")
+        started = time.monotonic()
         generation, verification_queries, charged = None, 0, 0
         stage = "strategy_refutation"
         common = dict(maximum_branches=maximum_branches, maximum_model_bytes=maximum_model_bytes,
@@ -1430,19 +1436,24 @@ class OrToolsActorInformationSetCompilerV1:
         def remaining():
             if cancel_check is not None and cancel_check():
                 raise InformationSetCompilationStopped("cancelled", stage="native_bid_information_set_search")
-            if time.monotonic() >= deadline or charged >= maximum_queries:
-                raise InformationSetCompilationStopped("maximum_seconds" if time.monotonic() >= deadline
-                    else "maximum_queries", stage="native_bid_information_set_search")
+            seconds = runtime_seconds - (time.monotonic() - started)
+            if seconds <= 0 or charged >= maximum_queries:
+                raise InformationSetCompilationStopped("maximum_seconds" if seconds <= 0 else "maximum_queries",
+                    stage="native_bid_information_set_search")
             if len(canonical_json(receipt("incomplete")).encode("utf-8")) > maximum_evidence_bytes:
                 raise InformationSetCompilationStopped("maximum_evidence_bytes", stage="native_bid_information_set_search")
-            return deadline - time.monotonic()
+            seconds = runtime_seconds - (time.monotonic() - started)
+            if seconds <= 0:
+                raise InformationSetCompilationStopped("maximum_seconds", stage="native_bid_information_set_search")
+            return seconds
 
         try:
             generation = self._solve_native_bid_policy_bounds(exact, prefix, Seat.parse(exact.next_actor).team,
                 visibility="actor_information_set", selected_root_action=selected_action,
                 required_threshold=upper_bound + 1, maximum_iterations=maximum_iterations,
                 maximum_observations=maximum_observations, maximum_queries=maximum_queries,
-                maximum_seconds=remaining(), progress_callback=progress_callback, **common)
+                maximum_seconds=maximum_seconds, runtime_maximum_seconds=remaining(),
+                progress_callback=progress_callback, **common)
             charged = generation["queriesUsed"]
             if type(charged) is not int or not 0 < charged <= maximum_queries:
                 raise ValueError("information-set refutation query accounting exceeds its allowance")
@@ -1469,7 +1480,7 @@ class OrToolsActorInformationSetCompilerV1:
             premise = {"action": selected_action, "exact": exact, "sourcePrefix": prefix,
                 "receipt": {**core, "sha256": canonical_sha256(core)}}
             final = receipt("upper_bound_proven")
-            if (time.monotonic() >= deadline or cancel_check is not None and cancel_check()
+            if (time.monotonic() - started >= runtime_seconds or cancel_check is not None and cancel_check()
                     or len(canonical_json({"search": final, "premise": {**premise,
                         "exact": exact.to_dict(), "sourcePrefix": prefix.to_dict()}}).encode("utf-8"))
                         > maximum_evidence_bytes):
@@ -1485,7 +1496,8 @@ class OrToolsActorInformationSetCompilerV1:
             maximum_worlds, maximum_seconds, maximum_queries, maximum_world_seconds, maximum_world_queries,
             maximum_iterations, maximum_observations, maximum_branches, maximum_model_bytes, maximum_evidence_bytes,
             maximum_conflicts, maximum_depth, opportunity_order=None, cancel_check=None, progress_callback=None,
-            world_ranking_id=None, strategy_play_fallback_id=None, minimax_budget=None):
+            world_ranking_id=None, strategy_play_fallback_id=None, minimax_budget=None,
+            runtime_maximum_seconds=None):
         """Search for one freshly verified upper premise, not overall optimality.
 
         Per-world allowances include selection, fresh normalization and readback.
@@ -1522,7 +1534,10 @@ class OrToolsActorInformationSetCompilerV1:
             raise ValueError("alternative world search root mismatch")
         observer = canonical_observer_information_hash_v1(
             complete_state=exact.state, acting_seat=exact.next_actor)
-        deadline = time.monotonic() + maximum_seconds
+        runtime_seconds = maximum_seconds if runtime_maximum_seconds is None else runtime_maximum_seconds
+        if type(runtime_seconds) not in {int, float} or not 0 < runtime_seconds <= maximum_seconds:
+            raise ValueError("world upper search runtime allowance exceeds the declared cap")
+        deadline = time.monotonic() + runtime_seconds
         excluded, attempts, charged = [], [], 0
         common = dict(maximum_branches=maximum_branches, maximum_model_bytes=maximum_model_bytes,
             maximum_conflicts=maximum_conflicts, maximum_depth=maximum_depth,
@@ -1559,7 +1574,8 @@ class OrToolsActorInformationSetCompilerV1:
             if time.monotonic() >= deadline or charged >= maximum_queries:
                 return None, receipt("not_found_within_budget")
             allowance = min(maximum_world_queries, maximum_queries - charged)
-            world_deadline = min(deadline, time.monotonic() + maximum_world_seconds)
+            world_seconds = min(runtime_seconds, maximum_world_seconds)
+            world_deadline = min(deadline, time.monotonic() + world_seconds)
             used, models = 0, ()
             attempt = {"index": len(attempts), "queryAllowance": allowance, "stage": "selection"}
             attempts.append(attempt)
@@ -1567,10 +1583,11 @@ class OrToolsActorInformationSetCompilerV1:
             def remaining(*, require_query=True):
                 if cancel_check is not None and cancel_check():
                     raise InformationSetCompilationStopped("cancelled", stage="native_bid_world_search")
-                if time.monotonic() >= world_deadline or require_query and used >= allowance:
-                    raise InformationSetCompilationStopped("maximum_seconds" if time.monotonic() >= world_deadline
+                seconds = min(world_seconds, world_deadline - time.monotonic())
+                if seconds <= 0 or require_query and used >= allowance:
+                    raise InformationSetCompilationStopped("maximum_seconds" if seconds <= 0
                         else "maximum_queries", stage="native_bid_world_search")
-                return world_deadline - time.monotonic()
+                return seconds
 
             def charge(count):
                 nonlocal used
@@ -1979,8 +1996,10 @@ class OrToolsActorInformationSetCompilerV1:
         def check():
             if cancel_check is not None and cancel_check():
                 stop("cancelled")
-            if time.monotonic() >= deadline:
+            seconds = min(maximum_seconds, deadline - time.monotonic())
+            if seconds <= 0:
                 stop("maximum_seconds")
+            return seconds
 
         def reserve_query():
             nonlocal queries_used
@@ -2191,7 +2210,7 @@ class OrToolsActorInformationSetCompilerV1:
             if maximum_depth is not None:
                 reserve_query()
                 depth_query = model.find_native_continuation_depth_above(maximum_depth=maximum_depth,
-                    maximum_seconds=deadline - time.monotonic(), maximum_conflicts=maximum_conflicts,
+                    maximum_seconds=check(), maximum_conflicts=maximum_conflicts,
                     cancel_check=cancelled, _source_proto=proto,
                     **({"record_model_bytes": True} if streamed else {}))
                 records[-1]["depthQuery"] = depth_query
@@ -2219,7 +2238,7 @@ class OrToolsActorInformationSetCompilerV1:
                 query = model.find_native_round_with_constant_policy_below(
                     target=policy_team, policy_team=policy_team, threshold=threshold,
                     optimize_margin=optimize_alternative_upper,
-                    maximum_seconds=deadline - time.monotonic(), maximum_conflicts=maximum_conflicts,
+                    maximum_seconds=check(), maximum_conflicts=maximum_conflicts,
                     **({"record_policy_model_hashes": True} if optimize_alternative_upper else {}),
                     cancel_check=cancelled, record_model_bytes=True, **nonplay_policy)
                 records[-1]["alternativeQuery"] = query
@@ -4399,7 +4418,8 @@ class OrToolsActorInformationSetCompilerV1:
             required_threshold=None, threshold_refutation=None, incumbent_native_play_policy_id=None,
             incumbent_nonplay_policy=None,
             _owned_incumbent_models=None, progress_callback=None,
-            compact_purchase_invariant_ownership=False, strategy_play_fallback_id=None, minimax_budget=None):
+            compact_purchase_invariant_ownership=False, strategy_play_fallback_id=None, minimax_budget=None,
+            runtime_maximum_seconds=None):
         """Own root construction and strategy refinement under one deadline.
 
         This internal result is not a production certificate. In particular it
@@ -4416,7 +4436,10 @@ class OrToolsActorInformationSetCompilerV1:
                 or type(maximum_seconds) not in {int, float} or not math.isfinite(maximum_seconds)
                 or maximum_seconds <= 0):
             raise ValueError("native bid policy requires a team and positive finite budgets")
-        deadline = time.monotonic() + maximum_seconds
+        runtime_seconds = maximum_seconds if runtime_maximum_seconds is None else runtime_maximum_seconds
+        if type(runtime_seconds) not in {int, float} or not 0 < runtime_seconds <= maximum_seconds:
+            raise ValueError("native bid policy runtime allowance exceeds the declared cap")
+        started = time.monotonic()
         preparation, strategy = None, None
         _validate_native_opponent_ceiling_policy(opponent_ceiling_policy, target)
         if (opponent_ceiling_policy is not None and "native_play_policy_id" in opponent_ceiling_policy
@@ -4492,9 +4515,10 @@ class OrToolsActorInformationSetCompilerV1:
         def remaining():
             if cancel_check is not None and cancel_check():
                 raise InformationSetCompilationStopped("cancelled", stage="native_bid_policy_bounds")
-            if time.monotonic() >= deadline:
+            seconds = runtime_seconds - (time.monotonic() - started)
+            if seconds <= 0:
                 raise InformationSetCompilationStopped("maximum_seconds", stage="native_bid_policy_bounds")
-            return deadline - time.monotonic()
+            return seconds
 
         try:
             if threshold_refutation is not None:
@@ -4776,9 +4800,10 @@ class OrToolsActorInformationSetCompilerV1:
         def remaining():
             if cancel_check is not None and cancel_check():
                 raise InformationSetCompilationStopped("cancelled", stage="native_bid_dominance")
-            if time.monotonic() >= deadline:
+            seconds = min(maximum_seconds, deadline - time.monotonic())
+            if seconds <= 0:
                 raise InformationSetCompilationStopped("maximum_seconds", stage="native_bid_dominance")
-            return deadline - time.monotonic()
+            return seconds
 
         def complete_partition(receipt, action, nonplay_policy=None):
             branches = receipt.get("branches")
@@ -5180,9 +5205,10 @@ class OrToolsActorInformationSetCompilerV1:
         def remaining():
             if cancel_check is not None and cancel_check():
                 raise InformationSetCompilationStopped("cancelled", stage="native_observed_bid_floor")
-            if time.monotonic() >= deadline:
+            seconds = min(maximum_seconds, deadline - time.monotonic())
+            if seconds <= 0:
                 raise InformationSetCompilationStopped("maximum_seconds", stage="native_observed_bid_floor")
-            return deadline - time.monotonic()
+            return seconds
 
         try:
             models, preparation = self._prepare_native_bid_branches(exact, prefix,
@@ -5278,10 +5304,11 @@ class OrToolsActorInformationSetCompilerV1:
         def remaining():
             if limits.get("cancel_check") is not None and limits["cancel_check"]():
                 raise InformationSetCompilationStopped("cancelled", stage="native_bid_threshold_probe")
-            if time.monotonic() >= deadline or used >= allowance:
-                raise InformationSetCompilationStopped("maximum_seconds" if time.monotonic() >= deadline
+            seconds = min(configuration["maximumSeconds"], deadline - time.monotonic())
+            if seconds <= 0 or used >= allowance:
+                raise InformationSetCompilationStopped("maximum_seconds" if seconds <= 0
                     else "maximum_queries", stage="native_bid_threshold_probe")
-            return deadline - time.monotonic()
+            return seconds
 
         def charge(count):
             nonlocal used
@@ -5597,7 +5624,8 @@ class OrToolsActorInformationSetCompilerV1:
                 if action == selected_action:
                     continue
                 if alternative_proof is not None:
-                    seconds = min(remaining(), search_deadline - time.monotonic())
+                    search_cap = min(maximum_seconds, alternative_proof["maximumSeconds"])
+                    seconds = min(search_cap, remaining(), search_deadline - time.monotonic())
                     allowance = alternative_proof["maximumQueries"] - sum(
                         row["queriesCharged"] for row in searches)
                     information_refutation = alternative_proof["schemaVersion"] == 2
@@ -5608,7 +5636,8 @@ class OrToolsActorInformationSetCompilerV1:
                     if information_refutation:
                         premise, search = self._search_observed_bid_information_set_upper(exact, prefix,
                             selected_action=action, upper_bound=alternative_proof["upperBound"],
-                            maximum_seconds=seconds, maximum_queries=min(allowance, maximum_queries - used),
+                            maximum_seconds=search_cap, runtime_maximum_seconds=seconds,
+                            maximum_queries=min(allowance, maximum_queries - used),
                             maximum_iterations=maximum_iterations, maximum_observations=maximum_observations,
                             maximum_evidence_bytes=maximum_evidence_bytes,
                             progress_callback=(lambda row: progress_callback({**row,
@@ -5617,7 +5646,7 @@ class OrToolsActorInformationSetCompilerV1:
                     else:
                         premise, search = self._search_observed_bid_alternative_upper(exact, prefix,
                             selected_action=action, upper_bound=alternative_proof["upperBound"],
-                            maximum_worlds=worlds, maximum_seconds=seconds,
+                            maximum_worlds=worlds, maximum_seconds=search_cap, runtime_maximum_seconds=seconds,
                             maximum_queries=min(allowance, maximum_queries - used),
                             maximum_world_seconds=alternative_proof["maximumWorldSeconds"],
                             maximum_world_queries=alternative_proof["maximumWorldQueries"],
@@ -5968,9 +5997,10 @@ class OrToolsActorInformationSetCompilerV1:
         def remaining():
             if cancel_check is not None and cancel_check():
                 stop("cancelled")
-            if time.monotonic() >= deadline:
+            seconds = min(maximum_seconds, deadline - time.monotonic())
+            if seconds <= 0:
                 stop("maximum_seconds")
-            return deadline - time.monotonic()
+            return seconds
 
         if has_incumbent:
             if native_incumbent is None:
@@ -6962,12 +6992,14 @@ class OrToolsActorInformationSetCompilerV1:
             return {**core, "sha256": canonical_sha256(core)}
 
         def remaining():
-            reason = "cancelled" if cancel_check is not None and cancel_check() else (
-                "maximum_seconds" if time.monotonic() >= deadline else None)
+            cancelled = cancel_check is not None and cancel_check()
+            seconds = min(maximum_seconds, deadline - time.monotonic())
+            reason = "cancelled" if cancelled else (
+                "maximum_seconds" if seconds <= 0 else None)
             if reason is not None:
                 raise InformationSetCompilationStopped(reason, stage="native_symbolic_round_refinement",
                     evidence=evidence("incomplete"))
-            return deadline - time.monotonic()
+            return seconds
 
         if fallback is not None and owned._native_round_fragment is not None:
             before = hashlib.sha256(str(owned.model.proto).encode("utf-8")).hexdigest()

@@ -5614,7 +5614,7 @@ def _complete_state_quality_artifact_v1(
             native_incumbent_models.clear()
             try:
                 # The incumbent allowance is a cap, not time already consumed.
-                fallback_seconds = remaining() - (maximum_seconds - decision_limit)
+                fallback_seconds = min(decision_seconds, remaining() - (maximum_seconds - decision_limit))
                 if fallback_seconds <= 0:
                     raise InformationSetCompilationStopped("maximum_seconds", stage="complete_state_quality")
             except InformationSetCompilationStopped as exc:

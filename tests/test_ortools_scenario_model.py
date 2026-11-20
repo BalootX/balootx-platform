@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 import copy
 from dataclasses import replace
+import math
 from ortools.sat.python import cp_model
 
 from baloot_platform.core.auction_ir import AuctionDomainIRV1
@@ -333,7 +334,7 @@ def test_observed_penultimate_pass_refutes_floor_without_fixed_play_policy(root)
 
 
 @pytest.mark.parametrize("version", (1, 2))
-def test_observed_bid_world_search_produces_real_fresh_all_pass_cap(root, version):
+def test_observed_bid_world_search_produces_real_fresh_all_pass_cap(root, monkeypatch, deterministic_work, version):
     from baloot_platform.research.ortools_exact_state import OrToolsExactStateNormalizerV1
     from baloot_platform.research.scenario_contracts import ExactTracePrefixV1
 
@@ -346,21 +347,32 @@ def test_observed_bid_world_search_produces_real_fresh_all_pass_cap(root, versio
         prefix, decision_point={"kind": "bid"}, maximum_seconds=15)
     searcher = (compiler._search_observed_bid_alternative_upper if version == 1
         else compiler._search_observed_bid_information_set_upper)
-    search_limits = dict(maximum_seconds=30, maximum_queries=100,
+    search_limits = dict(maximum_seconds=30, runtime_maximum_seconds=29, maximum_queries=100,
         maximum_iterations=2, maximum_observations=100, maximum_branches=13,
         maximum_model_bytes=100000000, maximum_evidence_bytes=100000000,
         maximum_conflicts=250000, maximum_depth=64)
     if version == 1:
         search_limits.update(maximum_worlds=1, maximum_world_seconds=30, maximum_world_queries=100)
+    # At this origin, adding and subtracting the 30-second cap rounds upward.
+    origin = math.nextafter(32.0, 0.0)
+    read = deterministic_work.read
+    start = read("monotonic")
+    monkeypatch.setattr(deterministic_work, "read", lambda name:
+        origin + (read(name) - start) if name == "monotonic" else read(name))
     result, search = searcher(exact, prefix, selected_action="pass", upper_bound=0, **search_limits)
-    assert result is not None and search["status"] == "upper_bound_proven"
+    assert result is not None and search["status"] == "upper_bound_proven", (
+        search.get("stage"), search.get("partial", {}).get("exhaustionReason"))
     assert result["receipt"]["upperBound"] == 0
+    assert search["limits"]["seconds"] == 30
+    for key in ("preparation", "strategy"):
+        assert 0 < result["receipt"][key]["limits"]["seconds"] <= 29
     if version == 1:
         assert result["receipt"]["preparation"]["scope"]["fixedObservedWorld"]["coverage"] == "single_compatible_deal"
         assert search["queriesCharged"] <= 100 and len(search["attempts"]) == 1
     else:
         from baloot_platform.research.result_authority import _validate_native_observed_bid_refutation_search_v1
         from baloot_platform.research.scenario_contracts import canonical_sha256
+        assert search["generation"]["maximumSeconds"] == search["limits"]["seconds"] == 30
         assert "fixedObservedWorld" not in result["receipt"]["preparation"]["scope"]
         assert result["receipt"]["strategy"]["kind"] == "native_symbolic_round_strategy_threshold_v1"
         assert "playFallback" not in result["receipt"]["strategy"]["scope"]
@@ -372,8 +384,12 @@ def test_observed_bid_world_search_produces_real_fresh_all_pass_cap(root, versio
                 "maximumModelBytes": 100000000, "maximumConflicts": 250000, "maximumDepth": 64},
             maximum_evidence_bytes=100000000)
         assert _validate_native_observed_bid_refutation_search_v1(search, result["receipt"], **context) == search["queriesCharged"]
+        over_cap = math.nextafter(30.0, math.inf)
+        generation = {**search["generation"], "maximumSeconds": over_cap}
+        generation["sha256"] = canonical_sha256({k: v for k, v in generation.items() if k != "sha256"})
         for key, value in (("status", "incomplete"), ("queriesCharged", True), ("sourcePrefixHash", "0" * 64),
-                           ("upperBound", 1), ("queryCountComplete", False)):
+                           ("upperBound", 1), ("queryCountComplete", False), ("generation", generation),
+                           ("limits", {**search["limits"], "seconds": over_cap})):
             forged = {**search, key: value}
             forged["sha256"] = canonical_sha256({k: v for k, v in forged.items() if k != "sha256"})
             with pytest.raises(ValueError):

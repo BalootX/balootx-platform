@@ -1196,7 +1196,8 @@ class OrToolsEscalationStageV1:
         if not stopped():
             try:
                 initial = self.solve(required_actions=required_actions, required_actions_complete=True,
-                    opportunity_non_announcements=(), maximum_seconds=max(deadline - time.monotonic(), 1e-9),
+                    opportunity_non_announcements=(),
+                    maximum_seconds=min(maximum_seconds, max(deadline - time.monotonic(), 1e-9)),
                     cancel_check=cancel_check).to_dict()
                 core.update(initialState=initial, finalState=initial, status=initial["status"])
             except InterruptedError:
@@ -1213,7 +1214,7 @@ class OrToolsEscalationStageV1:
             transition = self.transition_opportunity(required_actions=actions,
                 non_announcements=current["opportunityState"]["nonAnnouncingSeats"],
                 actor=event["actor"], action_code=event["actionCode"],
-                maximum_seconds=max(deadline - time.monotonic(), 1e-9),
+                maximum_seconds=min(maximum_seconds, max(deadline - time.monotonic(), 1e-9)),
                 declared_maximum_seconds=declared, cancel_check=cancel_check)
             core["transitions"].append(transition)
             core["status"] = transition["status"]
@@ -1297,7 +1298,7 @@ class OrToolsEscalationStageV1:
                 required_actions=actions if private else (*actions, (seat, parts[0], mode)),
                 required_actions_complete=True,
                 opportunity_non_announcements=(*declines, seat) if private else (),
-                maximum_seconds=max(deadline - time.monotonic(), 1e-9), cancel_check=cancel_check)
+                maximum_seconds=min(maximum_seconds, max(deadline - time.monotonic(), 1e-9)), cancel_check=cancel_check)
             if after is not None:
                 core["after"] = after.to_dict()
                 core["status"] = after.status
