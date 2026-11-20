@@ -107,11 +107,10 @@ def test_gate_rejects_unproven_full_producers(event):
 
 
 @pytest.mark.parametrize(("paths", "producers"), [
-    ({"README.md"}, set()),
-    ({"tests/test_mcp_builtin.py"}, {"python-affected", *ci_scope.TEST_SETUP}),
+    ({f"docs/{__name__}.md"}, set()),
     ({ci_scope.FOUNDRY + "main.tsx"}, {"foundry", "python-affected", *ci_scope.TEST_SETUP}),
     ({"sdk/go/client.go"}, {"sdks", "python-affected", *ci_scope.TEST_SETUP}),
-    ({"README.md", ci_scope.FOUNDRY + "main.tsx", "sdk/typescript/src/client.ts"},
+    ({f"docs/{__name__}.md", ci_scope.FOUNDRY + "main.tsx", "sdk/typescript/src/client.ts"},
      {"foundry", "sdks", "python-affected", *ci_scope.TEST_SETUP}),
 ])
 def test_gate_requires_exact_scoped_producers(root, paths, producers):
@@ -121,7 +120,8 @@ def test_gate_requires_exact_scoped_producers(root, paths, producers):
     results = {job: {"result": "success" if job in required else "skipped"} for job in jobs["ci-gate"]["needs"]}
     results["plan"]["outputs"] = {key: json.dumps(value) for key, value in selection.items()}
     ci_scope.validate_results("pull_request", results)
-    assert len(required | {"ci-gate"}) <= 20
+    assert sum(len(jobs[job].get("strategy", {}).get("matrix", {}).get("python", [None]))
+               for job in required | {"ci-gate"}) <= 20
     for job, details in results.items():
         status = details["result"]
         for bad in {"cancelled", "failure", "skipped", "success"} - {status}:
@@ -143,6 +143,61 @@ def test_gate_requires_exact_scoped_producers(root, paths, producers):
 def test_unknown_shared_and_ci_paths_force_the_full_profile(monkeypatch, path):
     monkeypatch.setattr(ci_scope, "changed_paths", lambda *_: {"README.md", path})
     assert ci_scope.current_plan("pull_request") == ci_scope.current_plan()
+
+
+def test_plan_falls_back_for_documentation_anchor(root, monkeypatch):
+    profile = yaml.safe_load((root / "configs/adjudication/research_events_v1.yaml").read_bytes())
+    path = profile["events"]["out_of_turn"]["documentation"].split("#")[0]
+    monkeypatch.setattr(ci_scope, "changed_paths", lambda *_: {path})
+    assert ci_scope.current_plan("pull_request") == ci_scope.current_plan()
+
+
+def test_plan_falls_back_for_cross_test_path(root, monkeypatch):
+    acceptance = (root / "tests/test_research_ortools_authority_acceptance.py").read_bytes()
+    match = re.search(rb'"(tests/[^"]+\.py)::test_preference_miss_does_not_reject', acceptance)
+    assert match
+    monkeypatch.setattr(ci_scope, "changed_paths", lambda *_: {match[1].decode()})
+    assert ci_scope.current_plan("pull_request") == ci_scope.current_plan()
+
+
+@pytest.mark.parametrize(("path", "consumer", "reference"), [
+    ("docs/example.md", "tests/nested/guide.json", '["docs/example.md#anchor"]'),
+    ("docs/example.md", "tests/test_reader.py", 'root / "docs" / "example.md"'),
+    ("tests/test_mcp_builtin.py", "src/owner.py", '"tests/test_mcp_builtin.py::test_mcp_stdio_process"'),
+])
+def test_repository_reference_forces_full(path, consumer, reference, tmp_path, monkeypatch):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, timeout=10)
+    target = tmp_path / consumer
+    target.parent.mkdir(parents=True)
+    target.write_text(reference, encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "--", consumer], check=True, timeout=10)
+    monkeypatch.setattr(ci_scope, "ROOT", tmp_path)
+    monkeypatch.setattr(ci_scope, "changed_paths", lambda *_: {path})
+    assert ci_scope.current_plan("pull_request") == ci_scope.current_plan()
+
+
+def test_reference_scan_error_forces_full(monkeypatch):
+    def fail(*args):
+        raise subprocess.CalledProcessError(128, args)
+
+    monkeypatch.setattr(ci_scope, "git", fail)
+    monkeypatch.setattr(ci_scope, "changed_paths", lambda *_: {"docs/unavailable.md"})
+    assert ci_scope.current_plan("pull_request") == ci_scope.current_plan()
+
+
+def test_plan_runs_selected_tests_on_all_python_versions(root):
+    selection = ci_scope.scoped_plan({ci_scope.FOUNDRY + "main.tsx"})
+    assert selection and not selection["full"] and selection["tests"]
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    affected = jobs["python-affected"]
+    strategy = affected.get("strategy", {})
+    assert strategy.get("matrix", {}).get("python") == list(ci_scope.VERSIONS)
+    assert strategy["fail-fast"] is False
+    assert affected["if"] == "needs.plan.outputs.tests != '[]'"
+    assert affected["steps"][1]["with"]["python-version"] == "${{ matrix.python }}"
+    assert any(step.get("env", {}).get("AFFECTED_TESTS") == "${{ needs.plan.outputs.tests }}"
+               for step in affected["steps"])
+    assert "python-affected" in jobs["ci-gate"]["needs"]
 
 
 def test_only_exact_pr_merge_diff_can_select_scoped_work(tmp_path, monkeypatch):
@@ -202,8 +257,8 @@ def test_one_run_never_holds_more_than_twenty_hosted_jobs(root):
         for values in (strategy.get("matrix") or {}).values():
             size *= len(values) if isinstance(values, list) else 1
         return min(size, strategy.get("max-parallel", size))
-    # Scoped PRs have their own total job cap above. The smoke job never runs with full matrices.
-    names = sorted(jobs.keys() - {"python-version-smoke"})
+    # Scoped PRs have their own total job cap above. Neither scoped-only job runs with full matrices.
+    names = sorted(jobs.keys() - {"python-version-smoke", "python-affected"})
     def peak(index, chosen):
         if index == len(names):
             return 0

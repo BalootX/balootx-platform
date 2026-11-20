@@ -65,17 +65,33 @@ def changed_paths(base: str, head: str) -> set[str]:
     return paths
 
 
+def has_repository_reference(documents: set[str], changed_tests: set[str]) -> bool:
+    # Basenames also catch split paths; test module names catch imports and node IDs.
+    names = {Path(path).name for path in documents} | {Path(path).stem for path in changed_tests}
+    if not names:
+        return False
+    args = [arg for name in sorted(names) for arg in ("-e", name)]
+    excluded = [f":(exclude,literal){path}" for path in sorted(changed_tests)]
+    try:
+        git("grep", "--cached", "--quiet", "--text", "--fixed-strings", "--word-regexp",
+            *args, "--", "tests", "src", "configs", *excluded)
+    except subprocess.CalledProcessError as exc:
+        if exc.returncode != 1 or exc.stderr:
+            raise
+        return False
+    return True
+
+
 def scoped_plan(paths: set[str]) -> dict | None:
     if not paths:
         return None
     sdk = foundry = False
+    documents = set()
     changed_tests = set()
     tests = set()
     for path in paths:
-        if path == "docs/ENGINE_GUIDE_AR.md":
-            tests.add("tests/test_engine_guide.py")
-        elif path in {"README.md", "SECURITY.md"} or (path.startswith("docs/") and path.endswith(".md")):
-            continue
+        if path in {"README.md", "SECURITY.md"} or (path.startswith("docs/") and path.endswith(".md")):
+            documents.add(path)
         elif path.startswith(FOUNDRY) and path.endswith((".ts", ".tsx", ".css")):
             foundry = True
             tests.update(FOUNDRY_TESTS)
@@ -88,14 +104,9 @@ def scoped_plan(paths: set[str]) -> dict | None:
             changed_tests.add(path)
         else:
             return None
-    if changed_tests:
-        # Some test modules supply fixtures to other files, including node-sharded lanes.
-        names = {Path(path).stem for path in changed_tests}
-        names_pattern = "|".join(sorted(names)).encode("ascii")
-        imports = re.compile(rb"\b(?:from|import)[ \t]+(?:\.?tests\.|\.)?(?:" + names_pattern + rb")\b")
-        if any(imports.search(path.read_bytes()) for path in (ROOT / "tests").rglob("*.py")):
-            return None
-        tests.update(changed_tests)
+    if has_repository_reference(documents, changed_tests):
+        return None
+    tests.update(changed_tests)
     if tests:
         history = json.loads((ROOT / HISTORY).read_bytes())
         seconds = history["shardSeconds"]
