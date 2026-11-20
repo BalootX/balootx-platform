@@ -21,7 +21,17 @@ def test_codeowners_covers_hosted_ci_and_release_controls(root):
         for script in re.findall(r"\bscripts/[\w.]+\.py\b", workflow.read_text(encoding="utf-8"))
     }
     required = {
-        "/.github/", "/ci/", "/scripts/ci_known_failures.py", "/tests/test_ci_hosted_contract.py",
+        "/.github/", "/ci/", "/scripts/__init__.py", "/scripts/ci_known_failures.py",
+        "/tests/conftest.py", "/tests/test_ci_hosted_contract.py",
+        "/*.py", "/src/*.py", "/*/__init__.py", "/src/*/__init__.py",
+        "/*.pyc", "/src/*.pyc", "/*/__init__.pyc", "/src/*/__init__.pyc",
+        "/*.so", "/src/*.so", "/*/__init__*.so", "/src/*/__init__*.so",
+        "/*.pth", "/src/*.pth", "/pytest.ini", "/.pytest.ini", "/pytest.toml", "/.pytest.toml",
+        "/setup.cfg", "/tox.ini",
+        "/src/baloot_platform/service/foundry_dashboard/scripts/check-generated-api.mjs",
+        "/src/baloot_platform/video/remotion/scripts/", "/scripts/render_remotion_plugin_parity.py",
+        "/scripts/verify_professional_flagship.py", "/scripts/verify_professional_decision_clip.py",
+        "/scripts/verify_professional_video_prototypes.py",
         "/scripts/build_reproducible_wheel.py", "/scripts/package_release*.py", "/scripts/verify_release*.py",
         "/scripts/check_release_readiness.py", "/scripts/migrate_postgres.py", "/migrations/", "/Dockerfile",
         "/pyproject.toml", "/sdk/go/go.mod", "/sdk/typescript/package.json",
@@ -74,9 +84,14 @@ def test_hosted_ci_contract(root):
         assert jobs[job]["if"] == predicate
     gate_step = jobs["ci-gate"]["steps"][-1]
     assert gate_step["env"]["IS_DRAFT"] == "${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}"
-    assert "exit 1" in gate_step["run"].split("python3 scripts/ci_scope.py gate")[0]
+    draft_guard, gate_command = gate_step["run"].split("python3 -P scripts/ci_scope.py gate")
+    assert "exit 1" in draft_guard and not gate_command.strip()
     assert set(jobs["ci-gate"]["needs"]) == jobs.keys() - {"ci-gate"}
     assert jobs["ci-gate"]["if"] == "always()"
+    for name in ("plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy"):
+        commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
+        flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)
+        assert flags and all("-P" in options.split() for options in flags), name
 
 
 def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):

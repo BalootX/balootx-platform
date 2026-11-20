@@ -42,7 +42,7 @@ jobs:
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/ci_scope.py plan
+        run: python3 -P scripts/ci_scope.py plan
 
   preflight:
     runs-on: ubuntu-24.04
@@ -360,8 +360,8 @@ jobs:
       - name: Check generated contracts
         if: matrix.shard == 1 && github.job == 'python-fast-run'
         run: |
-          python scripts/sync_package_resources.py
-          python scripts/generate_openapi.py
+          python -P scripts/sync_package_resources.py
+          python -P scripts/generate_openapi.py
           git diff --exit-code -- api/openapi.json
       - name: Run isolated Python shard
         if: '!cancelled()'
@@ -369,9 +369,9 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           case "$GITHUB_JOB" in
-            python-fast-run) python scripts/run_isolated_pytest.py --workers 4 --shard "$SHARD" --output "$RUNNER_TEMP/python-receipts" ;;
-            python-backend-run) python scripts/run_heavy_pytest.py run --versioned --workers 4 --shard "$SHARD" --output "$RUNNER_TEMP/python-receipts" ;;
-            python-heavy) python scripts/run_heavy_pytest.py run --workers 4 --shard "$SHARD" --output "$RUNNER_TEMP/python-receipts" ;;
+            python-fast-run) python -P scripts/run_isolated_pytest.py --workers 4 --shard "$SHARD" --output "$RUNNER_TEMP/python-receipts" ;;
+            python-backend-run) python -P scripts/run_heavy_pytest.py run --versioned --workers 4 --shard "$SHARD" --output "$RUNNER_TEMP/python-receipts" ;;
+            python-heavy) python -P scripts/run_heavy_pytest.py run --workers 4 --shard "$SHARD" --output "$RUNNER_TEMP/python-receipts" ;;
             *) exit 1 ;;
           esac
       - name: Record final fast shard status
@@ -482,7 +482,7 @@ jobs:
           pattern: python-{fast-run,backend-run,heavy}-*
           path: ${{ runner.temp }}/python-coverage
           digest-mismatch: error
-      - run: python scripts/ci_scope.py coverage "$RUNNER_TEMP/python-coverage"
+      - run: python -P scripts/ci_scope.py coverage "$RUNNER_TEMP/python-coverage"
 
   media-inputs:
     needs: [plan, python-wheelhouse, ffmpeg-packages]
@@ -657,4 +657,4 @@ jobs:
             echo '::error::Draft PR. Mark ready for review to run CI.'
             exit 1
           fi
-          python3 scripts/ci_scope.py gate
+          python3 -P scripts/ci_scope.py gate

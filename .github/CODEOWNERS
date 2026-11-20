@@ -1,6 +1,7 @@
 # Hosted CI and its test and coverage controls.
 /.github/ @BalootX/maintainers
 /ci/ @BalootX/maintainers
+/scripts/__init__.py @BalootX/maintainers
 /scripts/ci_scope.py @BalootX/maintainers
 /scripts/ci_known_failures.py @BalootX/maintainers
 /scripts/run_isolated_pytest.py @BalootX/maintainers
@@ -13,6 +14,28 @@
 /tests/test_isolated_pytest.py @BalootX/maintainers
 /tests/test_heavy_pytest.py @BalootX/maintainers
 /src/baloot_platform/service/foundry_dashboard/scripts/check-generated-api.mjs @BalootX/maintainers
+
+# Python imports and pytest configuration from the repository root and PYTHONPATH.
+/*.py @BalootX/maintainers
+/src/*.py @BalootX/maintainers
+/*/__init__.py @BalootX/maintainers
+/src/*/__init__.py @BalootX/maintainers
+/*.pyc @BalootX/maintainers
+/src/*.pyc @BalootX/maintainers
+/*/__init__.pyc @BalootX/maintainers
+/src/*/__init__.pyc @BalootX/maintainers
+/*.so @BalootX/maintainers
+/src/*.so @BalootX/maintainers
+/*/__init__*.so @BalootX/maintainers
+/src/*/__init__*.so @BalootX/maintainers
+/*.pth @BalootX/maintainers
+/src/*.pth @BalootX/maintainers
+/pytest.ini @BalootX/maintainers
+/.pytest.ini @BalootX/maintainers
+/pytest.toml @BalootX/maintainers
+/.pytest.toml @BalootX/maintainers
+/setup.cfg @BalootX/maintainers
+/tox.ini @BalootX/maintainers
 
 # Generated contracts and hosted media release evidence.
 /scripts/sync_package_resources.py @BalootX/maintainers

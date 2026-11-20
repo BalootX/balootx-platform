@@ -295,7 +295,7 @@ def test_full_workflow_requires_coverage_for_all_matrices(root):
         assert jobs[name]["strategy"]["fail-fast"] is False
         assert any("--workers 4" in step.get("run", "") for step in jobs[name]["steps"])
     assert jobs["python-coverage"]["needs"] == ["plan", "python-fast-run", "python-backend-run", "python-heavy"]
-    assert jobs["python-coverage"]["steps"][-1]["run"].startswith("python scripts/ci_scope.py coverage ")
+    assert jobs["python-coverage"]["steps"][-1]["run"].startswith("python -P scripts/ci_scope.py coverage ")
 
 
 def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path, monkeypatch):
