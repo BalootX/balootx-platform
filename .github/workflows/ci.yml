@@ -552,7 +552,17 @@ jobs:
           BALOOT_RENDER_EVIDENCE_DIR: ${{ runner.temp }}/media-stage-logs
         run: |
           cpus="$(python -c 'import os; print(",".join(map(str, sorted(os.sched_getaffinity(0))[:4])))')"
-          taskset --cpu-list "$cpus" sh -ec 'test "$(nproc)" -le 4; exec python scripts/render_release.py --ci-shard "$SHARD"'
+          taskset --cpu-list "$cpus" sh -ec '
+            test "$(nproc)" -le 4
+            python scripts/render_release.py --ci-shard "$SHARD"
+            if [ "$SHARD" = companion ]; then
+              mv "$RUNNER_TEMP/media-shard.tar" "$RUNNER_TEMP/media-shard-first.tar"
+              BALOOT_RENDER_EVIDENCE_DIR="$BALOOT_RENDER_EVIDENCE_DIR/repeat" \
+                python scripts/render_release.py --ci-shard "$SHARD"
+              cmp "$RUNNER_TEMP/media-shard-first.tar" "$RUNNER_TEMP/media-shard.tar"
+              sha256sum "$RUNNER_TEMP/media-shard.tar"
+            fi
+          '
       - name: Upload shard media
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

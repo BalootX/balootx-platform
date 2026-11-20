@@ -15,6 +15,8 @@ test("CI caps every FFmpeg decoder, both filter pools and the encoder without ch
     const normal = bt709FfmpegOverride({args});
     assert.deepEqual(normal.slice(0, args.length - 1), args.slice(0, -1));
     assert.equal(normal.includes("-threads"), false);
+    assert.equal(normal[normal.indexOf("-x264-params") + 1],
+      "colorprim=bt709:transfer=bt709:colormatrix=bt709:range=limited:cpu-independent=1");
     process.env.CI = "true";
     const capped = bt709FfmpegOverride({args});
     assert.deepEqual(capped.slice(0, 18), [
@@ -23,7 +25,7 @@ test("CI caps every FFmpeg decoder, both filter pools and the encoder without ch
       "-c:v", "libx264", "-threads", "4", "-color_primaries", "bt709",
     ]);
     assert.equal(capped.at(-1), "output.mp4");
-    assert.equal(capped.includes("colorprim=bt709:transfer=bt709:colormatrix=bt709:range=limited"), true);
+    assert.equal(capped[capped.indexOf("-x264-params") + 1], normal[normal.indexOf("-x264-params") + 1]);
     assert.deepEqual(args, ["-i", "video.mp4", "-i", "audio.wav", "-c:v", "libx264", "output.mp4"]);
   } finally {
     if (previous === undefined) delete process.env.CI;

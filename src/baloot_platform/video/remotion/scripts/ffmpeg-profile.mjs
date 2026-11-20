@@ -17,7 +17,8 @@ export const bt709FfmpegOverride = ({args}) => {
     "-color_range",
     "tv",
     "-x264-params",
-    "colorprim=bt709:transfer=bt709:colormatrix=bt709:range=limited",
+    // x264 can choose different predictions for the same frames on different CPUs.
+    "colorprim=bt709:transfer=bt709:colormatrix=bt709:range=limited:cpu-independent=1",
     args.at(-1),
   ];
 };
