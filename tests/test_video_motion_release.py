@@ -254,7 +254,7 @@ def test_renderer_release_decodes_the_rendered_qr_before_accepting_media(
     assert '"-color_primaries"' in ffmpeg_profile
     assert '"-color_trc"' in ffmpeg_profile
     assert (
-        '"colorprim=bt709:transfer=bt709:colormatrix=bt709:range=limited"'
+        '"colorprim=bt709:transfer=bt709:colormatrix=bt709:range=limited:cpu-independent=1"'
         in ffmpeg_profile
     )
     assert "...args.slice(0, -1)" in ffmpeg_profile

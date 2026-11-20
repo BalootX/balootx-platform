@@ -288,9 +288,19 @@ def render_ci_shard(shard: str) -> None:
     else:
         raise ValueError(f"unknown media CI shard: {shard}")
 
+    epoch = int(os.environ["SOURCE_DATE_EPOCH"])
+
+    def reproducible_member(member: tarfile.TarInfo) -> tarfile.TarInfo:
+        return member.replace(
+            mtime=epoch, uid=0, gid=0, uname="", gname="",
+            mode=0o755 if member.isdir() else 0o644,
+        )
+
     with tarfile.open(Path(os.environ["RUNNER_TEMP"]) / "media-shard.tar", "w") as archive:
         for directory in CI_SHARD_OUTPUTS[shard]:
-            archive.add(outputs / directory, arcname=f"outputs/{directory}")
+            archive.add(
+                outputs / directory, arcname=f"outputs/{directory}", filter=reproducible_member,
+            )
 
 
 def main(*, research_notice: bool = False) -> None:
