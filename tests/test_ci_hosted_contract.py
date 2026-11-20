@@ -33,6 +33,22 @@ def test_hosted_ci_contract(root):
     assert jobs["ci-gate"]["if"] == "always()"
 
 
+def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    consumers = {
+        "media-inputs", "media-render", "media-release-smoke",
+        "python-fast-run", "python-backend-run", "python-heavy",
+    }
+    install = next(step for step in jobs["media-render"]["steps"]
+                   if step.get("name") == "Install pinned FFmpeg")
+    for name, job in jobs.items():
+        installs = [step for step in job["steps"] if step is install]
+        assert len(installs) == (1 if name in consumers else 0), name
+        for step in job["steps"]:
+            assert not re.search(r"apt-get[^\n]*ffmpeg", step.get("run", "")), name
+    assert jobs["media-render"]["timeout-minutes"] == 25
+
+
 @pytest.mark.parametrize("event", ["pull_request", "merge_group", "push", "workflow_dispatch"])
 def test_gate_rejects_unproven_full_producers(event):
     plan = {key: json.dumps(value) for key, value in ci_scope.current_plan().items()}
