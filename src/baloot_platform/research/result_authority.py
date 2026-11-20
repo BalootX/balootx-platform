@@ -300,7 +300,8 @@ def validate_native_constant_escalation_bounds_v1(value: Mapping[str, Any], *, r
     recorded = semantic(value)
     if cancel_check is not None and cancel_check():
         raise InformationSetCompilationStopped("cancelled", stage="constant_escalation_verification")
-    if time.monotonic() >= deadline:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
         raise InformationSetCompilationStopped("maximum_seconds", stage="constant_escalation_verification")
     try:
         replay = OrToolsActorInformationSetCompilerV1(rules, native_cp_sat=True)._solve_native_post_auction_policy_bounds(
@@ -311,6 +312,7 @@ def validate_native_constant_escalation_bounds_v1(value: Mapping[str, Any], *, r
             maximum_observations=limits["observations"], maximum_model_bytes=limits["modelBytes"],
             maximum_conflicts=limits["conflictsPerSolve"], maximum_depth=limits["depth"],
             maximum_seconds=limits["seconds"],
+            runtime_maximum_seconds=min(limits["seconds"], remaining),
             cancel_check=lambda: time.monotonic() >= deadline or bool(cancel_check and cancel_check()))
     except InformationSetCompilationStopped as stopped:
         if time.monotonic() >= deadline and not (cancel_check and cancel_check()):
@@ -322,7 +324,7 @@ def validate_native_constant_escalation_bounds_v1(value: Mapping[str, Any], *, r
 
 
 def validate_native_constant_escalation_budget_v1(certificate, budget, *, maximum_conflicts):
-    """Keep retained native query limits inside the selected frozen tier."""
+    """Keep declared native proof and execution limits inside the frozen tier."""
     if (not isinstance(budget, ScenarioProofBudgetV1) or budget.native_observed is None
             or type(maximum_conflicts) is not int or maximum_conflicts < 1):
         raise ValueError("constant escalation quality requires frozen native proof and conflict budgets")
@@ -658,7 +660,7 @@ def _reverify_native_observed_post_auction_bounds_v1(value, *, rules, source_pre
     def remaining():
         if cancel_check is not None and cancel_check():
             raise InformationSetCompilationStopped("cancelled", stage="observed_bounds_verification")
-        seconds = min(deadline - time.monotonic(), cpu_deadline - time.process_time())
+        seconds = min(maximum_seconds, deadline - time.monotonic(), cpu_deadline - time.process_time())
         if seconds <= 0:
             raise InformationSetCompilationStopped("maximum_seconds", stage="observed_bounds_verification")
         return seconds
@@ -674,7 +676,6 @@ def _reverify_native_observed_post_auction_bounds_v1(value, *, rules, source_pre
         maximum_seconds=remaining(), cancel_check=stopped)
     if canonical_sha256(rebuilt.to_dict()) != canonical_sha256(normalized.to_dict()):
         raise ValueError("observed bounds source differs from fresh native normalization")
-    remaining()
     replay = OrToolsActorInformationSetCompilerV1(rules, native_cp_sat=True)._solve_native_post_auction_policy_bounds(
         rebuilt, source_prefix, Seat.parse(rebuilt.next_actor).team, selected_root_action=selected_root_action,
         compact_public_ownership=preparation.get("ownershipCompaction") == "public_fixed_v1",
@@ -685,7 +686,8 @@ def _reverify_native_observed_post_auction_bounds_v1(value, *, rules, source_pre
         maximum_iterations=limits["iterations"], maximum_queries=limits["queries"],
         maximum_observations=limits["observations"], maximum_model_bytes=limits["modelBytes"],
         maximum_conflicts=limits["conflictsPerSolve"], maximum_depth=limits["depth"],
-        maximum_seconds=limits["seconds"], cancel_check=stopped)
+        maximum_seconds=limits["seconds"], runtime_maximum_seconds=min(limits["seconds"], remaining()),
+        cancel_check=stopped)
     remaining()
     if canonical_sha256(semantic(replay)) != canonical_sha256(recorded):
         raise ValueError("observed bounds differ from fresh native reconstruction")
@@ -764,7 +766,7 @@ def _compose_native_observed_play_optimality_v1(selected_bounds, best_bounds, *,
     def remaining():
         if cancel_check is not None and cancel_check():
             raise InformationSetCompilationStopped("cancelled", stage="observed_play_optimality")
-        seconds = min(deadline - time.monotonic(), cpu_deadline - time.process_time())
+        seconds = min(maximum_seconds, deadline - time.monotonic(), cpu_deadline - time.process_time())
         if seconds <= 0:
             raise InformationSetCompilationStopped("maximum_seconds", stage="observed_play_optimality")
         return seconds
@@ -2018,7 +2020,7 @@ def reverify_native_bid_incumbent_floor_v1(value, *, rules, source_prefix, norma
     def remaining():
         if cancel_check is not None and cancel_check():
             raise InformationSetCompilationStopped("cancelled", stage="native_bid_incumbent_verification")
-        available = min(deadline - time.monotonic(), cpu_deadline - time.process_time())
+        available = min(maximum_seconds, deadline - time.monotonic(), cpu_deadline - time.process_time())
         if available <= 0:
             raise InformationSetCompilationStopped("maximum_seconds", stage="native_bid_incumbent_verification")
         return available
@@ -2033,7 +2035,8 @@ def reverify_native_bid_incumbent_floor_v1(value, *, rules, source_prefix, norma
         maximum_iterations=strategy_limits["masterIterations"], maximum_queries=limits["queries"],
         maximum_observations=strategy_limits["observations"], maximum_branches=limits["branches"],
         maximum_model_bytes=limits["modelBytes"], maximum_conflicts=limits["conflictsPerSolve"],
-        maximum_depth=limits["maximumDepth"], maximum_seconds=seconds, cancel_check=stopped,
+        maximum_depth=limits["maximumDepth"], maximum_seconds=seconds,
+        runtime_maximum_seconds=min(seconds, remaining()), cancel_check=stopped,
         opportunity_order=opportunity_order, incumbent_native_play_policy_id=native_play_policy_id,
         **({"incumbent_nonplay_policy": nonplay_policy} if nonplay_policy is not None else {}),
         incumbent_only=True, **({"incumbent_threshold": threshold} if threshold is not None else {}))
@@ -3535,7 +3538,7 @@ def compose_native_observed_bid_dominance_v1(*, rules, exact, source_prefix,
     def remaining():
         if cancel_check is not None and cancel_check():
             raise InformationSetCompilationStopped("cancelled", stage="native_observed_bid_dominance")
-        seconds = deadline - time.monotonic()
+        seconds = min(maximum_seconds, deadline - time.monotonic())
         if seconds <= 0:
             raise InformationSetCompilationStopped("maximum_seconds", stage="native_observed_bid_dominance")
         return seconds

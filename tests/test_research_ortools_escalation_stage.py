@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import math
 from dataclasses import replace
 from itertools import product
 from ortools.sat.python import cp_model
@@ -382,22 +383,23 @@ def test_opportunity_event_replay_rejects_untrusted_state_or_unbounded_input(rul
         _stage(rules).replay_opportunities(required_actions=(), events=events, maximum_seconds=5)
 
 
-@pytest.mark.real_clock
 def test_opportunity_replay_shares_one_deadline_and_retains_completed_prefix(rules, monkeypatch):
     import baloot_platform.research.ortools_escalation_stage as module
     stage = _stage(rules)
     original = stage.transition_opportunity
-    clock, calls = [0.0], []
+    origin = math.nextafter(8.0, 0.0)
+    clock, calls = [origin], []
     def transition(**kwargs):
         calls.append(kwargs)
         result = original(**kwargs)
-        clock[0] = 6.0
+        clock[0] = origin + 6
         return result
     monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(stage, "transition_opportunity", transition)
     result = stage.replay_opportunities(required_actions=(), maximum_seconds=5,
         events=[{"actor": "west", "actionCode": "decline"}, {"actor": "east", "actionCode": "double:open"}])
     assert len(calls) == result["completedEvents"] == 1
+    assert calls[0]["maximum_seconds"] == calls[0]["declared_maximum_seconds"] == 5
     assert result["status"] == "incomplete" and result["stopReason"] == "maximum_seconds"
     assert result["finalState"] == result["transitions"][0]["after"]
 

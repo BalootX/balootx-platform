@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import itertools
+import math
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -98,7 +99,11 @@ def test_observed_history_allowance_cannot_round_above_its_parent(rules, monkeyp
         )
 
 
-def test_native_depth_query_allowance_cannot_round_above_its_parent(rules, monkeypatch):
+@pytest.mark.parametrize("allowance,error,match", [
+    pytest.param(0.1, _AllowanceReached, None, id="capped-query"),
+    pytest.param(math.nextafter(0.1, math.inf), ValueError, "runtime allowance exceeds the declared cap", id="over-cap"),
+])
+def test_native_depth_query_allowance_cannot_round_above_its_parent(rules, monkeypatch, allowance, error, match):
     from baloot_platform.research import ortools_information_set_compiler as information
 
     monkeypatch.setattr(information, "time", SimpleNamespace(monotonic=lambda: 1e9))
@@ -109,12 +114,12 @@ def test_native_depth_query_allowance_cannot_round_above_its_parent(rules, monke
     )
     compiler = SimpleNamespace(rules=rules, _native_post_auction_root_model=lambda *args, **kwargs: model)
     exact = SimpleNamespace(next_actor="south", decision_kind="play", legal_actions=[{"code": "7S"}])
-    with pytest.raises(_AllowanceReached):
+    with pytest.raises(error, match=match):
         information.OrToolsActorInformationSetCompilerV1._solve_native_post_auction_policy_bounds(
             compiler, exact, None, Team.NORTH_SOUTH, selected_root_action="7S",
             opportunity_order=(), escalation_events=(), maximum_iterations=1, maximum_queries=1,
             maximum_observations=1, maximum_model_bytes=100, maximum_conflicts=1, maximum_depth=1,
-            maximum_seconds=0.1,
+            maximum_seconds=0.1, runtime_maximum_seconds=allowance,
         )
 
 
@@ -5587,7 +5592,6 @@ def test_tail_budget_keeps_initial_normalization_within_its_stage_budget(root, m
             proof_budget_profiles=settings["proofBudgets"]["profiles"])
 
 
-@pytest.mark.real_clock
 @pytest.mark.parametrize("policy_search,tail_budget", [
     (None, False), ("time_budgeted_symbolic_v1", False), ("time_budgeted_symbolic_v1", True)])
 def test_exact_observed_quality_with_native_budget_completes_legal_suffix(root, rules, tmp_path, record_property, policy_search, tail_budget):
@@ -5757,6 +5761,19 @@ def test_observed_selected_play_production_suffix(root, rules, tmp_path, record_
         with pytest.raises(ValueError, match="bounded selected play artifact binding mismatch"):
             validate_native_decision_quality_evidence_v1(altered, **context)
     else:
+        from baloot_platform.research.result_authority import validate_native_constant_escalation_budget_v1
+
+        budget = ScenarioProofBudgetV1.build("test", profile)
+        premise = selected[0]["graph"]["bestProof"]
+        validate_native_constant_escalation_budget_v1(premise, budget, maximum_conflicts=250_000)
+        for key, over_cap in (("iterations", 1001), ("queries", 2001), ("observations", 2001),
+                ("conflictsPerSolve", 250_001), ("depth", 65), ("seconds", math.nextafter(180.0, math.inf))):
+            altered_limits = {**premise["limits"], key: over_cap}
+            match = "frozen execution limits" if key == "seconds" else "frozen proof limits"
+            with pytest.raises(ValueError, match=match):
+                validate_native_constant_escalation_budget_v1(
+                    {**premise, "limits": altered_limits}, budget, maximum_conflicts=250_000)
+
         altered = copy.deepcopy(result)
         altered["limits"]["maximumDepth"] = 1
         altered["sha256"] = canonical_sha256({key: value for key, value in altered.items()
@@ -5831,11 +5848,11 @@ def test_quality_play_selector_preserves_forced_early_and_native_priority(monkey
     assert [kind for kind, _ in calls] == ["forced", "early", "native"]
 
 
-@pytest.mark.real_clock
 @pytest.mark.parametrize("case", ["generated", "recorded", "missing_policy", "invalid_policy", "suboptimal", "incomplete", "cancelled"])
 def test_observed_play_driver_owns_shared_budget_and_policy(root, monkeypatch, case):
     from baloot_platform.research import result_authority
     raw = _quality_budget_profile(root, maximumDepth=64, maximumHorizonActions=64,
+        maximumWallSeconds=10, maximumCpuSeconds=11,
         nativeObserved={"schemaVersion": 1, "maximumIterations": 1000, "maximumQueries": 41,
             "maximumObservations": 2000, "maximumBoundPrefixes": 2000,
             "maximumCachedPrefixesPerBranch": 2000})
@@ -5845,6 +5862,10 @@ def test_observed_play_driver_owns_shared_budget_and_policy(root, monkeypatch, c
         selected_action="HA" if case == "recorded" else None)
     normalized = SimpleNamespace(next_actor="south", legal_actions=[{"code": "H7"}, {"code": "HA"}])
     calls = []
+    # A clock base where (start + 10) - start rounds above the frozen allowance.
+    clock = [math.nextafter(16.0, 0.0)]
+    monkeypatch.setattr(executor_module, "time", SimpleNamespace(
+        monotonic=lambda: clock[0], process_time=lambda: clock[0]))
 
     class Native:
         def __init__(self, rules, *, native_cp_sat):
@@ -5852,6 +5873,7 @@ def test_observed_play_driver_owns_shared_budget_and_policy(root, monkeypatch, c
 
         def _solve_native_post_auction_policy_bounds(self, *args, **kwargs):
             calls.append(kwargs)
+            clock[0] += 2
             return {"status": "incomplete" if case == "incomplete" else "scoped_bound_converged",
                 "sha256": "native-test-bound",
                 "strategy": {"policy": {} if case == "missing_policy" else {"root": "invalid" if case == "invalid_policy" else "H7"},
@@ -5889,8 +5911,8 @@ def test_observed_play_driver_owns_shared_budget_and_policy(root, monkeypatch, c
         assert all(call["observed_play_bounds_version"] == 2
             and call["path_floor_version"] == 2 for call in calls)
         assert all(call["compact_public_ownership"] is True for call in calls)
-        if len(calls) > 1:
-            assert calls[1]["maximum_seconds"] <= calls[0]["maximum_seconds"]
+        assert all(call["maximum_seconds"] == 10 for call in calls)
+        assert [call["runtime_maximum_seconds"] for call in calls] == pytest.approx([10, 8][:len(calls)])
 
 
 @pytest.mark.real_clock
@@ -7172,7 +7194,6 @@ def test_observed_project_quality_admission_preserves_negative_audits(root, monk
                 assert calls == ["normalization"]
 
 
-@pytest.mark.real_clock
 @pytest.mark.parametrize("decision_count,resume_after_opening", [
     pytest.param(1, False, id="1"), pytest.param(2, False, id="2"),
     pytest.param(1, True, id="west-project"),
@@ -11184,11 +11205,14 @@ def test_process_cancellation_snapshot_does_not_wait_for_live_callback(monkeypat
     from baloot_platform.research.campaign_coordinator import (
         CampaignCancellationTokenV1, CampaignShardRequestV1,
     )
-    entered, released = (executor_module.threading.Event() for _ in range(2))
+    entered, released, finished = (executor_module.threading.Event() for _ in range(3))
     errors = []
     def progress(_payload):
         entered.set()
-        assert released.wait(2)
+        try:
+            assert released.wait(2)
+        finally:
+            finished.set()
     cancellation = CampaignCancellationTokenV1()
     shard = partition_research_shards(run_code="RUN-CALLBACK-CANCEL",
         run_hash=canonical_sha256("callback-pipe"), recipe_hash=canonical_sha256("callback-recipe"),
@@ -11213,10 +11237,9 @@ def test_process_cancellation_snapshot_does_not_wait_for_live_callback(monkeypat
     try:
         assert entered.wait(1)
         cancellation._cancel()
-        assert request.cancellation_acknowledgement.wait(0.25)
-        started = time.perf_counter()
+        assert request.cancellation_acknowledgement.wait(2)
         assert request.progress_snapshot()["currentStage"] == "playingQuality"
-        assert time.perf_counter() - started < 0.25
+        assert not finished.is_set()
     finally:
         released.set()
         worker.join(2)

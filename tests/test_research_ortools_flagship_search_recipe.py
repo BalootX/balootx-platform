@@ -417,9 +417,8 @@ def test_known_root_count_narrows_raw_score_probe_interval(
     ) == expected
 
 
-@pytest.mark.real_clock
 def test_legacy_exact_user_flagship_returns_named_structural_infeasibility_without_search(
-    rules,
+    rules, monkeypatch,
 ) -> None:
     scenario = _flagship_scenario()
     plan = TailFirstStagePlannerV1().plan(scenario)
@@ -429,7 +428,10 @@ def test_legacy_exact_user_flagship_returns_named_structural_infeasibility_witho
     assert plan.tail_offset == 20
     assert plan.tail_length == 12
 
-    started = time.perf_counter()
+    def forbid_search(*_args, **_kwargs):
+        pytest.fail("structural infeasibility must stop before planning search")
+
+    monkeypatch.setattr(TailFirstStagePlannerV1, "plan", forbid_search)
     executor = OrToolsUnifiedResearchExecutorV1(
         rules,
         bundle_revision_id="CBR-FLAGSHIP-SEARCH-TEST",
@@ -443,12 +445,9 @@ def test_legacy_exact_user_flagship_returns_named_structural_infeasibility_witho
         maximum_candidates=128,
         maximum_seconds=60,
     )
-    elapsed = time.perf_counter() - started
-
     assert result.status == "infeasible"
     assert result.candidate is None
     assert result.proof is None
-    assert elapsed < 1.0
     receipt = result.execution_receipt["structuralInfeasibility"]
     assert receipt["status"] == "exact_structural_infeasibility"
     assert receipt["stage"] == "preflight"

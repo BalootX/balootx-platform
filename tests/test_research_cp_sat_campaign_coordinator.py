@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -818,9 +819,22 @@ def test_cancellation_does_not_relabel_a_returned_variant_incomplete():
     assert not any(item.get("candidateStatus") == "incomplete" for item in live)
 
 
-@pytest.mark.real_clock
-def test_budget_exhaustion_preserves_completed_exact_variants():
+def test_budget_exhaustion_preserves_completed_exact_variants(monkeypatch):
+    from baloot_platform.research import campaign_coordinator
+
     shards = _shards(2)
+    clock = [0]
+    wait = campaign_coordinator.wait
+
+    def wait_then_expire(*args, **kwargs):
+        done, pending = wait(*args, **kwargs)
+        if done:
+            clock[0] = 100_000_000
+        return done, pending
+
+    monkeypatch.setattr(campaign_coordinator, "time", SimpleNamespace(
+        **{**vars(campaign_coordinator.time), "perf_counter_ns": lambda: clock[0]}))
+    monkeypatch.setattr(campaign_coordinator, "wait", wait_then_expire)
 
     def solver(request):
         if request.shard.shard_index == 0:
@@ -848,13 +862,14 @@ def test_acknowledgement_does_not_wait_for_solver_unwind():
     shards = _shards(1)
     cancellation = threading.Event()
     started = threading.Event()
+    release = threading.Event()
     finished = threading.Event()
 
     def solver(request):
         started.set()
         while not request.cancellation_requested():
             time.sleep(0.001)
-        time.sleep(0.350)
+        release.wait(2.0)
         finished.set()
         return CampaignShardOutcomeV1(())
 
@@ -862,17 +877,18 @@ def test_acknowledgement_does_not_wait_for_solver_unwind():
         target=lambda: (started.wait(1.0), cancellation.set())
     )
     trigger.start()
-    began = time.perf_counter()
-    receipt = DeterministicCpSatCampaignCoordinatorV1().run(
-        shards=shards,
-        solver=solver,
-        budget=_budget(results=1, workers=1, wall=2.0),
-        cancellation_event=cancellation,
-    )
-    elapsed = time.perf_counter() - began
-    trigger.join(timeout=1.0)
+    try:
+        receipt = DeterministicCpSatCampaignCoordinatorV1().run(
+            shards=shards,
+            solver=solver,
+            budget=_budget(results=1, workers=1, wall=2.0),
+            cancellation_event=cancellation,
+        )
+        assert not finished.is_set()
+    finally:
+        release.set()
+        trigger.join(timeout=1.0)
 
-    assert elapsed <= 0.250
     assert receipt.status == "cancelled"
     assert receipt.attempts[0].status == "cancelled"
     evidence = receipt.attempts[0].partial_evidence["cancellation"]
