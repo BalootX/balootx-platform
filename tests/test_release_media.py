@@ -465,6 +465,7 @@ def test_release_renderer_runs_every_governed_media_stage_in_order(monkeypatch) 
             "run",
             (
                 render_release.sys.executable,
+                "-P",
                 "scripts/verify_professional_video_prototypes.py",
             ),
             render_release.ROOT,
@@ -473,7 +474,7 @@ def test_release_renderer_runs_every_governed_media_stage_in_order(monkeypatch) 
         ),
         (
             "run",
-            (render_release.sys.executable, "scripts/verify_professional_flagship.py"),
+            (render_release.sys.executable, "-P", "scripts/verify_professional_flagship.py"),
             render_release.ROOT,
             None,
             None,
@@ -482,6 +483,7 @@ def test_release_renderer_runs_every_governed_media_stage_in_order(monkeypatch) 
             "run",
             (
                 render_release.sys.executable,
+                "-P",
                 "scripts/verify_professional_decision_clip.py",
             ),
             render_release.ROOT,
@@ -492,6 +494,7 @@ def test_release_renderer_runs_every_governed_media_stage_in_order(monkeypatch) 
             "run",
             (
                 render_release.sys.executable,
+                "-P",
                 "scripts/render_remotion_plugin_parity.py",
             ),
             render_release.ROOT,
@@ -502,6 +505,7 @@ def test_release_renderer_runs_every_governed_media_stage_in_order(monkeypatch) 
             "run",
             (
                 render_release.sys.executable,
+                "-P",
                 "scripts/verify_remotion_plugin_parity.py",
             ),
             render_release.ROOT,
@@ -512,6 +516,7 @@ def test_release_renderer_runs_every_governed_media_stage_in_order(monkeypatch) 
             "run",
             (
                 render_release.sys.executable,
+                "-P",
                 "scripts/generate_scene_preview.py",
                 "--refresh",
             ),
@@ -632,8 +637,9 @@ def test_release_run_preserves_failed_child_diagnostics(tmp_path: Path) -> None:
 
 def test_release_renderer_help_never_starts_a_render() -> None:
     result = subprocess.run(
-        [render_release.sys.executable, "scripts/render_release.py", "--help"],
+        [render_release.sys.executable, "-P", "scripts/render_release.py", "--help"],
         cwd=ROOT,
+        env={**os.environ, "PYTHONPATH": ""},
         capture_output=True,
         text=True,
         timeout=30,
@@ -642,6 +648,22 @@ def test_release_renderer_help_never_starts_a_render() -> None:
     assert result.returncode == 0, result.stderr
     assert "Render and verify" in result.stdout
     assert "outputs/professional-video" not in result.stdout
+
+
+def test_research_notice_launches_in_safe_path_mode(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.setattr(render_release, "ROOT", tmp_path)
+    monkeypatch.setattr(render_release, "_new_render_evidence_dir", lambda: tmp_path)
+    monkeypatch.setattr(render_release, "release_render_lock", nullcontext)
+    calls = []
+    monkeypatch.setattr(render_release, "_run", lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    render_release.main(research_notice=True)
+
+    assert len(calls) == 1
+    (command,), options = calls[0]
+    assert command == [render_release.sys.executable, "-B", "-P", "-m", "scripts.render_research_notice"]
+    assert options["environment"]["PYTHONPATH"].split(os.pathsep) == [str(tmp_path), str(tmp_path / "src")]
 
 
 def test_release_render_timeout_is_configurable_and_bounded(monkeypatch) -> None:
