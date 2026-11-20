@@ -238,7 +238,7 @@ jobs:
         run: |
           cd "$RUNNER_TEMP/ffmpeg-debs"
           sha256sum --check --strict "$GITHUB_WORKSPACE/.github/ffmpeg/noble-amd64.sha256"
-      - if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: *ffmpeg-cache
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

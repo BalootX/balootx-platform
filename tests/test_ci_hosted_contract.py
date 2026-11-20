@@ -17,12 +17,16 @@ def test_hosted_ci_contract(root):
     assert workflow["permissions"] == {"contents": "read"}
     assert workflow["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
     jobs = workflow["jobs"]
-    for job in jobs.values():
+    main_push = "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
+    for name, job in jobs.items():
         assert job["runs-on"] == "ubuntu-24.04"
         assert job["timeout-minutes"] > 0
         for step in job["steps"]:
             if "uses" in step:
                 assert re.fullmatch(r"[0-9a-f]{40}", step["uses"].rsplit("@", 1)[-1])
+                if step["uses"].startswith(("actions/cache/save@", "actions/cache@")):
+                    condition = step.get("if") or ""
+                    assert condition.startswith(main_push) and "||" not in condition, name
             assert not step.get("continue-on-error")
     assert jobs["ci-gate"]["name"] == "${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'CI result' }}"
     assert jobs["plan"]["if"] == "github.event_name != 'pull_request' || !github.event.pull_request.draft"
