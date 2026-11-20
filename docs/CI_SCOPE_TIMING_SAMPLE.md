@@ -1,1 +1,0 @@
-# Scoped CI timing sample

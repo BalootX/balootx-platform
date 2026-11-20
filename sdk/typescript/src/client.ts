@@ -267,3 +267,4 @@ export class BalootClient {
     if(buffered.startsWith('data: '))yield JSON.parse(buffered.slice(6)) as ObjectJson;
   }
 }
+// Scoped CI SDK timing sample.
