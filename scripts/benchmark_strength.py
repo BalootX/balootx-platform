@@ -12,6 +12,7 @@ import platform
 import re
 import statistics
 import subprocess
+import sys
 import time
 from typing import Any
 
@@ -37,9 +38,6 @@ from baloot_platform.filesystem import atomic_write_text
 
 DEFAULT_CANDIDATES = Path(
     "private-inputs/strength-candidates.jsonl"
-)
-DEFAULT_TRUSTED = Path(
-    ".release-runtime/strength-holdout/trusted-replay-recipes.json"
 )
 DEFAULT_EXACT = Path(
     ".release-runtime/strength-holdout/exact-labels.json"
@@ -397,6 +395,11 @@ def source_manifest_identity(path: Path) -> tuple[str, str]:
 
 
 def main() -> None:
+    repo = str(Path(__file__).resolve().parents[1])
+    if repo not in sys.path:
+        sys.path.insert(0, repo)
+    from scripts.generate_holdout_candidates import load_replay_recipes
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--candidates", type=Path, required=True)
     parser.add_argument("--trusted", type=Path)
@@ -429,15 +432,10 @@ def main() -> None:
     else:
         source_revision, source_tree = git_identity(root, output)
         workspace_manifest_sha256 = None
+    candidates = load_candidate_jsonl(args.candidates or root / DEFAULT_CANDIDATES)
     result = run_preanalysis(
-        load_candidate_jsonl(
-            args.candidates or root / DEFAULT_CANDIDATES
-        ),
-        json.loads(
-            (args.trusted or root / DEFAULT_TRUSTED).read_text(
-                encoding="utf-8"
-            )
-        ),
+        candidates,
+        load_replay_recipes(candidates, root=root, path=args.trusted),
         json.loads(
             (args.exact_labels or root / DEFAULT_EXACT).read_text(
                 encoding="utf-8"

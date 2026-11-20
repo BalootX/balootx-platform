@@ -22,7 +22,7 @@ if str(SOURCE) not in sys.path:
     sys.path.insert(0, str(SOURCE))
 
 from baloot_platform.config import build_bundle, platform_root
-from baloot_platform.benchmark import benchmark_configuration_sha256
+from baloot_platform.benchmark import benchmark_configuration_sha256, validate_trusted_sidecar
 from baloot_platform.core.auction_ir import AuctionDomainIRV1
 from baloot_platform.core.bidding_machine import BiddingMachine
 from baloot_platform.core.bots import BotProfile, HeuristicBot
@@ -32,9 +32,10 @@ from baloot_platform.version import __version__
 
 
 OUTPUT = Path("tests/fixtures/synthetic-candidates.jsonl")
-TRUSTED_OUTPUT = Path(
+DEFAULT_TRUSTED = Path(
     ".release-runtime/strength-holdout/trusted-replay-recipes.json"
 )
+SYNTHETIC_PURPOSE = "independent_synthetic_test_fixture_not_holdout_evidence"
 ARCHETYPES = (
     "bidding",
     "opening_lead",
@@ -380,7 +381,7 @@ def generate_artifacts(
         "configurationSha256": configuration_sha256,
         "perArchetype": per_archetype,
         "candidateCount": len(positions),
-        "purpose": "independent_synthetic_test_fixture_not_holdout_evidence",
+        "purpose": SYNTHETIC_PURPOSE,
         "archetypes": list(ARCHETYPES),
         "labelStatus": "pending_governed_adjudication",
         "positions": positions,
@@ -415,6 +416,27 @@ def generate(
     return public
 
 
+def load_replay_recipes(
+    candidates: dict[str, Any], *, root: Path, path: Path | None = None,
+) -> dict[str, Any]:
+    """Use supplied governed recipes or reconstruct matching synthetic recipes in memory."""
+    if path is not None:
+        return json.loads(path.read_text(encoding="utf-8"))
+    legacy_path = root / DEFAULT_TRUSTED
+    if candidates.get("purpose") != SYNTHETIC_PURPOSE:
+        return json.loads(legacy_path.read_text(encoding="utf-8"))
+    per_archetype = candidates.get("perArchetype")
+    if (
+        type(per_archetype) is not int
+        or per_archetype < 1
+        or per_archetype * len(ARCHETYPES) != len(candidates["positions"])
+    ):
+        raise ValueError("invalid synthetic holdout archetype count")
+    _, recipes = generate_artifacts(per_archetype=per_archetype, root=root)
+    validate_trusted_sidecar(candidates, recipes)
+    return recipes
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
@@ -422,37 +444,13 @@ def main() -> None:
     args = parser.parse_args()
     root = platform_root()
     output = root / OUTPUT
-    public, trusted = generate_artifacts(
-        per_archetype=args.per_archetype,
-        root=root,
-    )
-    text = serialize_public(public)
-    trusted_text = json.dumps(
-        trusted,
-        ensure_ascii=False,
-        indent=2,
-        sort_keys=True,
-    ) + "\n"
-    trusted_output = root / TRUSTED_OUTPUT
+    text = serialize_public(generate(per_archetype=args.per_archetype, root=root))
     if args.check:
         if not output.exists() or output.read_text(encoding="utf-8") != text:
             raise SystemExit("holdout candidate corpus is stale")
-        if (
-            not trusted_output.exists()
-            or trusted_output.read_text(encoding="utf-8")
-            != trusted_text
-        ):
-            raise SystemExit("trusted replay sidecar is stale")
         return
-    trusted_output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(text, encoding="utf-8", newline="\n")
-    trusted_output.write_text(
-        trusted_text,
-        encoding="utf-8",
-        newline="\n",
-    )
     print(output)
-    print(trusted_output)
 
 
 if __name__ == "__main__":

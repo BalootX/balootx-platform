@@ -3,6 +3,9 @@ from __future__ import annotations
 import importlib.util
 from dataclasses import replace
 from pathlib import Path
+import sys
+
+import pytest
 
 from baloot_platform.benchmark import benchmark_configuration_sha256
 from baloot_platform.config import build_bundle
@@ -119,3 +122,32 @@ def test_checked_in_synthetic_fixture_is_complete_and_reproducible(
     assert len(
         {item["dealHash"] for item in stored["positions"]}
     ) == 9
+
+
+def test_holdout_cli_writes_only_observer_safe_candidates(
+    root: Path, tmp_path: Path, monkeypatch, capsys,
+):
+    module = _module(root)
+    output = tmp_path / "candidates.jsonl"
+    recipe_path = tmp_path / "private" / "replay-recipes.json"
+    monkeypatch.setattr(module, "platform_root", lambda: root)
+    monkeypatch.setattr(module, "OUTPUT", output)
+    monkeypatch.setattr(module, "DEFAULT_TRUSTED", recipe_path)
+    monkeypatch.setattr(sys, "argv", ["generate_holdout_candidates.py"])
+
+    module.main()
+
+    assert capsys.readouterr().out.splitlines() == [str(output)]
+    assert list(tmp_path.iterdir()) == [output]
+    candidates = module.load_public(output)
+    assert '"seed":' not in output.read_text(encoding="utf-8")
+    recipes = module.load_replay_recipes(candidates, root=root)
+    assert recipes["recipeCount"] == candidates["candidateCount"]
+    assert recipes["datasetSha256"] == candidates["datasetSha256"]
+    with pytest.raises(ValueError, match="datasetSha256 mismatch"):
+        module.load_replay_recipes({**candidates, "datasetSha256": "0" * 64}, root=root)
+
+    monkeypatch.setattr(sys, "argv", ["generate_holdout_candidates.py", "--check"])
+    module.main()
+    assert capsys.readouterr().out == ""
+    assert list(tmp_path.iterdir()) == [output]

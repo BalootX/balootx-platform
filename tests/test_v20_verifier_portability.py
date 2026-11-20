@@ -233,3 +233,35 @@ def test_test_lane_parser_accepts_success_summaries_with_metadata(
     lanes = _load_test_lanes()
 
     assert lanes.SUMMARY_RE.search(summary)
+
+
+@pytest.mark.parametrize("version", (17, 18, 19, 20))
+def test_release_studio_checks_parse_script_elements(version, tmp_path, monkeypatch):
+    path = ROOT / f"scripts/verify_release_v{version}.py"
+    spec = importlib.util.spec_from_file_location(f"verifier_{version}", path)
+    assert spec is not None and spec.loader is not None
+    verifier = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(verifier)
+    monkeypatch.setattr(verifier, "ROOT", tmp_path)
+
+    static = tmp_path / "src/baloot_platform/service/static"
+    static.mkdir(parents=True)
+    page = static / "fixture.html"
+    page.write_text(
+        '<!-- <script>ignored</script> -->'
+        '<SCRIPT data-label="a>b">const first = 1 < 2 && 3 > 2;</SCRIPT >'
+        '<script>const second = "&amp;";</script>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        verifier, "run",
+        lambda _name, command: Path(command[-1]).read_text(encoding="utf-8"),
+    )
+    assert verifier.studio_js_checks() == [
+        "const first = 1 < 2 && 3 > 2;",
+        'const second = "&amp;";',
+    ]
+
+    page.write_text("<script>const incomplete = true;", encoding="utf-8")
+    with pytest.raises(ValueError, match="unterminated script element"):
+        verifier.studio_js_checks()

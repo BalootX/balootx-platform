@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any
 
 ROOT=Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from scripts.release_html import script_blocks
 VERSION=str(tomllib.loads((ROOT/'pyproject.toml').read_text(encoding='utf-8'))['project']['version'])
 BASENAME='baloot-platform-v19-premium-outcome-flip'
 REPORT=ROOT/'release/verification-report-v19.json'
@@ -110,7 +113,7 @@ print(json.dumps({'tools':len(names),'resources':len(uris),'http':reply.status_c
 def studio_js_checks()->list[dict[str,Any]]:
     out=[]; directory=ROOT/'release/studio-js-v19'; shutil.rmtree(directory,ignore_errors=True); directory.mkdir(parents=True)
     for html in sorted((ROOT/'src/baloot_platform/service/static').rglob('*.html')):
-        blocks=re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>',html.read_text(encoding='utf-8'),flags=re.S|re.I)
+        blocks=script_blocks(html.read_text(encoding='utf-8'))
         for i,block in enumerate(blocks):
             safe='-'.join(html.relative_to(ROOT/'src/baloot_platform/service/static').with_suffix('').parts); path=directory/f'{safe}-{i}.js'; path.write_text(block,encoding='utf-8')
             out.append(run(f'js-{html.stem}-{i}',['node','--check',str(path)]))

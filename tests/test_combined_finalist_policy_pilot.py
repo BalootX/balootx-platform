@@ -1122,6 +1122,24 @@ def test_top_level_finalist_supervisor_writes_timeout_evidence(
 
     def fake_popen(command, **_kwargs):
         commands.append(list(command))
+        runtime = Path(command[command.index("--_supervised-runtime") + 1])
+        progress = Path(command[command.index("--_supervision-progress") + 1])
+        launch_id = command[command.index("--_supervision-launch-id") + 1]
+        token = _kwargs["env"][combined_pilot._FINALIST_SUPERVISION_ENV]
+        marker = (runtime / combined_pilot._FINALIST_SUPERVISION_MARKER).read_text(encoding="utf-8")
+        assert token not in marker
+        assert token not in command
+        worker = SimpleNamespace(
+            _finalist_worker=True,
+            _supervised_runtime=runtime,
+            _supervision_progress=progress,
+            _supervision_token=token,
+            _supervision_launch_id=launch_id,
+        )
+        assert combined_pilot._validated_supervised_runtime(worker) == (runtime, progress, launch_id)
+        worker._supervision_token = "different"
+        with pytest.raises(ValueError, match="invalid finalist campaign supervision token"):
+            combined_pilot._validated_supervised_runtime(worker)
         return ExitedWorker()
 
     def fake_supervise(*_args, **_kwargs):
@@ -2172,30 +2190,30 @@ def test_rehashed_worker_state_authority_source_and_exit_forgeries_fail_closed(
         maximum_seed_seconds=120.0,
     )
     launch_id = "tamper-launch"
-    trusted = _complete_worker_evidence(args, launch_id=launch_id)
-    trusted_control = copy.deepcopy(trusted["controlPlane"])
-    trusted_source = copy.deepcopy(trusted["sourceFingerprintStart"])
+    baseline_receipt = _complete_worker_evidence(args, launch_id=launch_id)
+    trusted_control = copy.deepcopy(baseline_receipt["controlPlane"])
+    trusted_source = copy.deepcopy(baseline_receipt["sourceFingerprintStart"])
 
     cases: list[dict] = []
-    qualified_without_candidate = copy.deepcopy(trusted)
+    qualified_without_candidate = copy.deepcopy(baseline_receipt)
     qualified_without_candidate.update({
         "status": "qualified",
         "stopReason": "qualified_candidate",
     })
     cases.append(_rehash_receipt(qualified_without_candidate))
 
-    source_rewrite = copy.deepcopy(trusted)
+    source_rewrite = copy.deepcopy(baseline_receipt)
     source_rewrite["sourceFingerprintEnd"]["sha256"] = "b" * 64
     source_rewrite["sourceFrozen"] = False
     cases.append(_rehash_receipt(source_rewrite))
 
-    identity_rewrite = copy.deepcopy(trusted)
+    identity_rewrite = copy.deepcopy(baseline_receipt)
     identity_rewrite["controlPlane"]["analysisAuthorities"]["primary"][
         "analysisIdentityHash"
     ] = "f" * 64
     cases.append(_rehash_receipt(identity_rewrite))
 
-    configuration_rewrite = copy.deepcopy(trusted)
+    configuration_rewrite = copy.deepcopy(baseline_receipt)
     configuration = configuration_rewrite["controlPlane"][
         "configurationAuthority"
     ]
@@ -2224,7 +2242,7 @@ def test_rehashed_worker_state_authority_source_and_exit_forgeries_fail_closed(
                 parent_source_end=trusted_source,
             )
 
-    combined_pilot._atomic_write_json(output, trusted)
+    combined_pilot._atomic_write_json(output, baseline_receipt)
     with pytest.raises(RuntimeError, match="evidence is incomplete"):
         _validate_worker_fixture(
             output,
@@ -2313,7 +2331,7 @@ def test_rehashed_candidate_outcome_cohort_budget_role_and_seed_tampering_fails(
         maximum_seed_seconds=120.0,
     )
     launch_id = "qualified-tamper-launch"
-    trusted = _qualified_worker_evidence(
+    baseline_receipt = _qualified_worker_evidence(
         _complete_worker_evidence(args, launch_id=launch_id)
     )
     combined_pilot._validated_candidate_receipt(
@@ -2331,38 +2349,38 @@ def test_rehashed_candidate_outcome_cohort_budget_role_and_seed_tampering_fails(
             "wallSeconds": 0.01,
             "cpuSeconds": 0.01,
         },
-        agreement_descriptor=trusted["controlPlane"][
+        agreement_descriptor=baseline_receipt["controlPlane"][
             "finalistAgreementDescriptor"
         ],
-        agreement_profile_hash=trusted["controlPlane"][
+        agreement_profile_hash=baseline_receipt["controlPlane"][
             "finalistAgreementProfileHash"
         ],
-        authorities=trusted["controlPlane"]["analysisAuthorities"],
+        authorities=baseline_receipt["controlPlane"]["analysisAuthorities"],
         binding_authority={
-            "researchContextHash": trusted["controlPlane"]["contextHash"],
-            "rulesHash": trusted["controlPlane"]["configurationAuthority"][
+            "researchContextHash": baseline_receipt["controlPlane"]["contextHash"],
+            "rulesHash": baseline_receipt["controlPlane"]["configurationAuthority"][
                 "identities"
             ]["rules"]["sha256"],
-            "analysisBackend": trusted["controlPlane"][
+            "analysisBackend": baseline_receipt["controlPlane"][
                 "searchBackendRuntime"
             ]["backendId"],
         },
     )
-    combined_pilot._atomic_write_json(output, trusted)
+    combined_pilot._atomic_write_json(output, baseline_receipt)
     assert _validate_worker_fixture(
         output,
         args=args,
         launch_id=launch_id,
-        expected_control_plane=trusted["controlPlane"],
-    ) == trusted
+        expected_control_plane=baseline_receipt["controlPlane"],
+    ) == baseline_receipt
 
     cases = []
-    gate_tamper = copy.deepcopy(trusted)
+    gate_tamper = copy.deepcopy(baseline_receipt)
     gate_tamper["candidateResults"][0]["gates"]["exactContract"] = False
     _rehash_candidate(gate_tamper)
     cases.append(gate_tamper)
 
-    cohort_tamper = copy.deepcopy(trusted)
+    cohort_tamper = copy.deepcopy(baseline_receipt)
     decision = cohort_tamper["candidateResults"][0]["policyEvidence"][
         "plays"
     ][0]
@@ -2376,7 +2394,7 @@ def test_rehashed_candidate_outcome_cohort_budget_role_and_seed_tampering_fails(
     _rehash_candidate(cohort_tamper)
     cases.append(cohort_tamper)
 
-    budget_role_tamper = copy.deepcopy(trusted)
+    budget_role_tamper = copy.deepcopy(baseline_receipt)
     cohort = budget_role_tamper["candidateResults"][0]["policyEvidence"][
         "plays"
     ][0]["cohortSupport"][1]
@@ -2389,7 +2407,7 @@ def test_rehashed_candidate_outcome_cohort_budget_role_and_seed_tampering_fails(
     _rehash_candidate(budget_role_tamper)
     cases.append(budget_role_tamper)
 
-    seed_tamper = copy.deepcopy(trusted)
+    seed_tamper = copy.deepcopy(baseline_receipt)
     seed_tamper["candidateResults"][0]["policyEvidence"]["plays"][0][
         "cohortSupport"
     ][2]["seed"] += 1
@@ -2407,8 +2425,8 @@ def test_rehashed_candidate_outcome_cohort_budget_role_and_seed_tampering_fails(
                 output,
                 args=args,
                 launch_id=launch_id,
-                expected_control_plane=trusted["controlPlane"],
-                authoritative_control_plane=trusted["controlPlane"],
+                expected_control_plane=baseline_receipt["controlPlane"],
+                authoritative_control_plane=baseline_receipt["controlPlane"],
             )
 
 
@@ -2428,18 +2446,18 @@ def test_fully_rehashed_candidate_decision_binding_forgeries_fail_closed(
         maximum_seed_seconds=120.0,
     )
     launch_id = "decision-binding-tamper-launch"
-    trusted = _qualified_worker_evidence(
+    baseline_receipt = _qualified_worker_evidence(
         _complete_worker_evidence(args, launch_id=launch_id)
     )
-    control = trusted["controlPlane"]
-    combined_pilot._atomic_write_json(output, trusted)
+    control = baseline_receipt["controlPlane"]
+    combined_pilot._atomic_write_json(output, baseline_receipt)
     assert _validate_worker_fixture(
         output,
         args=args,
         launch_id=launch_id,
         expected_control_plane=control,
         authoritative_control_plane=control,
-    ) == trusted
+    ) == baseline_receipt
 
     def reseal(payload: dict) -> dict:
         candidate = payload["candidateResults"][0]
@@ -2457,7 +2475,7 @@ def test_fully_rehashed_candidate_decision_binding_forgeries_fail_closed(
 
     cases: list[dict] = []
 
-    prefix_actor = copy.deepcopy(trusted)
+    prefix_actor = copy.deepcopy(baseline_receipt)
     row = prefix_actor["candidateResults"][0]["policyEvidence"]["plays"][0]
     row["publicPrefixHash"] = "0" * 64
     row["actingSeat"] = "north"
@@ -2475,7 +2493,7 @@ def test_fully_rehashed_candidate_decision_binding_forgeries_fail_closed(
         )
     cases.append(reseal(prefix_actor))
 
-    selected_action = copy.deepcopy(trusted)
+    selected_action = copy.deepcopy(baseline_receipt)
     candidate = selected_action["candidateResults"][0]
     row = candidate["policyEvidence"]["plays"][0]
     row["selectedAction"] = {"code": "S7"}
@@ -2500,7 +2518,7 @@ def test_fully_rehashed_candidate_decision_binding_forgeries_fail_closed(
     parity_row["auditRowsHash"] = rows_hash
     cases.append(reseal(selected_action))
 
-    rules = copy.deepcopy(trusted)
+    rules = copy.deepcopy(baseline_receipt)
     candidate = rules["candidateResults"][0]
     candidate["rulesHash"] = "0" * 64
     policy = candidate["policyEvidence"]
@@ -2509,17 +2527,17 @@ def test_fully_rehashed_candidate_decision_binding_forgeries_fail_closed(
         row["rulesHash"] = candidate["rulesHash"]
     cases.append(reseal(rules))
 
-    legal = copy.deepcopy(trusted)
+    legal = copy.deepcopy(baseline_receipt)
     legal["candidateResults"][0]["policyEvidence"]["plays"][0][
         "legalActionSetHash"
     ] = "0" * 64
     cases.append(reseal(legal))
 
-    order = copy.deepcopy(trusted)
+    order = copy.deepcopy(baseline_receipt)
     order["candidateResults"][0]["policyEvidence"]["plays"].reverse()
     cases.append(reseal(order))
 
-    kind = copy.deepcopy(trusted)
+    kind = copy.deepcopy(baseline_receipt)
     candidate = kind["candidateResults"][0]
     candidate["policyEvidence"]["plays"][0]["decisionKind"] = "bid"
     candidate["decisionScoreParity"]["decisions"][0][
@@ -2527,13 +2545,13 @@ def test_fully_rehashed_candidate_decision_binding_forgeries_fail_closed(
     ] = "bid"
     cases.append(reseal(kind))
 
-    ordinal = copy.deepcopy(trusted)
+    ordinal = copy.deepcopy(baseline_receipt)
     candidate = ordinal["candidateResults"][0]
     candidate["policyEvidence"]["plays"][0]["ordinal"] = 3
     candidate["decisionScoreParity"]["decisions"][0]["ordinal"] = 3
     cases.append(reseal(ordinal))
 
-    forced = copy.deepcopy(trusted)
+    forced = copy.deepcopy(baseline_receipt)
     candidate = forced["candidateResults"][0]
     forced_row = candidate["policyEvidence"]["forcedDecisions"][0]
     forced_row["selectedAction"] = {"code": "D8"}
@@ -4032,8 +4050,8 @@ def test_completed_seed_disarms_deadline_before_final_evidence(
     combined_pilot._atomic_write_json(
         runtime / combined_pilot._FINALIST_SUPERVISION_MARKER,
         {
-            "schemaVersion": 1,
-            "token": token,
+            "schemaVersion": 2,
+            "tokenDigest": combined_pilot._supervision_token_digest(token, launch_id),
             "launchId": launch_id,
         },
     )
@@ -4274,8 +4292,8 @@ def test_supervised_worker_leaves_parent_owned_runtime_while_progress_reader_ope
     combined_pilot._atomic_write_json(
         runtime / combined_pilot._FINALIST_SUPERVISION_MARKER,
         {
-            "schemaVersion": 1,
-            "token": token,
+            "schemaVersion": 2,
+            "tokenDigest": combined_pilot._supervision_token_digest(token, launch_id),
             "launchId": launch_id,
         },
     )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -264,6 +265,7 @@ _OUTPUT_FORBIDDEN_SOURCE_DIRECTORIES = (
 )
 _FINALIST_RUNTIME_PREFIX = "baloot-finalist-campaign-"
 _FINALIST_SUPERVISION_MARKER = ".balootx-finalist-supervision"
+_FINALIST_SUPERVISION_ENV = "BALOOT_FINALIST_SUPERVISION_TOKEN"
 _FINALIST_SUPERVISION_POLL_SECONDS = 0.05
 _FINALIST_PROCESS_TERMINATION_WAIT_SECONDS = 5.0
 _FINALIST_EVIDENCE_FINALIZATION_RESERVE_SECONDS = 5.0
@@ -362,6 +364,10 @@ def _seed_result_deadline_update(
     }
 
 
+def _supervision_token_digest(token: str, launch_id: str) -> str:
+    return hmac.digest(token.encode(), launch_id.encode(), "sha256").hex()
+
+
 def _validated_supervised_runtime(
     args: argparse.Namespace,
 ) -> tuple[Path, Path, str] | None:
@@ -401,10 +407,14 @@ def _validated_supervised_runtime(
         declared = json.loads(marker.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         raise ValueError("missing finalist campaign supervision marker") from exc
-    if not isinstance(declared, dict) or not secrets.compare_digest(
-        str(declared.get("token") or ""), token
-    ) or not secrets.compare_digest(
-        str(declared.get("launchId") or ""), launch_id
+    if (
+        not isinstance(declared, dict)
+        or declared.get("schemaVersion") != 2
+        or declared.get("launchId") != launch_id
+        or not secrets.compare_digest(
+            str(declared.get("tokenDigest") or "").encode(),
+            _supervision_token_digest(token, launch_id).encode(),
+        )
     ):
         raise ValueError("invalid finalist campaign supervision token")
     return runtime, progress, launch_id
@@ -415,7 +425,6 @@ def _finalist_worker_command(
     *,
     runtime: Path,
     progress: Path,
-    token: str,
     launch_id: str,
 ) -> list[str]:
     return [
@@ -447,8 +456,6 @@ def _finalist_worker_command(
         str(runtime),
         "--_supervision-progress",
         str(progress),
-        "--_supervision-token",
-        token,
         "--_supervision-launch-id",
         launch_id,
     ]
@@ -3032,21 +3039,23 @@ def _run_finalist_campaign_supervised(args: argparse.Namespace) -> int:
     worker_output = runtime / "worker-evidence.json"
     token = secrets.token_hex(32)
     launch_id = secrets.token_hex(16)
-    _atomic_write_json(runtime / _FINALIST_SUPERVISION_MARKER, {
-        "schemaVersion": 1,
-        "token": token,
-        "launchId": launch_id,
-    })
     cleanup_failure: dict[str, Any] | None = None
     try:
+        _atomic_write_json(runtime / _FINALIST_SUPERVISION_MARKER, {
+            "schemaVersion": 2,
+            "tokenDigest": _supervision_token_digest(token, launch_id),
+            "launchId": launch_id,
+        })
         command = _finalist_worker_command(
             args,
             runtime=runtime,
             progress=progress_path,
-            token=token,
             launch_id=launch_id,
         )
-        popen_options: dict[str, Any] = {"cwd": str(root)}
+        popen_options: dict[str, Any] = {
+            "cwd": str(root),
+            "env": {**os.environ, _FINALIST_SUPERVISION_ENV: token},
+        }
         if os.name == "nt":
             popen_options["creationflags"] = (
                 getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -5100,14 +5109,12 @@ def main() -> int:
         help=argparse.SUPPRESS,
     )
     parser.add_argument(
-        "--_supervision-token",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
         "--_supervision-launch-id",
         help=argparse.SUPPRESS,
     )
     args = parser.parse_args()
+    if args._finalist_worker:
+        args._supervision_token = os.environ.pop(_FINALIST_SUPERVISION_ENV, None)
     if args.qualification_profile is not None:
         _require_qualification_profile(str(args.qualification_profile))
         return _run_finalist_campaign_supervised(args)

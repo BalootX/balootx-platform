@@ -16,6 +16,7 @@ from typing import Any
 from baloot_platform.audit import build_video_audit_map
 from baloot_platform.analysis.search_errors import SearchTimeBudgetExceeded
 from baloot_platform.config import data_root, platform_root
+from baloot_platform.service.client_identity import service_client_identity
 from baloot_platform.version import __version__
 
 ROOT = platform_root()
@@ -94,12 +95,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         if identity is not None:
             return identity
         await _require_api(context)
-        from baloot_platform.identity import Identity
-        subject_id = metadata.get("x-baloot-subject-id", "").strip()
-        if not subject_id:
-            import hashlib
-            subject_id = "SVC-" + hashlib.sha256(metadata.get("x-api-key", "").encode()).hexdigest()[:20].upper()
-        return Identity(subject_id, "service", metadata.get("x-baloot-subject-name", "gRPC Client")[:40], None, True, None)
+        return service_client_identity(metadata, "gRPC Client")
 
     async def _require_private_decision(context, decision_id: str) -> dict[str, Any]:
         decision = LEARNING_STORE.get_decision(decision_id)
