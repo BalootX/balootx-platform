@@ -3973,7 +3973,7 @@ def resolve_quality_escalation_opportunity_v1(
             raise InformationSetCompilationStopped("cancelled", stage="escalation_quality")
         if cpu_deadline != math.inf and time.process_time() >= cpu_deadline:
             raise InformationSetCompilationStopped("maximum_cpu_seconds", stage="escalation_quality")
-        value = deadline - time.monotonic()
+        value = min(runtime_seconds, deadline - time.monotonic())
         if value <= 0:
             raise InformationSetCompilationStopped("maximum_seconds", stage="escalation_quality")
         return value
@@ -4007,6 +4007,7 @@ def resolve_quality_escalation_opportunity_v1(
             raise ValueError("acting seat has no remaining private opportunity")
         non_announcements = tuple(opportunity["nonAnnouncingSeats"])
     if budget is not None:
+        runtime_seconds = min(runtime_seconds, budget.maximum_wall_seconds)
         deadline = min(deadline, time.monotonic() + budget.maximum_wall_seconds)
         cpu_deadline = time.process_time() + budget.maximum_cpu_seconds
     proof_cancel_check = stopped if budget is not None else cancel_check
