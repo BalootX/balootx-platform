@@ -59,6 +59,7 @@
 /tests/.pytest.ini @BalootX/maintainers
 /tests/pytest.toml @BalootX/maintainers
 /tests/.pytest.toml @BalootX/maintainers
+/tests/pyproject.toml @BalootX/maintainers
 /tests/setup.cfg @BalootX/maintainers
 /tests/tox.ini @BalootX/maintainers
 /tests/deterministic_work.py @BalootX/maintainers

@@ -1,4 +1,5 @@
 """Hosted workflow policy and its fail-closed producer contract."""
+import ast
 from importlib.machinery import BYTECODE_SUFFIXES, EXTENSION_SUFFIXES
 import json
 import re
@@ -34,7 +35,7 @@ def test_codeowners_covers_hosted_ci_and_release_controls(root, codeowners_rules
         "/*.pyw", "/src/*.pyw", "/*/__init__.pyw", "/src/*/__init__.pyw",
         "/__pycache__/", "/src/__pycache__/", "/*/__pycache__/", "/src/*/__pycache__/", "/src/scripts/",
         "/*.pth", "/src/*.pth", "/pytest.ini", "/.pytest.ini", "/pytest.toml", "/.pytest.toml",
-        "/setup.cfg", "/tox.ini", "/tests/setup.cfg", "/tests/tox.ini",
+        "/setup.cfg", "/tox.ini", "/tests/setup.cfg", "/tests/tox.ini", "/tests/pyproject.toml",
         "/tests/pytest.ini", "/tests/.pytest.ini", "/tests/pytest.toml", "/tests/.pytest.toml",
         "/tests/deterministic_work.py", "/tests/conftest/", "/tests/deterministic_work/",
         "/tests/test_ci_hosted_contract/", "/tests/test_repository_structure/", "/tests/test_media_render_artifact/",
@@ -80,6 +81,17 @@ def test_codeowners_matches_gate_import_package_and_non_source_shadows(tmp_path,
         capture_output=True, check=True, timeout=10,
     )
     assert result.stdout.decode().split("\0") == [*paths, ""]
+
+
+def test_ci_shard_verifiers_use_python_safe_path(root):
+    source = ast.parse((root / "scripts/render_release.py").read_bytes())
+    shard = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == "render_ci_shard")
+    commands = [
+        node.elts for node in ast.walk(shard)
+        if isinstance(node, ast.List) and node.elts and ast.unparse(node.elts[0]) == "sys.executable"
+    ]
+    assert len(commands) == 3
+    assert all(len(command) >= 3 and ast.unparse(command[1]) == "'-P'" for command in commands)
 
 
 def test_hosted_ci_contract(root):

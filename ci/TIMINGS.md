@@ -24,3 +24,5 @@ The replacement figures come from [run 44170428047](https://github.com/BalootX/b
 Use the next exact-head run to recalculate this table. Compare job durations, queue time and per-job CPU use before adding shards. The repository cache budget is 10 GB. Each key has one producer that saves on main pushes, while PR and shard jobs restore.
 
 Report scoped PR timings by change type. A docs-only run exercises the smoke path, while SDK and Foundry runs exercise their named producers and the Python 3.12 and 3.13 affected-test jobs. Record the full fallback separately because workflow changes select it.
+
+CODEOWNERS protects the CI control plane, including the gate, plan, coverage guard, launchers, and their startup and import paths. Media and release verifiers are product checks reviewed with the product. Existing ownership of verifier scripts governs review of changes to those files.
