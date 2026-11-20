@@ -125,4 +125,3 @@ def test_invalid_inputs_fail_closed(
 
 def test_seat_enum_has_the_same_canonical_identity_as_its_name() -> None:
     assert _seed(acting_seat=Seat.NORTH) == _seed(acting_seat="north")
-# Scoped CI Python timing sample.
