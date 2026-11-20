@@ -89,13 +89,11 @@ async def serve() -> None:  # pragma: no cover - optional runtime
     def _metadata(context) -> dict[str, str]:
         return {str(item.key).lower(): str(item.value) for item in context.invocation_metadata()}
 
-    def _api_key_allowed(metadata: dict[str, str], configured: str | None) -> bool:
-        return not configured or hmac.compare_digest(
-            configured.encode("utf-8"), metadata.get("x-api-key", "").encode("utf-8"),
-        )
-
     async def _require_api(context) -> None:
-        if not _api_key_allowed(_metadata(context), os.environ.get("BALOOT_API_KEY")):
+        configured_key = os.environ.get("BALOOT_API_KEY")
+        if configured_key and not hmac.compare_digest(
+            configured_key.encode("utf-8"), _metadata(context).get("x-api-key", "").encode("utf-8"),
+        ):
             await context.abort(grpc.StatusCode.UNAUTHENTICATED, "authentication required")
 
     async def _identity(context):
@@ -106,6 +104,10 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         if identity is not None:
             return identity
         await _require_api(context)
+        # gRPC gives each RPC a separate Context, inherited by the handler.
+        SERVICE_SUBJECT_OWNER.set(service_subject_ownership(
+            metadata, configured_key=os.environ.get("BALOOT_API_KEY"), keyless=True,
+        ))
         return service_client_identity(metadata, "gRPC Client")
 
     async def _require_private_decision(context, decision_id: str) -> dict[str, Any]:
@@ -1679,12 +1681,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 return handler
 
             async def invoke(request, context):
-                metadata = _metadata(context)
-                configured_key = os.environ.get("BALOOT_API_KEY")
-                token = SERVICE_SUBJECT_OWNER.set(
-                    service_subject_ownership(metadata, configured_key=configured_key, keyless=True)
-                    if _api_key_allowed(metadata, configured_key) else None
-                )
                 try:
                     return await handler.unary_unary(request, context)
                 except SearchTimeBudgetExceeded as exc:
@@ -1692,8 +1688,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                         grpc.StatusCode.FAILED_PRECONDITION,
                         json.dumps(exc.to_detail(), sort_keys=True, separators=(",", ":")),
                     )
-                finally:
-                    SERVICE_SUBJECT_OWNER.reset(token)
 
             return grpc.unary_unary_rpc_method_handler(
                 invoke, request_deserializer=handler.request_deserializer,
