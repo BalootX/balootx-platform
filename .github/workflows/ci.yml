@@ -193,7 +193,9 @@ jobs:
         run: |
           python -P -m pip wheel --wheel-dir "$RUNNER_TEMP/wheelhouse" '.[dev,grpc,security]'
           python -P -m venv "$RUNNER_TEMP/ci-venv"
-          "$RUNNER_TEMP/ci-venv/bin/python" -P -m pip install --no-index "$RUNNER_TEMP"/wheelhouse/*.whl
+          # Setuptools leaves source metadata on PYTHONPATH during the wheel build.
+          "$RUNNER_TEMP/ci-venv/bin/python" -I -m pip install --no-index "$RUNNER_TEMP"/wheelhouse/*.whl
+          "$RUNNER_TEMP/ci-venv/bin/python" -I -c 'from importlib.metadata import version; print(version("baloot-platform"))'
           tar -C "$RUNNER_TEMP" -cf - ci-venv | gzip -1 > "$RUNNER_TEMP/python-runtime.tar.gz"
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

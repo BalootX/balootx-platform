@@ -133,9 +133,14 @@ def test_full_ci_reuses_only_the_run_local_installed_python_runtime(root: Path) 
         assert steps[index].get("if") == (None if matrix else "needs.plan.outputs.full == 'true'")
         assert steps[index + 1]["if"] == "needs.plan.outputs.full == 'true'"
         assert steps[index + 1]["name"] == "Activate installed Python runtime"
-    producer = jobs["python-wheelhouse"]["steps"][-1]
-    assert producer["with"]["name"] == "python-runtime-${{ matrix.python }}"
-    assert producer["with"]["path"] == "${{ runner.temp }}/python-runtime.tar.gz"
+    producer = jobs["python-wheelhouse"]["steps"]
+    build = next(step["run"] for step in producer if step.get("name") == "Build wheels and install the run-local Python runtime")
+    install, verify, archive = build.splitlines()[-3:]
+    assert '"$RUNNER_TEMP/ci-venv/bin/python" -I -m pip install --no-index ' in install
+    assert '"$RUNNER_TEMP/ci-venv/bin/python" -I -c ' in verify and 'version("baloot-platform")' in verify
+    assert 'python-runtime.tar.gz' in archive
+    assert producer[-1]["with"]["name"] == "python-runtime-${{ matrix.python }}"
+    assert producer[-1]["with"]["path"] == "${{ runner.temp }}/python-runtime.tar.gz"
 
 
 def test_workflows_use_node24_artifact_upload_action(root: Path) -> None:
