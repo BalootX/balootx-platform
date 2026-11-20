@@ -271,17 +271,24 @@ def test_opportunity_replay_rejects_legal_actor_out_of_declared_order(rules):
             opportunity_order=("west", "east", "south", "north"))
 
 
-def test_exact_escalation_normalization_binds_recorded_private_history(rules):
-    from baloot_platform.core.exact_state_view import build_canonical_observer_information_v1
-    from baloot_platform.research.ortools_exact_state import OrToolsExactStateNormalizerV1
+@pytest.fixture
+def recorded_escalation_prefix():
     prefix = {"schemaVersion": 1, "deckOrder": list(range(32)), "dealer": "east",
         "roundNumber": 1, "matchScore": [0, 0],
         "auctionActions": [{"action": action} for action in ("hokum", "pass", "pass", "pass")],
         "escalationActions": [], "projectActions": [], "projectDeclarations": [],
         "projectAssertions": [], "playActions": [], "stateAssertions": {}}
-    normalizer = OrToolsExactStateNormalizerV1(rules, native_cp_sat=True)
     options = {"recorded_escalation_opportunities": [{"actor": "west", "actionCode": "decline"}],
         "opportunity_order": ("west", "east", "south", "north")}
+    return prefix, options
+
+
+def test_exact_escalation_normalization_binds_recorded_private_history(rules, recorded_escalation_prefix):
+    from baloot_platform.core.exact_state_view import build_canonical_observer_information_v1
+    from baloot_platform.research.ortools_exact_state import OrToolsExactStateNormalizerV1
+
+    prefix, options = recorded_escalation_prefix
+    normalizer = OrToolsExactStateNormalizerV1(rules, native_cp_sat=True)
     result = normalizer.normalize(prefix, decision_point={"kind": "escalation"}, **options)
     assert result.next_actor == "east"
     assert result.legal_actions
@@ -331,6 +338,37 @@ def test_exact_escalation_normalization_binds_recorded_private_history(rules):
         normalizer.normalize(prefix, decision_point={"kind": "escalation"},
             **{**options, "recorded_escalation_opportunities": [
                 {"actor": "west", "actionCode": "triple"}]})
+
+
+@pytest.mark.controlled_clock
+def test_exact_escalation_preview_caps_replay_allowance_under_clock_rounding(
+    rules, monkeypatch, recorded_escalation_prefix,
+):
+    import baloot_platform.research.ortools_exact_state as exact_state
+    from deterministic_work import set_monotonic
+
+    prefix, options = recorded_escalation_prefix
+    declared = 15.0
+    origin = math.nextafter(1024.0, 0.0)
+    assert (origin + declared) - origin > declared
+    set_monotonic(monkeypatch, exact_state, origin)
+    replay = OrToolsEscalationStageV1.replay_opportunities
+    grants = []
+
+    def replay_after_clock_advance(self, **kwargs):
+        grants.append((kwargs["maximum_seconds"], kwargs["declared_maximum_seconds"]))
+        set_monotonic(monkeypatch, exact_state, origin + 4.0)
+        return replay(self, **kwargs)
+
+    monkeypatch.setattr(OrToolsEscalationStageV1, "replay_opportunities", replay_after_clock_advance)
+    normalizer = exact_state.OrToolsExactStateNormalizerV1(rules, native_cp_sat=True)
+    preview = normalizer.preview_legal_next_actions(prefix, maximum_seconds=declared, **options)
+
+    assert preview["currentStage"] == "escalation"
+    assert preview["nextActor"] == "east"
+    assert preview["legalActions"]
+    # The nested normalization gets the remainder after four virtual seconds.
+    assert grants == [(declared, declared), (11.0, 11.0)]
 
 
 @pytest.mark.real_clock

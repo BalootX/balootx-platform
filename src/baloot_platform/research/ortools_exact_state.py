@@ -122,7 +122,8 @@ def _normalization_clock(
         seconds = deadline - time.monotonic()
         if seconds <= 0:
             raise ExactNormalizationStopped("maximum_seconds")
-        return seconds
+        # Floating-point deadline arithmetic can round the remainder above its cap.
+        return min(maximum_seconds, seconds)
 
     return remaining
 
