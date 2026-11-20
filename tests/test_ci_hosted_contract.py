@@ -189,6 +189,10 @@ def test_gate_rejects_unproven_full_producers(event):
             with pytest.raises(ValueError):
                 ci_scope.validate_results(event, results)
         results[job]["result"] = old
+    blocked_backend = {**results, "foundry": {"result": "failure"},
+                       "python-backend-run": {"result": "skipped"}, "python-coverage": {"result": "skipped"}}
+    with pytest.raises(ValueError, match="CI producers differ from the plan"):
+        ci_scope.validate_results(event, blocked_backend)
     for key in ("full", "sdk", "remotion"):
         plan[key] = "false"
         with pytest.raises(ValueError):
