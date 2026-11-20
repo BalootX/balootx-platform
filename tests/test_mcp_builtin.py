@@ -1,3 +1,4 @@
+# Scoped CI timing fixture.
 from __future__ import annotations
 
 import json
