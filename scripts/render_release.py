@@ -292,7 +292,7 @@ def render_ci_shard(shard: str) -> None:
 
     def reproducible_member(member: tarfile.TarInfo) -> tarfile.TarInfo:
         return member.replace(
-            mtime=epoch, uid=0, gid=0, uname="", gname="",
+            mtime=epoch, uid=0, gid=0, uname="", gname="", deep=False,
             mode=0o755 if member.isdir() else 0o644,
         )
 
