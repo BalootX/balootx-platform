@@ -21,6 +21,8 @@ from scripts.run_isolated_pytest import FILE_SAFETY_SECONDS
 VERSION = 1
 # Below the 900 s per-file CI timeout, so a seconds-only loop fails cleanly instead of being killed.
 SAFETY_SECONDS = 600.0
+# Real-time fuse for blocked test handshakes independent of work and solver budgets.
+HANG_GUARD = 120.0
 _CLOCKS = ("monotonic", "perf_counter", "process_time", "thread_time")
 _REAL = {name: getattr(time, name) for name in _CLOCKS}
 _PATCHED_PREFIXES = ("baloot_platform", "scripts")

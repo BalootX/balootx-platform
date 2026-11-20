@@ -16,6 +16,8 @@ from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
+from deterministic_work import HANG_GUARD
+
 from baloot_platform.challenge.evidence_v3 import (
     DecisionLedgerRecordV1,
     DecisionLedgerV1,
@@ -654,7 +656,7 @@ def test_campaign_source_and_time_bounds_are_fatal(
 
 
 def _sleeping_test_process(
-    descendant_pid_path: Path | None = None,
+    *, report_descendant_pid: bool = False,
 ) -> subprocess.Popen[str]:
     options = {"text": True}
     if os.name == "nt":
@@ -664,19 +666,19 @@ def _sleeping_test_process(
     else:
         options["start_new_session"] = True
     command = [sys.executable, "-B", "-c", "import time; time.sleep(60)"]
-    if descendant_pid_path is not None:
+    if report_descendant_pid:
+        options["stdout"] = subprocess.PIPE
         command = [
             sys.executable,
             "-B",
             "-c",
             (
-                "import pathlib, subprocess, sys, time; "
+                "import subprocess, sys, time; "
                 "child=subprocess.Popen([sys.executable, '-B', '-c', "
-                "'import time; time.sleep(60)']); "
-                "pathlib.Path(sys.argv[1]).write_text(str(child.pid), "
-                "encoding='utf-8'); time.sleep(60)"
+                "'import time; time.sleep(60); print(\"descendant exited on its own\", flush=True)'], "
+                "stdout=sys.stdout); "
+                "print(child.pid, flush=True); time.sleep(60)"
             ),
-            str(descendant_pid_path),
         ]
     return subprocess.Popen(command, **options)
 
@@ -719,17 +721,33 @@ def _pid_is_running(pid: int) -> bool:
 def test_hard_supervisor_preempts_a_real_noncooperative_worker_only(
     tmp_path,
 ) -> None:
-    descendant_pid_path = tmp_path / "descendant.pid"
-    worker = _sleeping_test_process(descendant_pid_path)
-    unrelated = _sleeping_test_process()
+    worker = _sleeping_test_process(report_descendant_pid=True)
+    assert worker.stdout is not None
+    ready, pipe_closed = threading.Event(), threading.Event()
+    announcement, trailing_output = [], []
+    unrelated = None
+
+    def receive_pid():
+        announcement.append(worker.stdout.readline())
+        ready.set()
+        trailing_output.append(worker.stdout.read())
+        pipe_closed.set()
+
+    reader = threading.Thread(target=receive_pid, daemon=True)
+    reader.start()
     try:
-        wait_deadline = time.monotonic() + 5.0
-        while not descendant_pid_path.is_file() and time.monotonic() < wait_deadline:
-            time.sleep(0.02)
-        assert descendant_pid_path.is_file()
-        descendant_pid = int(descendant_pid_path.read_text(encoding="utf-8"))
+        unrelated = _sleeping_test_process()
+        assert ready.wait(HANG_GUARD), "worker did not announce its descendant"
+        assert announcement[0].endswith("\n"), "worker closed stdout without a complete PID"
+        descendant_pid = int(announcement[0])
         assert _pid_is_running(descendant_pid)
         progress = tmp_path / "progress.json"
+        now, seed_deadline = 0.0, 1.0
+
+        def advance(seconds):
+            nonlocal now
+            now += seconds
+
         progress.write_text(
             json.dumps(
                 {
@@ -737,38 +755,39 @@ def test_hard_supervisor_preempts_a_real_noncooperative_worker_only(
                     "phase": "candidate_evaluation",
                     "seed": 505,
                     "candidateIndex": 1,
-                    "seedDeadlineMonotonic": time.monotonic() + 0.15,
+                    "seedDeadlineMonotonic": seed_deadline,
                     "completedCandidates": [],
                     "completedSeeds": [],
                 }
             ),
             encoding="utf-8",
         )
-        started = time.monotonic()
         outcome = _supervise_finalist_worker(
             worker,
             progress_path=progress,
-            global_deadline_monotonic=time.monotonic() + 60.0,
+            global_deadline_monotonic=60.0,
+            monotonic=lambda: now,
+            sleep=advance,
         )
         assert outcome["timedOut"] is True
         assert outcome["boundary"] == "seed_wall_bound"
+        assert outcome["observedMonotonic"] == seed_deadline
         assert outcome["lastProgress"]["phase"] == "candidate_evaluation"
         assert outcome["termination"]["workerTerminated"] is True
         assert worker.poll() is not None
         assert unrelated.poll() is None
-        descendant_wait_deadline = time.monotonic() + 5.0
-        while (
-            _pid_is_running(descendant_pid)
-            and time.monotonic() < descendant_wait_deadline
-        ):
-            time.sleep(0.02)
-        assert _pid_is_running(descendant_pid) is False
-        assert time.monotonic() - started < 5.0
+        # The descendant retains stdout until it exits. A normal exit would
+        # write a message, so waiting for EOF cannot hide failed tree cleanup.
+        assert pipe_closed.wait(HANG_GUARD), "owned process tree did not close stdout"
+        assert trailing_output == [""]
     finally:
         if worker.poll() is None:
             _terminate_owned_process_tree(worker)
-        if unrelated.poll() is None:
+        if unrelated is not None and unrelated.poll() is None:
             _terminate_owned_process_tree(unrelated)
+        reader.join(HANG_GUARD)
+        assert not reader.is_alive(), "descendant PID reader did not finish"
+        worker.stdout.close()
 
 
 @pytest.mark.real_clock

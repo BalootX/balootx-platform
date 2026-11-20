@@ -5,10 +5,10 @@ import concurrent.futures
 import multiprocessing
 import time
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
 import yaml
+from deterministic_work import HANG_GUARD
 
 import baloot_platform.challenge.analysis_pipeline as pipeline_module
 from baloot_platform.agents.profiles import AgentProfileRegistry
@@ -51,8 +51,9 @@ from baloot_platform.config import build_bundle
 from baloot_platform.core.rules import RuleBook
 
 
-def _non_cooperative_worker(marker: str, seconds: float) -> None:
-    Path(marker).write_text("started\n", encoding="utf-8")
+def _non_cooperative_worker(ready, seconds: float) -> None:
+    with ready:
+        ready.send("started")
     time.sleep(seconds)
 
 
@@ -645,42 +646,31 @@ def test_abort_process_executor_uses_terminate_then_kill_fallback():
 
 
 @pytest.mark.real_clock
-def test_abort_process_executor_is_bounded_owned_and_repeatable(tmp_path):
+def test_abort_process_executor_is_bounded_owned_and_repeatable():
     context = multiprocessing.get_context("spawn")
-    unrelated_marker = tmp_path / "unrelated-started.txt"
+    unrelated_reader, unrelated_writer = context.Pipe(duplex=False)
     unrelated = context.Process(
         target=_non_cooperative_worker,
-        args=(str(unrelated_marker), 30.0),
+        args=(unrelated_writer, 30.0),
     )
     unrelated.start()
+    unrelated_writer.close()
     try:
-        unrelated_deadline = time.monotonic() + 10.0
-        while not unrelated_marker.exists():
-            if time.monotonic() >= unrelated_deadline:
-                pytest.fail("unrelated test process did not start")
-            time.sleep(0.01)
+        assert unrelated_reader.poll(HANG_GUARD), "unrelated test process did not start"
+        assert unrelated_reader.recv() == "started"
 
-        for iteration in range(2):
-            marker = tmp_path / f"owned-{iteration}-started.txt"
+        for _ in range(2):
+            owned_reader, owned_writer = context.Pipe(duplex=False)
             executor = concurrent.futures.ProcessPoolExecutor(
                 max_workers=1,
                 mp_context=context,
             )
             owned_processes = ()
             try:
-                future = executor.submit(
-                    _non_cooperative_worker,
-                    str(marker),
-                    30.0,
-                )
-                startup_deadline = time.monotonic() + 10.0
-                while not marker.exists():
-                    if time.monotonic() >= startup_deadline:
-                        pytest.fail("owned test worker did not start")
-                    time.sleep(0.01)
-                owned_processes = tuple(
-                    dict(executor._processes or {}).values()
-                )
+                future = executor.submit(_non_cooperative_worker, owned_writer, 30.0)
+                owned_processes = tuple(dict(executor._processes or {}).values())
+                assert owned_reader.poll(HANG_GUARD), "owned test worker did not start"
+                assert owned_reader.recv() == "started"
 
                 started = time.monotonic()
                 _abort_process_executor(
@@ -694,6 +684,8 @@ def test_abort_process_executor_is_bounded_owned_and_repeatable(tmp_path):
                 assert all(not process.is_alive() for process in owned_processes)
                 assert unrelated.is_alive()
             finally:
+                owned_reader.close()
+                owned_writer.close()
                 executor.shutdown(wait=False, cancel_futures=True)
                 for process in owned_processes:
                     if process.is_alive():
@@ -703,6 +695,7 @@ def test_abort_process_executor_is_bounded_owned_and_repeatable(tmp_path):
                         process.kill()
                         process.join(timeout=1.0)
     finally:
+        unrelated_reader.close()
         if unrelated.is_alive():
             unrelated.terminate()
         unrelated.join(timeout=2.0)

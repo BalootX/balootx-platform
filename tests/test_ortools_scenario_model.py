@@ -4453,7 +4453,7 @@ def test_native_strategy_threshold_is_not_exact_value(root, monkeypatch):
     assert unfinished.value.partial_receipt["evidence"]["lowerBound"] is None
 
 
-@pytest.mark.real_clock
+@pytest.mark.controlled_clock
 def test_native_refutation_readback_never_renews_its_allowance(monkeypatch):
     import time
     from types import SimpleNamespace
@@ -4489,6 +4489,7 @@ def test_native_refutation_readback_never_renews_its_allowance(monkeypatch):
     assert allowances == [30, 28]
 
 
+@pytest.mark.real_clock
 def test_native_strategy_threshold_refutation_matches_exact_tail(root):
     import time
     from baloot_platform.research.ortools_information_set_compiler import OrToolsActorInformationSetCompilerV1

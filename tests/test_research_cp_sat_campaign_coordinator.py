@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from deterministic_work import HANG_GUARD
+
 from ortools.sat.python import cp_model
 
 from baloot_platform.research import campaign_coordinator as coordinator
@@ -95,8 +97,8 @@ def _deliver_shards_in_order(monkeypatch, order):
             index = request.shard.shard_index
 
             def gated_solver(request):
-                started.wait()
-                gates[index].wait()
+                started.wait(timeout=HANG_GUARD)
+                assert gates[index].wait(HANG_GUARD)
                 return solver(request)
 
             future = super().submit(fn, gated_solver, request)
@@ -112,17 +114,20 @@ def _deliver_shards_in_order(monkeypatch, order):
         nonlocal first_wait
         if first_wait:
             first_wait = False
-            started.wait()
+            started.wait(timeout=HANG_GUARD)
         if any(token.is_cancelled for _, token in submissions.values()):
             for gate in gates.values():
                 gate.set()
-            return wait(futures, return_when=kwargs["return_when"])
+            done, pending = wait(futures, timeout=HANG_GUARD, return_when=kwargs["return_when"])
+            assert done, "cancelled shards did not unwind"
+            return done, pending
         index = next(pending_order)
         future, _ = submissions[index]
         assert future in futures
         gates[index].set()
-        wait((future,))
-        return {future}, set(futures) - {future}
+        done, _ = wait((future,), timeout=HANG_GUARD)
+        assert future in done, "released shard did not finish"
+        return done, set(futures) - done
 
     monkeypatch.setattr(coordinator, "ThreadPoolExecutor", OrderedExecutor)
     monkeypatch.setattr(coordinator, "wait", ordered_wait)
@@ -138,7 +143,7 @@ def test_private_checkpoints_survive_cancellation_without_live_disclosure(
 
     def wait_for_checkpoint(futures, **kwargs):
         if requests and requests[0].cancellation.is_cancelled:
-            requests[0].cancellation_acknowledgement.wait()
+            assert requests[0].cancellation_acknowledgement.wait(HANG_GUARD)
             campaign_clock[0] = 40_000_000
             return set(), set(futures)
         return wait(futures, **kwargs)
@@ -168,9 +173,9 @@ def test_private_checkpoints_survive_cancellation_without_live_disclosure(
             request.report_checkpoint(serialized)  # Process retransmission is idempotent.
             document["artifact"]["privateHand"].append(3)
             cancellation.set()
-            request.cancellation.wait()
+            assert request.cancellation.wait(HANG_GUARD)
             request.cancellation_requested()
-            release.wait()
+            assert release.wait(HANG_GUARD)
             return CampaignShardOutcomeV1(())
         finally:
             finished.set()
@@ -194,7 +199,7 @@ def test_private_checkpoints_survive_cancellation_without_live_disclosure(
         assert terminal[0]["candidateHash"] == _hash("candidate")
     finally:
         release.set()
-        finished.wait()
+        assert finished.wait(HANG_GUARD)
 
 
 def test_serialized_checkpoint_does_not_repeat_coordinator_serialization(monkeypatch):
@@ -229,7 +234,7 @@ def test_snapshot_waits_for_in_flight_private_checkpoint(monkeypatch):
 
     def ingest(progress, evidence):
         checkpoint_started.set()
-        release_checkpoint.wait()
+        assert release_checkpoint.wait(HANG_GUARD)
         original(progress, evidence)
 
     monkeypatch.setattr(module.CampaignAttemptProgressV1, "checkpoint", ingest)
@@ -241,23 +246,25 @@ def test_snapshot_waits_for_in_flight_private_checkpoint(monkeypatch):
         snapshots.append(request.progress_snapshot())
         snapshot_started.set()
 
-    writer = threading.Thread(target=request.report_checkpoint, args=(document,))
-    reader = threading.Thread(target=snapshot)
+    writer = threading.Thread(target=request.report_checkpoint, args=(document,), daemon=True)
+    reader = threading.Thread(target=snapshot, daemon=True)
     writer.start()
     try:
-        checkpoint_started.wait()
+        assert checkpoint_started.wait(HANG_GUARD)
         acquired = lock.acquire(blocking=False)
         if acquired:
             lock.release()
         assert not acquired
         reader.start()
-        snapshot_started.wait()
+        assert snapshot_started.wait(HANG_GUARD)
         assert snapshots == []
     finally:
         release_checkpoint.set()
-        writer.join()
+        writer.join(HANG_GUARD)
         if reader.ident is not None:
-            reader.join()
+            reader.join(HANG_GUARD)
+            assert not reader.is_alive()
+        assert not writer.is_alive()
     with request.evidence_transfer_lock:
         request.report_checkpoint(document)  # The process pump already owns this RLock.
     assert snapshots == [{"currentStage": "queued", "qualityCheckpoints": {
@@ -811,13 +818,15 @@ def test_controlled_cancellation_preserves_completed_solver_evidence(campaign_cl
 
     def wait_for_cancellation(futures, **kwargs):
         if not cancellation.is_set():
-            workers_started.wait()
+            workers_started.wait(timeout=HANG_GUARD)
             cancellation.set()
             return set(), set(futures)
         assert all(request.cancellation.is_cancelled for request in requests)
         campaign_clock[0] = 40_000_000
         release.set()
-        return wait(futures)
+        done, pending = wait(futures, timeout=HANG_GUARD)
+        assert not pending, "cancelled solvers did not finish"
+        return done, pending
 
     monkeypatch.setattr(coordinator, "wait", wait_for_cancellation)
 
@@ -834,9 +843,9 @@ def test_controlled_cancellation_preserves_completed_solver_evidence(campaign_cl
                 "conflicts": 0,
             }
         )
-        workers_started.wait()
-        request.cancellation.wait()
-        release.wait()
+        workers_started.wait(timeout=HANG_GUARD)
+        assert request.cancellation.wait(HANG_GUARD)
+        assert release.wait(HANG_GUARD)
         return CampaignShardOutcomeV1(
             (),
             (CampaignStageTimingV1("tailConstruction", 1_000_000),),
@@ -908,7 +917,7 @@ def test_budget_exhaustion_preserves_completed_exact_variants(monkeypatch, campa
             return CampaignShardOutcomeV1(
                 (CampaignVariantV1.build({"candidate": "completed"}),)
             )
-        request.cancellation.wait()
+        assert request.cancellation.wait(HANG_GUARD)
         return CampaignShardOutcomeV1(())
 
     receipt = DeterministicCpSatCampaignCoordinatorV1().run(
@@ -943,32 +952,34 @@ def test_cancellation_joins_solver_only_when_target_is_satisfied(
             super().shutdown(wait=wait, **kwargs)
 
     def wait_for_acknowledgement(futures, **kwargs):
-        started.wait()
+        assert started.wait(HANG_GUARD)
         request = requests[0]
         if request.cancellation.is_cancelled:
-            request.cancellation_acknowledgement.wait()
+            assert request.cancellation_acknowledgement.wait(HANG_GUARD)
             campaign_clock[0] = 225_000_000
             return set(), set(futures)
         if not target_satisfied:
             cancellation.set()
             return set(), set(futures)
-        return wait(futures, return_when=kwargs["return_when"])
+        done, pending = wait(futures, timeout=HANG_GUARD, return_when=kwargs["return_when"])
+        assert done, "target shard did not finish"
+        return done, pending
 
     monkeypatch.setattr(coordinator, "ThreadPoolExecutor", ObserveShutdown)
     monkeypatch.setattr(coordinator, "wait", wait_for_acknowledgement)
 
     def solver(request):
         if request.shard.shard_index != extra:
-            started.wait()
+            assert started.wait(HANG_GUARD)
             return CampaignShardOutcomeV1(
                 (CampaignVariantV1.build({"candidate": "target"}),)
             )
         requests.append(request)
         workers.append(threading.current_thread())
         started.set()
-        request.cancellation.wait()
+        assert request.cancellation.wait(HANG_GUARD)
         request.cancellation_requested()
-        release.wait()
+        assert release.wait(HANG_GUARD)
         finished.set()
         return CampaignShardOutcomeV1(())
 
@@ -993,7 +1004,7 @@ def test_cancellation_joins_solver_only_when_target_is_satisfied(
     finally:
         release.set()
         if started.is_set():
-            finished.wait()
+            assert finished.wait(HANG_GUARD)
 
 
 def test_replenishing_campaign_uses_same_canonical_prefix_across_completion_orders(monkeypatch):
@@ -1058,12 +1069,12 @@ def test_acknowledgement_gate_is_not_confused_with_poll_interval(
     def solver(request):
         requests.append(request)
         ready.set()
-        release.wait()
+        assert release.wait(HANG_GUARD)
         finished.set()
         return CampaignShardOutcomeV1(())
 
     def advance_poll(futures, *, timeout, return_when):
-        ready.wait()
+        assert ready.wait(HANG_GUARD)
         request = requests[0]
         if request.cancellation.is_cancelled:
             campaign_clock[0] += round(timeout * 1_000_000_000)
@@ -1090,7 +1101,7 @@ def test_acknowledgement_gate_is_not_confused_with_poll_interval(
     finally:
         release.set()
         if ready.is_set():
-            finished.wait()
+            assert finished.wait(HANG_GUARD)
 
 
 def test_incomplete_proof_is_retried_once_and_streams_attempt_progress():

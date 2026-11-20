@@ -14,10 +14,11 @@ from threading import Barrier, Event, Thread, enumerate as active_threads
 from pathlib import Path
 import textwrap
 import time
+from types import SimpleNamespace
 
 import pytest
 
-from deterministic_work import set_monotonic
+from deterministic_work import HANG_GUARD, set_monotonic
 
 pytest.importorskip("ortools")
 
@@ -67,9 +68,14 @@ from baloot_platform.research.ortools_proof import (
 
 
 def _world_parent_death_probe(connection):
-    connection.send(os.getpid())
-    connection.recv()
-    os._exit(0)
+    try:
+        connection.send(os.getpid())
+        if connection.poll(HANG_GUARD):
+            connection.recv()
+        else:
+            connection.send("world worker hang guard expired")
+    finally:
+        os._exit(0)
 
 
 @pytest.mark.real_clock
@@ -138,7 +144,7 @@ def _world_parent_death_candidate(connection, stop):
         initargs=(stop, context.Array("d", 1), context.Value("i", 0)),
     ) as pool:
         pool.submit(_world_parent_death_probe, connection)
-        stop.wait()
+        assert stop.wait(HANG_GUARD)
 
 
 @pytest.mark.real_clock
@@ -152,12 +158,14 @@ def test_world_compile_worker_exits_when_candidate_is_force_terminated():
     try:
         # Spawn+import latency is machine-dependent; wait for the start message or the
         # candidate's death before terminating it.
-        ready = multiprocessing.connection.wait([reader, candidate.sentinel])
+        ready = multiprocessing.connection.wait([reader, candidate.sentinel], timeout=HANG_GUARD)
         assert reader in ready, "world worker did not start"
         assert type(reader.recv()) is int
         assert candidate.is_alive()
         candidate.terminate()
-        candidate.join()
+        candidate.join(HANG_GUARD)
+        assert not candidate.is_alive()
+        assert reader.poll(HANG_GUARD), "world worker survived its candidate"
         with pytest.raises(EOFError):
             reader.recv()
     finally:
@@ -167,8 +175,9 @@ def test_world_compile_worker_exits_when_candidate_is_force_terminated():
             pass
         if candidate.is_alive():
             candidate.terminate()
-        candidate.join(10)
+        candidate.join(HANG_GUARD)
         reader.close()
+        assert not candidate.is_alive()
 
 
 def test_native_action_dominance_matches_exhaustive_interval_oracle():
@@ -4197,11 +4206,22 @@ def test_success_threshold_mutates_native_root_win_certification() -> None:
 
 
 @pytest.mark.parametrize("solver_count", [1, 2])
-def test_shared_cancellation_watcher_stops_active_solves(solver_count) -> None:
+def test_shared_cancellation_watcher_stops_active_solves(solver_count, monkeypatch) -> None:
     from ortools.sat.python import cp_model
+    from baloot_platform.research import ortools_information_set_proof as proof
 
-    solving = Event()
+    solving, polled = Event(), Event()
     together = Barrier(solver_count, action=solving.set)
+    poll_intervals = []
+
+    def record_sleep(seconds):
+        if solving.is_set():
+            poll_intervals.append(seconds)
+            polled.set()
+        time.sleep(seconds)
+
+    monkeypatch.setattr(proof, "time", SimpleNamespace(
+        **{**vars(proof.time), "sleep": record_sleep}))
 
     class BlockingSolver:
         def __init__(self):
@@ -4210,8 +4230,8 @@ def test_shared_cancellation_watcher_stops_active_solves(solver_count) -> None:
             self.polls = 0
 
         def solve(self, _model):
-            together.wait()
-            self.released.wait()
+            together.wait(timeout=HANG_GUARD)
+            assert self.released.wait(HANG_GUARD), "watcher did not stop the solve"
             return cp_model.UNKNOWN
 
         def cancellation_requested(self):
@@ -4229,15 +4249,25 @@ def test_shared_cancellation_watcher_stops_active_solves(solver_count) -> None:
             self.released.set()
 
     solvers = [BlockingSolver() for _ in range(solver_count)]
-    statuses = []
-    workers = [Thread(target=lambda solver=solver: statuses.append(
-        _solve_cp_sat_with_cancel_v1(solver, object(), solver.cancellation_requested)))
-        for solver in solvers]
+    statuses, failures = [], []
+
+    def solve(solver):
+        try:
+            statuses.append(_solve_cp_sat_with_cancel_v1(
+                solver, object(), solver.cancellation_requested))
+        except Exception as error:
+            failures.append(error)
+
+    workers = [Thread(target=solve, args=(solver,), daemon=True) for solver in solvers]
     for worker in workers:
         worker.start()
     for worker in workers:
-        worker.join()
+        worker.join(HANG_GUARD)
+        assert not worker.is_alive(), "watcher did not stop the solve"
 
+    assert not failures, failures
+    assert polled.wait(HANG_GUARD), "watcher did not request a poll interval"
+    assert set(poll_intervals) == {0.005}
     assert statuses == [cp_model.UNKNOWN] * solver_count
     assert all(solver.stopped for solver in solvers)
     assert sum(thread.name == "actor-info-cancel-watch" for thread in active_threads()) == 1

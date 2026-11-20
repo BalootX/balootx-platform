@@ -11,6 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from deterministic_work import HANG_GUARD
 import yaml
 from fastapi.testclient import TestClient
 from ortools.sat.python import cp_model
@@ -7672,13 +7674,14 @@ def test_v3_service_cancel_reaches_real_process_shard_and_persists_receipt(
             original(value)
             if value.get("currentStage") == stop_stage:
                 child_ready.set()
-                release_progress.wait()
+                assert release_progress.wait(HANG_GUARD)
 
         kwargs["progress_callback"] = progress
         return real_execute_campaign(*args, **kwargs)
 
     monkeypatch.setattr(backend, "execute_campaign", observe_child_progress)
     existing_children = {child.pid for child in multiprocessing.active_children()}
+    future = None
     try:
         payload = _recipe(
             authority.to_dict(), "ortools_cp_sat_v3",
@@ -7719,11 +7722,11 @@ def test_v3_service_cancel_reaches_real_process_shard_and_persists_receipt(
         )
         future = executor.submit(service._execute, run["runCode"])
         future.add_done_callback(lambda _: child_ready.set())
-        child_ready.wait()
+        assert child_ready.wait(HANG_GUARD)
         assert not future.done(), f"real V3 worker never reported {stop_stage}"
         cancelled = service.cancel(run["runCode"])
         release_progress.set()
-        future.result()
+        future.result(timeout=HANG_GUARD)
 
         assert cancelled["status"] == "cancelled"
         stored = service.get_run(run["runCode"])
@@ -7738,14 +7741,14 @@ def test_v3_service_cancel_reaches_real_process_shard_and_persists_receipt(
         assert receipt["attempts"][0]["partialEvidence"]["cancellation"][
             "acknowledged"
         ] is True
-        worker_finished.wait()
+        assert worker_finished.wait(HANG_GUARD)
         assert not any(
             child.pid not in existing_children
             for child in multiprocessing.active_children()
         ), "cancelled service run left a process shard alive"
     finally:
         release_progress.set()
-        executor.shutdown(wait=True)
+        executor.shutdown(wait=future is None or future.done(), cancel_futures=True)
 
 
 @pytest.mark.parametrize("solver_status", [cp_model.UNKNOWN, cp_model.MODEL_INVALID])
