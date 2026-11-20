@@ -21,4 +21,4 @@ The previous concurrency cap held late Python shards in the queue. Full lanes no
 
 The replacement figures come from [run 44170428047](https://github.com/BalootX/balootx-platform/actions/runs/44170428047) at `951ecbc4`. That run failed qualification. All 22 Python producers started within two seconds, and the slowest job was Python 3.12 fast shard 1.
 
-Use the next exact-head run to recalculate this table. The goals are approximately five minutes for affected feature feedback after the queue cutover and ten minutes for full qualification. Compare job durations, queue time and per-job CPU use before adding shards. The repository cache budget is 10 GB. Each key has one producer that saves on main pushes, while PR and shard jobs restore. The owner-controlled cutover pairs the ci-gate context with the dev merge queue, so the bootstrap continues to report the existing CI result and full coverage.
+Use the next exact-head run to recalculate this table. Compare job durations, queue time and per-job CPU use before adding shards. The repository cache budget is 10 GB. Each key has one producer that saves on main pushes, while PR and shard jobs restore.

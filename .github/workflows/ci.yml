@@ -6,8 +6,6 @@ on:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  merge_group:
-    types: [checks_requested]
 
 permissions:
   contents: read
@@ -41,6 +39,9 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
       - id: plan
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: python3 scripts/ci_scope.py plan
 
   preflight:
@@ -62,15 +63,30 @@ jobs:
           python -m pytest -q tests/test_ci_hosted_contract.py tests/test_repository_structure.py tests/test_media_render_artifact.py
 
   dependency-review:
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - *checkout
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
-          base-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          head-ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          base-ref: ${{ github.event.pull_request.base.sha }}
+          head-ref: ${{ github.event.pull_request.head.sha }}
+
+  python-version-smoke:
+    needs: plan
+    if: github.event_name == 'pull_request' && needs.plan.outputs.full == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - *checkout
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - run: |
+          python -m pip install '.[dev,grpc,security]'
+          python -m compileall -q src scripts sdk/python
+          python -m pytest -q tests/test_mcp_builtin.py
 
   foundry:
     needs: [plan, python-wheelhouse]
@@ -142,39 +158,6 @@ jobs:
       - run: go test ./...
         working-directory: sdk/go
 
-  python-affected:
-    needs: plan
-    if: needs.plan.outputs.tests != '[]'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 8
-    steps:
-      - *checkout
-      - *py313
-      - *node
-      - *foundry-restore
-      - *foundry-install
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-${{ runner.arch }}-pip-3.13-${{ hashFiles('pyproject.toml') }}
-      - run: python -m pip install -e '.[dev,grpc,security]'
-      - env:
-          AFFECTED_TESTS: ${{ needs.plan.outputs.tests }}
-        run: |
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          from scripts.run_isolated_pytest import run
-          raise SystemExit(run(json.loads(os.environ["AFFECTED_TESTS"]), Path(os.environ["RUNNER_TEMP"], "affected")))
-          PY
-      - if: '!cancelled()'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: python-affected-results
-          path: ${{ runner.temp }}/affected/
-          if-no-files-found: ignore
-          retention-days: 7
-
   python-wheelhouse:
     needs: plan
     if: needs.plan.outputs.full == 'true'
@@ -209,7 +192,7 @@ jobs:
 
   ffmpeg-packages:
     needs: plan
-    if: needs.plan.outputs.full == 'true'
+    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.tests != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
@@ -251,7 +234,7 @@ jobs:
 
   native-build:
     needs: plan
-    if: needs.plan.outputs.full == 'true'
+    if: needs.plan.outputs.full == 'true' || needs.plan.outputs.tests != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -368,7 +351,8 @@ jobs:
           digest-mismatch: error
       - &offline-install
         run: python -m pip install --no-index "$RUNNER_TEMP"/wheelhouse/*.whl
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &native-download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-release-library
           path: build/native-release
@@ -414,6 +398,44 @@ jobs:
         with:
           name: ${{ github.job }}-${{ matrix.python }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/python-receipts/
+          if-no-files-found: error
+          retention-days: 7
+
+  python-affected:
+    needs: [plan, native-build, ffmpeg-packages]
+    if: needs.plan.outputs.tests != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - *checkout
+      - *py313
+      - *node
+      - *foundry-restore
+      - *foundry-install
+      - *remotion-restore
+      - *remotion-install
+      - *ffmpeg-download
+      - *ffmpeg
+      - *native-download
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-${{ runner.arch }}-pip-3.13-${{ hashFiles('pyproject.toml') }}
+      - run: python -m pip install -e '.[dev,grpc,security]'
+      - env:
+          AFFECTED_TESTS: ${{ needs.plan.outputs.tests }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from scripts.run_isolated_pytest import run
+          raise SystemExit(run(json.loads(os.environ["AFFECTED_TESTS"]), Path(os.environ["RUNNER_TEMP"], "affected")))
+          PY
+      - if: '!cancelled()'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: python-affected-results
+          path: ${{ runner.temp }}/affected/
           if-no-files-found: error
           retention-days: 7
 
@@ -616,9 +638,8 @@ jobs:
           python scripts/generate_platform_evidence.py
 
   ci-gate:
-    # Keep the protected context until the coordinated branch cutover.
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'CI result' }}
-    needs: [plan, preflight, dependency-review, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, media-render, media-release-smoke]
+    needs: [plan, preflight, dependency-review, python-version-smoke, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, media-render, media-release-smoke]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -629,7 +650,7 @@ jobs:
           IS_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
         run: |
           if [[ "$IS_DRAFT" == true ]]; then
-            echo '::error::Draft PR. Mark ready for review to run full CI.'
+            echo '::error::Draft PR. Mark ready for review to run CI.'
             exit 1
           fi
           python3 scripts/ci_scope.py gate
