@@ -1,4 +1,6 @@
 """Hosted workflow policy and its fail-closed producer contract."""
+import ast
+from importlib.machinery import BYTECODE_SUFFIXES, EXTENSION_SUFFIXES
 import json
 import re
 import subprocess
@@ -7,6 +9,89 @@ import pytest
 import yaml
 
 from scripts import ci_scope
+
+
+@pytest.fixture
+def codeowners_rules(root):
+    text = (root / ".github/CODEOWNERS").read_text(encoding="utf-8")
+    return [line.split() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
+def test_codeowners_covers_hosted_ci_and_release_controls(root, codeowners_rules):
+    assert all(owners == ["@BalootX/maintainers"] for _, *owners in codeowners_rules)
+    paths = {pattern for pattern, *_ in codeowners_rules}
+    assert "/" not in paths and "*" not in paths
+    workflow_scripts = {
+        "/" + script
+        for workflow in (root / ".github/workflows").glob("*.yml")
+        for script in re.findall(r"\bscripts/[\w.]+\.py\b", workflow.read_text(encoding="utf-8"))
+    }
+    required = {
+        "/.github/", "/ci/", "/scripts/__init__.py", "/scripts/*/", "/scripts/ci_known_failures.py",
+        "/tests/conftest.py", "/tests/test_ci_hosted_contract.py",
+        "/*.py", "/src/*.py", "/*/__init__.py", "/src/*/__init__.py",
+        "/*/__init__.pyc", "/src/*/__init__.pyc", "/*/__init__*.so", "/src/*/__init__*.so",
+        "/*/__init__*.pyd", "/src/*/__init__*.pyd",
+        "/*.pyw", "/src/*.pyw", "/*/__init__.pyw", "/src/*/__init__.pyw",
+        "/__pycache__/", "/src/__pycache__/", "/*/__pycache__/", "/src/*/__pycache__/", "/src/scripts/",
+        "/*.pth", "/src/*.pth", "/pytest.ini", "/.pytest.ini", "/pytest.toml", "/.pytest.toml",
+        "/setup.cfg", "/tox.ini", "/tests/setup.cfg", "/tests/tox.ini", "/tests/pyproject.toml",
+        "/tests/pytest.ini", "/tests/.pytest.ini", "/tests/pytest.toml", "/tests/.pytest.toml",
+        "/tests/deterministic_work.py", "/tests/conftest/", "/tests/deterministic_work/",
+        "/tests/test_ci_hosted_contract/", "/tests/test_repository_structure/", "/tests/test_media_render_artifact/",
+        "/tests/__pycache__/", "**/.npmrc",
+        "/src/baloot_platform/service/foundry_dashboard/scripts/check-generated-api.mjs",
+        "/src/baloot_platform/video/remotion/scripts/", "/scripts/render_remotion_plugin_parity.py",
+        "/scripts/render_research_notice.py", "/scripts/render_research_scenario_v4_goldens.py",
+        "/scripts/verify_professional_flagship.py", "/scripts/verify_professional_decision_clip.py",
+        "/scripts/verify_professional_video_prototypes.py",
+        "/scripts/build_reproducible_wheel.py", "/scripts/package_release*.py", "/scripts/verify_release*.py",
+        "/scripts/check_release_readiness.py", "/scripts/migrate_postgres.py", "/migrations/", "/Dockerfile",
+        "/pyproject.toml", "/sdk/go/go.mod", "/sdk/typescript/package.json",
+        "/src/baloot_platform/service/foundry_dashboard/package.json",
+        "/src/baloot_platform/service/foundry_dashboard/package-lock.json",
+        "/src/baloot_platform/video/remotion/package.json", "/src/baloot_platform/video/remotion/package-lock.json",
+    }
+    suffixes = {".so", ".pyd", ".pyc"}  # Linux and Windows, including ABI-tagged variants.
+    suffixes.update("." + suffix.rsplit(".", 1)[1] for suffix in (*EXTENSION_SUFFIXES, *BYTECODE_SUFFIXES))
+    required.update(f"/{scope}*{suffix}" for scope in ("", "scripts/", "src/", "tests/") for suffix in suffixes)
+    assert required | workflow_scripts <= paths
+
+
+def test_codeowners_matches_gate_import_package_and_non_source_shadows(tmp_path, codeowners_rules):
+    # These paths are evaluated as Git patterns without creating or importing modules.
+    paths = [
+        "scripts/ci_known_failures/__init__.py",
+        "scripts/__pycache__/ci_known_failures.cpython-312.pyc",
+        "scripts/run_heavy_pytest.abi3.so",
+        "scripts/run_isolated_pytest.cp313-win_amd64.pyd",
+        "scripts/ci_known_failures.pyc",
+        "src/scripts/ci_known_failures/__init__.py",
+        "tests/deterministic_work/__init__.py",
+        "tests/.pytest.toml",
+        ".npmrc",
+        "src/baloot_platform/video/remotion/.npmrc",
+    ]
+    subprocess.run(["git", "init", "-q", "--template=", str(tmp_path)], check=True, timeout=10)
+    patterns = [pattern for pattern, *owners in codeowners_rules if owners == ["@BalootX/maintainers"]]
+    (tmp_path / ".gitignore").write_text("\n".join(patterns) + "\n", encoding="utf-8")
+    result = subprocess.run(
+        ["git", "-c", "core.excludesFile=", "check-ignore", "--no-index", "--stdin", "-z"],
+        cwd=tmp_path, input="\0".join([*paths, "scripts/benchmark_agent_symmetry.py", ""]).encode(),
+        capture_output=True, check=True, timeout=10,
+    )
+    assert result.stdout.decode().split("\0") == [*paths, ""]
+
+
+def test_ci_shard_verifiers_use_python_safe_path(root):
+    source = ast.parse((root / "scripts/render_release.py").read_bytes())
+    shard = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == "render_ci_shard")
+    commands = [
+        node.elts for node in ast.walk(shard)
+        if isinstance(node, ast.List) and node.elts and ast.unparse(node.elts[0]) == "sys.executable"
+    ]
+    assert len(commands) == 3
+    assert all(len(command) >= 3 and ast.unparse(command[1]) == "'-P'" for command in commands)
 
 
 def test_hosted_ci_contract(root):
@@ -51,9 +136,17 @@ def test_hosted_ci_contract(root):
         assert jobs[job]["if"] == predicate
     gate_step = jobs["ci-gate"]["steps"][-1]
     assert gate_step["env"]["IS_DRAFT"] == "${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}"
-    assert "exit 1" in gate_step["run"].split("python3 scripts/ci_scope.py gate")[0]
+    draft_guard, gate_command = gate_step["run"].split("python3 -P scripts/ci_scope.py gate")
+    assert "exit 1" in draft_guard and not gate_command.strip()
     assert set(jobs["ci-gate"]["needs"]) == jobs.keys() - {"ci-gate"}
     assert jobs["ci-gate"]["if"] == "always()"
+    for name in (
+        "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
+        "media-inputs", "media-render", "media-release-smoke",
+    ):
+        commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
+        flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)
+        assert flags and all("-P" in options.split() for options in flags), name
 
 
 def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):

@@ -21,16 +21,14 @@ from pathlib import Path
 from typing import Iterator
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from baloot_platform.video.audio_postprocess import finish_remotion_audio
 from baloot_platform.video.remotion_renderer import _process_exists, _terminate_process_tree
 from baloot_platform.video.render_bundle import RenderBundleV1
 
-try:
-    from .generate_professional_video_prototypes import generate
-except ImportError:
-    from generate_professional_video_prototypes import generate
+from scripts.generate_professional_video_prototypes import generate
 
 
 REMOTION = ROOT / "src/baloot_platform/video/remotion"
@@ -275,15 +273,15 @@ def render_ci_shard(shard: str) -> None:
         run(shard, _node_command(script), cwd=REMOTION)
         finish_release_audio(shard)
         verify = "verify_professional_flagship" if shard == "flagship" else "verify_professional_decision_clip"
-        run(verify, [sys.executable, f"scripts/{verify}.py"])
+        run(verify, [sys.executable, "-P", f"scripts/{verify}.py"])
     elif shard == "companion":
         run("prototypes", _node_command("render-prototypes.mjs"), cwd=REMOTION)
         run("collection", _node_command("render-flagship.mjs"), cwd=REMOTION,
             environment={"BALOOTX_COLLECTION_ONLY": "1",
                          "BALOOTX_RENDER_OUTPUT": str(outputs / "professional-video-collection")})
-        run("verify-professional-prototypes", [sys.executable, "scripts/verify_professional_video_prototypes.py"])
+        run("verify-professional-prototypes", [sys.executable, "-P", "scripts/verify_professional_video_prototypes.py"])
     elif shard == "parity":
-        run("render-plugin-parity", [sys.executable, "scripts/render_remotion_plugin_parity.py"],
+        run("render-plugin-parity", [sys.executable, "-P", "scripts/render_remotion_plugin_parity.py"],
             timeout=render_timeout_seconds() + 60)
     else:
         raise ValueError(f"unknown media CI shard: {shard}")
@@ -317,7 +315,7 @@ def main(*, research_notice: bool = False) -> None:
 
     with release_render_lock():
         if research_notice:
-            command = [sys.executable, "-B", "-m", "scripts.render_research_notice"]
+            command = [sys.executable, "-B", "-P", "-m", "scripts.render_research_notice"]
             if (ROOT / ".git").exists():
                 command += [
                     "--source-head",
@@ -329,7 +327,8 @@ def main(*, research_notice: bool = False) -> None:
                         ["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT, text=True
                     ).strip(),
                 ]
-            run("research-notice-4", command)
+            pythonpath = os.pathsep.join(filter(None, (str(ROOT), str(ROOT / "src"), os.getenv("PYTHONPATH"))))
+            run("research-notice-4", command, environment={"PYTHONPATH": pythonpath})
             return
         generate()
         run("prototypes", _node_command("render-prototypes.mjs"), cwd=REMOTION)
@@ -347,19 +346,19 @@ def main(*, research_notice: bool = False) -> None:
             "verify_professional_flagship.py",
             "verify_professional_decision_clip.py",
         ):
-            run(Path(script).stem, [sys.executable, f"scripts/{script}"])
+            run(Path(script).stem, [sys.executable, "-P", f"scripts/{script}"])
         run(
             "render-plugin-parity",
-            [sys.executable, "scripts/render_remotion_plugin_parity.py"],
+            [sys.executable, "-P", "scripts/render_remotion_plugin_parity.py"],
             timeout=render_timeout_seconds() + 60,
         )
         run(
             "verify-plugin-parity",
-            [sys.executable, "scripts/verify_remotion_plugin_parity.py"],
+            [sys.executable, "-P", "scripts/verify_remotion_plugin_parity.py"],
         )
         run(
             "scene-preview",
-            [sys.executable, "scripts/generate_scene_preview.py", "--refresh"],
+            [sys.executable, "-P", "scripts/generate_scene_preview.py", "--refresh"],
         )
         print(ROOT / "outputs/professional-video-flagship/manifest.json")
         print(ROOT / "outputs/professional-video-decision/manifest.json")

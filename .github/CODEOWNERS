@@ -1,0 +1,119 @@
+# Hosted CI and its test and coverage controls.
+/.github/ @BalootX/maintainers
+/ci/ @BalootX/maintainers
+/scripts/__init__.py @BalootX/maintainers
+/scripts/*/ @BalootX/maintainers
+/scripts/*.so @BalootX/maintainers
+/scripts/*.pyd @BalootX/maintainers
+/scripts/*.pyc @BalootX/maintainers
+/scripts/ci_scope.py @BalootX/maintainers
+/scripts/ci_known_failures.py @BalootX/maintainers
+/scripts/run_isolated_pytest.py @BalootX/maintainers
+/scripts/run_heavy_pytest.py @BalootX/maintainers
+/tests/conftest.py @BalootX/maintainers
+/tests/test_ci_hosted_contract.py @BalootX/maintainers
+/tests/test_repository_structure.py @BalootX/maintainers
+/tests/test_media_render_artifact.py @BalootX/maintainers
+/tests/test_ci_known_failures.py @BalootX/maintainers
+/tests/test_isolated_pytest.py @BalootX/maintainers
+/tests/test_heavy_pytest.py @BalootX/maintainers
+/src/baloot_platform/service/foundry_dashboard/scripts/check-generated-api.mjs @BalootX/maintainers
+
+# Python imports and pytest configuration from the repository root and PYTHONPATH.
+/*.py @BalootX/maintainers
+/src/*.py @BalootX/maintainers
+/*/__init__.py @BalootX/maintainers
+/src/*/__init__.py @BalootX/maintainers
+/*.pyc @BalootX/maintainers
+/src/*.pyc @BalootX/maintainers
+/*/__init__.pyc @BalootX/maintainers
+/src/*/__init__.pyc @BalootX/maintainers
+/*.so @BalootX/maintainers
+/src/*.so @BalootX/maintainers
+/*/__init__*.so @BalootX/maintainers
+/src/*/__init__*.so @BalootX/maintainers
+/*.pyd @BalootX/maintainers
+/src/*.pyd @BalootX/maintainers
+/*/__init__*.pyd @BalootX/maintainers
+/src/*/__init__*.pyd @BalootX/maintainers
+/*.pyw @BalootX/maintainers
+/src/*.pyw @BalootX/maintainers
+/*/__init__.pyw @BalootX/maintainers
+/src/*/__init__.pyw @BalootX/maintainers
+/__pycache__/ @BalootX/maintainers
+/src/__pycache__/ @BalootX/maintainers
+/*/__pycache__/ @BalootX/maintainers
+/src/*/__pycache__/ @BalootX/maintainers
+/src/scripts/ @BalootX/maintainers
+/*.pth @BalootX/maintainers
+/src/*.pth @BalootX/maintainers
+/pytest.ini @BalootX/maintainers
+/.pytest.ini @BalootX/maintainers
+/pytest.toml @BalootX/maintainers
+/.pytest.toml @BalootX/maintainers
+/setup.cfg @BalootX/maintainers
+/tox.ini @BalootX/maintainers
+
+# Pytest configuration and imports used by the top-level receipt and preflight tests.
+/tests/pytest.ini @BalootX/maintainers
+/tests/.pytest.ini @BalootX/maintainers
+/tests/pytest.toml @BalootX/maintainers
+/tests/.pytest.toml @BalootX/maintainers
+/tests/pyproject.toml @BalootX/maintainers
+/tests/setup.cfg @BalootX/maintainers
+/tests/tox.ini @BalootX/maintainers
+/tests/deterministic_work.py @BalootX/maintainers
+/tests/conftest/ @BalootX/maintainers
+/tests/deterministic_work/ @BalootX/maintainers
+/tests/test_ci_hosted_contract/ @BalootX/maintainers
+/tests/test_repository_structure/ @BalootX/maintainers
+/tests/test_media_render_artifact/ @BalootX/maintainers
+/tests/__pycache__/ @BalootX/maintainers
+/tests/*.so @BalootX/maintainers
+/tests/*.pyd @BalootX/maintainers
+/tests/*.pyc @BalootX/maintainers
+
+# Generated contracts and hosted media release evidence.
+/scripts/sync_package_resources.py @BalootX/maintainers
+/scripts/generate_openapi.py @BalootX/maintainers
+/scripts/generate_professional_video_prototypes.py @BalootX/maintainers
+/scripts/render_release.py @BalootX/maintainers
+/scripts/render_research_notice.py @BalootX/maintainers
+/scripts/render_research_scenario_v4_goldens.py @BalootX/maintainers
+/scripts/render_remotion_plugin_parity.py @BalootX/maintainers
+/scripts/verify_remotion_plugin_parity.py @BalootX/maintainers
+/scripts/verify_professional_flagship.py @BalootX/maintainers
+/scripts/verify_professional_decision_clip.py @BalootX/maintainers
+/scripts/verify_professional_video_prototypes.py @BalootX/maintainers
+/scripts/generate_scene_preview.py @BalootX/maintainers
+/scripts/generate_media_probe.py @BalootX/maintainers
+/scripts/generate_test_inventory_v20.py @BalootX/maintainers
+/scripts/generate_supply_chain.py @BalootX/maintainers
+/scripts/generate_platform_evidence.py @BalootX/maintainers
+/src/baloot_platform/video/remotion/scripts/ @BalootX/maintainers
+
+# Packaging, release verification, and deployment inputs.
+/scripts/build_reproducible_wheel.py @BalootX/maintainers
+/scripts/package_release*.py @BalootX/maintainers
+/scripts/verify_release*.py @BalootX/maintainers
+/scripts/verify_archive*.py @BalootX/maintainers
+/scripts/check_release_readiness.py @BalootX/maintainers
+/scripts/run_verifier_container.py @BalootX/maintainers
+/scripts/verifier_preflight*.py @BalootX/maintainers
+/scripts/migrate_postgres.py @BalootX/maintainers
+/migrations/ @BalootX/maintainers
+/Dockerfile @BalootX/maintainers
+/.dockerignore @BalootX/maintainers
+/configs/runtime/docker_v1.yaml @BalootX/maintainers
+/src/baloot_platform/resources/configs/runtime/docker_v1.yaml @BalootX/maintainers
+/native/CMakeLists.txt @BalootX/maintainers
+
+# Dependency manifests and lockfiles.
+**/.npmrc @BalootX/maintainers
+/pyproject.toml @BalootX/maintainers
+/sdk/go/go.mod @BalootX/maintainers
+/sdk/typescript/package.json @BalootX/maintainers
+/src/baloot_platform/service/foundry_dashboard/package.json @BalootX/maintainers
+/src/baloot_platform/service/foundry_dashboard/package-lock.json @BalootX/maintainers
+/src/baloot_platform/video/remotion/package.json @BalootX/maintainers
+/src/baloot_platform/video/remotion/package-lock.json @BalootX/maintainers
