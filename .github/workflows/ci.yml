@@ -207,6 +207,48 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  ffmpeg-packages:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - *checkout
+      - id: ffmpeg-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: &ffmpeg-cache
+          path: ${{ runner.temp }}/ffmpeg-debs
+          key: ${{ runner.os }}-${{ runner.arch }}-ffmpeg-6.1.1-3ubuntu5-${{ hashFiles('.github/ffmpeg/noble-amd64.sha256') }}
+      - name: Fetch pinned FFmpeg packages
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ffmpeg-debs"
+          cd "$RUNNER_TEMP/ffmpeg-debs"
+          xargs -r -P 4 -n 2 bash -euo pipefail -c '
+            mkdir -p "$(dirname "$2")"
+            curl --fail --silent --show-error --location --retry 2 --retry-all-errors \
+              --retry-delay 1 --connect-timeout 5 --max-time 25 --output "$2" \
+              "https://snapshot.ubuntu.com/ubuntu/20261120T000000Z/$2" || exit 255
+            printf "%s  %s\n" "$1" "$2" | sha256sum --check --strict || exit 255
+          ' bash < "$GITHUB_WORKSPACE/.github/ffmpeg/noble-amd64.sha256"
+      - name: Verify pinned FFmpeg cache
+        if: steps.ffmpeg-cache.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/ffmpeg-debs"
+          sha256sum --check --strict "$GITHUB_WORKSPACE/.github/ffmpeg/noble-amd64.sha256"
+      - if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *ffmpeg-cache
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ffmpeg-debs-6.1.1-3ubuntu5
+          path: ${{ runner.temp }}/ffmpeg-debs
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
   native-build:
     needs: plan
     if: needs.plan.outputs.full == 'true'
@@ -272,7 +314,7 @@ jobs:
           fi
 
   python-fast-run:
-    needs: [plan, python-wheelhouse, native-build]
+    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -301,33 +343,24 @@ jobs:
       - if: github.job == 'python-fast-run'
         working-directory: src/baloot_platform/video/remotion
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - &ffmpeg-download
+        name: Download verified FFmpeg packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ffmpeg-debs-6.1.1-3ubuntu5
+          path: ${{ runner.temp }}/ffmpeg-debs
+          digest-mismatch: error
       - &ffmpeg
         name: Install pinned FFmpeg
         shell: bash
         run: |
-          # Linux amd64 static layer from mwader/static-ffmpeg:6.1.1.
-          sha256=6a50276a3bb9cfb113cdea2914393956f9fa74f0878398001bb0c811974170d6
-          tools="$(mktemp -d "$RUNNER_TEMP/ffmpeg-6.1.1.XXXXXX")"
-          archive="$tools/layer.tar.gz"
-          auth="$tools/registry-token.json"
-          trap 'rm -f -- "$archive" "$auth"' EXIT
-
-          fetch=(curl --fail --silent --show-error --location --retry 2
-                 --retry-all-errors --retry-delay 1 --connect-timeout 5)
-          "${fetch[@]}" --max-time 10 --output "$auth" \
-            'https://auth.docker.io/token?service=registry.docker.io&scope=repository:mwader/static-ffmpeg:pull'
-          token="$(python3 -I -c 'import json, sys; print(json.load(sys.stdin)["token"])' < "$auth")"
-          "${fetch[@]}" --max-time 30 --output "$archive" --header "Authorization: Bearer $token" \
-            "https://registry-1.docker.io/v2/mwader/static-ffmpeg/blobs/sha256:$sha256"
-
-          if ! printf '%s  %s\n' "$sha256" "$archive" | sha256sum --check --strict; then
-            echo '::error::Pinned FFmpeg 6.1.1 archive SHA-256 mismatch'
-            exit 1
-          fi
-          tar -xzf "$archive" -C "$tools" --no-same-owner ffmpeg ffprobe
-          "$tools/ffmpeg" -version
-          "$tools/ffprobe" -version
-          printf '%s\n' "$tools" >> "$GITHUB_PATH"
+          cd "$RUNNER_TEMP/ffmpeg-debs"
+          manifest="$GITHUB_WORKSPACE/.github/ffmpeg/noble-amd64.sha256"
+          sha256sum --check --strict "$manifest"
+          mapfile -t packages < <(awk '{print "./" $2}' "$manifest")
+          sudo env DEBIAN_FRONTEND=noninteractive dpkg --skip-same-version --install "${packages[@]}"
+          ffmpeg -version
+          ffprobe -version
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: python-wheels-${{ matrix.python }}
@@ -385,7 +418,7 @@ jobs:
           retention-days: 7
 
   python-backend-run:
-    needs: [plan, python-wheelhouse, native-build]
+    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -398,7 +431,7 @@ jobs:
     steps: *python-shard
 
   python-heavy:
-    needs: [plan, python-wheelhouse, native-build]
+    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -426,13 +459,14 @@ jobs:
       - run: python scripts/ci_scope.py coverage "$RUNNER_TEMP/python-coverage"
 
   media-inputs:
-    needs: [plan, python-wheelhouse]
+    needs: [plan, python-wheelhouse, ffmpeg-packages]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - *checkout
       - *py313
+      - *ffmpeg-download
       - *ffmpeg
       - &media-wheels
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -502,6 +536,7 @@ jobs:
       - *node
       - *remotion-restore
       - *remotion-install
+      - *ffmpeg-download
       - *ffmpeg
       - *media-wheels
       - *offline-install
@@ -545,6 +580,7 @@ jobs:
     steps:
       - *checkout
       - *py313
+      - *ffmpeg-download
       - *ffmpeg
       - *media-wheels
       - *offline-install
@@ -572,7 +608,7 @@ jobs:
   ci-gate:
     # Keep the protected context until the coordinated branch cutover.
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'CI result' }}
-    needs: [plan, preflight, dependency-review, foundry, sdks, python-affected, python-wheelhouse, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, media-render, media-release-smoke]
+    needs: [plan, preflight, dependency-review, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, media-render, media-release-smoke]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

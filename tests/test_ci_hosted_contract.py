@@ -39,13 +39,20 @@ def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):
         "media-inputs", "media-render", "media-release-smoke",
         "python-fast-run", "python-backend-run", "python-heavy",
     }
-    install = next(step for step in jobs["media-render"]["steps"]
-                   if step.get("name") == "Install pinned FFmpeg")
+    media_steps = jobs["media-render"]["steps"]
+    download = next(step for step in media_steps if step.get("name") == "Download verified FFmpeg packages")
+    install = next(step for step in media_steps if step.get("name") == "Install pinned FFmpeg")
     for name, job in jobs.items():
-        installs = [step for step in job["steps"] if step is install]
-        assert len(installs) == (1 if name in consumers else 0), name
-        for step in job["steps"]:
-            assert not re.search(r"apt-get[^\n]*ffmpeg", step.get("run", "")), name
+        steps = job["steps"]
+        expected = int(name in consumers)
+        assert sum(step is download for step in steps) == expected, name
+        assert sum(step is install for step in steps) == expected, name
+        if expected:
+            assert steps.index(download) < steps.index(install), name
+            assert all("apt-get update" not in step.get("run", "") for step in steps), name
+    assert "sha256sum --check --strict" in install["run"]
+    assert "dpkg --skip-same-version --install" in install["run"]
+    assert "ffmpeg-packages" in jobs["media-inputs"]["needs"]
     assert jobs["media-render"]["timeout-minutes"] == 25
 
 

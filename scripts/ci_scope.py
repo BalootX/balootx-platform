@@ -13,7 +13,7 @@ from scripts.run_isolated_pytest import fast_files, node_sharded_files, validate
 HISTORY = Path(".github/python-test-durations.json")
 VERSIONS = ("3.12", "3.13")
 FULL = {
-    "python-wheelhouse", "native-build", "native-sanitizers", "python-fast-run",
+    "python-wheelhouse", "ffmpeg-packages", "native-build", "native-sanitizers", "python-fast-run",
     "python-backend-run", "python-heavy", "python-coverage", "media-inputs",
     "media-render", "media-release-smoke",
 }
