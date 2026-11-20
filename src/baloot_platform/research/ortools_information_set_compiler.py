@@ -4350,7 +4350,7 @@ class OrToolsActorInformationSetCompilerV1:
             projected = witness.at_prefix(length)
             native_projection = None
             if oracle.public_baloot_binding is not None or getattr(oracle, "project_disclosure_bindings", None):
-                native_projection = oracle.solve(path, maximum_seconds=deadline - time.monotonic(),
+                native_projection = oracle.solve(path, maximum_seconds=min(maximum_seconds, deadline - time.monotonic()),
                     cancelled=cancel_check)
                 result, _ = native_projection
             else:
@@ -4361,7 +4361,7 @@ class OrToolsActorInformationSetCompilerV1:
                     raise PlayTailSolveStopped("cancelled")
                 if time.monotonic() >= deadline:
                     raise PlayTailSolveStopped("maximum_seconds")
-                checkpoint, native_prefix = native_projection or oracle.solve(path, maximum_seconds=deadline - time.monotonic(),
+                checkpoint, native_prefix = native_projection or oracle.solve(path, maximum_seconds=min(maximum_seconds, deadline - time.monotonic()),
                     cancelled=cancel_check)
                 project_hash = project_observer(CompleteStateDecisionObservationV1(checkpoint.next_actor,
                     path, native_prefix, checkpoint.remaining_hands, checkpoint.current_trick,
@@ -7371,7 +7371,7 @@ class OrToolsActorInformationSetCompilerV1:
             try:
                 # Any adverse witness is a valid master cut; only INFEASIBLE closes coverage.
                 witness, utility, model_hash = oracle.find_path_below(threshold,
-                    conditional_actions=bindings, maximum_seconds=deadline - time.monotonic(),
+                    conditional_actions=bindings, maximum_seconds=min(maximum_seconds, deadline - time.monotonic()),
                     cancelled=cancel_check, feasibility_only=counterexample_objective == "feasibility")
             except PlayTailSolveStopped as exc:
                 failed = exc.partial_receipt["evidence"]
@@ -7407,7 +7407,7 @@ class OrToolsActorInformationSetCompilerV1:
                 learned_prefixes = {}
                 selected, domains, target_actions = self._observed_policy_bindings(world_state, oracle, witness,
                     target, policy, recall, known_domains=domains, project_context=project_context,
-                    maximum_seconds=deadline - time.monotonic(), cancel_check=cancel_check,
+                    maximum_seconds=min(maximum_seconds, deadline - time.monotonic()), cancel_check=cancel_check,
                     _prefix_observations=learned_prefixes, _known_prefix_observations=_prefix_observations,
                     _project_observer=project_observer)
             except PlayTailSolveStopped as exc:
@@ -7616,7 +7616,7 @@ class OrToolsActorInformationSetCompilerV1:
                     try:
                         witness, value, query_hash = oracle.find_path_below(
                             oracle.query_utility_bounds()[1] + 1, path=fixed_path, conditional_actions={},
-                            maximum_seconds=deadline - time.monotonic(), cancelled=cancel_check,
+                            maximum_seconds=min(maximum_seconds, deadline - time.monotonic()), cancelled=cancel_check,
                             maximize_utility=maximize)
                     except PlayTailSolveStopped as exc:
                         failed = exc.partial_receipt.get("evidence", {})
@@ -7745,7 +7745,7 @@ class OrToolsActorInformationSetCompilerV1:
                 reason = oracle.enumerate_paths(
                     maximum_nodes=maximum_queries,
                     maximum_solutions=remaining_paths,
-                    maximum_seconds=deadline - time.monotonic(),
+                    maximum_seconds=min(maximum_seconds, deadline - time.monotonic()),
                     cancelled=cancel_check,
                     root_action=selected_root_action,
                 )
@@ -7796,7 +7796,7 @@ class OrToolsActorInformationSetCompilerV1:
                             state, oracle, witness, target, {}, recall,
                             known_domains=exhaustive_domains,
                             project_context=contexts.get(oracle.model_hash),
-                            maximum_seconds=deadline - time.monotonic(),
+                            maximum_seconds=min(maximum_seconds, deadline - time.monotonic()),
                             cancel_check=cancel_check,
                             _prefix_observations=exhaustive_prefix_observations[world_identity],
                             _known_prefix_observations=exhaustive_prefix_observations[world_identity],
@@ -7964,7 +7964,7 @@ class OrToolsActorInformationSetCompilerV1:
                 try:
                     result = self._find_observed_policy_counterexample(state, oracle, target, policy, recall,
                         threshold=master.value, known_domains=domains, maximum_queries=remaining_queries,
-                        maximum_prefixes=maximum_prefixes, maximum_seconds=deadline - time.monotonic(),
+                        maximum_prefixes=maximum_prefixes, maximum_seconds=min(maximum_seconds, deadline - time.monotonic()),
                         cancel_check=cancel_check, root_action=root_action,
                         project_context=contexts.get(oracle.model_hash),
                         _prefix_observations=prefix_observations[world_identity],
@@ -8061,7 +8061,7 @@ class OrToolsActorInformationSetCompilerV1:
             if reason:
                 raise InformationSetCompilationStopped(reason, stage="native_observed_selected_action",
                     evidence={"proofs": proofs, "limits": native_limits.to_dict()})
-            return deadline - time.monotonic()
+            return min(maximum_seconds, deadline - time.monotonic())
 
         def solve(action, allowed=None):
             nonlocal queries, iterations
@@ -8230,7 +8230,7 @@ class OrToolsActorInformationSetCompilerV1:
                         for _, oracle, _ in worlds)):
             try:
                 shared = self._solve_observed_worlds(worlds, target, native_limits=native_limits,
-                    maximum_seconds=deadline - time.monotonic(), cancel_check=cancel_check,
+                    maximum_seconds=min(maximum_seconds, deadline - time.monotonic()), cancel_check=cancel_check,
                     project_contexts=project_contexts, _project_observer_cache=observer_cache)
             except InformationSetCompilationStopped as exc:
                 usage = exc.partial_receipt.get("evidence", {}).get("resources", {}).get("usage", {})
@@ -8303,7 +8303,7 @@ class OrToolsActorInformationSetCompilerV1:
                 maximum_iterations=native_limits.maximum_iterations - iterations)
             try:
                 proof = self._solve_observed_worlds(worlds, target, native_limits=remaining,
-                    maximum_seconds=deadline - time.monotonic(), cancel_check=cancel_check,
+                    maximum_seconds=min(maximum_seconds, deadline - time.monotonic()), cancel_check=cancel_check,
                     selected_root_action=action, project_contexts=project_contexts,
                     _project_observer_cache=observer_cache)
             except InformationSetCompilationStopped as exc:

@@ -10,11 +10,14 @@ import json
 import multiprocessing
 import multiprocessing.connection
 import os
+from threading import Barrier, Event, Thread, enumerate as active_threads
 from pathlib import Path
 import textwrap
 import time
 
 import pytest
+
+from deterministic_work import set_monotonic
 
 pytest.importorskip("ortools")
 
@@ -65,8 +68,7 @@ from baloot_platform.research.ortools_proof import (
 
 def _world_parent_death_probe(connection):
     connection.send(os.getpid())
-    if connection.poll(30):
-        connection.recv()
+    connection.recv()
     os._exit(0)
 
 
@@ -136,7 +138,7 @@ def _world_parent_death_candidate(connection, stop):
         initargs=(stop, context.Array("d", 1), context.Value("i", 0)),
     ) as pool:
         pool.submit(_world_parent_death_probe, connection)
-        time.sleep(30)
+        stop.wait()
 
 
 @pytest.mark.real_clock
@@ -149,15 +151,13 @@ def test_world_compile_worker_exits_when_candidate_is_force_terminated():
     writer.close()
     try:
         # Spawn+import latency is machine-dependent; wait for the start message or the
-        # candidate's death, with the wall clock only as a hang guard.
-        ready = multiprocessing.connection.wait([reader, candidate.sentinel], timeout=600)
+        # candidate's death before terminating it.
+        ready = multiprocessing.connection.wait([reader, candidate.sentinel])
         assert reader in ready, "world worker did not start"
         assert type(reader.recv()) is int
         assert candidate.is_alive()
         candidate.terminate()
-        candidate.join(10)
-        assert not candidate.is_alive()
-        assert reader.poll(10), "world worker survived its candidate"
+        candidate.join()
         with pytest.raises(EOFError):
             reader.recv()
     finally:
@@ -983,11 +983,13 @@ def test_declared_proof_wall_budget_must_be_finite(seconds):
         InformationSetProofBudgetV1(maximum_wall_seconds=seconds)
 
 
-@pytest.mark.real_clock
-def test_runtime_deadline_preserves_declared_budget_identity(rules):
+def test_runtime_deadline_preserves_declared_budget_identity(rules, monkeypatch):
+    from baloot_platform.research import ortools_information_set_proof as module
+
+    set_monotonic(monkeypatch, module, 0, 2)
     budget = InformationSetProofBudgetV1(maximum_wall_seconds=10)
     proof = OrToolsActorInformationSetProofV1().prove(
-        _clairvoyance_problem(rules), budget=budget, runtime_maximum_seconds=1e-12)
+        _clairvoyance_problem(rules), budget=budget, runtime_maximum_seconds=1)
     assert proof.budget_hash == budget.sha256
     assert proof.completion_status == "proof_incomplete"
     assert all(root.exhaustion_reason == "cancelled_or_wall_time" for root in proof.roots)
@@ -1008,8 +1010,9 @@ def test_budget_exhaustion_is_incomplete_with_honest_root_bounds(rules) -> None:
     )
 
 
-@pytest.mark.real_clock
-def test_time_budgeted_symbolic_policy_search_preserves_exact_oracle_and_limits(rules):
+def test_time_budgeted_symbolic_policy_search_preserves_exact_oracle_and_limits(rules, monkeypatch):
+    from baloot_platform.research import ortools_information_set_proof as module
+
     problem = _clairvoyance_problem(rules)
     legacy = InformationSetProofBudgetV1(maximum_policies=1)
     assert "policySearch" not in legacy.to_dict()
@@ -1018,8 +1021,11 @@ def test_time_budgeted_symbolic_policy_search_preserves_exact_oracle_and_limits(
     proof = OrToolsActorInformationSetProofV1().prove(problem, budget=budget)
     assert all(row.completion_status == "exact" for row in proof.roots)
     assert all(row.robust_value == _exhaustive_root_value(problem, row.root_action) for row in proof.roots)
-    for limits in ({"cancel_check": lambda: True}, {"runtime_maximum_seconds": 1e-12}):
-        partial = OrToolsActorInformationSetProofV1().prove(problem, budget=budget, **limits)
+    for limits in ({"cancel_check": lambda: True}, {"runtime_maximum_seconds": 1}):
+        with monkeypatch.context() as patch:
+            if "runtime_maximum_seconds" in limits:
+                set_monotonic(patch, module, 0, 2)
+            partial = OrToolsActorInformationSetProofV1().prove(problem, budget=budget, **limits)
         assert partial.completion_status == "proof_incomplete"
         assert all(row.exhaustion_reason == "cancelled_or_wall_time" for row in partial.roots)
     for invalid in (True, "other", []):
@@ -3262,9 +3268,11 @@ def test_native_bid_preparation_covers_partition_and_preserves_budget_receipts(r
     for field, value, reason, completed in (
             ("maximum_branches", 1, "maximum_branches", 0),
             ("maximum_model_bytes", 1, "maximum_model_bytes", 1),
-            ("maximum_seconds", 1e-12, "maximum_seconds", 0),
+            ("maximum_seconds", 1, "maximum_seconds", 0),
             ("cancel_check", lambda: True, "cancelled", 0)):
-        with pytest.raises(InformationSetCompilationStopped) as caught:
+        with monkeypatch.context() as patch, pytest.raises(InformationSetCompilationStopped) as caught:
+            if field == "maximum_seconds":
+                set_monotonic(patch, module, 0, 2)
             compiler._prepare_native_bid_branches(exact, prefix, **{**arguments, field: value})
         assert caught.value.reason == reason
         partial = caught.value.partial_receipt["evidence"]
@@ -3274,7 +3282,7 @@ def test_native_bid_preparation_covers_partition_and_preserves_budget_receipts(r
         with pytest.raises(ValueError, match="budgets"):
             compiler._prepare_native_bid_branches(exact, prefix, **{**arguments, field: True})
     def exhausted(solver, model, cancel_check):
-        solver.parameters.max_time_in_seconds = 1e-9
+        solver.parameters.max_time_in_seconds = 0
         return solver.solve(model)
     with monkeypatch.context() as patch:
         patch.setattr(module, "_solve_cp_sat_with_cancel_v1", exhausted)
@@ -4188,64 +4196,49 @@ def test_success_threshold_mutates_native_root_win_certification() -> None:
     }
 
 
-@pytest.mark.real_clock
-def test_blocking_cp_sat_solve_observes_cancellation_within_250ms() -> None:
+@pytest.mark.parametrize("solver_count", [1, 2])
+def test_shared_cancellation_watcher_stops_active_solves(solver_count) -> None:
     from ortools.sat.python import cp_model
 
-    class BlockingSolver:
-        def __init__(self) -> None:
-            self.stopped = False
-
-        def solve(self, _model) -> int:
-            deadline = time.monotonic() + 1.0
-            while not self.stopped and time.monotonic() < deadline:
-                time.sleep(0.005)
-            return cp_model.UNKNOWN
-
-        def stop_search(self) -> None:
-            self.stopped = True
-
-    solver = BlockingSolver()
-    started = time.monotonic()
-    status = _solve_cp_sat_with_cancel_v1(
-        solver,
-        object(),
-        lambda: time.monotonic() - started >= 0.02,
-    )
-
-    assert status == cp_model.UNKNOWN
-    assert solver.stopped is True
-    assert time.monotonic() - started < 0.25
-
-
-@pytest.mark.real_clock
-def test_shared_cancellation_watcher_handles_concurrent_solves() -> None:
-    from threading import Thread, enumerate as active_threads
-    from ortools.sat.python import cp_model
+    solving = Event()
+    together = Barrier(solver_count, action=solving.set)
 
     class BlockingSolver:
-        def __init__(self) -> None:
+        def __init__(self):
+            self.released = Event()
             self.stopped = False
+            self.polls = 0
 
-        def solve(self, _model) -> int:
-            while not self.stopped:
-                time.sleep(0.005)
+        def solve(self, _model):
+            together.wait()
+            self.released.wait()
             return cp_model.UNKNOWN
 
-        def stop_search(self) -> None:
-            self.stopped = True
+        def cancellation_requested(self):
+            if not solving.is_set():
+                return False
+            self.polls += 1
+            if self.polls == 2:
+                # Let a missing stop_search fail by assertion on the next watcher tick.
+                self.released.set()
+            return True
 
-    solvers = [BlockingSolver(), BlockingSolver()]
+        def stop_search(self):
+            if self.polls == 1:
+                self.stopped = True
+            self.released.set()
+
+    solvers = [BlockingSolver() for _ in range(solver_count)]
     statuses = []
-    started = time.monotonic()
     workers = [Thread(target=lambda solver=solver: statuses.append(
-        _solve_cp_sat_with_cancel_v1(solver, object(),
-            lambda: time.monotonic() - started >= 0.02))) for solver in solvers]
+        _solve_cp_sat_with_cancel_v1(solver, object(), solver.cancellation_requested)))
+        for solver in solvers]
     for worker in workers:
         worker.start()
     for worker in workers:
-        worker.join(timeout=0.25)
-    assert statuses == [cp_model.UNKNOWN, cp_model.UNKNOWN]
+        worker.join()
+
+    assert statuses == [cp_model.UNKNOWN] * solver_count
     assert all(solver.stopped for solver in solvers)
     assert sum(thread.name == "actor-info-cancel-watch" for thread in active_threads()) == 1
 

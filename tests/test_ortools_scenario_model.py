@@ -333,6 +333,23 @@ def test_observed_penultimate_pass_refutes_floor_without_fixed_play_policy(root)
     assert "incumbentAttempt" not in stopped
 
 
+def test_single_world_bid_search_rejects_runtime_allowance_above_declared_cap(root, monkeypatch):
+    compiler, exact, prefix, _ = _native_suit_monopoly_bid(root)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("over-cap runtime must be rejected before searching a world")
+
+    monkeypatch.setattr(compiler, "_find_native_bid_compatible_world", forbidden)
+    with pytest.raises(ValueError, match="world upper search runtime allowance exceeds the declared cap"):
+        compiler._search_observed_bid_alternative_upper(
+            exact, prefix, selected_action="pass", upper_bound=0, maximum_seconds=30,
+            runtime_maximum_seconds=math.nextafter(30.0, math.inf),
+            maximum_worlds=1, maximum_world_seconds=30, maximum_world_queries=100,
+            maximum_queries=100, maximum_iterations=2, maximum_observations=100,
+            maximum_branches=13, maximum_model_bytes=100000000, maximum_evidence_bytes=100000000,
+            maximum_conflicts=250000, maximum_depth=64)
+
+
 @pytest.mark.parametrize("version", (1, 2))
 def test_observed_bid_world_search_produces_real_fresh_all_pass_cap(root, monkeypatch, deterministic_work, version):
     from baloot_platform.research.ortools_exact_state import OrToolsExactStateNormalizerV1
@@ -4092,7 +4109,8 @@ def test_guarded_native_threshold_search_and_fresh_reader(root, minimax_shorteni
         assert str(fresh.model.proto) == before
         return _reverify_observed_bid_policy_threshold(value, {"queriesUsed": 0}, [fresh],
             compiler=compiler, scope=strategy["scope"], target=actor.team, required_threshold=90,
-            deadline=time.monotonic()+30, maximum_queries=100, maximum_observations=1000,
+            remaining=lambda deadline=time.monotonic()+30: deadline - time.monotonic(),
+            maximum_queries=100, maximum_observations=1000,
             maximum_conflicts=250000, cancel_check=None, on_queries_used=None)
     assert read(strategy) == 90
     hint_core = {key: copy.deepcopy(strategy[key]) for key in ("scopeHash", "domains", "policy", "playContexts")}
@@ -4179,7 +4197,8 @@ def test_guarded_mixed_redeal_and_play_search_keeps_auction_witness_out_of_card_
         if row["receipt"]["scope"].get("allPassedCovered"))
     assert _reverify_observed_bid_policy_threshold(strategy, {"queriesUsed": 0}, build(),
         compiler=compiler, scope=strategy["scope"], target=actor.team, required_threshold=1,
-        deadline=time.monotonic()+30, maximum_queries=100, maximum_observations=1000,
+        remaining=lambda deadline=time.monotonic()+30: deadline - time.monotonic(),
+            maximum_queries=100, maximum_observations=1000,
         maximum_conflicts=250000, cancel_check=None, on_queries_used=None) == 1
 
 
@@ -4259,7 +4278,8 @@ def test_guarded_threshold_refines_the_ace_sacrifice_and_reverifies(root, rules,
     assert len(effective["playOverrides"]) == 1
     assert _reverify_observed_bid_policy_threshold(strategy, {"queriesUsed": 0}, [build()],
         compiler=compiler, scope=strategy["scope"], target=Team.WEST_EAST, required_threshold=1,
-        deadline=time.monotonic()+proof_seconds, maximum_queries=100, maximum_observations=1000,
+        remaining=lambda deadline=time.monotonic()+proof_seconds: deadline - time.monotonic(),
+            maximum_queries=100, maximum_observations=1000,
         maximum_conflicts=250000, cancel_check=None, on_queries_used=None) == 1
     # Warm policy proposals still need fresh truth. A legal but losing proposal
     # must be corrected, not certified using the previous successful receipt.
@@ -4281,7 +4301,8 @@ def test_guarded_threshold_refines_the_ace_sacrifice_and_reverifies(root, rules,
             assert len(hinted["masters"]) > 1  # A losing hint must be freshly corrected.
         assert _reverify_observed_bid_policy_threshold(hinted, {"queriesUsed": 0}, [build()],
             compiler=compiler, scope=strategy["scope"], target=Team.WEST_EAST, required_threshold=1,
-            deadline=time.monotonic()+proof_seconds, maximum_queries=100, maximum_observations=1000,
+            remaining=lambda deadline=time.monotonic()+proof_seconds: deadline - time.monotonic(),
+            maximum_queries=100, maximum_observations=1000,
             maximum_conflicts=250000, cancel_check=None, on_queries_used=None) == 1
     without_deviation = compiler._refine_symbolic_round_policy(build(), Team.WEST_EAST, {},
         threshold=1, _play_fallback_id="observer_safe_trick_control_v1", _play_contexts={},
@@ -4433,6 +4454,41 @@ def test_native_strategy_threshold_is_not_exact_value(root, monkeypatch):
 
 
 @pytest.mark.real_clock
+def test_native_refutation_readback_never_renews_its_allowance(monkeypatch):
+    import time
+    from types import SimpleNamespace
+    from baloot_platform.research.result_authority import _reverify_native_strategy_refuted_upper_v1
+    from baloot_platform.research.scenario_contracts import canonical_sha256
+
+    target = Team.NORTH_SOUTH
+    scope = dict(requiredThreshold=1, utilityBounds=[-1, 1], targetTeam=target.name.lower(),
+        coverage="supplied_deal_branches_only", objective="strategy_threshold_satisfaction",
+        utility="awarded_point_margin")
+    strategy = dict(schemaVersion=1, kind="native_symbolic_round_strategy_threshold_v1",
+        status="scoped_strategy_threshold_refuted", scope=scope, scopeHash=canonical_sha256(scope),
+        requiredThreshold=1, upperBound=0, lowerBound=None, strategicCoverage=False,
+        finalBranchProofs=[], masters=[{"status": "optimal", "searchValue": 0}],
+        masterSearchValue=0, queriesUsed=1)
+    strategy["sha256"] = canonical_sha256(strategy)
+    allowances = []
+
+    def solve(*args, **kwargs):
+        allowances.append(kwargs["maximum_seconds"])
+        return strategy
+
+    compiler = SimpleNamespace(_solve_symbolic_round_policy_bounds=solve)
+    origin = math.nextafter(32.0, 0.0)  # (origin + 30) - origin rounds above 30.
+    ticks = iter((origin, origin + 2))
+    with monkeypatch.context() as patch:
+        patch.setattr(time, "monotonic", lambda: next(ticks))
+        for _ in range(2):
+            assert _reverify_native_strategy_refuted_upper_v1(strategy, [object()],
+                compiler=compiler, scope=scope, target=target, upper_bound=0, preparation_queries=0,
+                deadline=origin + 30, maximum_seconds=30, maximum_queries=10,
+                maximum_observations=10, maximum_conflicts=100) == 0
+    assert allowances == [30, 28]
+
+
 def test_native_strategy_threshold_refutation_matches_exact_tail(root):
     import time
     from baloot_platform.research.ortools_information_set_compiler import OrToolsActorInformationSetCompilerV1
@@ -4461,7 +4517,7 @@ def test_native_strategy_threshold_refutation_matches_exact_tail(root):
         validate_native_strategy_threshold_v1(result, expected_scope=result["scope"])
     checked = []
     context = dict(compiler=compiler, scope=result["scope"], target=Team[request.target_team.upper()],
-        upper_bound=threshold - 1, preparation_queries=0, deadline=time.monotonic() + 30,
+        upper_bound=threshold - 1, preparation_queries=0, deadline=time.monotonic() + 30, maximum_seconds=30,
         maximum_queries=1000, maximum_observations=1000, maximum_conflicts=250000,
         on_queries_used=checked.append)
     assert _reverify_native_strategy_refuted_upper_v1(result, [source], **context) == threshold - 1

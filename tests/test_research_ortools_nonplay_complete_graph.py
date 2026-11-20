@@ -6,6 +6,8 @@ import time
 
 import pytest
 
+from deterministic_work import set_monotonic
+
 from baloot_platform.core.enums import Contract, Seat
 from baloot_platform.core.cards import Card
 from baloot_platform.core.dealing import DealLayoutV1
@@ -871,25 +873,26 @@ def test_automatic_escalation_actor_is_absent_for_closed_sun(rules, assertions):
     assert result["projectPlayHandoff"] is not None
 
 
-@pytest.mark.real_clock
 @pytest.mark.parametrize("limit,reason,count", [("maximum_decisions", "maximum_decisions", 1),
     ("maximum_evidence_bytes", "maximum_evidence_bytes", 0), ("cancel", "cancelled", 0),
     ("global_time", "maximum_seconds", 0), ("runtime", "maximum_seconds", 0)])
-def test_escalation_driver_preserves_incomplete_prefix(rules, limit, reason, count):
-    from baloot_platform.research.ortools_research_executor import resolve_quality_escalation_continuation_v1
+def test_escalation_driver_preserves_incomplete_prefix(rules, limit, reason, count, monkeypatch):
+    from baloot_platform.research import ortools_research_executor as module
     raw = _request("bounded").to_dict()
     raw.pop("sha256")
     raw.update(visibility="actor_information_set", strategyClass="pure_deterministic")
     kwargs = dict(maximum_decisions=20, maximum_evidence_bytes=10_000_000)
+    if limit in {"global_time", "runtime"}:
+        set_monotonic(monkeypatch, module, 0, 2)
     if limit == "runtime":
-        kwargs["runtime_maximum_seconds"] = 1e-12
+        kwargs["runtime_maximum_seconds"] = 1
     elif limit != "global_time":
         kwargs.update({"cancel_check": lambda: True} if limit == "cancel" else {limit: 1})
     prefix = _escalation_prefix()
-    result = resolve_quality_escalation_continuation_v1(rules, prefix,
+    result = module.resolve_quality_escalation_continuation_v1(rules, prefix,
         {"kind": "escalation", "selector": {"actingSeat": "west"}}, ScenarioProofRequestV1.build(raw),
         opportunity_order=("west", "east", "south", "north"), maximum_nodes=1000,
-        maximum_depth=8, maximum_worlds=2, maximum_seconds=1e-12 if limit == "global_time" else 30,
+        maximum_depth=8, maximum_worlds=2, maximum_seconds=1 if limit == "global_time" else 30,
         maximum_decision_seconds=15, **kwargs)
     assert result["status"] == "incomplete"
     assert result["partialReceipt"]["exhaustionReason"] == reason

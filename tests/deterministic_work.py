@@ -155,3 +155,10 @@ def deterministic_work_clock_v1(safety_seconds: float = SAFETY_SECONDS):
         yield clock
     finally:
         release()
+
+
+def set_monotonic(monkeypatch, module, *timestamps):
+    """Supply the prescribed clock readings and hold the clock at the final tick."""
+    ticks = iter(timestamps)
+    monkeypatch.setattr(module, "time", types.SimpleNamespace(
+        **{**vars(module.time), "monotonic": lambda: next(ticks, timestamps[-1])}))

@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from deterministic_work import set_monotonic
+
 from baloot_platform.core.auction_ir import AuctionDomainIRV1
 from baloot_platform.core.cards import Card
 from baloot_platform.core.dealing import DealLayoutV1
@@ -261,8 +263,9 @@ def test_native_auction_boundary_uniqueness_exhaustion_is_incomplete(rules, monk
     assert "boundaryUniquenessModel" in receipts[-1]["modelIdentity"]
 
 
-@pytest.mark.real_clock
-def test_native_auction_graph_budget_and_cancellation_fail_closed(rules):
+def test_native_auction_graph_budget_and_cancellation_fail_closed(rules, monkeypatch):
+    from baloot_platform.research import ortools_nonplay_graphs as module
+
     options = dict(dealer=Seat.EAST, purchase_suit=Suit.HEARTS,
                    terminal_utility=lambda _: 0, native_cp_sat=True)
     domain = _auction_domain(rules)
@@ -271,8 +274,9 @@ def test_native_auction_graph_budget_and_cancellation_fail_closed(rules):
             compile_auction_decision_graph_v1(domain, **options, maximum_seconds=invalid)
     with pytest.raises(NonPlayGraphCompilationStoppedV1, match="cancelled"):
         compile_auction_decision_graph_v1(domain, **options, maximum_seconds=10, cancel_check=lambda: True)
-    with pytest.raises(NonPlayGraphCompilationStoppedV1, match="maximum_seconds"):
-        compile_auction_decision_graph_v1(domain, **options, maximum_seconds=1e-12)
+    with monkeypatch.context() as patch, pytest.raises(NonPlayGraphCompilationStoppedV1, match="maximum_seconds"):
+        set_monotonic(patch, module, 0, 2)
+        compile_auction_decision_graph_v1(domain, **options, maximum_seconds=1)
     with pytest.raises(ValueError, match="one solver worker"):
         compile_auction_decision_graph_v1(domain, **options, maximum_seconds=10, root_worker_count=2)
 
@@ -719,16 +723,18 @@ def test_native_prior_history_closed_window_is_solver_constrained(rules, own, ex
         assert row["privateRecall"].get("west", []) in ([], [earlier])
 
 
-@pytest.mark.real_clock
 @pytest.mark.parametrize("limit,reason", [("worlds", "maximum_worlds"), ("nodes", "maximum_nodes"),
     ("depth", "maximum_depth"), ("time", "maximum_seconds"), ("cancel", "cancelled")])
-def test_native_prior_history_exhaustion_retains_evidence_not_worlds(rules, limit, reason):
-    from baloot_platform.research.ortools_nonplay_graphs import enumerate_escalation_prior_histories_v1
-    result = enumerate_escalation_prior_histories_v1(EscalationDomainIRV1.from_rules(rules.data),
+def test_native_prior_history_exhaustion_retains_evidence_not_worlds(rules, limit, reason, monkeypatch):
+    from baloot_platform.research import ortools_nonplay_graphs as module
+
+    if limit == "time":
+        set_monotonic(monkeypatch, module, 0, 2)
+    result = module.enumerate_escalation_prior_histories_v1(EscalationDomainIRV1.from_rules(rules.data),
         declarer=Seat.SOUTH, contract=Contract.HOKUM, match_score=(0, 0), observer_seat="south",
         prefix=(EscalationGraphActionV1.build("east", "double", "open"),),
         maximum_worlds=1 if limit == "worlds" else 4,
-        maximum_seconds=1e-12 if limit == "time" else 15,
+        maximum_seconds=1 if limit == "time" else 15,
         budget=NonPlayGraphBudgetV1(maximum_nodes=2 if limit == "nodes" else 30,
                                    maximum_depth=1 if limit == "depth" else 8),
         cancel_check=(lambda: True) if limit == "cancel" else None)

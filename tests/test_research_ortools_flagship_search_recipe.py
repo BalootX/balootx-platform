@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 from dataclasses import replace
 import inspect
 import json
@@ -919,7 +920,11 @@ def test_tail_tactic_boundary_binds_supported_proof_predicates_in_shared_model(
             )
         )
         if first_boundary is None:
-            first_boundary = original_boundary(stage, *args, **kwargs)
+            ticks = itertools.count()
+            with monkeypatch.context() as patch:
+                patch.setattr(tail_boundary_module, "time", SimpleNamespace(
+                    **{**vars(tail_boundary_module.time), "perf_counter": lambda: next(ticks)}))
+                first_boundary = original_boundary(stage, *args, **kwargs)
             return first_boundary
         return replace(
             first_boundary,
@@ -1017,8 +1022,8 @@ def test_tail_tactic_boundary_binds_supported_proof_predicates_in_shared_model(
     assert exclusions[0] == ((), ())
     assert requirements == [(None, None)]
     assert first_boundary is not None
-    assert first_boundary.model_build_seconds > 0
-    assert first_boundary.solver_seconds > 0
+    assert first_boundary.model_build_seconds == 1
+    assert first_boundary.solver_seconds == first_boundary.solve_attempts
     assert first_boundary.solve_attempts >= 1
     assert project_ownership
     assert sum(owner is not None for owner in project_ownership[0]["fixed_card_owners"]) >= 12
