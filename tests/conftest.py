@@ -23,6 +23,10 @@ from baloot_platform.core.rules import RuleBook
 _WORK_FILE_STARTED = pytest.StashKey[float]()
 
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "controlled_clock: test supplies scripted clock readings")
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_make_collect_report(collector):
     from deterministic_work import deterministic_work_clock_v1, solver_test_module

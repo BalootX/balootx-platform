@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import threading
-import time
 from types import SimpleNamespace
 
 import pytest
 
+from deterministic_work import HANG_GUARD
+
 from ortools.sat.python import cp_model
 
+from baloot_platform.research import campaign_coordinator as coordinator
 from baloot_platform.research.campaign_coordinator import (
     CampaignBudgetV1,
     CampaignCancellationTokenV1,
@@ -70,11 +72,83 @@ def _budget(*, results: int, workers: int = 3, wall: float = 2.0):
     )
 
 
-@pytest.mark.real_clock
+@pytest.fixture
+def campaign_clock(monkeypatch):
+    now_ns = [0]
+    monkeypatch.setattr(coordinator, "time", SimpleNamespace(
+        **{**vars(coordinator.time),
+            "perf_counter_ns": lambda: now_ns[0],
+            "perf_counter": lambda: now_ns[0] / 1_000_000_000}))
+    return now_ns
+
+
+def _deliver_shards_in_order(monkeypatch, order):
+    """Release real shard futures in a specified order at the coordinator's wait boundary."""
+    executor = coordinator.ThreadPoolExecutor
+    wait = coordinator.wait
+    gates = {index: threading.Event() for index in order}
+    started = threading.Barrier(len(order) + 1)
+    pending_order = iter(order)
+    submissions = {}
+    first_wait = True
+
+    class OrderedExecutor(executor):
+        def submit(self, fn, solver, request):
+            index = request.shard.shard_index
+
+            def gated_solver(request):
+                started.wait(timeout=HANG_GUARD)
+                assert gates[index].wait(HANG_GUARD)
+                return solver(request)
+
+            future = super().submit(fn, gated_solver, request)
+            submissions[index] = (future, request.cancellation)
+            return future
+
+        def shutdown(self, *args, **kwargs):
+            for gate in gates.values():
+                gate.set()
+            return super().shutdown(*args, **kwargs)
+
+    def ordered_wait(futures, **kwargs):
+        nonlocal first_wait
+        if first_wait:
+            first_wait = False
+            started.wait(timeout=HANG_GUARD)
+        if any(token.is_cancelled for _, token in submissions.values()):
+            for gate in gates.values():
+                gate.set()
+            done, pending = wait(futures, timeout=HANG_GUARD, return_when=kwargs["return_when"])
+            assert done, "cancelled shards did not unwind"
+            return done, pending
+        index = next(pending_order)
+        future, _ = submissions[index]
+        assert future in futures
+        gates[index].set()
+        done, _ = wait((future,), timeout=HANG_GUARD)
+        assert future in done, "released shard did not finish"
+        return done, set(futures) - done
+
+    monkeypatch.setattr(coordinator, "ThreadPoolExecutor", OrderedExecutor)
+    monkeypatch.setattr(coordinator, "wait", ordered_wait)
+
+
 @pytest.mark.parametrize("checkpoint_bytes", [0, 42_000_000])
-def test_private_checkpoints_survive_cancellation_without_live_disclosure(checkpoint_bytes):
-    cancellation, checkpoint_ready, release, finished = (
-        threading.Event() for _ in range(4))
+def test_private_checkpoints_survive_cancellation_without_live_disclosure(
+    checkpoint_bytes, campaign_clock, monkeypatch,
+):
+    cancellation, release, finished = (threading.Event() for _ in range(3))
+    requests = []
+    wait = coordinator.wait
+
+    def wait_for_checkpoint(futures, **kwargs):
+        if requests and requests[0].cancellation.is_cancelled:
+            assert requests[0].cancellation_acknowledgement.wait(HANG_GUARD)
+            campaign_clock[0] = 40_000_000
+            return set(), set(futures)
+        return wait(futures, **kwargs)
+
+    monkeypatch.setattr(coordinator, "wait", wait_for_checkpoint)
     live = []
     document = {"kind": "quality_bid_incumbent_checkpoint_v1", "stage": "bid", "artifact": {"privateHand": [1, 2]},
                 "sourcePrefixHash": _hash("prefix")}
@@ -85,29 +159,26 @@ def test_private_checkpoints_survive_cancellation_without_live_disclosure(checkp
         expected["artifact"]["payload"] = document["artifact"]["payload"]
     serialized = canonical_json(document)
     def solver(request):
+        requests.append(request)
         try:
             request.report_worker_cpu_sample(123_000_000)
             request.report_worker_cpu_sample(100_000_000)  # Older samples cannot erase work.
             request.report_progress({"currentStage": "playingQuality",
                 "completedCandidates": 1, "candidateHash": _hash("candidate")})
             if checkpoint_bytes:
-                checkpoint_ready.set()  # Cancel while the large transport payload is ingested.
+                cancellation.set()  # Request cancellation before ingesting the large frame.
             request.report_checkpoint(serialized if checkpoint_bytes else document)
-            request.cancellation_requested()  # The process pump polls after each ingested message.
+            if checkpoint_bytes:
+                request.cancellation_requested()  # The process pump polls after each frame.
             request.report_checkpoint(serialized)  # Process retransmission is idempotent.
             document["artifact"]["privateHand"].append(3)
-            checkpoint_ready.set()
-            while not request.cancellation_requested():
-                request.cancellation.wait(0.001)
-            release.wait(2.0)  # Model a worker still unwinding after acknowledgement.
+            cancellation.set()
+            assert request.cancellation.wait(HANG_GUARD)
+            request.cancellation_requested()
+            assert release.wait(HANG_GUARD)
             return CampaignShardOutcomeV1(())
         finally:
             finished.set()
-    def cancel():
-        assert checkpoint_ready.wait(2.0)
-        cancellation.set()
-    trigger = threading.Thread(target=cancel)
-    trigger.start()
     try:
         receipt = DeterministicCpSatCampaignCoordinatorV1().run(
             shards=_shards(1), solver=solver, budget=_budget(results=1, workers=1),
@@ -128,8 +199,7 @@ def test_private_checkpoints_survive_cancellation_without_live_disclosure(checkp
         assert terminal[0]["candidateHash"] == _hash("candidate")
     finally:
         release.set()
-        trigger.join(timeout=2.0)
-        assert finished.wait(2.0)
+        assert finished.wait(HANG_GUARD)
 
 
 def test_serialized_checkpoint_does_not_repeat_coordinator_serialization(monkeypatch):
@@ -144,74 +214,81 @@ def test_serialized_checkpoint_does_not_repeat_coordinator_serialization(monkeyp
     assert progress.snapshot()["qualityCheckpoints"] == {canonical_sha256(document): document}
 
 
-@pytest.mark.real_clock
 def test_snapshot_waits_for_in_flight_private_checkpoint(monkeypatch):
     from baloot_platform.research import campaign_coordinator as module
 
     checkpoint_started, release_checkpoint, snapshot_started = (
         threading.Event() for _ in range(3))
+    lock = threading.RLock()
     document = {"artifact": {"privateHand": [1, 2]}}
     original = module.CampaignAttemptProgressV1.checkpoint
 
+    class ObserveSnapshotLock:
+        def __enter__(self):
+            if threading.current_thread() is reader:
+                snapshot_started.set()
+            return lock.__enter__()
+
+        def __exit__(self, *args):
+            return lock.__exit__(*args)
+
     def ingest(progress, evidence):
         checkpoint_started.set()
-        assert release_checkpoint.wait(2.0)
+        assert release_checkpoint.wait(HANG_GUARD)
         original(progress, evidence)
 
     monkeypatch.setattr(module.CampaignAttemptProgressV1, "checkpoint", ingest)
-    request = CampaignShardRequestV1(_shards(1)[0], 1, CampaignCancellationTokenV1())
+    request = CampaignShardRequestV1(_shards(1)[0], 1, CampaignCancellationTokenV1(),
+        evidence_transfer_lock=ObserveSnapshotLock())
     snapshots = []
 
     def snapshot():
-        snapshot_started.set()
         snapshots.append(request.progress_snapshot())
+        snapshot_started.set()
 
-    writer = threading.Thread(target=request.report_checkpoint, args=(document,))
-    reader = threading.Thread(target=snapshot)
+    writer = threading.Thread(target=request.report_checkpoint, args=(document,), daemon=True)
+    reader = threading.Thread(target=snapshot, daemon=True)
     writer.start()
     try:
-        assert checkpoint_started.wait(2.0)
-        acquired = request.evidence_transfer_lock.acquire(blocking=False)
+        assert checkpoint_started.wait(HANG_GUARD)
+        acquired = lock.acquire(blocking=False)
         if acquired:
-            request.evidence_transfer_lock.release()
+            lock.release()
         assert not acquired
         reader.start()
-        assert snapshot_started.wait(2.0)
+        assert snapshot_started.wait(HANG_GUARD)
         assert snapshots == []
     finally:
         release_checkpoint.set()
-        writer.join(timeout=2.0)
+        writer.join(HANG_GUARD)
         if reader.ident is not None:
-            reader.join(timeout=2.0)
-    assert not writer.is_alive() and not reader.is_alive()
+            reader.join(HANG_GUARD)
+            assert not reader.is_alive()
+        assert not writer.is_alive()
     with request.evidence_transfer_lock:
         request.report_checkpoint(document)  # The process pump already owns this RLock.
     assert snapshots == [{"currentStage": "queued", "qualityCheckpoints": {
         canonical_sha256(document): document}}]
 
 
-@pytest.mark.real_clock
-def test_out_of_order_shards_merge_by_semantic_hash_with_stable_identities():
+def test_out_of_order_shards_merge_by_semantic_hash_with_stable_identities(monkeypatch):
     shards = _shards(3)
     completion_order: list[int] = []
-    lock = threading.Lock()
-    barrier = threading.Barrier(3)
 
     def solver(request):
-        barrier.wait(timeout=1.0)
-        time.sleep((2 - request.shard.shard_index) * 0.025)
-        with lock:
-            completion_order.append(request.shard.shard_index)
+        completion_order.append(request.shard.shard_index)
         variant = CampaignVariantV1.build(
             {"seed": request.shard.seed_start, "value": request.shard.shard_index}
         )
         return CampaignShardOutcomeV1((variant,))
 
-    parallel = DeterministicCpSatCampaignCoordinatorV1().run(
-        shards=shards,
-        solver=solver,
-        budget=_budget(results=2, workers=3),
-    )
+    with monkeypatch.context() as patch:
+        _deliver_shards_in_order(patch, (2, 1, 0))
+        parallel = DeterministicCpSatCampaignCoordinatorV1().run(
+            shards=shards,
+            solver=solver,
+            budget=_budget(results=2, workers=3),
+        )
     serial = DeterministicCpSatCampaignCoordinatorV1().run(
         shards=shards,
         solver=lambda request: CampaignShardOutcomeV1(
@@ -731,15 +808,30 @@ def test_timing_evidence_is_immutable_but_excluded_from_semantic_identity():
     assert first.receipt_sha256 != second.receipt_sha256
 
 
-@pytest.mark.real_clock
-def test_controlled_cancellation_is_acknowledged_within_250_milliseconds():
+def test_controlled_cancellation_preserves_completed_solver_evidence(campaign_clock, monkeypatch):
     shards = _shards(2)
     cancellation = threading.Event()
-    started = threading.Event()
-    cancelled_at: list[float] = []
+    release = threading.Event()
+    workers_started = threading.Barrier(3)
+    wait = coordinator.wait
+    requests = []
+
+    def wait_for_cancellation(futures, **kwargs):
+        if not cancellation.is_set():
+            workers_started.wait(timeout=HANG_GUARD)
+            cancellation.set()
+            return set(), set(futures)
+        assert all(request.cancellation.is_cancelled for request in requests)
+        campaign_clock[0] = 40_000_000
+        release.set()
+        done, pending = wait(futures, timeout=HANG_GUARD)
+        assert not pending, "cancelled solvers did not finish"
+        return done, pending
+
+    monkeypatch.setattr(coordinator, "wait", wait_for_cancellation)
 
     def solver(request):
-        started.set()
+        requests.append(request)
         request.report_progress(
             {
                 "currentStage": "tailConstruction",
@@ -751,8 +843,9 @@ def test_controlled_cancellation_is_acknowledged_within_250_milliseconds():
                 "conflicts": 0,
             }
         )
-        while not request.cancellation.wait(0.005):
-            pass
+        workers_started.wait(timeout=HANG_GUARD)
+        assert request.cancellation.wait(HANG_GUARD)
+        assert release.wait(HANG_GUARD)
         return CampaignShardOutcomeV1(
             (),
             (CampaignStageTimingV1("tailConstruction", 1_000_000),),
@@ -767,26 +860,15 @@ def test_controlled_cancellation_is_acknowledged_within_250_milliseconds():
             },
         )
 
-    def cancel() -> None:
-        assert started.wait(1.0)
-        cancelled_at.append(time.perf_counter())
-        cancellation.set()
-
-    trigger = threading.Thread(target=cancel)
-    trigger.start()
     receipt = DeterministicCpSatCampaignCoordinatorV1().run(
         shards=shards,
         solver=solver,
         budget=_budget(results=1, workers=2, wall=2.0),
         cancellation_event=cancellation,
     )
-    acknowledged_at = time.perf_counter()
-    trigger.join(timeout=1.0)
 
     assert receipt.status == "cancelled"
     assert receipt.semantic_sha256 is None
-    assert cancelled_at
-    assert acknowledged_at - cancelled_at[0] <= 0.250
     assert {item.status for item in receipt.attempts} == {"cancelled"}
     attempt = receipt.attempts[0].to_dict()
     assert attempt["partialEvidence"]["currentStage"] == "tailConstruction"
@@ -794,7 +876,7 @@ def test_controlled_cancellation_is_acknowledged_within_250_milliseconds():
     assert attempt["partialEvidence"]["branches"] == 7
     assert attempt["partialEvidence"]["conflicts"] == 3
     assert attempt["partialEvidence"]["cancellation"]["acknowledged"] is True
-    assert attempt["partialEvidence"]["cancellation"]["latencyNs"] <= 250_000_000
+    assert attempt["partialEvidence"]["cancellation"]["latencyNs"] == 40_000_000
     assert {item["stage"] for item in attempt["stageTimings"]} >= {
         "tailConstruction",
         "shard_solver",
@@ -802,8 +884,7 @@ def test_controlled_cancellation_is_acknowledged_within_250_milliseconds():
     }
 
 
-@pytest.mark.real_clock
-def test_cancellation_does_not_relabel_a_returned_variant_incomplete():
+def test_cancellation_does_not_relabel_a_returned_variant_incomplete(campaign_clock):
     cancellation = threading.Event()
     live = []
     variant = _variant_with_vector("finished", [0, 1, 2, 3])
@@ -819,29 +900,24 @@ def test_cancellation_does_not_relabel_a_returned_variant_incomplete():
     assert not any(item.get("candidateStatus") == "incomplete" for item in live)
 
 
-def test_budget_exhaustion_preserves_completed_exact_variants(monkeypatch):
-    from baloot_platform.research import campaign_coordinator
-
+def test_budget_exhaustion_preserves_completed_exact_variants(monkeypatch, campaign_clock):
     shards = _shards(2)
-    clock = [0]
-    wait = campaign_coordinator.wait
+    wait = coordinator.wait
 
     def wait_then_expire(*args, **kwargs):
         done, pending = wait(*args, **kwargs)
         if done:
-            clock[0] = 100_000_000
+            campaign_clock[0] = 100_000_000
         return done, pending
 
-    monkeypatch.setattr(campaign_coordinator, "time", SimpleNamespace(
-        **{**vars(campaign_coordinator.time), "perf_counter_ns": lambda: clock[0]}))
-    monkeypatch.setattr(campaign_coordinator, "wait", wait_then_expire)
+    monkeypatch.setattr(coordinator, "wait", wait_then_expire)
 
     def solver(request):
         if request.shard.shard_index == 0:
             return CampaignShardOutcomeV1(
                 (CampaignVariantV1.build({"candidate": "completed"}),)
             )
-        assert request.cancellation.wait(1.0)
+        assert request.cancellation.wait(HANG_GUARD)
         return CampaignShardOutcomeV1(())
 
     receipt = DeterministicCpSatCampaignCoordinatorV1().run(
@@ -857,112 +933,100 @@ def test_budget_exhaustion_preserves_completed_exact_variants(monkeypatch):
     assert receipt.variants[0].accepted is True
 
 
-@pytest.mark.real_clock
-def test_acknowledgement_does_not_wait_for_solver_unwind():
-    shards = _shards(1)
+@pytest.mark.parametrize("target_satisfied", [False, True])
+def test_cancellation_joins_solver_only_when_target_is_satisfied(
+    target_satisfied, campaign_clock, monkeypatch,
+):
+    extra = 1 if target_satisfied else 0
+    started, release, finished = (threading.Event() for _ in range(3))
+    requests = []
+    workers = []
     cancellation = threading.Event()
-    started = threading.Event()
-    release = threading.Event()
-    finished = threading.Event()
+    executor = coordinator.ThreadPoolExecutor
+    wait = coordinator.wait
+
+    class ObserveShutdown(executor):
+        def shutdown(self, wait=True, **kwargs):
+            if wait:
+                release.set()
+            super().shutdown(wait=wait, **kwargs)
+
+    def wait_for_acknowledgement(futures, **kwargs):
+        assert started.wait(HANG_GUARD)
+        request = requests[0]
+        if request.cancellation.is_cancelled:
+            assert request.cancellation_acknowledgement.wait(HANG_GUARD)
+            campaign_clock[0] = 225_000_000
+            return set(), set(futures)
+        if not target_satisfied:
+            cancellation.set()
+            return set(), set(futures)
+        done, pending = wait(futures, timeout=HANG_GUARD, return_when=kwargs["return_when"])
+        assert done, "target shard did not finish"
+        return done, pending
+
+    monkeypatch.setattr(coordinator, "ThreadPoolExecutor", ObserveShutdown)
+    monkeypatch.setattr(coordinator, "wait", wait_for_acknowledgement)
 
     def solver(request):
-        started.set()
-        while not request.cancellation_requested():
-            time.sleep(0.001)
-        release.wait(2.0)
-        finished.set()
-        return CampaignShardOutcomeV1(())
-
-    trigger = threading.Thread(
-        target=lambda: (started.wait(1.0), cancellation.set())
-    )
-    trigger.start()
-    try:
-        receipt = DeterministicCpSatCampaignCoordinatorV1().run(
-            shards=shards,
-            solver=solver,
-            budget=_budget(results=1, workers=1, wall=2.0),
-            cancellation_event=cancellation,
-        )
-        assert not finished.is_set()
-    finally:
-        release.set()
-        trigger.join(timeout=1.0)
-
-    assert receipt.status == "cancelled"
-    assert receipt.attempts[0].status == "cancelled"
-    evidence = receipt.attempts[0].partial_evidence["cancellation"]
-    assert evidence["acknowledged"] is True
-    assert evidence["workerTerminated"] is False
-    assert finished.wait(1.0)
-
-
-@pytest.mark.real_clock
-def test_target_satisfied_waits_for_all_owned_shard_unwind_before_returning():
-    shards = _shards(2)
-    extra_started = threading.Event()
-    extra_finished = threading.Event()
-
-    def solver(request):
-        if request.shard.shard_index == 0:
-            assert extra_started.wait(1.0)
+        if request.shard.shard_index != extra:
+            assert started.wait(HANG_GUARD)
             return CampaignShardOutcomeV1(
                 (CampaignVariantV1.build({"candidate": "target"}),)
             )
-        extra_started.set()
-        while not request.cancellation_requested():
-            time.sleep(0.001)
-        time.sleep(0.350)
-        extra_finished.set()
+        requests.append(request)
+        workers.append(threading.current_thread())
+        started.set()
+        assert request.cancellation.wait(HANG_GUARD)
+        request.cancellation_requested()
+        assert release.wait(HANG_GUARD)
+        finished.set()
         return CampaignShardOutcomeV1(())
 
-    receipt = DeterministicCpSatCampaignCoordinatorV1().run(
-        shards=shards,
-        solver=solver,
-        budget=_budget(results=1, workers=2, wall=2.0),
-        replenish_diversity_rejections=True,
-    )
+    try:
+        receipt = DeterministicCpSatCampaignCoordinatorV1().run(
+            shards=_shards(extra + 1),
+            solver=solver,
+            budget=_budget(results=1, workers=extra + 1),
+            cancellation_event=cancellation,
+            replenish_diversity_rejections=target_satisfied,
+        )
+        assert finished.is_set() is target_satisfied
+        if target_satisfied:
+            assert not workers[0].is_alive()
+        assert receipt.status == ("completed" if target_satisfied else "cancelled")
+        attempt = next(item for item in receipt.attempts if item.shard_index == extra)
+        assert attempt.status == "cancelled"
+        evidence = attempt.partial_evidence["cancellation"]
+        assert evidence["acknowledged"] is True
+        assert evidence["workerTerminated"] is target_satisfied
+        assert evidence["latencyNs"] <= 225_000_000
+    finally:
+        release.set()
+        if started.is_set():
+            assert finished.wait(HANG_GUARD)
 
-    assert receipt.status == "completed"
-    assert extra_finished.is_set()
-    for attempt in receipt.attempts:
-        cancellation = (attempt.partial_evidence or {}).get("cancellation")
-        if cancellation is not None:
-            assert cancellation["acknowledged"] is True
-            assert cancellation["latencyNs"] <= 250_000_000
-    assert all(
-        not thread.name.startswith("research-cp-sat-shard")
-        for thread in threading.enumerate()
-    )
 
-
-@pytest.mark.real_clock
-def test_replenishing_campaign_uses_same_canonical_prefix_across_completion_orders():
+def test_replenishing_campaign_uses_same_canonical_prefix_across_completion_orders(monkeypatch):
     shards = _shards(4)
     receipts = []
     for reverse in (False, True):
         calls: list[int] = []
-        started_together = threading.Barrier(4)
 
         def solver(request):
             calls.append(request.shard.shard_index)
-            started_together.wait(timeout=1.0)
-            delay_rank = (
-                3 - request.shard.shard_index
-                if reverse
-                else request.shard.shard_index
-            )
-            time.sleep(delay_rank * 0.005)
             return CampaignShardOutcomeV1(
                 (CampaignVariantV1.build({"candidate": request.shard.shard_index}),)
             )
 
-        receipt = DeterministicCpSatCampaignCoordinatorV1().run(
-            shards=shards,
-            solver=solver,
-            budget=_budget(results=2, workers=4, wall=2.0),
-            replenish_diversity_rejections=True,
-        )
+        with monkeypatch.context() as patch:
+            _deliver_shards_in_order(patch, (3, 2, 1, 0) if reverse else (0, 1, 2, 3))
+            receipt = DeterministicCpSatCampaignCoordinatorV1().run(
+                shards=shards,
+                solver=solver,
+                budget=_budget(results=2, workers=4, wall=2.0),
+                replenish_diversity_rejections=True,
+            )
         assert receipt.status == "completed"
         assert receipt.semantic_sha256 is not None
         assert len(receipt.accepted_variants) == 2
@@ -995,38 +1059,49 @@ def test_replenishing_campaign_uses_same_canonical_prefix_across_completion_orde
     ]
 
 
-@pytest.mark.real_clock
-def test_acknowledgement_gate_is_not_confused_with_poll_interval():
-    shards = _shards(1)
-    cancellation = threading.Event()
-    started = threading.Event()
+@pytest.mark.parametrize("acknowledge_at_ms,expected", [(40, True), (226, False)])
+def test_acknowledgement_gate_is_not_confused_with_poll_interval(
+    acknowledge_at_ms, expected, campaign_clock, monkeypatch,
+):
+    cancellation, ready, release, finished = (threading.Event() for _ in range(4))
+    requests = []
 
     def solver(request):
-        started.set()
-        assert request.cancellation.wait(1.0)
-        time.sleep(0.040)
+        requests.append(request)
+        ready.set()
+        assert release.wait(HANG_GUARD)
+        finished.set()
         return CampaignShardOutcomeV1(())
 
-    def cancel() -> None:
-        assert started.wait(1.0)
-        cancellation.set()
+    def advance_poll(futures, *, timeout, return_when):
+        assert ready.wait(HANG_GUARD)
+        request = requests[0]
+        if request.cancellation.is_cancelled:
+            campaign_clock[0] += round(timeout * 1_000_000_000)
+            if campaign_clock[0] >= acknowledge_at_ms * 1_000_000:
+                request.cancellation_requested()
+        else:
+            cancellation.set()
+        return set(), set(futures)
 
-    trigger = threading.Thread(target=cancel)
-    trigger.start()
-    receipt = DeterministicCpSatCampaignCoordinatorV1().run(
-        shards=shards,
-        solver=solver,
-        budget=_budget(results=1, workers=1, wall=2.0),
-        cancellation_event=cancellation,
-    )
-    trigger.join(timeout=1.0)
-
-    assert receipt.status == "cancelled"
-    assert receipt.attempts[0].status == "cancelled"
-    cancellation_evidence = receipt.attempts[0].partial_evidence["cancellation"]
-    assert cancellation_evidence["pollLimitMilliseconds"] == 5
-    assert cancellation_evidence["acknowledged"] is True
-    assert cancellation_evidence["latencyNs"] <= 250_000_000
+    monkeypatch.setattr(coordinator, "wait", advance_poll)
+    try:
+        receipt = DeterministicCpSatCampaignCoordinatorV1().run(
+            shards=_shards(1), solver=solver, budget=_budget(results=1, workers=1),
+            cancellation_event=cancellation,
+        )
+        assert receipt.status == "cancelled"
+        attempt = receipt.attempts[0]
+        assert attempt.status == ("cancelled" if expected else "cancellation_unacknowledged")
+        evidence = attempt.partial_evidence["cancellation"]
+        assert evidence["pollLimitMilliseconds"] == 5
+        assert evidence["acknowledged"] is expected
+        assert evidence["workerTerminated"] is False
+        assert evidence["latencyNs"] == min(acknowledge_at_ms, 225) * 1_000_000
+    finally:
+        release.set()
+        if ready.is_set():
+            assert finished.wait(HANG_GUARD)
 
 
 def test_incomplete_proof_is_retried_once_and_streams_attempt_progress():

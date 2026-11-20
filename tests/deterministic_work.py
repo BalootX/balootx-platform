@@ -21,6 +21,8 @@ from scripts.run_isolated_pytest import FILE_SAFETY_SECONDS
 VERSION = 1
 # Below the 900 s per-file CI timeout, so a seconds-only loop fails cleanly instead of being killed.
 SAFETY_SECONDS = 600.0
+# Real-time fuse for blocked test handshakes independent of work and solver budgets.
+HANG_GUARD = 120.0
 _CLOCKS = ("monotonic", "perf_counter", "process_time", "thread_time")
 _REAL = {name: getattr(time, name) for name in _CLOCKS}
 _PATCHED_PREFIXES = ("baloot_platform", "scripts")
@@ -155,3 +157,10 @@ def deterministic_work_clock_v1(safety_seconds: float = SAFETY_SECONDS):
         yield clock
     finally:
         release()
+
+
+def set_monotonic(monkeypatch, module, *timestamps):
+    """Supply the prescribed clock readings and hold the clock at the final tick."""
+    ticks = iter(timestamps)
+    monkeypatch.setattr(module, "time", types.SimpleNamespace(
+        **{**vars(module.time), "monotonic": lambda: next(ticks, timestamps[-1])}))

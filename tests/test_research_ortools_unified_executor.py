@@ -10,7 +10,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 import yaml
+from deterministic_work import HANG_GUARD, set_monotonic
 from ortools.sat.python import cp_model
 
 import baloot_platform.research.ortools_research_executor as executor_module
@@ -3732,16 +3734,17 @@ def test_native_quality_generates_new_plays_from_each_actors_own_information(roo
                 policy=policy, rules=rules, maximum_seconds=60)
 
 
-@pytest.mark.real_clock
 @pytest.mark.parametrize("reason", ["cancelled", "evidence", "runtime"])
-def test_native_quality_continuation_preserves_prefix_when_incomplete(root, rules, reason):
+def test_native_quality_continuation_preserves_prefix_when_incomplete(root, rules, reason, monkeypatch):
     prefix, request = _quality_continuation_input(root, "bounded")
+    if reason == "runtime":
+        set_monotonic(monkeypatch, executor_module, 0, 0, 2)
     result = resolve_quality_play_continuation_v1(
         rules, prefix, request, maximum_nodes=100_000, maximum_depth=8,
         maximum_worlds=1, maximum_seconds=30, maximum_decision_seconds=10,
         maximum_evidence_bytes=1 if reason == "evidence" else 20_000_000,
         cancel_check=(lambda: True) if reason == "cancelled" else None,
-        runtime_maximum_seconds=1e-12 if reason == "runtime" else None,
+        runtime_maximum_seconds=1 if reason == "runtime" else None,
     )
     assert result["status"] == "incomplete"
     assert result["decisions"] == []
@@ -3752,7 +3755,6 @@ def test_native_quality_continuation_preserves_prefix_when_incomplete(root, rule
     assert result["limits"]["maximumSeconds"] == 30
 
 
-@pytest.mark.real_clock
 @pytest.mark.parametrize("stop_at", ["proof", "decision"])
 def test_native_decision_checkpoint_survives_campaign_cancel_and_storage(root, rules, tmp_path, stop_at):
     import threading
@@ -3787,7 +3789,7 @@ def test_native_decision_checkpoint_survives_campaign_cancel_and_storage(root, r
         budget=CampaignBudgetV1(result_count=1, shard_worker_count=1,
             maximum_wall_time_seconds=30, cancellation_poll_milliseconds=5),
         cancellation_event=cancelled, progress_callback=live.append)
-    assert finished.wait(2.0)
+    assert finished.wait(HANG_GUARD)
     assert not receipt.accepted_variants
     checkpoints = receipt.attempts[0].partial_evidence["qualityCheckpoints"]
     assert len(checkpoints) == (1 if stop_at == "proof" else 2)
@@ -5562,7 +5564,6 @@ def test_featured_observed_rejection_preserves_proof_diagnostics(root, rules, mo
     assert evidence["allocationReachability"] == "deal_auction_escalation_project_play_cp_sat_v1"
 
 
-@pytest.mark.real_clock
 @pytest.mark.parametrize("play_index,seconds", [(23, 20), (24, 120)])
 def test_tail_budget_keeps_initial_normalization_within_its_stage_budget(root, monkeypatch, play_index, seconds):
     rules = RuleBook.load(root / "configs/rules/saudi_federation_2023_v8.yaml")
@@ -5581,9 +5582,10 @@ def test_tail_budget_keeps_initial_normalization_within_its_stage_budget(root, m
     class Captured(BaseException):
         pass
     def normalize(*args, **kwargs):
-        assert seconds - 1 < kwargs["maximum_seconds"] <= seconds
+        assert kwargs["maximum_seconds"] == seconds
         raise Captured
     monkeypatch.setattr(OrToolsExactStateNormalizerV1, "normalize_play_or_project", normalize)
+    set_monotonic(monkeypatch, executor_module, 0)
     with pytest.raises(Captured):
         resolve_quality_play_continuation_v1(rules, prefix, policy,
             maximum_nodes=2_000_000, maximum_depth=32, maximum_worlds=256, maximum_seconds=180,
@@ -10660,7 +10662,6 @@ def test_shard_partition_is_independent_from_candidate_attempt_budget(
     ]
 
 
-@pytest.mark.real_clock
 @pytest.mark.parametrize("seed_count", [1, 4])
 @pytest.mark.parametrize("exhausted", (False, True))
 def test_v3_builtin_shards_dispatch_outside_the_python_gil(
@@ -10758,7 +10759,7 @@ def test_v3_builtin_shards_dispatch_outside_the_python_gil(
             for item in campaign.coordinator_receipt.attempts)
         assert all(item.partial_evidence["qualityCheckpoints"]
             for item in campaign.coordinator_receipt.attempts)
-    assert expected_cpu_ns <= campaign.coordinator_receipt.cpu_time_ns < expected_cpu_ns + 1_000_000_000
+    assert campaign.coordinator_receipt.cpu_time_ns == expected_cpu_ns
     assert campaign.coordinator_receipt.cpu_time_coverage == (
         "sampled_lower_bound" if exhausted else "terminal_measurements")
     assert campaign.coordinator_receipt.budget.shard_worker_count == min(seed_count, 2)
@@ -10811,11 +10812,11 @@ def test_shard_child_preserves_witness_policies(monkeypatch, policies, has_detec
     assert closed == [True]
 
 
-@pytest.mark.real_clock
 def test_v3_process_transport_broken_pipe_is_retried_once(
     monkeypatch,
     rules,
     complete_candidate,
+    deterministic_work,
 ):
     calls: list[tuple[int, int, int]] = []
     budgets: list[float] = []
@@ -10825,7 +10826,7 @@ def test_v3_process_transport_broken_pipe_is_retried_once(
         calls.append(partition)
         if partition == (2, 0, 1) and calls.count(partition) == 1:
             budgets.append(task["options"]["maximum_campaign_seconds"])
-            time.sleep(0.05)
+            deterministic_work.charge(1)
             raise BrokenPipeError("transient process transport")
         if partition == (2, 0, 1):
             budgets.append(task["options"]["maximum_campaign_seconds"])
@@ -10890,7 +10891,7 @@ def test_v3_process_transport_broken_pipe_is_retried_once(
 
     assert campaign.status == "not_found_within_budget"
     assert sorted(calls) == [(2, 0, 1), (2, 0, 1), (2, 1, 1)]
-    assert len(budgets) == 2 and budgets[1] < budgets[0] - 0.02
+    assert len(budgets) == 2 and budgets[1] == pytest.approx(budgets[0] - 1)
     assert campaign.coordinator_receipt is not None
     assert {item.status for item in campaign.coordinator_receipt.attempts} == {
         "completed"
@@ -11142,10 +11143,9 @@ def test_process_worker_relays_progress_and_honors_cancel(monkeypatch, failed):
                     ("checkpoint", executor_module.canonical_json({"kind": "proof", "stage": "play", "artifact": "private"})), terminal]
 
 
-@pytest.mark.real_clock
 @pytest.mark.parametrize("receive_error,ignore_terminate", ((EOFError, False), (OSError, True)))
 def test_process_cancellation_bounds_a_stalled_private_frame(
-    monkeypatch, receive_error, ignore_terminate,
+    monkeypatch, deterministic_work, receive_error, ignore_terminate,
 ):
     from baloot_platform.research.campaign_coordinator import (
         CampaignCancellationTokenV1, CampaignShardRequestV1,
@@ -11157,14 +11157,15 @@ def test_process_cancellation_bounds_a_stalled_private_frame(
         run_hash=canonical_sha256("stalled-pipe"), recipe_hash=canonical_sha256("stalled-recipe"),
         seed_start=0, seed_count=1, seeds_per_shard=1, maximum_attempts=1)
     request = CampaignShardRequestV1(shards[0], 1, cancellation,
-        deadline_ns=time.perf_counter_ns() + 100_000_000)
+        deadline_ns=executor_module.time.perf_counter_ns() + 100_000_000)
 
     class Pipe:
         def poll(self, *_args):
             return True
         def recv(self):
             cancellation._cancel()
-            assert released.wait(2), "stalled receive was not bounded by the campaign deadline"
+            deterministic_work.charge(0.125)
+            assert released.wait(HANG_GUARD)
             raise receive_error("truncated private frame")
         def close(self):
             pass
@@ -11200,7 +11201,6 @@ def test_process_cancellation_bounds_a_stalled_private_frame(
     assert "qualityCheckpoints" not in evidence
 
 
-@pytest.mark.real_clock
 def test_process_cancellation_snapshot_does_not_wait_for_live_callback(monkeypatch):
     from baloot_platform.research.campaign_coordinator import (
         CampaignCancellationTokenV1, CampaignShardRequestV1,
@@ -11210,7 +11210,7 @@ def test_process_cancellation_snapshot_does_not_wait_for_live_callback(monkeypat
     def progress(_payload):
         entered.set()
         try:
-            assert released.wait(2)
+            assert released.wait(HANG_GUARD)
         finally:
             finished.set()
     cancellation = CampaignCancellationTokenV1()
@@ -11218,7 +11218,7 @@ def test_process_cancellation_snapshot_does_not_wait_for_live_callback(monkeypat
         run_hash=canonical_sha256("callback-pipe"), recipe_hash=canonical_sha256("callback-recipe"),
         seed_start=0, seed_count=1, seeds_per_shard=1, maximum_attempts=1)[0]
     request = CampaignShardRequestV1(shard, 1, cancellation, progress_callback=progress,
-        deadline_ns=time.perf_counter_ns() + 5_000_000_000)
+        deadline_ns=executor_module.time.perf_counter_ns() + 5_000_000_000)
     messages = [("progress", {"currentStage": "playingQuality"})]
     pipe = SimpleNamespace(poll=lambda *_: bool(messages), recv=lambda: messages.pop(0),
         send=lambda _: None, close=lambda: None)
@@ -11232,18 +11232,23 @@ def test_process_cancellation_snapshot_does_not_wait_for_live_callback(monkeypat
                 cancellation_poll_milliseconds=5)
         except RuntimeError as error:
             errors.append(str(error))
-    worker = executor_module.threading.Thread(target=run)
+    worker = executor_module.threading.Thread(target=run, daemon=True)
     worker.start()
     try:
-        assert entered.wait(1)
+        assert entered.wait(HANG_GUARD)
         cancellation._cancel()
-        assert request.cancellation_acknowledgement.wait(2)
+        assert request.cancellation_acknowledgement.wait(HANG_GUARD)
+        # Check the callback does not own the lock before taking a snapshot.
+        acquired = request.evidence_transfer_lock.acquire(blocking=False)
+        if acquired:
+            request.evidence_transfer_lock.release()
+        assert acquired
         assert request.progress_snapshot()["currentStage"] == "playingQuality"
         assert not finished.is_set()
     finally:
         released.set()
-        worker.join(2)
-    assert not worker.is_alive()
+        worker.join(HANG_GUARD)
+        assert not worker.is_alive()
     assert errors == ["campaign shard process cancelled"]
 
 
@@ -11256,22 +11261,38 @@ def _large_private_checkpoint_transport_worker(connection, _task):
     try:
         connection.send(("ready", None))
         connection.send(("checkpoint", payload))
-        if connection.poll(10):
+        if connection.poll(HANG_GUARD):
             connection.recv()
     finally:
         connection.close()
 
 
-@pytest.mark.real_clock
-@pytest.mark.parametrize("receive_delay,poll_milliseconds", ((0.0, 5), (0.35, 250)))
+@pytest.fixture
+def monitor_poll_intervals(monkeypatch):
+    """Record waits on the pump monitor's stop event while letting it really wait."""
+    import threading
+
+    intervals = []
+
+    class ObservedEvent(threading.Event):
+        def wait(self, timeout=None):
+            intervals.append(timeout)
+            return super().wait(timeout)
+
+    # Only the process monitor waits on an Event created by this module.
+    monkeypatch.setattr(executor_module, "threading", SimpleNamespace(
+        **{**vars(threading), "Event": ObservedEvent}))
+    return intervals
+
+
+@pytest.mark.parametrize("snapshot_during_receive,poll_milliseconds", ((False, 5), (True, 250)))
 def test_process_cancellation_during_large_private_checkpoint_transfer(
-    monkeypatch, receive_delay, poll_milliseconds,
+    monkeypatch, snapshot_during_receive, poll_milliseconds, monitor_poll_intervals,
 ):
     import multiprocessing
     import threading
-    import time
     from baloot_platform.research.campaign_coordinator import (
-        CampaignBudgetV1, DeterministicCpSatCampaignCoordinatorV1,
+        CampaignBudgetV1, CampaignShardRequestV1, DeterministicCpSatCampaignCoordinatorV1,
     )
     context = multiprocessing.get_context("spawn")
     cancellation = threading.Event()
@@ -11279,6 +11300,17 @@ def test_process_cancellation_during_large_private_checkpoint_transfer(
     process = context.Process(target=_large_private_checkpoint_transport_worker,
         args=(child, {}), daemon=False)
     live = []
+    snapshot_started = threading.Event()
+    worker_finished = threading.Event()
+    original_snapshot = CampaignShardRequestV1.progress_snapshot
+
+    def snapshot(request):
+        snapshot_started.set()
+        return original_snapshot(request)
+
+    monkeypatch.setattr(CampaignShardRequestV1, "progress_snapshot", snapshot)
+    monkeypatch.setattr(executor_module, "time", SimpleNamespace(
+        **{**vars(executor_module.time), "monotonic": time.monotonic}))
 
     class ReceivingPipe:
         def __init__(self, pipe):
@@ -11288,8 +11320,9 @@ def test_process_cancellation_during_large_private_checkpoint_transfer(
         def recv(self):
             cancellation.set()  # Trigger while the production parent receives the real payload.
             # Let the coordinator observe cancellation before unpickling can hold the GIL.
-            assert self.acknowledged.wait(15), "cancellation was not acknowledged during receive"
-            time.sleep(receive_delay)
+            assert self.acknowledged.wait(HANG_GUARD)
+            if snapshot_during_receive:
+                assert snapshot_started.wait(HANG_GUARD)
             return self.pipe.recv()
 
     receiving_pipe = ReceivingPipe(parent)
@@ -11302,8 +11335,11 @@ def test_process_cancellation_during_large_private_checkpoint_transfer(
 
     def solve(request):
         receiving_pipe.acknowledged = request.cancellation_acknowledgement
-        return executor_module._run_seed_campaign_process_v1(
-            {}, request, cancellation_poll_milliseconds=poll_milliseconds)
+        try:
+            return executor_module._run_seed_campaign_process_v1(
+                {}, request, cancellation_poll_milliseconds=poll_milliseconds)
+        finally:
+            worker_finished.set()
 
     monkeypatch.setattr(executor_module.multiprocessing, "get_context", lambda _name: Context())
     shards = partition_research_shards(run_code="RUN-LARGE-PIPE-CANCEL",
@@ -11314,6 +11350,7 @@ def test_process_cancellation_during_large_private_checkpoint_transfer(
         process.start()
         monkeypatch.setattr(process, "start", lambda: None)
         child.close()
+        assert parent.poll(HANG_GUARD), "private checkpoint writer did not start"
         assert parent.recv() == ("ready", None)
         receipt = DeterministicCpSatCampaignCoordinatorV1().run(
             shards=shards, budget=CampaignBudgetV1(1, 1, 15, poll_milliseconds),
@@ -11322,28 +11359,29 @@ def test_process_cancellation_during_large_private_checkpoint_transfer(
         assert receipt.status == "cancelled"
         evidence = receipt.attempts[0].partial_evidence
         assert evidence["cancellation"]["acknowledged"] is True
-        assert evidence["cancellation"]["latencyNs"] <= 250_000_000
         checkpoints = evidence["qualityCheckpoints"]
         assert len(checkpoints) == 1
         document = next(iter(checkpoints.values()))
         assert len(document["artifact"]["queries"]) == 350_000
         assert list(checkpoints) == [canonical_sha256(document)]
         assert all("qualityCheckpoints" not in row and "artifact" not in row for row in live)
-        process.join(2)
+        assert worker_finished.wait(HANG_GUARD)
+        assert set(monitor_poll_intervals) == {0.005}
         assert not process.is_alive(), "checkpoint cancellation leaked an owned worker"
     finally:
         if process.is_alive():
             process.terminate()
-            process.join(2)
+            process.join(HANG_GUARD)
         parent.close()
         child.close()
+        assert not process.is_alive()
 
 
-@pytest.mark.real_clock
-def test_v3_process_campaign_honors_caller_cancel_after_child_progress(root):
+def test_v3_process_campaign_honors_caller_cancel_after_child_progress(
+    root, monkeypatch, monitor_poll_intervals,
+):
     import multiprocessing
     import threading
-    import time
 
     rules = RuleBook.load(root / "configs/rules/saudi_project_optional_unratified_v1.yaml")
     scenario = _scenario(
@@ -11357,12 +11395,29 @@ def test_v3_process_campaign_honors_caller_cancel_after_child_progress(root):
         seeds_per_shard=1, maximum_attempts=1,
     )
     cancellation = threading.Event()
-    requested_at = []
+    worker_finished = threading.Event()
+    acknowledged_during_progress = []
+    process_request = None
+    original_process = executor_module._run_seed_campaign_process_v1
+
+    def track_process(task, request, **kwargs):
+        nonlocal process_request
+        process_request = request
+        try:
+            return original_process(task, request, **kwargs)
+        finally:
+            worker_finished.set()
+
+    monkeypatch.setattr(executor_module, "_run_seed_campaign_process_v1", track_process)
+    monkeypatch.setattr(executor_module, "time", SimpleNamespace(
+        **{**vars(executor_module.time), "monotonic": time.monotonic}))
 
     def progress(value):
         if value.get("currentStage") == "preflight" and not cancellation.is_set():
-            requested_at.append(time.perf_counter_ns())
             cancellation.set()
+            # The pump cannot check the token while it is delivering this callback.
+            acknowledged_during_progress.append(
+                process_request.cancellation_acknowledgement.wait(HANG_GUARD))
 
     executor = OrToolsUnifiedResearchExecutorV1(
         rules, backend_id="ortools_cp_sat_v3",
@@ -11377,9 +11432,7 @@ def test_v3_process_campaign_honors_caller_cancel_after_child_progress(root):
         shard_worker_count=1, cancellation_poll_milliseconds=25,
         cancel_check=cancellation.is_set, progress_callback=progress,
     )
-    returned_at = time.perf_counter_ns()
-
-    assert requested_at, "test must cancel after actual child progress"
+    assert cancellation.is_set(), "test must cancel after actual child progress"
     assert campaign.status == "incomplete"
     receipt = campaign.coordinator_receipt
     assert receipt is not None and receipt.status == "cancelled"
@@ -11391,13 +11444,9 @@ def test_v3_process_campaign_honors_caller_cancel_after_child_progress(root):
     assert receipt.cpu_time_ns >= sample["cpuTimeNs"]
     assert receipt.to_dict()["cpuTimeCoverage"] == "sampled_lower_bound"
     assert attempt.partial_evidence["cancellation"]["acknowledged"] is True
-    assert attempt.partial_evidence["cancellation"]["latencyNs"] <= 250_000_000
-    assert 0 <= returned_at - requested_at[0] <= 250_000_000
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline and any(
-        child.pid not in existing_children for child in multiprocessing.active_children()
-    ):
-        time.sleep(0.01)
+    assert worker_finished.wait(HANG_GUARD)
+    assert acknowledged_during_progress == [True]
+    assert set(monitor_poll_intervals) == {0.005}
     assert not any(
         child.pid not in existing_children for child in multiprocessing.active_children()
     ), "cancelled shard process stayed alive after its parent returned"

@@ -3087,18 +3087,19 @@ def validate_native_observed_bid_threshold_v1(strategy: Mapping[str, Any], prepa
     if _refuted_upper_bound is not None:
         return _reverify_native_strategy_refuted_upper_v1(strategy, models, compiler=compiler,
             scope=scope, target=actor.team, upper_bound=_refuted_upper_bound,
-            preparation_queries=preparation["queriesUsed"], deadline=deadline,
+            preparation_queries=preparation["queriesUsed"], deadline=deadline, maximum_seconds=maximum_seconds,
             maximum_queries=maximum_queries, maximum_observations=maximum_observations,
             maximum_conflicts=maximum_conflicts, cancel_check=cancel_check,
             on_queries_used=_on_queries_used)
     return _reverify_observed_bid_policy_threshold(strategy, preparation, models,
         compiler=compiler, scope=scope, target=actor.team, required_threshold=required_threshold,
-        deadline=deadline, maximum_queries=maximum_queries, maximum_observations=maximum_observations,
+        remaining=lambda: min(maximum_seconds, deadline - time.monotonic()),
+        maximum_queries=maximum_queries, maximum_observations=maximum_observations,
         maximum_conflicts=maximum_conflicts, cancel_check=cancel_check, on_queries_used=_on_queries_used)
 
 
 def _reverify_native_strategy_refuted_upper_v1(strategy, models, *, compiler, scope,
-        target, upper_bound, preparation_queries, deadline, maximum_queries,
+        target, upper_bound, preparation_queries, deadline, maximum_seconds, maximum_queries,
         maximum_observations, maximum_conflicts, cancel_check=None, on_queries_used=None):
     """Re-solve shared-information cuts on caller-owned legal models, not retained truth.
 
@@ -3141,7 +3142,8 @@ def _reverify_native_strategy_refuted_upper_v1(strategy, models, *, compiler, sc
         raise ValueError("native information-set refutation ownership or coverage mismatch")
     # No fallback, incumbent, construction filter or retained cut restricts the
     # fresh target strategy. An upper bound must cover every legal target policy.
-    if cancel_check is not None and cancel_check() or time.monotonic() >= deadline:
+    seconds = min(maximum_seconds, deadline - time.monotonic())
+    if cancel_check is not None and cancel_check() or seconds <= 0:
         raise InformationSetCompilationStopped("refutation_reverification_budget",
             stage="native_information_set_refutation_reader")
     root = scope.get("fixedRoot")
@@ -3149,7 +3151,7 @@ def _reverify_native_strategy_refuted_upper_v1(strategy, models, *, compiler, sc
         required_threshold=threshold, maximum_iterations=maximum_queries - preparation_queries,
         maximum_queries=maximum_queries - preparation_queries, maximum_observations=maximum_observations,
         maximum_branches=len(models), maximum_conflicts=maximum_conflicts,
-        maximum_seconds=deadline - time.monotonic(), cancel_check=cancel_check,
+        maximum_seconds=seconds, cancel_check=cancel_check,
         shorten_counterexamples=scope.get("counterexampleShortening") is True,
         fixed_root=None if root is None else (
             root["observationHash"], tuple(root["legalActions"]), root["selectedAction"]))
@@ -3226,18 +3228,14 @@ def _validate_native_observed_bid_refutation_search_v1(search, receipt, *, confi
 
 
 def _reverify_observed_bid_policy_threshold(strategy, preparation, models, *, compiler, scope,
-        target, required_threshold, deadline, maximum_queries, maximum_observations,
+        target, required_threshold, remaining, maximum_queries, maximum_observations,
         maximum_conflicts, cancel_check, on_queries_used):
     """Replay a scoped policy against every freshly reconstructed branch."""
-    import time
     from .ortools_information_set_compiler import InformationSetCompilationStopped
 
     validate_native_strategy_threshold_v1(strategy, expected_scope=scope)
     used = preparation["queriesUsed"]
     for model in models:
-        if (cancel_check is not None and cancel_check()) or time.monotonic() >= deadline or used >= maximum_queries:
-            raise InformationSetCompilationStopped("observed_threshold_reverification_budget",
-                stage="native_observed_bid_threshold_reader")
         hint_args = {}
         owner = model._model_hash(search_branching="automatic")
         if scope.get("readbackWitnessHints") == "guarded_query_chain_v1":
@@ -3246,10 +3244,17 @@ def _reverify_observed_bid_policy_threshold(strategy, preparation, models, *, co
             # Hints install only freshly legality-checked guarded choices. The
             # refiner must still run a fresh native query before returning proof.
             hint_args["observation_hints"] = hints[:maximum_queries - used]
+        if (cancel_check is not None and cancel_check()) or used >= maximum_queries:
+            raise InformationSetCompilationStopped("observed_threshold_reverification_budget",
+                stage="native_observed_bid_threshold_reader")
+        seconds = remaining()
+        if seconds <= 0:
+            raise InformationSetCompilationStopped("observed_threshold_reverification_budget",
+                stage="native_observed_bid_threshold_reader")
         result = compiler._refine_symbolic_round_policy(model, target, strategy["policy"],
             threshold=required_threshold, maximum_queries=maximum_queries - used,
             maximum_observations=maximum_observations, maximum_conflicts=maximum_conflicts,
-            maximum_seconds=deadline - time.monotonic(), cancel_check=cancel_check, **hint_args,
+            maximum_seconds=seconds, cancel_check=cancel_check, **hint_args,
             # Rebuild the same guarded auction choices as generation. Contexts
             # describe observations; the refiner freshly checks their legality.
             _auction_contexts={row["observationHash"]: row
@@ -3343,7 +3348,8 @@ def validate_native_observed_bid_opponent_upper_v1(strategy, preparation, *, rul
         scope["readbackWitnessHints"] = "guarded_query_chain_v1"
     _reverify_observed_bid_policy_threshold(strategy, preparation, models,
         compiler=OrToolsActorInformationSetCompilerV1(rules, native_cp_sat=True), scope=scope,
-        target=target, required_threshold=-upper_bound, deadline=deadline,
+        target=target, required_threshold=-upper_bound,
+        remaining=lambda: min(maximum_seconds, deadline - time.monotonic()),
         maximum_queries=maximum_queries, maximum_observations=maximum_observations,
         maximum_conflicts=maximum_conflicts, cancel_check=cancel_check, on_queries_used=_on_queries_used)
     return upper_bound
@@ -3437,7 +3443,8 @@ def validate_native_observed_bid_visible_floor_v1(strategy, preparation, *, rule
             nonplay["escalation_action"] is not None and model._native_round_fragment is not None)
         query_cost += len(project_args.get("project_actions", {}))
         query_cost += int(auction_id is not None)
-        if (cancel_check is not None and cancel_check()) or time.monotonic() >= deadline or used + query_cost > maximum_queries:
+        seconds = min(maximum_seconds, deadline - time.monotonic())
+        if (cancel_check is not None and cancel_check()) or seconds <= 0 or used + query_cost > maximum_queries:
             raise InformationSetCompilationStopped("native_floor_reverification_budget",
                 stage="native_observed_bid_visible_floor_reader")
         if not isinstance(row["receipt"], Mapping):
@@ -3456,7 +3463,7 @@ def validate_native_observed_bid_visible_floor_v1(strategy, preparation, *, rule
         validate_native_visible_policy_threshold_v1(row["receipt"], rules=rules, scenario=model,
             target=target, policy_team=target, native_play_policy_id=strategy["nativePlayPolicyId"],
             auction_action=nonplay["auction_action"], escalation_action=nonplay["escalation_action"],
-            required_threshold=required_threshold, maximum_seconds=deadline - time.monotonic(),
+            required_threshold=required_threshold, maximum_seconds=seconds,
             maximum_conflicts=maximum_conflicts, cancel_check=cancel_check, record_model_bytes=sizes is not None,
             **project_args)
         used += query_cost
@@ -4104,7 +4111,8 @@ def _build_native_observed_bid_quality_artifact_v1(attempt, *, rules, source_pre
             if cancelled():
                 raise InformationSetCompilationStopped("maximum_seconds", stage="observed_bid_quality")
             normalized_worlds[world_prefix.sha256] = OrToolsExactStateNormalizerV1(rules, native_cp_sat=True).normalize(
-                world_prefix, decision_point={"kind": "bid"}, maximum_seconds=deadline - time.monotonic(),
+                world_prefix, decision_point={"kind": "bid"},
+                maximum_seconds=min(maximum_seconds, deadline - time.monotonic()),
                 cancel_check=cancelled)
     if cancelled():
         raise InformationSetCompilationStopped("maximum_seconds", stage="observed_bid_quality")
@@ -4677,7 +4685,7 @@ def reverify_native_bid_dominance_quality_v1(artifact, *, rules, request, budget
         cpu_seconds = cpu_end - time.process_time()
         if cpu_seconds <= 0:
             raise InformationSetCompilationStopped("maximum_cpu_seconds", stage="native_bid_quality_readback")
-        return min(seconds, cpu_seconds)
+        return min(maximum_seconds, seconds, cpu_seconds)
 
     def charge(count):
         nonlocal used
@@ -4749,7 +4757,7 @@ def reverify_native_bid_dominance_quality_v1(artifact, *, rules, request, budget
             **({"counterexampleShortening": True} if len(models) > 1
                or strategy.get("scope", {}).get("counterexampleShortening") is True else {})}
         _reverify_observed_bid_policy_threshold(strategy, rebuilt, models, compiler=compiler, scope=scope,
-            target=target, required_threshold=selected_floor, deadline=time.monotonic() + remaining(),
+            target=target, required_threshold=selected_floor, remaining=remaining,
             maximum_queries=available(), maximum_observations=limits["maximumObservations"],
             maximum_conflicts=maximum_conflicts, cancel_check=cancel_check, on_queries_used=charge)
         del models
@@ -5231,11 +5239,12 @@ def _quality_readback_clock(maximum_seconds, cancel_check):
         raise ValueError("quality readback deadline must be finite and positive")
     if cancel_check is not None and not callable(cancel_check):
         raise TypeError("quality readback cancellation check must be callable")
-    deadline = math.inf if maximum_seconds is None else time.monotonic() + maximum_seconds
+    cap = math.inf if maximum_seconds is None else maximum_seconds
+    deadline = math.inf if maximum_seconds is None else time.monotonic() + cap
     def remaining():
         if cancel_check is not None and cancel_check():
             raise InformationSetCompilationStopped("cancelled", stage="quality_readback")
-        seconds = deadline - time.monotonic()
+        seconds = min(cap, deadline - time.monotonic())
         if seconds <= 0:
             raise InformationSetCompilationStopped("maximum_seconds", stage="quality_readback")
         return seconds
@@ -6383,7 +6392,7 @@ def reverify_native_exact_observed_play_artifact_v1(artifact, *, rules, source_p
     def remaining():
         if cancel_check is not None and cancel_check():
             raise InformationSetCompilationStopped("cancelled", stage="exact_observed_readback")
-        seconds = deadline - time.monotonic()
+        seconds = min(maximum_seconds, deadline - time.monotonic())
         if seconds <= 0:
             raise InformationSetCompilationStopped("maximum_seconds", stage="exact_observed_readback")
         return seconds
@@ -7623,7 +7632,7 @@ def _verify_project_parent_paths(graph, *, rules, source_prefix, frontiers,
         if key in seen:
             continue
         seen.add(key)
-        remaining = deadline - time.monotonic()
+        remaining = min(maximum_seconds, deadline - time.monotonic())
         if remaining <= 0 or len(seen) > maximum_nodes:
             raise ValueError("project parent verification budget exhausted")
         if node_id in frontiers:
@@ -7821,13 +7830,14 @@ def validate_ortools_result_artifact_documents_v3(
             import time
             budget = ScenarioProofBudgetV1.build(recipe["proof"]["budgetProfile"],
                 settings["proofBudgets"]["profiles"][recipe["proof"]["budgetProfile"]])
-            deadline = time.monotonic() + min(budget.maximum_wall_seconds, budget.maximum_cpu_seconds)
+            cap = min(budget.maximum_wall_seconds, budget.maximum_cpu_seconds)
+            deadline = time.monotonic() + cap
             compiler = OrToolsCompleteStateGraphCompilerV1(play_domain=frozen_rules.play_domain,
                 scoring_domain=ScoringDomainIRV1.from_rules(frozen_rules.data),
                 structural_domain=frozen_rules.structural_domain, project_domain=frozen_rules.project_domain,
                 native_conversion=True)
             for row in rows:
-                remaining = deadline - time.monotonic()
+                remaining = min(cap, deadline - time.monotonic())
                 if remaining <= 0:
                     raise ValueError("project compilation reconstruction budget exhausted")
                 if "exactTracePrefix" in row:
@@ -7836,7 +7846,7 @@ def validate_ortools_result_artifact_documents_v3(
                     prefix = ExactTracePrefixV1.build(row["exactTracePrefix"])
                     normalized = OrToolsExactStateNormalizerV1(frozen_rules, native_cp_sat=True).normalize(
                         prefix, decision_point={"kind": "play"}, maximum_seconds=remaining)
-                    remaining = deadline - time.monotonic()
+                    remaining = min(cap, deadline - time.monotonic())
                     if remaining <= 0:
                         raise ValueError("project compilation normalization budget exhausted")
                     graft = OrToolsNonPlayPlayGraphGraftV1(frozen_rules,
@@ -7846,7 +7856,7 @@ def validate_ortools_result_artifact_documents_v3(
                     _, derived_seed = graft.native_project_play_seed(normalized, prefix)
                     if derived_seed.to_dict() != row["seed"]:
                         raise ValueError("project compilation prefix does not derive the retained seed")
-                    remaining = deadline - time.monotonic()
+                    remaining = min(cap, deadline - time.monotonic())
                     if remaining <= 0:
                         raise ValueError("project compilation lifecycle budget exhausted")
                 rebuilt = compiler.compile(CompleteStateGraphSeedV1.from_dict(row["seed"]),
@@ -7862,7 +7872,7 @@ def validate_ortools_result_artifact_documents_v3(
                     raise ValueError("project compilation reconstruction differs or is incomplete")
             _verify_project_parent_paths(graph, rules=frozen_rules, source_prefix=source_prefix,
                 frontiers=parent_frontiers, maximum_nodes=min(budget.maximum_nodes, budget.maximum_state_space),
-                maximum_seconds=deadline - time.monotonic())
+                maximum_seconds=min(cap, deadline - time.monotonic()))
     counterstrategy_label = "native_round_win_counterstrategy" in dict(
         result.get("qualification") or {}).get("failures", [])
     if proof_model.get("kind") == "native_counterstrategy_models":
