@@ -214,8 +214,18 @@ def test_snapshot_waits_for_in_flight_private_checkpoint(monkeypatch):
 
     checkpoint_started, release_checkpoint, snapshot_started = (
         threading.Event() for _ in range(3))
+    lock = threading.RLock()
     document = {"artifact": {"privateHand": [1, 2]}}
     original = module.CampaignAttemptProgressV1.checkpoint
+
+    class ObserveSnapshotLock:
+        def __enter__(self):
+            if threading.current_thread() is reader:
+                snapshot_started.set()
+            return lock.__enter__()
+
+        def __exit__(self, *args):
+            return lock.__exit__(*args)
 
     def ingest(progress, evidence):
         checkpoint_started.set()
@@ -223,21 +233,22 @@ def test_snapshot_waits_for_in_flight_private_checkpoint(monkeypatch):
         original(progress, evidence)
 
     monkeypatch.setattr(module.CampaignAttemptProgressV1, "checkpoint", ingest)
-    request = CampaignShardRequestV1(_shards(1)[0], 1, CampaignCancellationTokenV1())
+    request = CampaignShardRequestV1(_shards(1)[0], 1, CampaignCancellationTokenV1(),
+        evidence_transfer_lock=ObserveSnapshotLock())
     snapshots = []
 
     def snapshot():
-        snapshot_started.set()
         snapshots.append(request.progress_snapshot())
+        snapshot_started.set()
 
     writer = threading.Thread(target=request.report_checkpoint, args=(document,))
     reader = threading.Thread(target=snapshot)
     writer.start()
     try:
         checkpoint_started.wait()
-        acquired = request.evidence_transfer_lock.acquire(blocking=False)
+        acquired = lock.acquire(blocking=False)
         if acquired:
-            request.evidence_transfer_lock.release()
+            lock.release()
         assert not acquired
         reader.start()
         snapshot_started.wait()
