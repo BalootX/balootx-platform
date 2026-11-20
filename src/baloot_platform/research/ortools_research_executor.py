@@ -5227,24 +5227,28 @@ def _observed_play_quality_artifact_v1(rules, normalized, prefix, request, *, bu
             or type(maximum_seconds) not in {int, float}
             or not math.isfinite(maximum_seconds) or maximum_seconds <= 0):
         raise ValueError("observed play quality requires owned history and frozen exact budgets")
-    seconds = min(maximum_seconds, budget.maximum_wall_seconds, budget.maximum_cpu_seconds)
-    deadline, cpu_deadline = time.monotonic() + seconds, time.process_time() + seconds
+    declared_seconds = min(budget.maximum_wall_seconds, budget.maximum_cpu_seconds)
+    seconds = min(maximum_seconds, declared_seconds)
+    started, cpu_started = time.monotonic(), time.process_time()
     native = budget.native_observed
     # Reserve the separate-proof worst case; a certified root choice can reuse the best proof.
     queries = (native.maximum_queries - 1) // 4
     if queries < 1:
         raise InformationSetCompilationStopped("maximum_queries", stage="observed_play_quality")
 
+    def elapsed():
+        return max(time.monotonic() - started, time.process_time() - cpu_started)
+
     def stopped():
-        return bool(cancel_check and cancel_check()) or time.monotonic() >= deadline or time.process_time() >= cpu_deadline
+        return bool(cancel_check and cancel_check()) or elapsed() >= seconds
 
     def remaining():
         if cancel_check is not None and cancel_check():
             raise InformationSetCompilationStopped("cancelled", stage="observed_play_quality")
-        value = min(deadline - time.monotonic(), cpu_deadline - time.process_time())
+        value = seconds - elapsed()
         if value <= 0:
             raise InformationSetCompilationStopped(
-                "maximum_seconds" if time.monotonic() >= deadline else "maximum_cpu_seconds",
+                "maximum_seconds" if time.monotonic() - started >= seconds else "maximum_cpu_seconds",
                 stage="observed_play_quality")
         return value
 
@@ -5256,8 +5260,8 @@ def _observed_play_quality_artifact_v1(rules, normalized, prefix, request, *, bu
         except InformationSetCompilationStopped as error:
             if error.partial_receipt.get("exhaustionReason") != "cancelled" or cancel_check and cancel_check():
                 raise
-            reason = ("maximum_seconds" if time.monotonic() >= deadline else
-                      "maximum_cpu_seconds" if time.process_time() >= cpu_deadline else None)
+            reason = ("maximum_seconds" if time.monotonic() - started >= seconds else
+                      "maximum_cpu_seconds" if time.process_time() - cpu_started >= seconds else None)
             if reason is None:
                 raise
             raise InformationSetCompilationStopped(reason, stage="observed_play_quality",
@@ -5272,7 +5276,8 @@ def _observed_play_quality_artifact_v1(rules, normalized, prefix, request, *, bu
             maximum_observations=native.maximum_observations, maximum_model_bytes=budget.maximum_cache_bytes,
             maximum_conflicts=maximum_conflicts,
             maximum_depth=min(maximum_depth, budget.maximum_depth, budget.maximum_horizon_actions),
-            maximum_seconds=remaining(), cancel_check=stopped, visibility="actor_information_set",
+            maximum_seconds=declared_seconds, runtime_maximum_seconds=remaining(),
+            cancel_check=stopped, visibility="actor_information_set",
             compact_public_ownership=True,
             observed_play_bounds_version=2, path_floor_version=2,
             progress_callback=(lambda row: progress_callback({**row, "decisionKind": decision_kind,
@@ -5655,6 +5660,7 @@ def _complete_state_quality_artifact_v1(
                 or type(maximum_conflicts) is not int or maximum_conflicts < 1):
             raise ValueError("native escalation quality requires frozen proof and conflict budgets")
         native = budget.native_observed
+        declared_seconds = min(budget.maximum_wall_seconds, budget.maximum_cpu_seconds)
         certificate = OrToolsActorInformationSetCompilerV1(rules, native_cp_sat=True)._solve_native_post_auction_policy_bounds(
             normalized, prefix, Seat.parse(normalized.next_actor).team,
             selected_root_action=request.selected_action, opportunity_order=opportunity_order,
@@ -5662,7 +5668,7 @@ def _complete_state_quality_artifact_v1(
             maximum_queries=native.maximum_queries, maximum_observations=native.maximum_observations,
             maximum_model_bytes=budget.maximum_cache_bytes, maximum_conflicts=maximum_conflicts,
             maximum_depth=min(maximum_depth, budget.maximum_depth, budget.maximum_horizon_actions),
-            maximum_seconds=min(remaining(), budget.maximum_wall_seconds, budget.maximum_cpu_seconds),
+            maximum_seconds=declared_seconds, runtime_maximum_seconds=min(remaining(), declared_seconds),
             cancel_check=cancel_check)
         if certificate["status"] != "scoped_constant_bound_converged":
             raise InformationSetCompilationStopped("native_escalation_quality_incomplete", stage="complete_state_quality",

@@ -974,7 +974,8 @@ class OrToolsActorInformationSetCompilerV1:
             maximum_observations, maximum_model_bytes, maximum_conflicts, maximum_depth,
             maximum_seconds, cancel_check=None, escalation_receipt_version=2, visibility="complete_state",
             reuse_source_observation=True, observed_play_bounds_version=2, path_floor_version=2,
-            progress_callback=None, opponent_ceiling_policy=None, compact_public_ownership=False):
+            progress_callback=None, opponent_ceiling_policy=None, compact_public_ownership=False,
+            runtime_maximum_seconds=None):
         """Bound a post-auction root or recorded choice without path enumeration.
 
         Internal evidence only: production admission still requires an independent
@@ -1004,7 +1005,11 @@ class OrToolsActorInformationSetCompilerV1:
                 or compact_public_ownership and visibility != "actor_information_set"):
             raise ValueError("public ownership compaction requires observed post-auction bounds")
         _validate_native_opponent_ceiling_policy(opponent_ceiling_policy, target)
-        deadline = time.monotonic() + maximum_seconds
+        # The receipt binds the declared cap. Shared execution may give this proof less time.
+        runtime_seconds = maximum_seconds if runtime_maximum_seconds is None else runtime_maximum_seconds
+        if type(runtime_seconds) not in {int, float} or not 0 < runtime_seconds <= maximum_seconds:
+            raise ValueError("native post-auction runtime allowance exceeds the declared cap")
+        deadline = time.monotonic() + runtime_seconds
         preparation, strategy, queries_used = {}, None, 0
         if compact_public_ownership:
             preparation["ownershipCompaction"] = "public_fixed_v1"
@@ -1031,7 +1036,7 @@ class OrToolsActorInformationSetCompilerV1:
 
         def remaining():
             cancelled = cancel_check is not None and cancel_check()
-            seconds = min(maximum_seconds, deadline - time.monotonic())
+            seconds = min(runtime_seconds, deadline - time.monotonic())
             if cancelled or seconds <= 0:
                 reason = "cancelled" if cancelled else "maximum_seconds"
                 raise InformationSetCompilationStopped(reason, stage="native_post_auction_bounds")
