@@ -17,12 +17,16 @@ def test_hosted_ci_contract(root):
     assert workflow["permissions"] == {"contents": "read"}
     assert workflow["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
     jobs = workflow["jobs"]
-    for job in jobs.values():
+    main_push = "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
+    for name, job in jobs.items():
         assert job["runs-on"] == "ubuntu-24.04"
         assert job["timeout-minutes"] > 0
         for step in job["steps"]:
             if "uses" in step:
                 assert re.fullmatch(r"[0-9a-f]{40}", step["uses"].rsplit("@", 1)[-1])
+                if step["uses"].startswith(("actions/cache/save@", "actions/cache@")):
+                    condition = step.get("if") or ""
+                    assert condition.startswith(main_push) and "||" not in condition, name
             assert not step.get("continue-on-error")
     assert jobs["ci-gate"]["name"] == "${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'CI result' }}"
     assert jobs["plan"]["if"] == "github.event_name != 'pull_request' || !github.event.pull_request.draft"
@@ -31,6 +35,29 @@ def test_hosted_ci_contract(root):
     assert "exit 1" in gate_step["run"].split("python3 scripts/ci_scope.py gate")[0]
     assert set(jobs["ci-gate"]["needs"]) == jobs.keys() - {"ci-gate"}
     assert jobs["ci-gate"]["if"] == "always()"
+
+
+def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    consumers = {
+        "media-inputs", "media-render", "media-release-smoke",
+        "python-fast-run", "python-backend-run", "python-heavy",
+    }
+    media_steps = jobs["media-render"]["steps"]
+    download = next(step for step in media_steps if step.get("name") == "Download verified FFmpeg packages")
+    install = next(step for step in media_steps if step.get("name") == "Install pinned FFmpeg")
+    for name, job in jobs.items():
+        steps = job["steps"]
+        expected = int(name in consumers)
+        assert sum(step is download for step in steps) == expected, name
+        assert sum(step is install for step in steps) == expected, name
+        if expected:
+            assert steps.index(download) < steps.index(install), name
+            assert all("apt-get update" not in step.get("run", "") for step in steps), name
+    assert "sha256sum --check --strict" in install["run"]
+    assert "dpkg --skip-same-version --install" in install["run"]
+    assert "ffmpeg-packages" in jobs["media-inputs"]["needs"]
+    assert jobs["media-render"]["timeout-minutes"] == 25
 
 
 @pytest.mark.parametrize("event", ["pull_request", "merge_group", "push", "workflow_dispatch"])

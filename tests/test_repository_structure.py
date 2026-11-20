@@ -102,9 +102,9 @@ def test_ci_shards_receive_builds_and_required_node_dependencies(root: Path) -> 
                         "src/baloot_platform/video/remotion"}
     assert jobs["python-backend-run"]["steps"] == steps == jobs["python-heavy"]["steps"]
     for name in ("python-backend-run", "python-fast-run", "python-heavy"):
-        assert jobs[name]["needs"] == ["plan", "python-wheelhouse", "native-build"]
+        assert jobs[name]["needs"] == ["plan", "python-wheelhouse", "native-build", "ffmpeg-packages"]
     downloads = {step["with"]["name"] for step in steps if "download-artifact@" in step.get("uses", "")}
-    assert downloads == {"python-wheels-${{ matrix.python }}", "native-release-library"}
+    assert downloads == {"python-wheels-${{ matrix.python }}", "native-release-library", "ffmpeg-debs-6.1.1-3ubuntu5"}
     assert all(step.get("with", {}).get("digest-mismatch") == "error" for step in steps
                if "download-artifact@" in step.get("uses", ""))
     foundry = jobs["foundry"]["steps"]
