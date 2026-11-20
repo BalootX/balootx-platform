@@ -140,7 +140,7 @@ def test_backend_profile_retains_both_versions_and_legacy_heavy_scope():
     }
     assert set(history["versionedNodeShardedFiles"]) == expected.keys()
     assert heavy.node_sharded_files(history) == {FILE}
-    assert history["versionedNodeShards"] == 5
+    assert history["versionedNodeShards"] == 4
     assert set(history["nodeSeconds"]) == {"3.12", "3.13"}
     for weights in history["nodeSeconds"].values():
         assert Counter(node.split("::", 1)[0] for node in weights) == expected
@@ -167,8 +167,8 @@ def test_shard_parent_uses_separate_collection_and_execution_with_90min_limit(tm
     monkeypatch.setattr(heavy, "_pytest", run)
     assert heavy.run_shard(2, tmp_path) == 0
     receipt = json.loads((tmp_path / "receipt.json").read_text())
-    assert receipt["selected"] == nodes[1::4] and receipt["status"] == "passed"
-    assert calls == [(["--collect-only", FILE], "collection", 300), (nodes[1::4], "execution", 5400)]
+    assert receipt["selected"] == nodes[1::2] and receipt["status"] == "passed"
+    assert calls == [(["--collect-only", FILE], "collection", 300), (nodes[1::2], "execution", 5400)]
     assert affinity == [[0, 1, 2, 3]]
 
 
@@ -286,19 +286,21 @@ def test_four_worker_shard_proves_exact_union(tmp_path, monkeypatch, fail_worker
 
 def test_full_workflow_requires_coverage_for_all_matrices(root):
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
-    assert jobs["python-backend-run"]["strategy"]["matrix"] == {"shard": [1, 2, 3, 4, 5], "python": ["3.12", "3.13"]}
-    assert jobs["python-fast-run"]["strategy"]["matrix"] == {"python": ["3.12", "3.13"], "shard": [1, 2, 3, 4]}
-    assert jobs["python-heavy"]["strategy"]["matrix"] == {"python": ["3.13"], "shard": [1, 2, 3, 4]}
-    caps = {"python-backend-run": 4, "python-fast-run": 4, "python-heavy": 2}
-    for name, cap in caps.items():
-        assert jobs[name]["strategy"]["max-parallel"] == cap
+    versions = """${{ fromJSON(github.event_name == 'pull_request' && '["3.13"]' || '["3.12","3.13"]') }}"""
+    assert jobs["python-wheelhouse"]["strategy"]["matrix"] == {"python": versions}
+    assert jobs["python-backend-run"]["strategy"]["matrix"] == {"shard": [1, 2, 3, 4], "python": versions}
+    assert jobs["python-fast-run"]["strategy"]["matrix"] == {"python": versions, "shard": [1, 2, 3]}
+    assert jobs["python-heavy"]["strategy"]["matrix"] == {"python": ["3.13"], "shard": [1, 2]}
+    for name in ("python-backend-run", "python-fast-run", "python-heavy"):
         assert jobs[name]["strategy"]["fail-fast"] is False
+        assert "max-parallel" not in jobs[name]["strategy"]
         assert any("--workers 4" in step.get("run", "") for step in jobs[name]["steps"])
     assert jobs["python-coverage"]["needs"] == ["plan", "python-fast-run", "python-backend-run", "python-heavy"]
     assert jobs["python-coverage"]["steps"][-1]["run"].startswith("python -P scripts/ci_scope.py coverage ")
 
 
-def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path, monkeypatch):
+@pytest.mark.parametrize("event", ["push", "pull_request"])
+def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path, monkeypatch, event):
     files = [f"tests/test_sample_{index}.py" for index in range(12)]
     monkeypatch.setattr(ci_scope, "fast_files", lambda _history: files)
     backend_nodes = [f"{BACKEND}::test_case[{index:03d}]" for index in range(15)]
@@ -306,7 +308,7 @@ def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path,
     weights = {node: index + 1 for index, node in enumerate(backend_nodes)}
     heavy_weights = {node: index + 1 for index, node in enumerate(heavy_nodes)}
     history = {"seconds": {}, "incompleteFiles": [], "nodeShardedFiles": [FILE],
-               "versionedNodeShardedFiles": [BACKEND], "versionedNodeShards": 5,
+               "versionedNodeShardedFiles": [BACKEND], "versionedNodeShards": 4,
                "nodeSeconds": {version: weights for version in ci_scope.VERSIONS},
                "heavyNodeSeconds": heavy_weights}
 
@@ -316,22 +318,30 @@ def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path,
         target.write_text(json.dumps(value))
         return target
 
-    for version in ci_scope.VERSIONS:
+    versions = ("3.13",) if event == "pull_request" else ci_scope.VERSIONS
+    for version in versions:
         for index, group in enumerate(isolated.split_files(files, history), 1):
             write(f"python-fast-run-{version}-{index}", "python-fast-status.json",
                   {"head": "head", "python": version, "result": "success", "shard": index, "files": group})
-        for row in receipts(backend_nodes, BACKEND, version, weights, 5):
+        for row in receipts(backend_nodes, BACKEND, version, weights, 4):
             write(f"python-backend-run-{version}-{row['shard']}", "receipt.json", row)
-    for row in receipts(heavy_nodes, FILE, "3.13", heavy_weights):
+    for row in receipts(heavy_nodes, FILE, "3.13", heavy_weights, 2):
         write(f"python-heavy-3.13-{row['shard']}", "receipt.json", row)
 
-    coverage = ci_scope.validate_coverage(tmp_path, "head", history)
+    coverage = ci_scope.validate_coverage(tmp_path, "head", history, event)
     assert {key: value["executed"] for key, value in coverage.items()} == {
-        "backend-3.12": 15, "backend-3.13": 15, "heavy": 12,
+        **{f"backend-{version}": 15 for version in versions}, "heavy": 12,
     }
+    if event == "pull_request":
+        with pytest.raises(ValueError):
+            ci_scope.validate_coverage(tmp_path, "head", history, "push")
+        stray = write("python-fast-run-3.12-1", "python-fast-status.json", {})
+        with pytest.raises(ValueError, match="unexpected Python version"):
+            ci_scope.validate_coverage(tmp_path, "head", history, event)
+        stray.unlink()
     for name, filename, changes in (
-        ("python-fast-run-3.12-1", "python-fast-status.json",
-         {"head": "stale", "python": "3.13", "shard": 2, "files": [], "result": "cancelled"}),
+        (f"python-fast-run-{versions[0]}-1", "python-fast-status.json",
+         {"head": "stale", "python": "3.11", "shard": 2, "files": [], "result": "cancelled"}),
         ("python-backend-run-3.13-1", "receipt.json",
          {"head": "stale", "python": "3.12.9", "shard": 2, "selected": [], "status": "failed", "files": [FILE]}),
         ("python-heavy-3.13-1", "receipt.json", {"status": "failed"}),
@@ -341,12 +351,12 @@ def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path,
         for field, value in changes.items():
             write(name, filename, {**saved, field: value})
             with pytest.raises(ValueError):
-                ci_scope.validate_coverage(tmp_path, "head", history)
+                ci_scope.validate_coverage(tmp_path, "head", history, event)
         path.unlink()
         with pytest.raises(ValueError):
-            ci_scope.validate_coverage(tmp_path, "head", history)
+            ci_scope.validate_coverage(tmp_path, "head", history, event)
         write(name, filename, saved)
         duplicate = write(name + "-duplicate", filename, saved)
         with pytest.raises(ValueError):
-            ci_scope.validate_coverage(tmp_path, "head", history)
+            ci_scope.validate_coverage(tmp_path, "head", history, event)
         duplicate.unlink()

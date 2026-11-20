@@ -10,7 +10,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.run_heavy_pytest import validate_union
+from scripts.run_heavy_pytest import HEAVY_SHARDS, validate_union
 from scripts.run_isolated_pytest import fast_files, node_sharded_files, validate_shards
 
 HISTORY = Path(".github/python-test-durations.json")
@@ -140,7 +140,7 @@ def validate_results(event: str, results: dict) -> None:
         "plan": "success",
         "preflight": "success",
         "dependency-review": "success" if event == "pull_request" else "skipped",
-        "python-version-smoke": "success" if event == "pull_request" and not full else "skipped",
+        "python-version-smoke": "success" if event == "pull_request" else "skipped",
         "python-affected": "success" if tests else "skipped",
         **{job: "success" if selection[key] == "true" else "skipped" for job, key in SCOPED.items()},
         **{job: "success" if full or (tests and job in TEST_SETUP) else "skipped" for job in FULL},
@@ -154,13 +154,19 @@ def validate_results(event: str, results: dict) -> None:
         raise ValueError(f"CI producers differ from the plan: expected={expected}, actual={actual}")
 
 
-def validate_coverage(receipts: Path, head: str, history: dict) -> dict:
-    """Verify both Python versions and the entire node-sharded population."""
+def validate_coverage(receipts: Path, head: str, history: dict, event: str) -> dict:
+    """Verify every shard for the event's Python versions."""
     files = fast_files(history)
     coverage = {}
-    for version in VERSIONS:
-        fast = [json.loads(path.read_bytes()) for path in
-                receipts.glob(f"python-fast-run-{version}-*/python-fast-status.json")]
+    versions = ("3.13",) if event == "pull_request" else VERSIONS
+    for pattern, filename in (("python-fast-run", "python-fast-status.json"), ("python-backend-run", "receipt.json")):
+        prefix = f"{pattern}-"
+        if any(path.parent.name.removeprefix(prefix).split("-", 1)[0] not in versions
+               for path in receipts.glob(f"{pattern}-*/{filename}")):
+            raise ValueError("unexpected Python version in shard receipts")
+    for version in versions:
+        fast = [json.loads(path.read_bytes()) for path in receipts.glob(
+            f"python-fast-run-{version}-*/python-fast-status.json")]
         validate_shards(fast, head, version, files, history)
         backend = [json.loads(path.read_bytes()) for path in
                    receipts.glob(f"python-backend-run-{version}-*/receipt.json")]
@@ -171,7 +177,7 @@ def validate_coverage(receipts: Path, head: str, history: dict) -> dict:
         )
     heavy = [json.loads(path.read_bytes()) for path in receipts.glob("python-heavy-3.13-*/receipt.json")]
     coverage["heavy"] = validate_union(
-        heavy, head, sorted(node_sharded_files(history)), seconds=history["heavyNodeSeconds"],
+        heavy, head, sorted(node_sharded_files(history)), seconds=history["heavyNodeSeconds"], shards=HEAVY_SHARDS,
     )
     return coverage
 
@@ -186,7 +192,8 @@ def main() -> None:
     elif mode == "gate":
         validate_results(os.environ["GITHUB_EVENT_NAME"], json.loads(os.environ["CI_RESULTS"]))
     elif mode == "coverage":
-        coverage = validate_coverage(Path(sys.argv[2]), os.environ["GITHUB_SHA"], json.loads(HISTORY.read_bytes()))
+        coverage = validate_coverage(Path(sys.argv[2]), os.environ["GITHUB_SHA"],
+                                     json.loads(HISTORY.read_bytes()), os.environ["GITHUB_EVENT_NAME"])
         print(json.dumps(coverage, indent=2))
     else:
         raise ValueError(f"unknown CI mode: {mode}")

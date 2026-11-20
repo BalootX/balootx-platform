@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.ci_known_failures import is_known
 FILE_SAFETY_SECONDS = 840.0
+FAST_SHARDS = 3
 
 
 def node_sharded_files(history: dict) -> set[str]:
@@ -115,10 +116,12 @@ def all_skipped_allowlist(available: set[str]) -> dict[str, str]:
 
 def schedule(files: list[str], history: dict, light_timeout: int = 900) -> list[tuple[str, int]]:
     seconds = history["seconds"]
-    if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0 for value in seconds.values()):
+    weights = history.get("shardSeconds", seconds)
+    if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
+           for durations in (seconds, weights) for value in durations.values()):
         raise ValueError("historical durations must be finite nonnegative seconds")
     heavy = set(history["incompleteFiles"]) | {path for path, value in seconds.items() if value >= 900}
-    ordered = sorted(files, key=lambda path: (path not in heavy, -seconds.get(path, 0), path))
+    ordered = sorted(files, key=lambda path: (path not in heavy, -weights.get(path, seconds.get(path, 0)), path))
     return [(path, 3600 if path in heavy else light_timeout) for path in ordered]
 
 
@@ -130,7 +133,7 @@ def work_file_budget(path: str, timeout: int, history: dict) -> float:
     return budget if timeout >= 900 and max(recorded) < budget else 0.0
 
 
-def split_files(files: list[str], history: dict, shards: int = 4) -> list[list[str]]:
+def split_files(files: list[str], history: dict, shards: int = FAST_SHARDS) -> list[list[str]]:
     if not files or len(set(files)) != len(files) or not 1 <= shards <= len(files):
         raise ValueError("expected unique nonempty files and a valid shard count")
     history = {**history, "seconds": history.get("shardSeconds", history["seconds"])}
@@ -160,8 +163,8 @@ def split_files(files: list[str], history: dict, shards: int = 4) -> list[list[s
 
 def validate_shards(receipts: list[dict], head: str, python: str, files: list[str], history: dict) -> None:
     expected = split_files(files, history)
-    if len(receipts) != 4 or {row["shard"] for row in receipts} != {1, 2, 3, 4}:
-        raise ValueError("exactly four distinct fast shard receipts are required")
+    if len(receipts) != FAST_SHARDS or {row["shard"] for row in receipts} != set(range(1, FAST_SHARDS + 1)):
+        raise ValueError("exactly the configured distinct fast shard receipts are required")
     for row in receipts:
         if (row != {"head": head, "python": python, "shard": row["shard"],
                     "result": "success", "files": expected[row["shard"] - 1]}):
@@ -274,7 +277,7 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--timeout", type=int, default=900, help="Light-file limit in seconds; historical heavy files receive 3600")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--shard", type=int, choices=range(1, 5))
+    parser.add_argument("--shard", type=int, choices=range(1, FAST_SHARDS + 1))
     args = parser.parse_args()
     history = json.loads((ROOT / ".github/python-test-durations.json").read_text(encoding="utf-8"))
     files = fast_files(history)

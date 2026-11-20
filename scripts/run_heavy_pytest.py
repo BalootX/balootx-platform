@@ -17,6 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.run_isolated_pytest import clear_outputs, isolated_environment, node_sharded_files, resource_snapshot
 
+HEAVY_SHARDS = 2
+
 _nodes = {"collected": [], "deselected": [], "collectionIssues": [], "reports": {}}
 
 
@@ -108,7 +110,7 @@ def run_shard(shard: int, output: Path, versioned: bool = False, *, workers: int
     history = json.loads((ROOT / ".github/python-test-durations.json").read_text(encoding="utf-8"))
     files = sorted(history["versionedNodeShardedFiles"] if versioned else node_sharded_files(history))
     seconds = history["nodeSeconds"][".".join(platform.python_version().split(".")[:2])] if versioned else history.get("heavyNodeSeconds")
-    shards = history["versionedNodeShards"] if versioned else 4
+    shards = history["versionedNodeShards"] if versioned else HEAVY_SHARDS
     limit = 3600 if versioned else 5400
     started = time.monotonic()
     receipt = {"shard": shard, "head": os.environ.get("GITHUB_SHA"), "python": platform.python_version(),
@@ -210,7 +212,7 @@ def main() -> int:
     receipts = [json.loads(path.read_text(encoding="utf-8")) for path in args.receipts.glob("*/receipt.json")]
     files = sorted(history["versionedNodeShardedFiles"] if args.versioned else node_sharded_files(history))
     seconds = history["nodeSeconds"][args.python] if args.versioned else history.get("heavyNodeSeconds")
-    shards = history["versionedNodeShards"] if args.versioned else 4
+    shards = history["versionedNodeShards"] if args.versioned else HEAVY_SHARDS
     result = validate_union(receipts, os.environ.get("GITHUB_SHA"), files, args.python, seconds, shards)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")

@@ -102,9 +102,10 @@ def test_ci_shards_receive_builds_and_required_node_dependencies(root: Path) -> 
                         "src/baloot_platform/video/remotion"}
     assert jobs["python-backend-run"]["steps"] == steps == jobs["python-heavy"]["steps"]
     for name in ("python-backend-run", "python-fast-run", "python-heavy"):
-        assert jobs[name]["needs"] == ["plan", "python-wheelhouse", "native-build", "ffmpeg-packages"]
+        assert {"plan", "python-wheelhouse", "native-build", "ffmpeg-packages"} <= set(jobs[name]["needs"])
     downloads = {step["with"]["name"] for step in steps if "download-artifact@" in step.get("uses", "")}
-    assert downloads == {"python-wheels-${{ matrix.python }}", "native-release-library", "ffmpeg-debs-6.1.1-3ubuntu5"}
+    assert downloads == {"python-runtime-${{ matrix.python }}", "native-release-library",
+                         "ffmpeg-debs-6.1.1-3ubuntu5"}
     assert all(step.get("with", {}).get("digest-mismatch") == "error" for step in steps
                if "download-artifact@" in step.get("uses", ""))
     foundry = jobs["foundry"]["steps"]
@@ -114,6 +115,27 @@ def test_ci_shards_receive_builds_and_required_node_dependencies(root: Path) -> 
     assert jobs["media-render"]["strategy"]["matrix"]["shard"] == ["flagship", "decision", "companion", "parity"]
     assert jobs["media-release-smoke"]["needs"] == ["plan", "media-render"]
     assert any(step.get("name") == "Verify governed font hashes" for step in jobs["media-inputs"]["steps"])
+
+
+def test_full_ci_reuses_only_the_run_local_installed_python_runtime(root: Path) -> None:
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    for name in ("foundry", "python-fast-run", "python-backend-run", "python-heavy",
+                 "media-inputs", "media-render", "media-release-smoke"):
+        steps = jobs[name]["steps"]
+        index, = (i for i, step in enumerate(steps) if step.get("with", {}).get("name", "").startswith("python-runtime-"))
+        matrix = name.startswith("python-")
+        version = "${{ matrix.python }}" if matrix else "3.13"
+        assert steps[index]["with"] == {
+            "name": f"python-runtime-{version}",
+            "path": "${{ runner.temp }}",
+            "digest-mismatch": "error",
+        }
+        assert steps[index].get("if") == (None if matrix else "needs.plan.outputs.full == 'true'")
+        assert steps[index + 1]["if"] == "needs.plan.outputs.full == 'true'"
+        assert steps[index + 1]["name"] == "Activate installed Python runtime"
+    producer = jobs["python-wheelhouse"]["steps"][-1]
+    assert producer["with"]["name"] == "python-runtime-${{ matrix.python }}"
+    assert producer["with"]["path"] == "${{ runner.temp }}/python-runtime.tar.gz"
 
 
 def test_workflows_use_node24_artifact_upload_action(root: Path) -> None:

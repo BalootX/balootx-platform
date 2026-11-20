@@ -261,7 +261,7 @@ def test_parallel_files_keep_all_failures_timeouts_and_runtime_isolation(tmp_pat
     assert affinities == [[0, 1, 2, 3]]
     assert len({kwargs["env"]["BALOOT_RUNTIME"] for _, kwargs in calls}) == 8
     assert {command[-1] for command, _ in calls} == set(files)
-    assert {command[-1] for command, _ in calls[:4]} == {files[6], files[5], files[0], files[1]}
+    assert {command[-1] for command, _ in calls[:4]} == {files[6], files[5], files[4], files[0]}
     assert [row["timeoutSeconds"] for row in results] == [timeout] * 5 + [3600, 3600, timeout]
     assert [row["tier"] for row in results] == ["light"] * 5 + ["heavy", "heavy", "light"]
     for command, kwargs in calls:
@@ -592,9 +592,9 @@ def test_measured_slow_files_keep_exact_union_with_balanced_wall_time():
     unified = "tests/test_research_ortools_unified_executor.py"
     assert all(backend not in group and unified not in group for group in groups)
     assert {backend, unified} <= set(history["versionedNodeShardedFiles"])
-    assert history["versionedNodeShards"] == 5
+    assert history["versionedNodeShards"] == 4
     assert {backend, unified} <= set(history["serialFiles"])
-    assert history["shardTimingSourceRun"] == 44068917758
+    assert history["shardTimingSourceRun"] == 44812185812
     assert history["shardSeconds"][unified] == 869.454
     assert set(files) <= set(history["shardSeconds"])
     assert sorted(path for group in groups for path in group) == files
@@ -649,7 +649,7 @@ def test_balancer_counts_serial_tail_in_addition_to_four_worker_pool():
     assert lane.split_files(["serial"], history, shards=1) == [["serial"]]
 
 
-def test_fast_gate_requires_four_successful_exact_head_and_version_inventories():
+def test_fast_gate_requires_three_successful_exact_head_and_version_inventories():
     files = [f"tests/test_{index}.py" for index in range(12)]
     history = {"seconds": {}, "incompleteFiles": []}
     receipts = [{"shard": index, "head": "head", "python": "3.13", "result": "success", "files": group}

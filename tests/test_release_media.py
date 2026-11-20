@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 from contextlib import nullcontext
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -274,14 +275,36 @@ def test_plugin_parity_verifier_uses_its_frozen_bundle(
         "color_space": "bt709", "color_transfer": "bt709", "color_primaries": "bt709",
     }, {"codec_type": "audio", "codec_name": "aac", "sample_rate": "48000", "channels": 2}]}
     monkeypatch.setattr(module, "_probe", lambda _path: probe)
-    monkeypatch.setattr(module, "_decoded_sha256", lambda *_args, **_kwargs: "same-decoded-bytes")
-    monkeypatch.setattr(module, "_decoded_visual_parity", lambda *_args: {"passed": True, "frames": frames})
+    monkeypatch.setattr(module, "_decoded_audio_sha256", lambda *_args: "same-decoded-bytes")
+    monkeypatch.setattr(module, "_decoded_visual_parity",
+                        lambda *_args: ({"passed": True, "frames": frames}, "approved", "plugin"))
     if invalid is not None:
         with pytest.raises(ValueError, match="bundle|media contract"):
             module.main()
     else:
         module.main()
         assert json.loads((tmp_path / "parity-evidence.json").read_text(encoding="utf-8"))["exports"]["decision_clip"]["bundleSha256"] == bundle["bundleSha256"]
+
+
+def test_plugin_parity_hashes_the_exact_png_streams_while_comparing_frames(monkeypatch):
+    module = verify_remotion_plugin_parity
+
+    def frame(color):
+        png = io.BytesIO()
+        with Image.new("RGB", (2, 2), color) as image:
+            image.save(png, format="PNG")
+        return png.getvalue()
+
+    first, second = frame("red"), frame("green")
+    approved, plugin = first * 2, first + second
+    monkeypatch.setattr(module, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(module.subprocess, "Popen", lambda args, **_: SimpleNamespace(
+        stdout=io.BytesIO({"approved": approved, "plugin": plugin}[args[args.index("-i") + 1]]),
+        stderr=io.BytesIO(), poll=lambda: 0, wait=lambda **_: 0,
+    ))
+    parity, approved_hash, plugin_hash = module._decoded_visual_parity("approved", "plugin")
+    assert parity["frames"] == 2 and parity["changedFrames"] == 1 and not parity["passed"]
+    assert (approved_hash, plugin_hash) == (hashlib.sha256(approved).hexdigest(), hashlib.sha256(plugin).hexdigest())
 
 
 def test_hitl_release_profile_is_exact_mobile_portrait() -> None:

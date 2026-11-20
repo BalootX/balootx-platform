@@ -126,20 +126,15 @@ def _ffmpeg() -> str:
     return str(candidates[0])
 
 
-def _decoded_sha256(path: Path, *, stream: str) -> str:
-    if stream == "video":
-        output = ["-map", "0:v:0", "-an", "-f", "image2pipe", "-c:v", "png"]
-    elif stream == "audio":
-        output = ["-map", "0:a:0", "-vn", "-f", "wav", "-c:a", "pcm_s16le"]
-    else:
-        raise ValueError(f"unsupported decoded stream: {stream}")
+def _decoded_audio_sha256(path: Path) -> str:
     process = subprocess.Popen(
-        [_ffmpeg(), "-v", "error", "-i", str(path), *output, "pipe:1"],
+        [_ffmpeg(), "-v", "error", "-i", str(path), "-map", "0:a:0", "-vn",
+         "-f", "wav", "-c:a", "pcm_s16le", "pipe:1"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
     timer, timed_out = _watch_processes(
-        [process], operation=f"decoded {stream} parity"
+        [process], operation="decoded audio parity"
     )
     assert process.stdout is not None and process.stderr is not None
     try:
@@ -154,11 +149,11 @@ def _decoded_sha256(path: Path, *, stream: str) -> str:
             _terminate_process_tree(process)
     if timed_out.is_set():
         raise TimeoutError(
-            f"decoded {stream} parity exceeded "
+            "decoded audio parity exceeded "
             f"{FFMPEG_OPERATION_TIMEOUT_SECONDS}s"
         )
     if return_code:
-        raise ValueError(f"decoded {stream} parity failed: {stderr[-2000:]}")
+        raise ValueError(f"decoded audio parity failed: {stderr[-2000:]}")
     return digest.hexdigest()
 
 
@@ -183,7 +178,7 @@ def _read_png(stream: object) -> bytes | None:
             return bytes(value)
 
 
-def _decoded_visual_parity(approved: Path, plugin: Path) -> dict[str, object]:
+def _decoded_visual_parity(approved: Path, plugin: Path) -> tuple[dict[str, object], str, str]:
     def command(path: Path) -> list[str]:
         return [
             _ffmpeg(), "-v", "error", "-i", str(path), "-map", "0:v:0", "-an",
@@ -199,6 +194,8 @@ def _decoded_visual_parity(approved: Path, plugin: Path) -> dict[str, object]:
     for process in processes:
         assert process.stdout is not None and process.stderr is not None
 
+    approved_digest = hashlib.sha256()
+    plugin_digest = hashlib.sha256()
     frames = changed_frames = total_delta = changed_channels = total_channels = 0
     maximum_channel_delta = 0
     maximum_frame_mean = 0.0
@@ -213,6 +210,8 @@ def _decoded_visual_parity(approved: Path, plugin: Path) -> dict[str, object]:
                 break
             if approved_png is None or plugin_png is None:
                 raise ValueError("approved and plugin videos have different frame counts")
+            approved_digest.update(approved_png)
+            plugin_digest.update(plugin_png)
             if frame_channels is None:
                 with Image.open(io.BytesIO(approved_png)) as first_frame:
                     frame_channels = first_frame.width * first_frame.height * 3
@@ -275,6 +274,8 @@ def _decoded_visual_parity(approved: Path, plugin: Path) -> dict[str, object]:
             errors.append(stderr[-2000:])
     if errors:
         raise ValueError(f"decoded visual parity failed: {'; '.join(errors)}")
+    if not frames:
+        raise ValueError("decoded video streams did not contain any frames")
 
     evidence: dict[str, object] = {
         "normalization": "decoded_rgb24_full_frame_v1",
@@ -300,7 +301,7 @@ def _decoded_visual_parity(approved: Path, plugin: Path) -> dict[str, object]:
         and len(materially_different_frames)
         <= VISUAL_PARITY_THRESHOLDS["maximumMateriallyDifferentFrames"]
     )
-    return evidence
+    return evidence, approved_digest.hexdigest(), plugin_digest.hexdigest()
 
 
 def main() -> None:
@@ -335,11 +336,9 @@ def main() -> None:
         probe = _probe(plugin)
         if approved_probe != probe:
             raise ValueError(f"{preset}: approved and plugin media probes differ")
-        approved_video_hash = _decoded_sha256(approved, stream="video")
-        plugin_video_hash = _decoded_sha256(plugin, stream="video")
-        approved_audio_hash = _decoded_sha256(approved, stream="audio")
-        plugin_audio_hash = _decoded_sha256(plugin, stream="audio")
-        visual_parity = _decoded_visual_parity(approved, plugin)
+        approved_audio_hash = _decoded_audio_sha256(approved)
+        plugin_audio_hash = _decoded_audio_sha256(plugin)
+        visual_parity, approved_video_hash, plugin_video_hash = _decoded_visual_parity(approved, plugin)
         if approved_audio_hash != plugin_audio_hash or not visual_parity["passed"]:
             raise ValueError(f"{preset}: normalized plugin media differs from the approved export")
         streams = {stream["codec_type"]: stream for stream in probe["streams"]}
