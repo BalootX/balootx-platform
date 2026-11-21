@@ -516,16 +516,15 @@ def test_voice_pack_manifest_keeps_the_governed_transcript_contract(root: Path) 
         'staticFile("audio/voice_packs/ar_sa_baloot_v2_smooth/explanation.wav")'
         not in source
     )
-    assert "bundle.audioCues.find" in source
     profile = yaml.safe_load(
         (root / "configs/video/premium.yaml").read_text(encoding="utf-8")
     )
-    assert profile["audio"]["explanation_voice_mode"] == "exact_transcript_only"
-    assert profile["audio"]["one_piece_explanation"] is False
-    assert (
-        profile["audio"]["explanation_voice_transcript"]
-        == manifest["clips"]["explanation"]["textAr"]
-    )
+    audio = profile["audio"]
+    assert audio["one_piece_explanation"] is False
+    assert audio["voice_callouts"] is False
+    assert audio["spoken_voice_pack"] is False
+    assert audio["voice_provider"] == audio["voice_pack_directory"] == ""
+    assert audio["explanation_voice_localization_key"] == audio["explanation_voice_transcript"] == ""
 
 
 def test_physical_collection_has_no_winner_copy(root: Path) -> None:
@@ -568,6 +567,5 @@ def test_show_justification_text_false_hides_reason_and_proof_text_only(
     assert source.count("{reason}") == 2
     assert source.count("localized(proofScopeKey)") == 1
     assert source.count("localized(sunTieKey)") == 1
-    assert "audioEnabled && showJustification" in source
     # Public session code box is red independent of the research notice.
     assert '<div className="idnum game-number is-notice">' in source

@@ -252,7 +252,7 @@
           "family": "video",
           "id": "premium_video",
           "path": "configs/video/premium.yaml",
-          "sha256": "2778b48f971bddcafaa739bcdd3fe5fb1d393853493e438c663b8bfb5105261c",
+          "sha256": "b30cfde2093d072aa6db14d16a6cf14beba7a972329122476082cc2f8515b1d5",
           "status": "governed_candidate",
           "version": "21.3.5"
         }
@@ -263,7 +263,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "766340873d31be827acbec420b423e19f7dd10351ed5608d118f61b2bece074e"
+      "sha256": "3775e4b04a618af167b5c181e18c8a16214e1290e7d9cd3987930b3310a747d5"
     },
     "hokum_only": {
       "components": {
@@ -517,7 +517,7 @@
           "family": "video",
           "id": "premium_video",
           "path": "configs/video/premium.yaml",
-          "sha256": "2778b48f971bddcafaa739bcdd3fe5fb1d393853493e438c663b8bfb5105261c",
+          "sha256": "b30cfde2093d072aa6db14d16a6cf14beba7a972329122476082cc2f8515b1d5",
           "status": "governed_candidate",
           "version": "21.3.5"
         }
@@ -528,7 +528,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "b45eb8a56f610bafff160227f7a05451091bf43a5a3622b20cf89f873b1e2599"
+      "sha256": "d97b4dc4a7b3ab56b6196cf819d5c0523fd135fd40f2b99d1ca7d0f44d29bfaa"
     },
     "sun_only": {
       "components": {
@@ -782,7 +782,7 @@
           "family": "video",
           "id": "premium_video",
           "path": "configs/video/premium.yaml",
-          "sha256": "2778b48f971bddcafaa739bcdd3fe5fb1d393853493e438c663b8bfb5105261c",
+          "sha256": "b30cfde2093d072aa6db14d16a6cf14beba7a972329122476082cc2f8515b1d5",
           "status": "governed_candidate",
           "version": "21.3.5"
         }
@@ -793,7 +793,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "c6f66ef34a828969d99d84df62d95bd6fcc3b8548706af0d89dcbc9065d293cc"
+      "sha256": "06976143c6d5fb6ff4fb2d69ffa099a554294549c444c474daaf7c182f0b6f07"
     }
   },
   "schemaVersion": 1

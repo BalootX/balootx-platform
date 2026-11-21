@@ -857,9 +857,9 @@ class VideoJobRequest(BaseModel):
     cardPack: str = "goodall_modern_baloot_32"
     cardBack: str = "1B"
     seatCallouts: bool = True
-    voiceCallouts: bool = True
+    voiceCallouts: bool = False
     tableFoley: bool = True
-    spokenVoicePack: bool = True
+    spokenVoicePack: bool = False
     theme: Literal["emerald", "noir", "royal"] = "emerald"
     pacing: Literal["fast", "broadcast", "authentic", "cinematic"] = "authentic"
     cardOrientation: Literal["upright", "table"] = "upright"

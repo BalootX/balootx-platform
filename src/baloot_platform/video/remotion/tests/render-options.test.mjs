@@ -1,11 +1,32 @@
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
 import fs from "node:fs";
 import {syncBuiltinESMExports} from "node:module";
 import os from "node:os";
 import test from "node:test";
 import {RenderInternals} from "@remotion/renderer";
-import {governedH264Options} from "../scripts/render-options.mjs";
+import {governedH264Options, readValidatedRenderBundle} from "../scripts/render-options.mjs";
 import "../scripts/render-options.test.mjs";
+
+test("reading a render bundle fails closed when the voice validator refuses the same bytes", t => {
+  const input = Buffer.from('{"presentation":{"audio":{"voice_provider":"offline_smooth_pack_v2"}},"audioCues":[]}');
+  const refused = Object.assign(new Error("voice validator refused input"), {status: 1});
+  const read = t.mock.method(fs, "readFileSync", () => input);
+  const validate = t.mock.method(childProcess, "execFileSync", (_python, args, options) => {
+    assert.match(args[2], /validate_render_voice/);
+    assert.equal(options.input, input);
+    throw refused;
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => readValidatedRenderBundle("fixture.json"), error => error === refused);
+    assert.equal(read.mock.callCount(), 1);
+    assert.equal(validate.mock.callCount(), 1);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
 
 test("all render entrypoints fit the cgroup CPU quota as well as narrower existing caps", t => {
   let files = {};

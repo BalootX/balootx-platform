@@ -1,6 +1,6 @@
 import React from "react";
 import {QRCodeSVG} from "qrcode.react";
-import {AbsoluteFill, Artifact, Audio, cancelRender, continueRender, delayRender, Easing, Img, interpolate, Sequence, staticFile, useCurrentFrame} from "remotion";
+import {AbsoluteFill, Artifact, cancelRender, continueRender, delayRender, Easing, Img, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {
   derivePlaybackState,
   collectionOpacity,
@@ -386,7 +386,6 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
   reducedMotion = false,
   storyFrame,
   rewinding = false,
-  suppressAudio = false,
   capturePlaybackDom = false,
 }) => {
   const frame = storyFrame ?? compositionFrame;
@@ -473,7 +472,6 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
   const replaySegment = segmentByStage("replay");
   const setupSegment = segmentByStage("setup");
   const continuationSegment = segmentByStage("continuation");
-  const revealSegment = segmentByStage("reveal");
 
   const isFlagship = stage === "flagship";
   const isHookedFlagshipExport = bundle.exportPreset === "hooked_flagship";
@@ -700,12 +698,8 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
     }
     throw new Error("unsupported governed decision action");
   };
-  const spokenReason = localized(analysisReasonKey);
   const proofScopeKey = typeof analysis.proofScopeKey === "string" ? analysis.proofScopeKey : null;
   const sunTieKey = typeof analysis.sunTieOutcome === "string" ? `video.scoring.sun_tie.${analysis.sunTieOutcome}` : null;
-  const explanationCue = bundle.audioCues.find(
-    (cue) => cue.stage === "reveal" && cue.transcriptKey === analysisReasonKey && bundle.localizations[cue.transcriptKey] === spokenReason,
-  );
   const playerNames = bundle.identity.players;
   const purchaseBid = asRecord([...bidHistory].reverse().find((bid) => asRecord(bid).action !== "pass"));
   const bidAction = String(purchaseBid.action ?? contractName);
@@ -717,9 +711,8 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
     {contract: bidType, round: roundLabel, trump},
   );
   const presentation = asRecord(bundle.presentation.presentation);
-  // Owner rule: show_justification_text=false (production) hides all reason/proof text and the explanation voice.
+  // Production can hide reason and proof text independently of the reveal.
   const showJustification = presentation.show_justification_text !== false;
-  const audioEnabled = bundle.presentation.audio?.enabled ?? true;
   const layout = asRecord(bundle.presentation.layout);
   const timelineProfile = asRecord(bundle.presentation.timeline);
   const motion = asRecord(bundle.presentation.motion);
@@ -971,9 +964,6 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
       <div className="jalsa jalsa-left" />
       <div className="jalsa jalsa-right" />
       <MajlisFloor />
-      {isFlagship && audioEnabled && showJustification && !suppressAudio && revealSegment && explanationCue ? (
-        <Sequence from={revealSegment.startFrame} durationInFrames={revealSegment.durationFrames}><Audio src={staticFile(explanationCue.path)} volume={explanationCue.volume} /></Sequence>
-      ) : null}
       {rewinding || activeTimelineSegment?.stage === "rewind" ? <div className="rewind-mark" aria-hidden="true">↶</div> : null}
 
       <header className={`broadcast-hud hud hud-${hudStyle}`} data-score-us={score[0] ?? 0} data-score-them={score[1] ?? 0} aria-label={localized("video.accessibility.score_and_game")}>
