@@ -1327,7 +1327,8 @@ def test_dashboard_build_and_wheel_inputs_are_exactly_pinned(root):
     assert '"react": "19.3.1"' in package
     assert '"@tanstack/react-table": "9.3.1"' in package
     assert '"vite": "8.3.8"' in package
-    assert '"typescript": "6.0.2"' in package
+    assert '"@typescript/native": "npm:typescript@7.0.2"' in package
+    assert '"typescript": "npm:@typescript/typescript6@6.0.2"' in package
     assert '"@babel/parser": "8.1.2"' in package
     assert '"@hey-api/openapi-ts": "0.99.0"' in package
     assert '"vitest": "5.1.0"' in package
@@ -1344,7 +1345,10 @@ def test_dashboard_build_and_wheel_inputs_are_exactly_pinned(root):
     )
     assert '"openapi-fetch"' not in package
     assert '"lockfileVersion": 3' in lock
-    assert json.loads(lock)["packages"]["node_modules/nanoid"]["version"] == "3.3.18"
+    locked_packages = json.loads(lock)["packages"]
+    assert locked_packages["node_modules/@typescript/native"]["name"] == "typescript"
+    assert locked_packages["node_modules/typescript"]["name"] == "@typescript/typescript6"
+    assert locked_packages["node_modules/nanoid"]["version"] == "3.3.18"
     assert '"static/foundry/*.html"' in pyproject
     assert '"static/foundry/assets/*.css"' in pyproject
     assert '"static/foundry/assets/*.js"' in pyproject
