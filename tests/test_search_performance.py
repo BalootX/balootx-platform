@@ -183,3 +183,21 @@ def test_performance_measurements_report_tail_and_warmup():
         retain_samples=True,
     ).to_dict()
     assert len(retained["samplesMs"]) == 3
+
+
+def test_performance_measurements_keep_equal_sample_percentiles_monotone(monkeypatch):
+    from baloot_platform.performance import PerformanceService
+
+    timestamps_ns = iter([0, 360, 1_000, 1_360, 2_000, 2_360])
+    monkeypatch.setattr(
+        "baloot_platform.performance.service.time.perf_counter_ns",
+        lambda: next(timestamps_ns),
+    )
+    payload = (
+        PerformanceService({})
+        .measure("noop", lambda: None, iterations=3, warmup=0)
+        .to_dict()
+    )
+
+    assert payload["p99Ms"] >= payload["p95Ms"]
+    assert payload["p95Ms"] == payload["p99Ms"] == payload["maximumMs"] == 0.00036

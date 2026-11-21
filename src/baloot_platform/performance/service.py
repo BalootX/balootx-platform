@@ -58,7 +58,9 @@ class PerformanceService:
         lower, upper = math.floor(position), math.ceil(position)
         if lower == upper:
             return ordered[lower]
-        return ordered[lower] * (upper - position) + ordered[upper] * (position - lower)
+        low, high = ordered[lower], ordered[upper]
+        # Interpolate from the lower sample and keep rounding within the bracket.
+        return min(high, low + (position - lower) * (high - low))
 
     def measure(self, name: str, operation: Callable[[], Any], *, iterations: int | None = None,
                 warmup: int | None = None, budget_key: str | None = None,
