@@ -75,7 +75,7 @@ jobs:
 
   python-version-smoke:
     needs: plan
-    if: github.event_name == 'pull_request' && needs.plan.outputs.full == 'false'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -102,14 +102,24 @@ jobs:
     steps:
       - *checkout
       - *py313
-      - if: needs.plan.outputs.full == 'true'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &python-runtime-download
+        if: needs.plan.outputs.full == 'true'
+        uses: &download-artifact actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: python-wheels-3.13
-          path: ${{ runner.temp }}/wheelhouse
+          name: python-runtime-3.13
+          path: ${{ runner.temp }}
           digest-mismatch: error
-      - if: needs.plan.outputs.full == 'true'
-        run: python -m pip install --no-index "$RUNNER_TEMP"/wheelhouse/*.whl
+      - &python-runtime-use
+        if: needs.plan.outputs.full == 'true'
+        name: Activate installed Python runtime
+        run: |
+          base="$(python -P -c 'import sys; print(sys.base_prefix)')"
+          tar -xzf "$RUNNER_TEMP/python-runtime.tar.gz" -C "$RUNNER_TEMP"
+          runtime="$RUNNER_TEMP/ci-venv"
+          test "$("$runtime/bin/python" -P -c 'import sys; print(sys.base_prefix)')" = "$base"
+          test "$("$runtime/bin/python" -P -c 'import sys; print(sys.prefix)')" = "$runtime"
+          printf '%s\n' "$runtime/bin" >> "$GITHUB_PATH"
+          printf 'VIRTUAL_ENV=%s\n' "$runtime" >> "$GITHUB_ENV"
       - if: needs.plan.outputs.full == 'false'
         working-directory: .
         run: python -m pip install -e '.[dev,grpc,security]'
@@ -166,7 +176,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.12', '3.13']
+        python: &full-python ${{ fromJSON(github.event_name == 'pull_request' && '["3.13"]' || '["3.12","3.13"]') }}
     steps:
       - *checkout
       - &matrix-python
@@ -178,14 +188,22 @@ jobs:
         with: &pip-cache
           path: ~/.cache/pip
           key: ${{ runner.os }}-${{ runner.arch }}-pip-${{ matrix.python }}-${{ hashFiles('pyproject.toml') }}
-      - run: python -m pip wheel --wheel-dir "$RUNNER_TEMP/wheelhouse" '.[dev,grpc,security]'
+      - name: Build wheels and install the run-local Python runtime
+        shell: bash
+        run: |
+          python -P -m pip wheel --wheel-dir "$RUNNER_TEMP/wheelhouse" '.[dev,grpc,security]'
+          python -P -m venv "$RUNNER_TEMP/ci-venv"
+          # Setuptools leaves source metadata on PYTHONPATH during the wheel build.
+          "$RUNNER_TEMP/ci-venv/bin/python" -I -m pip install --no-index "$RUNNER_TEMP"/wheelhouse/*.whl
+          "$RUNNER_TEMP/ci-venv/bin/python" -I -c 'from importlib.metadata import version; print(version("baloot-platform"))'
+          tar -C "$RUNNER_TEMP" -cf - ci-venv | gzip -1 > "$RUNNER_TEMP/python-runtime.tar.gz"
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: *pip-cache
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: python-wheels-${{ matrix.python }}
-          path: ${{ runner.temp }}/wheelhouse/*.whl
+          name: python-runtime-${{ matrix.python }}
+          path: ${{ runner.temp }}/python-runtime.tar.gz
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
@@ -303,10 +321,9 @@ jobs:
     timeout-minutes: 25
     strategy:
       fail-fast: false
-      max-parallel: 4
       matrix:
-        python: ['3.12', '3.13']
-        shard: [1, 2, 3, 4]
+        python: *full-python
+        shard: [1, 2, 3]
     steps: &python-shard
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -344,13 +361,12 @@ jobs:
           sudo env DEBIAN_FRONTEND=noninteractive dpkg --skip-same-version --install "${packages[@]}"
           ffmpeg -version
           ffprobe -version
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: *download-artifact
         with:
-          name: python-wheels-${{ matrix.python }}
-          path: ${{ runner.temp }}/wheelhouse
+          name: python-runtime-${{ matrix.python }}
+          path: ${{ runner.temp }}
           digest-mismatch: error
-      - &offline-install
-        run: python -m pip install --no-index "$RUNNER_TEMP"/wheelhouse/*.whl
+      - *python-runtime-use
       - &native-download
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -444,16 +460,16 @@ jobs:
           retention-days: 7
 
   python-backend-run:
-    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages]
+    # Let the short producers clear capacity before the widest matrix starts.
+    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages, preflight, sdks, foundry, remotion-checks, native-sanitizers]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 4
       matrix:
-        python: ['3.12', '3.13']
-        shard: [1, 2, 3, 4, 5]
+        python: *full-python
+        shard: [1, 2, 3, 4]
     steps: *python-shard
 
   python-heavy:
@@ -463,10 +479,9 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 2
       matrix:
         python: ['3.13']
-        shard: [1, 2, 3, 4]
+        shard: [1, 2]
     steps: *python-shard
 
   python-coverage:
@@ -494,13 +509,8 @@ jobs:
       - *py313
       - *ffmpeg-download
       - *ffmpeg
-      - &media-wheels
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: python-wheels-3.13
-          path: ${{ runner.temp }}/wheelhouse
-          digest-mismatch: error
-      - *offline-install
+      - *python-runtime-download
+      - *python-runtime-use
       - name: Verify governed font hashes
         run: |
           python - <<'PY'
@@ -545,7 +555,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
-      max-parallel: 2
       fail-fast: false
       matrix:
         shard: [flagship, decision, companion, parity]
@@ -564,8 +573,8 @@ jobs:
       - *remotion-install
       - *ffmpeg-download
       - *ffmpeg
-      - *media-wheels
-      - *offline-install
+      - *python-runtime-download
+      - *python-runtime-use
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: media-bundles
@@ -618,8 +627,8 @@ jobs:
       - *py313
       - *ffmpeg-download
       - *ffmpeg
-      - *media-wheels
-      - *offline-install
+      - *python-runtime-download
+      - *python-runtime-use
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: media-render-*

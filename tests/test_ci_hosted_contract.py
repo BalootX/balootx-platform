@@ -125,7 +125,7 @@ def test_hosted_ci_contract(root):
     assert jobs["dependency-review"]["if"] == "github.event_name == 'pull_request'"
     smoke = jobs["python-version-smoke"]
     assert smoke["needs"] == "plan"
-    assert smoke["if"] == "github.event_name == 'pull_request' && needs.plan.outputs.full == 'false'"
+    assert smoke["if"] == "github.event_name == 'pull_request'"
     assert smoke["steps"][1]["with"]["python-version"] == "3.12"
     assert "python -m pytest" in smoke["steps"][-1]["run"]
     assert set(jobs["python-affected"]["needs"]) == {"plan", *ci_scope.TEST_SETUP}
@@ -180,7 +180,7 @@ def test_gate_rejects_unproven_full_producers(event):
     results["plan"]["outputs"] = plan
     results["dependency-review"]["result"] = ("success" if event == "pull_request" else "skipped")
     results["python-affected"]["result"] = "skipped"
-    results["python-version-smoke"]["result"] = "skipped"
+    results["python-version-smoke"]["result"] = results["dependency-review"]["result"]
     ci_scope.validate_results(event, results)
     for job in results:
         old = results[job]["result"]
@@ -189,6 +189,10 @@ def test_gate_rejects_unproven_full_producers(event):
             with pytest.raises(ValueError):
                 ci_scope.validate_results(event, results)
         results[job]["result"] = old
+    blocked_backend = {**results, "foundry": {"result": "failure"},
+                       "python-backend-run": {"result": "skipped"}, "python-coverage": {"result": "skipped"}}
+    with pytest.raises(ValueError, match="CI producers differ from the plan"):
+        ci_scope.validate_results(event, blocked_backend)
     for key in ("full", "sdk", "remotion"):
         plan[key] = "false"
         with pytest.raises(ValueError):
@@ -344,20 +348,33 @@ def test_one_run_never_holds_more_than_twenty_hosted_jobs(root):
             found |= ancestors(parent)
         return found
     before = {name: ancestors(name) for name in jobs}
-    def width(job):
+    def width(job, is_pr):
         strategy = job.get("strategy") or {}
         size = 1
-        for values in (strategy.get("matrix") or {}).values():
-            size *= len(values) if isinstance(values, list) else 1
+        matrix = strategy.get("matrix") or {}
+        for key, values in matrix.items():
+            if isinstance(values, list):
+                size *= len(values)
+            elif key == "python":
+                size *= 1 if is_pr else len(ci_scope.VERSIONS)
         return min(size, strategy.get("max-parallel", size))
-    # Scoped PRs have their own total job cap above. Neither scoped-only job runs with full matrices.
-    names = sorted(jobs.keys() - {"python-version-smoke", "python-affected"})
-    def peak(index, chosen):
+    def peak(index, chosen, names, is_pr):
         if index == len(names):
             return 0
         name = names[index]
-        best = peak(index + 1, chosen)
+        best = peak(index + 1, chosen, names, is_pr)
         if all(name not in before[other] and other not in before[name] for other in chosen):
-            best = max(best, width(jobs[name]) + peak(index + 1, chosen | {name}))
+            best = max(best, width(jobs[name], is_pr) + peak(index + 1, chosen | {name}, names, is_pr))
         return best
-    assert peak(0, frozenset()) <= 20
+    full = jobs.keys() - {"python-affected"}
+    assert peak(0, frozenset(), sorted(full), True) <= 20
+    assert peak(0, frozenset(), sorted(full - {"dependency-review", "python-version-smoke"}), False) <= 20
+
+
+def test_dependabot_groups_weekly_version_minor_and_patch_updates(root):
+    updates = yaml.safe_load((root / ".github/dependabot.yml").read_bytes())["updates"]
+    assert {row["package-ecosystem"] for row in updates} == {"github-actions", "pip", "npm", "gomod", "docker"}
+    for update in updates:
+        assert update["schedule"]["interval"] == "weekly"
+        group, = update["groups"].values()
+        assert group == {"patterns": ["*"], "update-types": ["minor", "patch"]}

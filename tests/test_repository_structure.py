@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
+from zipfile import ZipFile
 
 import yaml
 import pytest
@@ -102,9 +106,10 @@ def test_ci_shards_receive_builds_and_required_node_dependencies(root: Path) -> 
                         "src/baloot_platform/video/remotion"}
     assert jobs["python-backend-run"]["steps"] == steps == jobs["python-heavy"]["steps"]
     for name in ("python-backend-run", "python-fast-run", "python-heavy"):
-        assert jobs[name]["needs"] == ["plan", "python-wheelhouse", "native-build", "ffmpeg-packages"]
+        assert {"plan", "python-wheelhouse", "native-build", "ffmpeg-packages"} <= set(jobs[name]["needs"])
     downloads = {step["with"]["name"] for step in steps if "download-artifact@" in step.get("uses", "")}
-    assert downloads == {"python-wheels-${{ matrix.python }}", "native-release-library", "ffmpeg-debs-6.1.1-3ubuntu5"}
+    assert downloads == {"python-runtime-${{ matrix.python }}", "native-release-library",
+                         "ffmpeg-debs-6.1.1-3ubuntu5"}
     assert all(step.get("with", {}).get("digest-mismatch") == "error" for step in steps
                if "download-artifact@" in step.get("uses", ""))
     foundry = jobs["foundry"]["steps"]
@@ -114,6 +119,65 @@ def test_ci_shards_receive_builds_and_required_node_dependencies(root: Path) -> 
     assert jobs["media-render"]["strategy"]["matrix"]["shard"] == ["flagship", "decision", "companion", "parity"]
     assert jobs["media-release-smoke"]["needs"] == ["plan", "media-render"]
     assert any(step.get("name") == "Verify governed font hashes" for step in jobs["media-inputs"]["steps"])
+
+
+def test_full_ci_reuses_only_the_run_local_installed_python_runtime(root: Path) -> None:
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    for name in ("foundry", "python-fast-run", "python-backend-run", "python-heavy",
+                 "media-inputs", "media-render", "media-release-smoke"):
+        steps = jobs[name]["steps"]
+        index, = (i for i, step in enumerate(steps) if step.get("with", {}).get("name", "").startswith("python-runtime-"))
+        matrix = name.startswith("python-")
+        version = "${{ matrix.python }}" if matrix else "3.13"
+        assert steps[index]["with"] == {
+            "name": f"python-runtime-{version}",
+            "path": "${{ runner.temp }}",
+            "digest-mismatch": "error",
+        }
+        assert steps[index].get("if") == (None if matrix else "needs.plan.outputs.full == 'true'")
+        assert steps[index + 1]["if"] == "needs.plan.outputs.full == 'true'"
+        assert steps[index + 1]["name"] == "Activate installed Python runtime"
+    upload = jobs["python-wheelhouse"]["steps"][-1]["with"]
+    assert upload["name"] == "python-runtime-${{ matrix.python }}"
+    assert upload["path"] == "${{ runner.temp }}/python-runtime.tar.gz"
+
+
+def test_ci_runtime_installs_project_wheel_with_checkout_metadata_on_pythonpath(root: Path, tmp_path: Path) -> None:
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    build = next(step["run"] for step in jobs["python-wheelhouse"]["steps"]
+                 if step.get("name") == "Build wheels and install the run-local Python runtime")
+    install, verify, archive = build.splitlines()[-3:]
+    assert "python-runtime.tar.gz" in archive
+    _, *install_args, wheel_glob = shlex.split(install)
+    _, *verify_args = shlex.split(verify)
+    assert wheel_glob == "$RUNNER_TEMP/wheelhouse/*.whl"
+    assert "--no-index" in install_args
+
+    source = tmp_path / "src"
+    egg = source / "baloot_platform.egg-info"
+    egg.mkdir(parents=True)
+    metadata = "Metadata-Version: 2.1\nName: baloot-platform\nVersion: 1.2.3\n"
+    (egg / "PKG-INFO").write_text(metadata, encoding="utf-8")
+    wheel = tmp_path / "baloot_platform-1.2.3-py3-none-any.whl"
+    dist = "baloot_platform-1.2.3.dist-info"
+    with ZipFile(wheel, "w") as archive:
+        archive.writestr(f"{dist}/METADATA", metadata)
+        archive.writestr(f"{dist}/WHEEL", "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
+        archive.writestr(f"{dist}/RECORD", "")
+
+    runtime = tmp_path / "ci-venv"
+    subprocess.run([sys.executable, "-I", "-m", "venv", str(runtime)], check=True, timeout=60)
+    python = runtime / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    env = {**os.environ, "PYTHONPATH": str(source), "PIP_CONFIG_FILE": os.devnull,
+           "PIP_DISABLE_PIP_VERSION_CHECK": "1"}
+    missing = subprocess.run([python, *verify_args], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10)
+    assert missing.returncode and "PackageNotFoundError" in missing.stderr
+    installed = subprocess.run([python, *install_args, wheel], cwd=tmp_path, env=env,
+                               capture_output=True, text=True, timeout=30)
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    verified = subprocess.run([python, *verify_args], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10)
+    assert verified.returncode == 0, installed.stdout + verified.stderr
+    assert verified.stdout.strip() == "1.2.3"
 
 
 def test_workflows_use_node24_artifact_upload_action(root: Path) -> None:
