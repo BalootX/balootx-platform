@@ -160,6 +160,7 @@ typedef struct baloot_dd_result_v1 {
 } baloot_dd_result_v1;
 BALOOT_API uint32_t baloot_sizeof_dd_result_v1(void);
 BALOOT_API uint32_t baloot_double_dummy_abi_version(void);
+/* Single-world DD, including the cached call, accepts zero milliseconds for a node-only budget. */
 BALOOT_API int32_t baloot_double_dummy_v1(
  const baloot_rules_v2*,const baloot_state_v2*,const int32_t*,uint32_t,
  uint16_t,uint8_t,uint8_t,uint8_t,const baloot_search_limits_v3*,

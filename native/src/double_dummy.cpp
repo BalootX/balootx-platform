@@ -403,7 +403,8 @@ public:
            const int32_t* p, int t, const volatile uint32_t* c, workspace& work, uint8_t context_id,
            bool parallel = false)
         : rules(r), limits(l), payoffs(p), cancelled(c), total(t),
-          deadline(std::chrono::steady_clock::now()+std::chrono::milliseconds(l.maximum_milliseconds)),
+          deadline(l.maximum_milliseconds ? std::chrono::steady_clock::now()+std::chrono::milliseconds(l.maximum_milliseconds)
+                                          : std::chrono::steady_clock::time_point::max()),
           shared(work), context(context_id), concurrent(parallel), epoch(work.next_epoch()) {
         for (auto& killer : killers) killer.fill(255);
         for (int row = 0; row < 12; ++row)
@@ -469,7 +470,7 @@ static int32_t validate_dd(workspace* provided,const baloot_rules_v2* rules,cons
         state->raw_points[0] > raw_total || state->raw_points[1] > raw_total ||
         state->raw_points[0]+state->raw_points[1] > raw_total ||
         (state->completed_tricks == 0 ? first_winner != 4 : first_winner > 3) ||
-        all_roots > 1 || !limits->maximum_nodes || !limits->maximum_milliseconds) return -1;
+        all_roots > 1 || !limits->maximum_nodes) return -1;
     if (provided && provided->capacity != limits->maximum_cache_entries) return -1;
     uint32_t seen = 0;
     std::array<int,4> expected;
@@ -558,7 +559,8 @@ extern "C" uint32_t baloot_sizeof_dd_task_v1(void) { return sizeof(baloot_dd_tas
 extern "C" int32_t baloot_double_dummy_batch_v1(void* cache,const baloot_rules_v2* rules,
     const baloot_dd_task_v1* tasks,uint32_t count,uint8_t threads,const baloot_search_limits_v3* limits,
     const volatile uint32_t* cancelled,baloot_dd_result_v1* results) {
-    if (!cache || !tasks || !results || !count || count > 256 || !threads || threads > 4) return -1;
+    if (!cache || !tasks || !results || !limits || !limits->maximum_milliseconds ||
+        !count || count > 256 || !threads || threads > 4) return -1;
     auto& work = *static_cast<workspace*>(cache);
     for (uint32_t i = 0; i < count; ++i) {
         const auto& t = tasks[i];
