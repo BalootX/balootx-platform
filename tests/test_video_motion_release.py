@@ -328,7 +328,7 @@ def test_media_gate_requires_complete_bt709_and_exact_frame_count() -> None:
     (float("nan"), -2.0, False), (-19.4, float("-inf"), False),
 ])
 def test_release_loudness_boundaries(integrated, peak, passes) -> None:
-    evidence = {"integratedLufs": integrated, "truePeakDbtp": peak, "targetLufs": integrated}
+    evidence = {"integratedLufs": integrated, "truePeakDbtp": peak, "targetLufs": -19.4}
     if passes:
         validate_loudness(evidence)
     else:

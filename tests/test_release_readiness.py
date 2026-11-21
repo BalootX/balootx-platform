@@ -306,6 +306,36 @@ def test_media_gate_accepts_canonical_vertical_probe(tmp_path: Path) -> None:
     assert result["invalidAspectRatio"] == []
 
 
+@pytest.mark.parametrize(("target_field", "status"), [
+    ({"targetLufs": -19.4}, "passed"),
+    ({"targetLufs": -18.0}, "failed"),
+    ({"targetLufs": -19.3}, "failed"),
+    ({}, "failed"),
+    ({"targetLufs": float("nan")}, "failed"),
+    ({"targetLufs": float("-inf")}, "failed"),
+    ({"targetLufs": "-19.4"}, "failed"),
+])
+def test_release_evidence_requires_the_pinned_loudness_target(tmp_path, target_field, status):
+    relative = "release/media-probe.json"
+    probe = tmp_path / relative
+    probe.parent.mkdir()
+    measurements = {"integratedLufs": -19.4, "truePeakDbtp": -2.0}
+    probe.write_text(json.dumps({
+        "schemaVersion": 2,
+        "status": "passed",
+        "media": [
+            {"loudness": {**measurements, "targetLufs": -19.4}},
+            {"loudness": {**measurements, **target_field}},
+        ],
+    }), encoding="utf-8")
+
+    result = _load()._evidence_artifact(tmp_path, relative)
+
+    assert result["status"] == status
+    if status == "failed":
+        assert "release loudness targetLufs must equal -19.4 LUFS" in result["reason"]
+
+
 def test_release_evidence_rejects_present_but_pending_artifact(
     tmp_path: Path,
 ) -> None:
