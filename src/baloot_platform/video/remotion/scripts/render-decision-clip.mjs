@@ -1,11 +1,11 @@
-import {mkdir, readFile} from "node:fs/promises";
+import {mkdir} from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import {bundle} from "@remotion/bundler";
 import {openBrowser, renderMedia, renderStill, selectComposition} from "@remotion/renderer";
 import {bt709FfmpegOverride} from "./ffmpeg-profile.mjs";
 import {writeFileWithRetry} from "./fs-safe.mjs";
-import {governedH264Options} from "./render-options.mjs";
+import {governedH264Options, readValidatedRenderBundle} from "./render-options.mjs";
 
 const rendererRoot = process.cwd();
 const repositoryRoot = path.resolve(rendererRoot, "../../../..");
@@ -17,7 +17,7 @@ const outputPath = path.join(outputDir, `${outputBase}.mp4`);
 const stillsOnly = process.env.BALOOTX_STILLS_ONLY === "1";
 const playbackEvidence = process.env.BALOOTX_PLAYBACK_EVIDENCE === "1";
 const chromiumOptions = process.platform === "linux" ? {enableMultiProcessOnLinux: true} : undefined;
-const bundleData = JSON.parse(await readFile(inputPath, "utf8"));
+const bundleData = readValidatedRenderBundle(inputPath);
 const mediaRenderOptions = governedH264Options(bundleData.render);
 const inputProps = {
   bundle: bundleData,

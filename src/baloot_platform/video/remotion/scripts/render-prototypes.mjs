@@ -1,17 +1,17 @@
-import {mkdir, readFile} from "node:fs/promises";
+import {mkdir} from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import {bundle} from "@remotion/bundler";
 import {renderMedia, renderStill, selectComposition} from "@remotion/renderer";
 import {bt709FfmpegOverride} from "./ffmpeg-profile.mjs";
-import {governedH264Options} from "./render-options.mjs";
+import {governedH264Options, readValidatedRenderBundle} from "./render-options.mjs";
 
 const rendererRoot = process.cwd();
 const repositoryRoot = path.resolve(rendererRoot, "../../../..");
 const assetsRoot = process.env.BALOOTX_ASSETS_ROOT ?? path.join(repositoryRoot, "assets");
 const inputPath = process.argv[2] ?? path.join(repositoryRoot, "outputs/professional-video-prototypes/render-bundle-decision.json");
 const outputDir = process.argv[3] ?? path.join(repositoryRoot, "outputs/professional-video-prototypes");
-const inputProps = {bundle: JSON.parse(await readFile(inputPath, "utf8")), stage: "normal", reducedMotion: false};
+const inputProps = {bundle: readValidatedRenderBundle(inputPath), stage: "normal", reducedMotion: false};
 const mediaRenderOptions = governedH264Options(inputProps.bundle.render);
 await mkdir(outputDir, {recursive: true});
 

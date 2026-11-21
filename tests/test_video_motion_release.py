@@ -23,6 +23,7 @@ from baloot_platform.video.media_validation import (
 )
 from baloot_platform.video.audio_postprocess import (
     AUDIO_FINISHER_ID,
+    VOICE_GUARD_FOLEY_SOURCE,
     build_audio_cue_plan,
     generate_original_foley,
 )
@@ -400,6 +401,35 @@ def test_observer_safe_audio_plan_and_original_foley_are_deterministic(
         assert stream.getframerate() == 48_000
         assert stream.getnchannels() == 2
         assert stream.getnframes() == 20 * 48_000
+
+
+def test_silent_voice_migration_preserves_legacy_noise_seed(root: Path, monkeypatch) -> None:
+    profile = _profile(root)
+    profile["audio"]["voice_callouts"] = False
+    episode = load_episode_spec(root / "examples/v7-outcome-flip-source.json", build_bundle(root).rules)
+    renderer = RemotionProfessionalRenderer(profile, repository_root=root)
+    bundle = renderer.build_render_request(episode, export_preset="decision_clip")
+    value = bundle.to_dict()
+    current_source = value["renderer"]["sourceSha256"]
+    monkeypatch.setitem(VOICE_GUARD_FOLEY_SOURCE, current_source, "a" * 64)
+
+    plan = build_audio_cue_plan(bundle)
+    assert plan["bundleSha256"] == bundle.bundle_sha256
+    assert plan["profileSha256"] == content_hash(value["presentation"]["audio"])
+    assert plan["planSha256"] == content_hash({key: item for key, item in plan.items() if key != "planSha256"})
+
+    previous = {key: item for key, item in value.items() if key not in {"bundleSha256", "retiredVoiceFlags"}}
+    previous["renderer"]["sourceSha256"] = "a" * 64
+    previous_audio = {**profile["audio"], "explanation_voice_transcript": ""}
+    previous["presentation"]["audio"] = previous_audio
+    previous_plan = {
+        **{key: item for key, item in plan.items() if key not in {"planSha256", "noiseSeed"}},
+        "bundleSha256": content_hash(previous),
+        "profileSha256": content_hash(previous_audio),
+    }
+    assert plan["noiseSeed"] == int(content_hash(previous_plan)[:8], 16)
+    monkeypatch.delitem(VOICE_GUARD_FOLEY_SOURCE, current_source)
+    assert "noiseSeed" not in build_audio_cue_plan(bundle)
 
 
 def test_governed_copy_uses_concise_saudi_baloot_terms(root: Path) -> None:

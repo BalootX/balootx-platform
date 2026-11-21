@@ -26,6 +26,25 @@ from .media_validation import (
 )
 
 _EXPORT_PRESETS = frozenset({"hooked_flagship", "decision_clip"})
+_VOICE_PHRASE_STAGES = {
+    "video.decision.your_turn": {"hook", "question"},
+    "video.decision.choose_best_move": {"hook", "question"},
+    "video.notice.title": None,
+    "video.notice.sentence": None,
+    "video.decision.best_move": {"reveal"},
+    "video.result.title": {"outcome"},
+}
+_RETIRED_VOICE_PACK = "ar_sa_baloot_v2_smooth"
+_RETIRED_VOICE_FLAGS = ("voice_callouts", "spoken_voice_pack")
+_RETIRED_VOICE_DEFAULTS = {
+    "voice_provider": "offline_smooth_pack_v2",
+    "voice_pack_directory": f"assets/audio/voice_packs/{_RETIRED_VOICE_PACK}",
+    "voice_pack_manifest": "manifest.json",
+    "explanation_voice_mode": "exact_transcript_only",
+    "explanation_voice_localization_key": "video.audio.entry_control_explanation",
+    "explanation_voice_file": "explanation.wav",
+    "explanation_voice_volume": 0.78,
+}
 _PRESENTATION_KEYS = (
     "audio",
     "colors",
@@ -474,10 +493,14 @@ def _reject_forbidden_keys(value: Any, path: str = "") -> None:
         for key, item in value.items():
             if key in _FORBIDDEN_KEYS:
                 raise ValueError(f"render bundle contains forbidden field {path}/{key}")
+            if _RETIRED_VOICE_PACK in key.casefold():
+                raise ValueError(f"retired voice pack reference at {path}/{key}")
             _reject_forbidden_keys(item, f"{path}/{key}")
     elif isinstance(value, list):
         for index, item in enumerate(value):
             _reject_forbidden_keys(item, f"{path}/{index}")
+    elif isinstance(value, str) and _RETIRED_VOICE_PACK in value.casefold():
+        raise ValueError(f"retired voice pack reference at {path}")
 
 
 def _closed_mapping(
@@ -1180,95 +1203,98 @@ def _asset_entry(
     }
 
 
-def _resolve_explanation_audio(
-    *,
-    profile: Mapping[str, Any],
-    localizations: Mapping[str, str],
-    scenes: Sequence[SceneDocumentV1],
-    repository_root: Path,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Resolve an explanation clip only when its governed transcript is exact."""
+def validate_render_voice(value: Mapping[str, Any]) -> None:
+    """Reject legacy voice settings and bind each cue to its on-screen phrase."""
+    _reject_forbidden_keys(value)
+    presentation = value["presentation"]
+    audio = presentation.get("audio", {})
+    if audio.get("voice_provider") == "offline_smooth_pack_v2":
+        raise ValueError("retired voice pack reference at presentation/audio/voice_provider")
+    for field in ("one_piece_explanation", "voice_callouts", "spoken_voice_pack", "synthetic_callout_cues"):
+        if audio.get(field, False) is not False:
+            key = audio.get("explanation_voice_localization_key") or field
+            raise ValueError(f"unsupported voice setting {field} for {key}")
+    if "retiredVoiceFlags" in value:
+        flags = value["retiredVoiceFlags"]
+        if (
+            not isinstance(flags, Mapping) or set(flags) != set(_RETIRED_VOICE_FLAGS)
+            or any(type(flag) is not bool for flag in flags.values())
+            or any(audio.get(field) is not False for field in _RETIRED_VOICE_FLAGS)
+            or set(_RETIRED_VOICE_DEFAULTS).intersection(audio)
+            or audio.get("explanation_voice_transcript") != ""
+        ):
+            raise ValueError("invalid retiredVoiceFlags provenance")
 
-    audio = profile.get("audio")
-    if not isinstance(audio, Mapping) or not all(
-        bool(audio.get(key))
-        for key in ("enabled", "spoken_voice_pack", "one_piece_explanation")
-    ):
-        return [], []
-    if audio.get("explanation_voice_mode") != "exact_transcript_only":
-        raise ValueError("unsupported explanation voice mode")
+    cues = value.get("audioCues")
+    if not isinstance(cues, list):
+        raise ValueError("audioCues must be a list")
+    if not cues:
+        return
 
-    localization_key = str(audio.get("explanation_voice_localization_key", ""))
-    transcript = str(audio.get("explanation_voice_transcript", ""))
-    reveal = next(
-        (scene for scene in scenes if scene.value.get("stage") == "reveal"), None
+    localizations = value["localizations"]
+    assets = {asset["id"]: asset for asset in value["assets"]}
+    scenes = {scene["stage"]: scene for scene in value["scenes"]}
+    question = scenes["question"]
+    prompt = next(layer["content"] for layer in question["layers"] if layer["id"] == "decision-prompt")
+    table = next(layer["content"] for layer in question["layers"] if layer["id"] == "table")
+    analysis = next(layer["content"] for layer in scenes["reveal"]["layers"] if layer["id"] == "analysis")
+    is_play = analysis.get("decisionKind", "play") == "play"
+    stages = {segment["stage"] for segment in value["timeline"]["segments"]}
+    source = value.get("source")
+    notice_visible = presentation.get("majlis", {}).get("research_notice") is True and (
+        source is None or (
+            source.get("qualificationStatus") == "qualified"
+            and source.get("renderPurpose") == "content_candidate"
+            and source.get("auditOnly") is False
+            and source.get("publicationEligible") is True
+            and source.get("qualificationFailures") == []
+            and source.get("publicationBlockers") == []
+        )
     )
-    analysis = {}
-    if reveal is not None:
-        analysis = next(
-            (
-                dict(layer.get("content") or {})
-                for layer in reveal.value.get("layers", [])
-                if layer.get("id") == "analysis"
-            ),
-            {},
-        )
-    reason_key = str(analysis.get("reasonKey", ""))
-    if (
-        reason_key != localization_key
-        or localizations.get(localization_key) != transcript
-    ):
-        return [], []
-
-    pack_directory = PurePosixPath(str(audio.get("voice_pack_directory", "")))
-    if not pack_directory.parts or pack_directory.parts[0] != "assets":
-        raise ValueError("voice pack directory must be inside repository assets")
-    manifest_relative = (
-        pack_directory / str(audio.get("voice_pack_manifest", ""))
-    ).as_posix()
-    clip_relative = (
-        pack_directory / str(audio.get("explanation_voice_file", ""))
-    ).as_posix()
-    manifest_path = repository_root.joinpath(*PurePosixPath(manifest_relative).parts)
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        clip = dict(manifest["clips"]["explanation"])
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise ValueError("voice pack explanation manifest is invalid") from exc
-    if (
-        clip.get("file") != audio.get("explanation_voice_file")
-        or clip.get("textAr") != transcript
-    ):
-        raise ValueError(
-            "voice pack explanation does not match its governed transcript"
-        )
-
-    assets = [
-        _asset_entry(
-            repository_root,
-            manifest_relative,
-            asset_id="voice-pack-manifest",
-            license_id="BalootX-original-local-verification",
-        ),
-        _asset_entry(
-            repository_root,
-            clip_relative,
-            asset_id="voice-explanation",
-            license_id="BalootX-original-local-verification",
-        ),
-    ]
-    public_path = PurePosixPath(
-        *pack_directory.parts[1:], str(audio["explanation_voice_file"])
-    ).as_posix()
-    cue = {
-        "stage": "reveal",
-        "assetId": "voice-explanation",
-        "path": public_path,
-        "volume": float(audio["explanation_voice_volume"]),
-        "transcriptKey": localization_key,
-        "transcriptSha256": hashlib.sha256(transcript.encode("utf-8")).hexdigest(),
-    }
-    return assets, [cue]
+    for cue in cues:
+        key = cue.get("transcriptKey", "audioCues.transcriptKey") if isinstance(cue, Mapping) else "audioCues"
+        if not isinstance(cue, Mapping) or set(cue) != {
+            "stage", "assetId", "path", "volume", "transcriptKey", "transcriptSha256",
+        }:
+            raise ValueError(f"invalid voice cue fields for {key}")
+        if not isinstance(key, str) or key not in _VOICE_PHRASE_STAGES:
+            raise ValueError(f"voice key is outside the allowlist: {key}")
+        if key in (analysis.get("reasonKey"), analysis.get("proofScopeKey")):
+            raise ValueError(f"voice cue uses a rationale key: {key}")
+        stage = cue["stage"]
+        allowed_stages = _VOICE_PHRASE_STAGES[key]
+        if (
+            not isinstance(stage, str) or stage not in stages
+            or (allowed_stages is None and not notice_visible)
+            or (allowed_stages is not None and stage not in allowed_stages)
+            or (allowed_stages is not None and stage == "hook" and not is_play)
+            or (key == "video.decision.choose_best_move" and prompt.get("textKey", key) != key)
+            or (key == "video.decision.best_move" and not analysis.get("selectedAction"))
+            or (
+                key == "video.result.title" and not is_play
+                and (value["exportPreset"] == "decision_clip" or analysis.get("continuationComplete") is not True)
+            )
+        ):
+            raise ValueError(f"voice key is not visible on screen: {key}")
+        text = localizations.get(key)
+        if isinstance(text, str) and key == "video.decision.your_turn":
+            observer = question["observer"]
+            players = value["identity"]["players"]
+            acting_seat = prompt.get("actingSeat") or table.get("currentPlayer") or observer
+            text = text.replace("{name}", players.get(acting_seat, players[observer]))
+        if not isinstance(text, str) or not text.strip() or (
+            hashlib.sha256(text.encode("utf-8")).hexdigest() != cue["transcriptSha256"]
+        ):
+            raise ValueError(f"voice transcript differs from on-screen text: {key}")
+        asset = assets.get(str(cue["assetId"]))
+        volume = cue["volume"]
+        if (
+            asset is None or asset.get("path") != f"assets/{cue['path']}"
+            or not isinstance(volume, (int, float))
+            or isinstance(volume, bool)
+            or not 0 <= volume <= 1
+        ):
+            raise ValueError(f"invalid voice cue asset or volume for {key}")
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -1303,8 +1329,16 @@ class RenderBundleV1:
     def to_dict(self) -> dict[str, Any]:
         return self.value
 
-    def verify(self) -> bool:
+    def verify(self, *, raise_voice_errors: bool = False) -> bool:
         value = self.to_dict()
+        try:
+            validate_render_voice(value)
+        except ValueError:
+            if raise_voice_errors:
+                raise
+            return False
+        except (KeyError, AttributeError, StopIteration, TypeError):
+            return False
         bundle_sha256 = value.pop("bundleSha256", None)
         if value.get("schemaVersion") != 1:
             return False
@@ -1384,41 +1418,8 @@ class RenderBundleV1:
             for item in decision_index
         ):
             return False
-        assets = value.get("assets")
-        audio_cues = value.get("audioCues")
-        if not isinstance(assets, list) or not isinstance(audio_cues, list):
+        if not isinstance(value.get("assets"), list) or not isinstance(value.get("localizations"), Mapping):
             return False
-        asset_index = {
-            str(item.get("id")): item for item in assets if isinstance(item, Mapping)
-        }
-        localizations = value.get("localizations")
-        if not isinstance(localizations, Mapping):
-            return False
-        for cue in audio_cues:
-            if not isinstance(cue, Mapping) or set(cue) != {
-                "stage",
-                "assetId",
-                "path",
-                "volume",
-                "transcriptKey",
-                "transcriptSha256",
-            }:
-                return False
-            asset = asset_index.get(str(cue["assetId"]))
-            transcript = localizations.get(str(cue["transcriptKey"]))
-            volume = cue["volume"]
-            if (
-                cue["stage"] != "reveal"
-                or not isinstance(asset, Mapping)
-                or asset.get("path") != f"assets/{cue['path']}"
-                or not isinstance(transcript, str)
-                or hashlib.sha256(transcript.encode("utf-8")).hexdigest()
-                != cue["transcriptSha256"]
-                or not isinstance(volume, (int, float))
-                or isinstance(volume, bool)
-                or not 0 <= float(volume) <= 1
-            ):
-                return False
         identity = value.get("identity")
         if not isinstance(identity, Mapping) or set(identity) != {
             "gameSerial",
@@ -1445,10 +1446,6 @@ class RenderBundleV1:
         if any(
             not isinstance(name, str) or not name.strip() for name in players.values()
         ):
-            return False
-        try:
-            _reject_forbidden_keys(value)
-        except ValueError:
             return False
         return bundle_sha256 == content_hash(value)
 
@@ -1568,20 +1565,26 @@ def build_render_bundle(
             license_id="BalootX-original",
         ),
     ]
-    audio_assets, audio_cues = _resolve_explanation_audio(
-        profile=profile,
-        localizations=strings,
-        scenes=scenes,
-        repository_root=repository_root,
-    )
-    assets.extend(audio_assets)
     presentation = {
         key: _json_copy(profile[key]) for key in _PRESENTATION_KEYS if key in profile
     }
     if "majlis" in profile:
         presentation["majlis"] = resolve_majlis_presentation(profile["majlis"])
-    if "audio" in presentation and not audio_cues:
-        presentation["audio"]["explanation_voice_transcript"] = ""
+    retired_voice_flags = None
+    if "audio" in presentation:
+        audio = presentation["audio"]
+        audio["explanation_voice_transcript"] = ""
+        if (
+            all(audio.get(key) == default for key, default in _RETIRED_VOICE_DEFAULTS.items())
+            and all(type(audio.get(key)) is bool for key in _RETIRED_VOICE_FLAGS)
+            and audio.get("one_piece_explanation") is False
+            and audio.get("synthetic_callout_cues") is False
+        ):
+            # Remove the inert preset at the wire boundary and keep its old flags for Foley parity.
+            retired_voice_flags = {key: audio[key] for key in _RETIRED_VOICE_FLAGS}
+            for key in _RETIRED_VOICE_DEFAULTS:
+                del audio[key]
+            audio.update(dict.fromkeys(_RETIRED_VOICE_FLAGS, False))
     core = {
         "schemaVersion": 1,
         "exportPreset": export_preset,
@@ -1600,11 +1603,13 @@ def build_render_bundle(
         "localizations": strings,
         "identity": identity_value,
         "assets": sorted(assets, key=lambda item: item["id"]),
-        "audioCues": audio_cues,
+        "audioCues": [],
         "scenes": [scene.to_dict() for scene in scenes],
         "timeline": timeline.to_dict(),
         "decisionIndex": decisions,
     }
+    if retired_voice_flags is not None:
+        core["retiredVoiceFlags"] = retired_voice_flags
     if source_metadata is not None:
         core["source"] = normalize_render_source(
             source_metadata,
@@ -1616,8 +1621,7 @@ def build_render_bundle(
             raise ValueError(
                 f"publishable video still has placeholder social handles: {placeholders}"
             )
-    _reject_forbidden_keys(core)
     bundle = RenderBundleV1({**core, "bundleSha256": content_hash(core)})
-    if not bundle.verify():
+    if not bundle.verify(raise_voice_errors=True):
         raise AssertionError("constructed render bundle failed self-verification")
     return bundle

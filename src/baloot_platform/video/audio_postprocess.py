@@ -15,6 +15,7 @@ from typing import Any, Mapping
 
 from baloot_platform.audit.models import content_hash
 
+from ._voice_guard_foley_pin import VOICE_GUARD_FOLEY_SOURCE
 from .media_validation import (
     MAXIMUM_LOUDNESS_DEVIATION_LUFS,
     MAXIMUM_TRUE_PEAK_DBTP,
@@ -25,7 +26,7 @@ from .media_validation import (
     validate_loudness,
     validate_media_probe,
 )
-from .render_bundle import RenderBundleV1
+from .render_bundle import RenderBundleV1, _RETIRED_VOICE_DEFAULTS
 
 AUDIO_FINISHER_ID = "balootx_original_foley_v10"
 _MAX_POST_ENCODE_CORRECTIONS = 3
@@ -73,7 +74,8 @@ def build_audio_cue_plan(bundle: RenderBundleV1) -> dict[str, Any]:
     """Derive sound events only from the verified public bundle timeline."""
     if not bundle.verify():
         raise ValueError("audio finishing requires a verified render bundle")
-    audio = dict(bundle.value.get("presentation", {}).get("audio") or {})
+    value = bundle.value
+    audio = dict(value.get("presentation", {}).get("audio") or {})
     if not audio.get("enabled", False):
         raise ValueError("governed video audio profile is disabled")
     if audio.get("ambience", False):
@@ -182,6 +184,19 @@ def build_audio_cue_plan(bundle: RenderBundleV1) -> dict[str, Any]:
         "profileSha256": content_hash(audio),
         "events": events,
     }
+    previous_source = VOICE_GUARD_FOLEY_SOURCE.get(value.get("renderer", {}).get("sourceSha256"))
+    if previous_source is not None and not value["audioCues"]:
+        # Recreate only the legacy hash input. The render bundle and plan keep their current seals.
+        value.pop("bundleSha256")
+        retired_flags = value.pop("retiredVoiceFlags", None)
+        if retired_flags is not None:
+            audio.update(_RETIRED_VOICE_DEFAULTS, **retired_flags)
+            value["presentation"]["audio"] = audio
+        value["renderer"]["sourceSha256"] = previous_source
+        previous_plan_sha = content_hash({
+            **plan, "bundleSha256": content_hash(value), "profileSha256": content_hash(audio),
+        })
+        plan["noiseSeed"] = int(previous_plan_sha[:8], 16)
     return {**plan, "planSha256": content_hash(plan)}
 
 
@@ -229,6 +244,9 @@ def generate_original_foley(
     sample_count = round(int(plan["totalFrames"]) * rate / int(plan["fps"]))
     left = array("h", [0]) * sample_count
     right = array("h", [0]) * sample_count
+    noise_seed = plan.get("noiseSeed")
+    if noise_seed is None:
+        noise_seed = int(plan["planSha256"][:8], 16)
     designs = {
         "card": (0.055, (1180.0, 1760.0), 0.22, True),
         "collect": (0.18, (190.0, 420.0), 0.20, True),
@@ -249,7 +267,7 @@ def generate_original_foley(
             gain=gain,
             pan=pan,
             noise=noise,
-            seed=int(plan["planSha256"][:8], 16) ^ ordinal,
+            seed=noise_seed ^ ordinal,
         )
     destination.parent.mkdir(parents=True, exist_ok=True)
     interleaved = array("h")

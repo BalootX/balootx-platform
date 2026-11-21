@@ -16,6 +16,7 @@ import re
 import signal
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Mapping
@@ -790,7 +791,7 @@ class RemotionProfessionalRenderer:
         environment: Mapping[str, str],
         cancel_event: Event | None,
     ) -> None:
-        process_environment = {**os.environ, **environment}
+        process_environment = {**os.environ, "BALOOTX_PYTHON": sys.executable, **environment}
         render_temp = os.environ.get("BALOOT_RENDER_TEMP", "").strip()
         temp_root = None
         if render_temp:
@@ -883,7 +884,7 @@ class RemotionProfessionalRenderer:
             raise ValueError(f"unsupported Remotion export preset: {export_preset}")
         if isinstance(request, RenderBundleV1):
             bundle = request
-            if bundle.value["exportPreset"] != export_preset or not bundle.verify():
+            if bundle.value["exportPreset"] != export_preset or not bundle.verify(raise_voice_errors=True):
                 raise ValueError(
                     "render bundle preset or integrity verification failed"
                 )

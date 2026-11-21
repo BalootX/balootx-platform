@@ -42,6 +42,7 @@ def main() -> None:
         raise ValueError("first clip requires a verified no-justification-text bundle")
     os.environ.update({
         "BALOOTX_RENDER_BUNDLE": str(bundle_path),
+        "BALOOTX_PYTHON": sys.executable,
         "BALOOTX_RENDER_OUTPUT": str(output),
         "BALOOTX_RENDER_BASENAME": "balootx-first-decision",
         "BALOOTX_PLAYBACK_EVIDENCE": "1",
