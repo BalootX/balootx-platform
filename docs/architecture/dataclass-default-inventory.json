@@ -21,6 +21,14 @@
       "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
     },
     {
+      "key": "src/baloot_platform/analysis/hidden_deals.py:HiddenDealSet.rejections_by_reason",
+      "default": "field(default_factory=dict)",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/analysis/hidden_deals.py:HiddenDealSet",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
       "key": "src/baloot_platform/analysis/ismcts_v8.py:ISMCTSAction.ekka",
       "default": "False",
       "classification": "protocol_or_mathematical_invariant",
@@ -1654,7 +1662,7 @@
     }
   ],
   "summary": {
-    "total": 205,
+    "total": 206,
     "migrationRequired": 0
   }
 }

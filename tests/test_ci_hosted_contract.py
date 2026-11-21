@@ -144,7 +144,7 @@ def test_hosted_ci_contract(root):
     assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof }}"
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
-        "media-inputs", "media-render", "media-release-smoke",
+        "media-inputs", "media-render", "media-release-smoke", "viewer-seat-proof",
     ):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)

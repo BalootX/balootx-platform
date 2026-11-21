@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 
 import pytest
@@ -19,13 +20,28 @@ def test_exact_viewer_seat_receipt_matches_the_two_hand_checkable_outcomes(proof
     raw, options = proof_input
     receipt = prove_fixture(raw, **options)
     assert receipt["status"] == "exact_complete" and receipt["coverageComplete"]
+    assert receipt["schemaVersion"] == 2
     assert receipt["dealsSolved"] == receipt["dealsTotal"] == 12
+    assert receipt["allocationsAttempted"] == 12 and receipt["allocationRejectionsByReason"] == {}
+    for phrase in ("rule-consistent hidden deals", "Each deal counts equally",
+                   "bids are not used as constraints", "R is not a probability"):
+        assert phrase in receipt["rMeaning"]
     # DA scores 44 in all twelve worlds. H10 scores 44 in six, and -2 in six.
     assert (receipt["R"], receipt["D"], receipt["uniqueBest"]) == (1, 23, True)
     assert receipt["scorerInputs"] == {"worldsComplete": True, "bestShare": 1, "strictShare": 0.5, "worldMeanGap": 23}
     assert [(move["action"], move["bestDeals"], move["strictBestDeals"], move["meanGapNumerator"])
             for move in receipt["moves"]] == [("DA", 12, 6, 276), ("H10", 6, 0, -276)]
     assert receipt_bytes(receipt) == receipt_bytes(prove_fixture(raw, **options))
+
+
+def test_viewer_seat_receipt_counts_rejected_public_project_histories(root, proof_input):
+    _, options = proof_input
+    raw = (root / "examples/research-scenario-v4-single-winner-20261116-05.json").read_bytes()
+    receipt = prove_fixture(raw, **{**options, "fixture_sha": hashlib.sha256(raw).hexdigest()})
+    assert receipt["status"] == "exact_complete"
+    assert (receipt["R"], receipt["D"]) == (12 / 21, -56 / 21)
+    assert (receipt["allocationsAttempted"], receipt["dealsTotal"]) == (60, 21)
+    assert receipt["allocationRejectionsByReason"] == {"public_project_history_mismatch": 39}
 
 
 @pytest.mark.parametrize("limit,reason", [
@@ -41,6 +57,9 @@ def test_incomplete_viewer_seat_proof_withholds_scores(proof_input, limit, reaso
     assert "dealRootValuesSha256" not in receipt and "scorerInputs" not in receipt
     if reason == "maximum_nodes":
         assert 0 < receipt["dealsSolved"] < receipt["dealsTotal"]
+        assert receipt["allocationRejectionsByReason"] == {}
+    else:
+        assert "allocationRejectionsByReason" not in receipt
     assert receipt_bytes(receipt) == receipt_bytes(prove_fixture(raw, **{**options, **limit}))
 
 
@@ -48,6 +67,29 @@ def test_fixture_hash_mismatch_does_not_enter_the_solver(proof_input):
     raw, options = proof_input
     with pytest.raises(ValueError, match="scenario SHA-256 mismatch"):
         prove_fixture(raw + b"\n", **options)
+
+
+@pytest.mark.parametrize("acting_seat", ["east", None])
+def test_fixture_viewer_seat_must_match_replay(proof_input, acting_seat):
+    raw, options = proof_input
+    fixture = json.loads(raw)
+    fixture["rulesMeaning"]["actingSeat"] = acting_seat
+    raw = receipt_bytes(fixture)
+    with pytest.raises(ValueError, match=r"rulesMeaning\.actingSeat"):
+        prove_fixture(raw, **{**options, "fixture_sha": hashlib.sha256(raw).hexdigest()})
+
+
+def test_viewer_seat_proof_rejects_single_legal_card(proof_input):
+    raw, options = proof_input
+    fixture = json.loads(raw)
+    fixture["exactTracePrefix"]["playActions"].extend([
+        {"actor": "west", "card": "DA"}, {"actor": "south", "card": "H8"},
+    ])
+    fixture["rulesMeaning"]["actingSeat"] = "east"
+    fixture["expected"]["selectedAction"] = "H7"
+    raw = receipt_bytes(fixture)
+    with pytest.raises(ValueError, match="D is undefined when only one card is legal"):
+        prove_fixture(raw, **{**options, "fixture_sha": hashlib.sha256(raw).hexdigest()})
 
 
 @pytest.mark.skipif(not os.environ.get("BALOOT_NATIVE_LIBRARY"), reason="native test library not configured")
