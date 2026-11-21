@@ -344,6 +344,7 @@ def artifact_check() -> dict[str, Any]:
     for relative in (
         "release/configuration-registry.json",
         "release/intelligence-benchmark.json",
+        "release/media-probe.json",
         "release/rules-certification-candidate.json",
     ):
         admission = admit_release_evidence(ROOT, relative)

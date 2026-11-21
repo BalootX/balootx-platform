@@ -18,11 +18,11 @@ from baloot_platform.audit.models import content_hash
 from .media_validation import (
     MAXIMUM_LOUDNESS_DEVIATION_LUFS,
     MAXIMUM_TRUE_PEAK_DBTP,
+    RELEASE_TARGET_LUFS,
     loudness_within_limits,
     media_tool,
     probe_loudness,
     probe_media,
-    release_loudness_target,
     run_media_command,
     validate_loudness,
     validate_media_probe,
@@ -460,8 +460,7 @@ def finish_remotion_audio(
     ffmpeg = media_tool(root, "ffmpeg")
     ffprobe = media_tool(root, "ffprobe")
     plan = build_audio_cue_plan(bundle)
-    release_target = release_loudness_target()
-    release_plan = {**plan, "targetLufs": release_target}
+    release_plan = {**plan, "targetLufs": RELEASE_TARGET_LUFS}
     render = bundle.value["render"]
     expected_frames = int(bundle.value["timeline"]["totalFrames"])
     source_media = {"bytes": video.stat().st_size, "sha256": _sha256(video)}
@@ -602,12 +601,11 @@ def finish_remotion_audio(
         encoded_loudness = probe_loudness(
             finished,
             ffmpeg=ffmpeg,
-            target_lufs=release_target,
         )
         for attempt in range(1, _MAX_POST_ENCODE_CORRECTIONS + 1):
-            if loudness_within_limits(encoded_loudness, target_lufs=release_target):
+            if loudness_within_limits(encoded_loudness):
                 break
-            loudness_deviation = release_target - float(
+            loudness_deviation = RELEASE_TARGET_LUFS - float(
                 encoded_loudness["integratedLufs"]
             )
             linear_gain_db = _bounded_linear_gain_db(release_plan, encoded_loudness)
@@ -661,7 +659,6 @@ def finish_remotion_audio(
             encoded_loudness = probe_loudness(
                 finished,
                 ffmpeg=ffmpeg,
-                target_lufs=release_target,
             )
         output_video_sha = _video_stream_sha256(finished, ffmpeg=ffmpeg, directory=work)
         if output_video_sha != source_video_sha:
@@ -677,7 +674,7 @@ def finish_remotion_audio(
             audio_rate=int(render.get("audio_rate", 48_000)),
         )
         final_loudness = encoded_loudness
-        validate_loudness(final_loudness, target_lufs=release_target)
+        validate_loudness(final_loudness)
         evidence = {
             "schemaVersion": 1,
             "status": "passed",

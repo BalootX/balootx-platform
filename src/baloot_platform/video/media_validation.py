@@ -33,14 +33,6 @@ MINIMUM_SOURCE_COMPARISON_PSNR_DB = 28.0
 MAXIMUM_SOURCE_COMPARISON_MAE = 6.0
 
 
-def release_loudness_target() -> float:
-    """Read the release reference independently of the bundle's mix target."""
-    target = float(os.environ.get("BALOOTX_RELEASE_TARGET_LUFS", RELEASE_TARGET_LUFS))
-    if not -70.0 <= target <= -5.0:
-        raise ValueError("release loudness target must be between -70 and -5 LUFS")
-    return target
-
-
 def renderer_source_files(root: Path) -> tuple[Path, ...]:
     package = root / "src/baloot_platform/video/remotion"
     values = [
@@ -147,22 +139,26 @@ def probe_loudness(
     }
 
 
-def loudness_within_limits(evidence: Mapping[str, Any], *, target_lufs: float) -> bool:
+def loudness_within_limits(evidence: Mapping[str, Any]) -> bool:
     integrated = float(evidence["integratedLufs"])
     peak = float(evidence["truePeakDbtp"])
     return (
-        all(math.isfinite(value) for value in (integrated, peak, target_lufs))
-        and abs(Decimal(str(integrated)) - Decimal(str(target_lufs)))
+        all(math.isfinite(value) for value in (integrated, peak))
+        and abs(Decimal(str(integrated)) - Decimal(str(RELEASE_TARGET_LUFS)))
         <= Decimal(str(MAXIMUM_LOUDNESS_DEVIATION_LUFS))
         and peak <= MAXIMUM_TRUE_PEAK_DBTP
     )
 
 
-def validate_loudness(
-    evidence: Mapping[str, Any], *, target_lufs: float = RELEASE_TARGET_LUFS
-) -> None:
-    if not loudness_within_limits(evidence, target_lufs=target_lufs):
-        raise ValueError(f"governed audio loudness validation failed at {target_lufs} LUFS: {evidence}")
+def validate_release_loudness_target(evidence: object) -> None:
+    if not isinstance(evidence, Mapping) or evidence.get("targetLufs") != RELEASE_TARGET_LUFS:
+        raise ValueError(f"release loudness targetLufs must equal {RELEASE_TARGET_LUFS} LUFS")
+
+
+def validate_loudness(evidence: Mapping[str, Any]) -> None:
+    validate_release_loudness_target(evidence)
+    if not loudness_within_limits(evidence):
+        raise ValueError(f"governed audio loudness validation failed at {RELEASE_TARGET_LUFS} LUFS: {evidence}")
 
 
 def compare_images(source: Path, encoded: Path) -> dict[str, float | int | str]:

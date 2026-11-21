@@ -16,9 +16,9 @@ from baloot_platform.video.media_validation import (  # noqa: E402
     media_tool,
     probe_loudness,
     probe_media,
-    release_loudness_target,
     validate_loudness,
     validate_media_probe,
+    validate_release_loudness_target,
 )
 from baloot_platform.video.render_bundle import RenderBundleV1  # noqa: E402
 from baloot_platform.filesystem import atomic_write_text  # noqa: E402
@@ -44,7 +44,7 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def verify_media(item: dict[str, Any], *, ffmpeg: Path, ffprobe: Path, target_lufs: float) -> dict[str, Any]:
+def verify_media(item: dict[str, Any], *, ffmpeg: Path, ffprobe: Path) -> dict[str, Any]:
     video: Path = item["video"]
     bundle_path: Path = item["bundle"]
     manifest_path: Path = item["manifest"]
@@ -63,6 +63,10 @@ def verify_media(item: dict[str, Any], *, ffmpeg: Path, ffprobe: Path, target_lu
         or manifest.get("video", {}).get("bytes") != video.stat().st_size
     ):
         raise RuntimeError(f"render manifest does not pin the current bundle and video: {manifest_path}")
+    audio_finishing = manifest.get("audioFinishing")
+    validate_release_loudness_target(
+        audio_finishing.get("loudness") if isinstance(audio_finishing, dict) else None
+    )
 
     timeline = bundle.value["timeline"]
     probe = probe_media(video, ffprobe=ffprobe)
@@ -75,8 +79,8 @@ def verify_media(item: dict[str, Any], *, ffmpeg: Path, ffprobe: Path, target_lu
         expected_frames=int(timeline["totalFrames"]),
         audio_rate=48_000,
     )
-    loudness = probe_loudness(video, ffmpeg=ffmpeg, target_lufs=target_lufs)
-    validate_loudness(loudness, target_lufs=target_lufs)
+    loudness = probe_loudness(video, ffmpeg=ffmpeg)
+    validate_loudness(loudness)
 
     segments = {segment["stage"]: segment for segment in timeline["segments"]}
     comparisons = []
@@ -107,7 +111,6 @@ def verify_media(item: dict[str, Any], *, ffmpeg: Path, ffprobe: Path, target_lu
 
 
 def main() -> None:
-    target_lufs = release_loudness_target()
     ffmpeg = media_tool(ROOT, "ffmpeg")
     ffprobe = media_tool(ROOT, "ffprobe")
     value = {
@@ -117,7 +120,7 @@ def main() -> None:
         "requiredAspectRatio": "9:16",
         "forbiddenReleaseAspectRatios": ["16:9", "1:1"],
         "media": [
-            verify_media(item, ffmpeg=ffmpeg, ffprobe=ffprobe, target_lufs=target_lufs)
+            verify_media(item, ffmpeg=ffmpeg, ffprobe=ffprobe)
             for item in MEDIA
         ],
         "proofBoundary": (

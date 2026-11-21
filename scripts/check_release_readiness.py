@@ -33,6 +33,7 @@ from baloot_platform.release_scope import (
     SOURCE_SCOPE,
     source_pathspecs,
 )
+from baloot_platform.video.media_validation import validate_release_loudness_target
 try:
     from scripts.run_verifier_container import verify_receipt as verify_verifier_receipt
 except ModuleNotFoundError:
@@ -274,6 +275,15 @@ def _evidence_artifact(root: Path, relative: str) -> dict[str, Any]:
                 from generate_security_report import verify as verify_security
             verify_security(value, root=root)
             valid = True
+        elif relative == "release/media-probe.json":
+            media = value.get("media")
+            if not isinstance(media, list) or not media:
+                raise ValueError("media probe has no release media")
+            for item in media:
+                if not isinstance(item, dict):
+                    raise ValueError("media probe entry must be an object")
+                validate_release_loudness_target(item.get("loudness"))
+            valid = value.get("status") == "passed"
         else:
             valid = value.get("status") == "passed"
         if not valid:
