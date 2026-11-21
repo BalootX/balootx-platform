@@ -1146,7 +1146,7 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
       </> : researchNotice ? (
         <div className="rhead research-notice" role="note">
           <span className="rhead-icon" aria-hidden="true">!</span>
-          <span className="rhead-text"><b>{localized("video.notice.title")}</b><span className="notice-sentence" dir="rtl">{localized("video.notice.sentence")}</span></span>
+          <span className="rhead-text"><span className="notice-sentence" dir="rtl">{localized("video.notice.sentence")}</span></span>
         </div>
       ) : null}
     </AbsoluteFill>

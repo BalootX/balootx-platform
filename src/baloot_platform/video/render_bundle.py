@@ -29,7 +29,6 @@ _EXPORT_PRESETS = frozenset({"hooked_flagship", "decision_clip"})
 _VOICE_PHRASE_STAGES = {
     "video.decision.your_turn": {"hook", "question"},
     "video.decision.choose_best_move": {"hook", "question"},
-    "video.notice.title": None,
     "video.notice.sentence": None,
     "video.decision.best_move": {"reveal"},
     "video.result.title": {"outcome"},
@@ -107,7 +106,7 @@ APPROVED_V4_SOURCE_TREE = "3a775aa0a6be8d06de83409c316793d3ef9f5f58"
 APPROVED_V4_REFERENCE_MP4_SHA256 = "15492d3f389fcb07be423fc97a6e46fe0b8e385b5beb173f01073e6d11a87bf9"
 APPROVED_V4_NO_NOTICE = "public_v4_no_justification_no_notice"
 APPROVED_V4_RED_NOTICE = "public_v4_no_justification_red_notice"
-APPROVED_V4_NOTICE_SENTENCE_SHA256 = "93ff9d2bd274a95b3160bee0e519b258abcf1702801284f9f797fc4c535d5860"
+APPROVED_V4_NOTICE_SENTENCE_SHA256 = "290e2a2d03424ea7846a71afc80e019140fac3d56e465b4766a89d57a3c3b8ac"
 _HEX_COLOUR = re.compile(r"^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$")
 
 

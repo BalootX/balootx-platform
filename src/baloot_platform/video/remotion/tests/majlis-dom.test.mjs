@@ -148,19 +148,38 @@ test("show_justification_text=false hides reason, analysis and proof text; absen
   }
 });
 
-test("research notice: design header band with config text and a red code box, no audit marks", () => {
-  const value = bundle({source: {qualificationStatus: "qualified", renderPurpose: "content_candidate", auditOnly: false,
-    publicationEligible: true, qualificationFailures: [], publicationBlockers: [], qrActionable: false}});
+const approvedNotice = "هذا الفيديو لأغراض البحث فقط، ويُمنع تداوله أو نشره أو مشاركته";
+const researchNoticeBundle = (noticeStrings = {}) => {
+  const value = bundle({
+    source: {qualificationStatus: "qualified", renderPurpose: "content_candidate", auditOnly: false,
+      publicationEligible: true, qualificationFailures: [], publicationBlockers: [], qrActionable: false},
+    localizations: new Proxy({"video.notice.sentence": approvedNotice, ...noticeStrings}, {
+      get: (strings, key) => strings[key] ?? localizations[key],
+    }),
+  });
   value.presentation.majlis.research_notice = true;
+  return value;
+};
+
+test("research notice: one approved line in the header band with a red code box and no audit marks", () => {
+  const value = researchNoticeBundle();
   const html = render(value);
   assert.match(html, /class="rhead research-notice" role="note"><span class="rhead-icon" aria-hidden="true">!<\/span>/);
-  assert.match(html, /<b>L\(video\.notice\.title\)<\/b><span class="notice-sentence" dir="rtl">L\(video\.notice\.sentence\)<\/span>/);
+  const lines = [...html.matchAll(/<span class="rhead-text"><span class="notice-sentence" dir="rtl">([^<]*)<\/span><\/span>/g)];
+  assert.deepEqual(lines.map((line) => line[1]), [approvedNotice]);
   assert.match(html, /class="idnum game-number is-notice"[\s\S]*?ACC8/);
   assert.doesNotMatch(html, /tape tape-|class="watermark"|rstamp|L\(video\.governance\.not_publishable\)/);
   value.presentation.majlis.research_notice = false;
   const off = render(value);
   assert.doesNotMatch(off, /class="rhead/);
   assert.match(off, /class="idnum game-number is-notice"[\s\S]*?ACC8/);
+});
+
+test("research notice omits the old title even if a legacy localization is supplied", () => {
+  const oldTitle = "ملاحظة بحثية";
+  const html = render(researchNoticeBundle({"video.notice.title": oldTitle}));
+  assert.match(html, /class="rhead research-notice"/);
+  assert.ok(!html.includes(oldTitle));
 });
 
 test("rendered face cards equal hand plus table, including the bidding deck", () => {

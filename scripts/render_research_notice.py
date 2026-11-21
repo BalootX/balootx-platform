@@ -606,7 +606,6 @@ def main(
         "language": "ar-SA",
         "caption": CAPTION,
         "headerText": {
-            "title": bundle.value["localizations"]["video.notice.title"],
             "sentence": bundle.value["localizations"]["video.notice.sentence"],
             "fit": notice_sentence_fit(bundle.value["localizations"]["video.notice.sentence"]),
             "note": "Design band styling; publish-safe text instead of the audit-only wording.",

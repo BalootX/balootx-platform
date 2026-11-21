@@ -165,8 +165,8 @@ localizations:
   video.governance.research_title: للبحث والتدقيق فقط
   video.governance.not_publishable: غير مؤهل للنشر
   video.governance.research_short: للبحث فقط
-  video.notice.title: ملاحظة بحثية
-  video.notice.sentence: هذا الفيديو لأغراض البحث فقط، ويُمنع تداوله.
+  # The approved sentence must fit the band on one line.
+  video.notice.sentence: هذا الفيديو لأغراض البحث فقط، ويُمنع تداوله أو نشره أو مشاركته
   video.project.call_label: مشروع
   video.call.baloot: بلوت
 challenge_copy:
