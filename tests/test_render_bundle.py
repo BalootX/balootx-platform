@@ -535,6 +535,7 @@ def test_bundle_with_internally_consistent_but_stale_renderer_identity_is_reject
         ("retired_asset", "assets/.*/path"),
         ("retired_provider", "retired voice pack reference at presentation/audio/voice_provider"),
         ("outside_allowlist", "outside the allowlist: video.decision.reveal_card"),
+        ("wrong_stage", "voice key is not visible on screen: video.decision.choose_best_move"),
         ("different_text", "video.decision.choose_best_move"),
         ("hidden_notice", "video.notice.title"),
         ("rationale_field", "video.decision.choose_best_move"),
@@ -584,7 +585,7 @@ def test_render_bundle_voice_guard(root: Path, case: str, error: str | None) -> 
         value["presentation"]["audio"]["voice_provider"] = "offline_smooth_pack_v2"
     elif case != "disabled":
         key = "video.decision.choose_best_move"
-        stage = "question"
+        stage = "reveal" if case == "wrong_stage" else "question"
         if case == "justification":
             key = justification_key
         elif case == "outside_allowlist":

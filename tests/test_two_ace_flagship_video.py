@@ -144,8 +144,8 @@ def test_two_ace_flagship_marks_ca_as_the_only_winner_and_holds_final_play(
     assert 'className="winning-move-code"' in source
     assert '"video.analysis.only_winning_move"' in source
     assert 'analysis.utility === "round_win" || analysis.utility === "contract_success"' in source
-    assert "cue.transcriptKey === analysisReasonKey" in source
-    assert "bundle.localizations[cue.transcriptKey] === spokenReason" in source
+    assert "cue.transcriptKey === analysisReasonKey" not in source
+    assert "bundle.localizations[cue.transcriptKey] === spokenReason" not in source
 
     render_script = (
         root / "src/baloot_platform/video/remotion/scripts/render-flagship.mjs"
