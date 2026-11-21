@@ -1113,6 +1113,7 @@ class OrToolsScenarioGraphProofV1:
         maximum_seconds: float,
         cancel_check: Callable[[], bool] | None = None,
         maximum_conflicts: int | None = None,
+        maximum_deterministic_time: float | None = None,
     ) -> tuple[cp_model.CpSolver, Any]:
         solver = cp_model.CpSolver()
         if cancel_check is not None and cancel_check():
@@ -1122,6 +1123,8 @@ class OrToolsScenarioGraphProofV1:
         solver.parameters.num_search_workers = 1
         solver.parameters.random_seed = 0
         solver.parameters.max_time_in_seconds = maximum_seconds
+        if maximum_deterministic_time is not None:
+            solver.parameters.max_deterministic_time = maximum_deterministic_time
         if maximum_conflicts is not None:
             solver.parameters.max_number_of_conflicts = maximum_conflicts
         status = _solve_cp_sat_with_cancel_v1(solver, model, cancel_check)
@@ -1514,6 +1517,7 @@ class OrToolsScenarioGraphProofV1:
         *,
         maximum_seconds: float = 5.0,
         maximum_conflicts: int | None = None,
+        maximum_deterministic_time: float | None = None,
         maximum_line_count_limbs: int = 64,
         cancel_check: Callable[[], bool] | None = None,
         native_action_quality: bool = False,
@@ -1535,9 +1539,13 @@ class OrToolsScenarioGraphProofV1:
             raise ValueError("root-only bindings require a callback")
         if maximum_conflicts is not None and (type(maximum_conflicts) is not int or maximum_conflicts < 1):
             raise ValueError("proof conflict limit must be a positive integer")
-        if maximum_conflicts is not None and (request.claim == "winning_continuation_line_count"
+        if maximum_deterministic_time is not None and (
+                not math.isfinite(maximum_deterministic_time) or maximum_deterministic_time <= 0):
+            raise ValueError("proof deterministic time bound must be finite and positive")
+        if (maximum_conflicts is not None or maximum_deterministic_time is not None) and (
+                request.claim == "winning_continuation_line_count"
                 or request.line_universe is not None):
-            raise ValueError("conflict-limited graph proof does not support continuation counting")
+            raise ValueError("work-limited graph proof does not support continuation counting")
         if type(native_action_quality) is not bool or type(native_line_count) is not bool:
             raise TypeError("native_action_quality must be boolean")
         if native_action_quality and request.mode not in {"exact", "bounded"}:
@@ -1569,7 +1577,8 @@ class OrToolsScenarioGraphProofV1:
             raise ValueError("proof graph boundary evaluator does not match the request")
         if not math.isfinite(request.success_threshold):
             raise ValueError("proof success threshold must be finite")
-        if type(maximum_seconds) not in {int, float} or not math.isfinite(maximum_seconds) or maximum_seconds <= 0:
+        if (type(maximum_seconds) not in {int, float} or maximum_seconds <= 0 or math.isnan(maximum_seconds)
+                or (math.isinf(maximum_seconds) and maximum_deterministic_time is None)):
             raise ValueError("proof solve time bound must be positive")
         if (
             type(maximum_line_count_limbs) is not int
@@ -2163,6 +2172,8 @@ class OrToolsScenarioGraphProofV1:
             model,
             maximum_seconds=maximum_seconds - (time.perf_counter() - started),
             **({"maximum_conflicts": maximum_conflicts} if maximum_conflicts is not None else {}),
+            **({"maximum_deterministic_time": maximum_deterministic_time}
+               if maximum_deterministic_time is not None else {}),
             **({"cancel_check": cancel_check} if cancel_check is not None else {}),
         )
         solver_status = solver.status_name(status).lower()

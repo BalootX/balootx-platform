@@ -211,21 +211,22 @@ class DoubleDummySolver:
 
     def solve(self, state, *, objective='awarded_point_margin', maximum_seconds=5,
               maximum_nodes=10000000, maximum_cache_entries=1000000, cancel_check=None, all_root_values=False):
+        """Use only the node budget when maximum_seconds is None."""
         started, cpu = time.monotonic(), time.process_time()
-        if (not math.isfinite(maximum_seconds) or not 0 < maximum_seconds <= 5
-                or type(maximum_nodes) is not int or maximum_nodes < 1
+        if ((maximum_seconds is not None and (not math.isfinite(maximum_seconds) or not 0 < maximum_seconds <= 5))
+                or type(maximum_nodes) is not int or not 1 <= maximum_nodes < 2**64
                 or type(maximum_cache_entries) is not int or not 0 <= maximum_cache_entries <= 1000000):
             raise ValueError('DD requires finite single-worker budgets')
         native, table, total, table_hash, first, mask = self._prepare(state, objective)
-        remaining = maximum_seconds-(time.monotonic()-started)
+        remaining = None if maximum_seconds is None else maximum_seconds-(time.monotonic()-started)
         result = _DDResult()
         cache_info = dict(enabled=False)
-        if remaining <= 0 or (cancel_check is not None and cancel_check()):
+        if (remaining is not None and remaining <= 0) or (cancel_check is not None and cancel_check()):
             status = 'incomplete'
         else:
             limits = _SearchLimitsV3()
             limits.maximum_nodes, limits.maximum_cache_entries = maximum_nodes, maximum_cache_entries
-            limits.maximum_milliseconds = max(1, int(remaining*1000))
+            limits.maximum_milliseconds = 0 if remaining is None else max(1, int(remaining*1000))
             cancelled, stop, poller = NativeAccelerator._start_cancellation_poller(cancel_check)
             try:
                 code, cache_info = self._native_solve(native, table, total, first, mask,
@@ -236,7 +237,7 @@ class DoubleDummySolver:
                 raise ValueError(f'DD rejected its engine input: {code}')
             if result.status == 3:
                 raise RuntimeError('DD internal model error')
-            status = 'exact' if (result.status == 0 and time.monotonic()-started <= maximum_seconds
+            status = 'exact' if (result.status == 0 and (maximum_seconds is None or time.monotonic()-started <= maximum_seconds)
                 and not (cancel_check is not None and cancel_check())) else 'incomplete'
         roots = []
         if status == 'exact':

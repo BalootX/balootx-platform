@@ -1,0 +1,224 @@
+{
+  "construction": {
+    "method": "seeded_synthetic_deal_legal_engine_replay",
+    "originSeed": 2026112573
+  },
+  "exactTracePrefix": {
+    "auctionActions": [
+      {
+        "action": "sun",
+        "actor": "north"
+      }
+    ],
+    "dealer": "east",
+    "deckOrder": [
+      12,
+      8,
+      17,
+      25,
+      30,
+      9,
+      11,
+      22,
+      6,
+      31,
+      16,
+      20,
+      3,
+      27,
+      26,
+      5,
+      4,
+      29,
+      21,
+      10,
+      19,
+      1,
+      28,
+      15,
+      7,
+      18,
+      23,
+      24,
+      13,
+      14,
+      2,
+      0
+    ],
+    "escalationActions": [],
+    "matchScore": [
+      0,
+      0
+    ],
+    "playActions": [
+      {
+        "actor": "north",
+        "card": "S8"
+      },
+      {
+        "actor": "west",
+        "card": "SQ"
+      },
+      {
+        "actor": "south",
+        "card": "SK"
+      },
+      {
+        "actor": "east",
+        "card": "S9"
+      },
+      {
+        "actor": "south",
+        "card": "CQ"
+      },
+      {
+        "actor": "east",
+        "card": "CA"
+      },
+      {
+        "actor": "north",
+        "card": "CJ"
+      },
+      {
+        "actor": "west",
+        "card": "C9"
+      },
+      {
+        "actor": "east",
+        "card": "S7"
+      },
+      {
+        "actor": "north",
+        "card": "S10"
+      },
+      {
+        "actor": "west",
+        "card": "SA"
+      },
+      {
+        "actor": "south",
+        "card": "SJ"
+      },
+      {
+        "actor": "west",
+        "card": "CK"
+      },
+      {
+        "actor": "south",
+        "card": "C7"
+      },
+      {
+        "actor": "east",
+        "card": "HK"
+      },
+      {
+        "actor": "north",
+        "card": "C10"
+      },
+      {
+        "actor": "north",
+        "card": "D10"
+      },
+      {
+        "actor": "west",
+        "card": "D9"
+      },
+      {
+        "actor": "south",
+        "card": "DA"
+      },
+      {
+        "actor": "east",
+        "card": "D7"
+      },
+      {
+        "actor": "south",
+        "card": "HQ"
+      },
+      {
+        "actor": "east",
+        "card": "H9"
+      },
+      {
+        "actor": "north",
+        "card": "H7"
+      }
+    ],
+    "projectAssertions": [],
+    "projectDeclarations": [],
+    "roundNumber": 1,
+    "schemaVersion": 1,
+    "stateAssertions": {}
+  },
+  "expected": {
+    "actingSeat": "west",
+    "buyer": "north",
+    "claimSatisfied": true,
+    "completionStatus": "exact_complete",
+    "contract": "sun",
+    "legalRootActions": [
+      "H8",
+      "HA"
+    ],
+    "phase": "playing",
+    "principalVariation": [
+      "H8",
+      "H10",
+      "DJ",
+      "HJ",
+      "HA",
+      "C8",
+      "DK",
+      "DQ",
+      "D8"
+    ],
+    "rootValues": {
+      "H8": 1.0,
+      "HA": -1.0
+    },
+    "roundScore": {
+      "awardedPoints": [
+        0,
+        26
+      ],
+      "balootPoints": [
+        0,
+        0
+      ],
+      "cardGamePoints": [
+        10,
+        16
+      ],
+      "projectPoints": [
+        0,
+        0
+      ],
+      "winner": "west_east"
+    },
+    "selectedAction": "H8",
+    "winningRootActionCount": 1
+  },
+  "proof": {
+    "budgetProfile": "late_game_exact_v1",
+    "claim": "selected_action_is_unique_winner",
+    "lineUniverse": "all_legal",
+    "mode": "exact",
+    "schemaVersion": 1,
+    "selectedAction": "H8",
+    "successThreshold": 1,
+    "targetTeam": "west_east",
+    "utility": "round_win",
+    "visibility": "complete_state"
+  },
+  "rulesMeaning": {
+    "actingSeat": "west",
+    "buyer": "north",
+    "contract": "sun",
+    "successMeaning": "west_east wins the round",
+    "successThreshold": 1
+  },
+  "scenarioFamily": "sun-heart-underplay-ace-recapture-singleton-club-finish",
+  "scenarioId": "sun-single-winner-20261119-03-v1",
+  "schemaVersion": 1,
+  "titleAr": "صن: خل الآس للفة الجاية"
+}

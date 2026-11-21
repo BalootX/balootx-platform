@@ -1,0 +1,229 @@
+{
+  "caption": "وش تخلي للنهاية من هالثلاث أوراق؟ وش تلعب؟ توزيع افتراضي من BalootX #بلوت #تحدي_بلوت",
+  "construction": {
+    "method": "same_hands_canonical_redeal_and_opening_trick_replay",
+    "originSeed": 2026111856
+  },
+  "exactTracePrefix": {
+    "auctionActions": [
+      {
+        "action": "sun",
+        "actor": "south"
+      }
+    ],
+    "dealer": "west",
+    "deckOrder": [
+      3,
+      21,
+      31,
+      22,
+      14,
+      7,
+      20,
+      19,
+      30,
+      2,
+      12,
+      17,
+      24,
+      16,
+      0,
+      9,
+      5,
+      25,
+      6,
+      13,
+      10,
+      1,
+      29,
+      23,
+      28,
+      27,
+      15,
+      4,
+      8,
+      26,
+      11,
+      18
+    ],
+    "escalationActions": [],
+    "matchScore": [
+      0,
+      0
+    ],
+    "playActions": [
+      {
+        "actor": "south",
+        "card": "CQ"
+      },
+      {
+        "actor": "east",
+        "card": "CJ"
+      },
+      {
+        "actor": "north",
+        "card": "C8"
+      },
+      {
+        "actor": "west",
+        "card": "C9"
+      },
+      {
+        "actor": "south",
+        "card": "H9"
+      },
+      {
+        "actor": "east",
+        "card": "HK"
+      },
+      {
+        "actor": "north",
+        "card": "H7"
+      },
+      {
+        "actor": "west",
+        "card": "HJ"
+      },
+      {
+        "actor": "east",
+        "card": "H8"
+      },
+      {
+        "actor": "north",
+        "card": "HA"
+      },
+      {
+        "actor": "west",
+        "card": "HQ"
+      },
+      {
+        "actor": "south",
+        "card": "DQ"
+      },
+      {
+        "actor": "north",
+        "card": "DJ"
+      },
+      {
+        "actor": "west",
+        "card": "D8"
+      },
+      {
+        "actor": "south",
+        "card": "D7"
+      },
+      {
+        "actor": "east",
+        "card": "DA"
+      },
+      {
+        "actor": "east",
+        "card": "C10"
+      },
+      {
+        "actor": "north",
+        "card": "CK"
+      },
+      {
+        "actor": "west",
+        "card": "H10"
+      },
+      {
+        "actor": "south",
+        "card": "CA"
+      },
+      {
+        "actor": "south",
+        "card": "C7"
+      }
+    ],
+    "projectAssertions": [],
+    "projectDeclarations": [
+      {
+        "declarationOrder": 1,
+        "highRank": 5,
+        "kind": "siri",
+        "owner": "west",
+        "value": 4
+      }
+    ],
+    "roundNumber": 1,
+    "schemaVersion": 1,
+    "stateAssertions": {}
+  },
+  "expected": {
+    "actingSeat": "east",
+    "buyer": "south",
+    "claimSatisfied": true,
+    "completionStatus": "exact_complete",
+    "contract": "sun",
+    "legalRootActions": [
+      "DK",
+      "S7",
+      "SA"
+    ],
+    "phase": "playing",
+    "principalVariation": [
+      "DK",
+      "SJ",
+      "D9",
+      "S8",
+      "S7",
+      "SQ",
+      "SK",
+      "S9",
+      "S10",
+      "SA",
+      "D10"
+    ],
+    "rootValues": {
+      "DK": 1.0,
+      "S7": -1.0,
+      "SA": -1.0
+    },
+    "roundScore": {
+      "awardedPoints": [
+        0,
+        30
+      ],
+      "balootPoints": [
+        0,
+        0
+      ],
+      "cardGamePoints": [
+        12,
+        14
+      ],
+      "projectPoints": [
+        0,
+        4
+      ],
+      "winner": "west_east"
+    },
+    "selectedAction": "DK",
+    "winningRootActionCount": 1
+  },
+  "proof": {
+    "budgetProfile": "late_game_exact_v1",
+    "claim": "selected_action_is_unique_winner",
+    "lineUniverse": "all_legal",
+    "mode": "exact",
+    "schemaVersion": 1,
+    "selectedAction": "DK",
+    "successThreshold": 1,
+    "targetTeam": "west_east",
+    "utility": "round_win",
+    "visibility": "complete_state"
+  },
+  "rulesMeaning": {
+    "actingSeat": "east",
+    "buyer": "south",
+    "contract": "sun",
+    "successMeaning": "west_east wins the round",
+    "successThreshold": 1
+  },
+  "scenarioFamily": "sun-discard-king-preserve-spade-control",
+  "scenarioId": "sun-single-winner-20261118-03-v1",
+  "schemaVersion": 1,
+  "titleAr": "صن: ترتيب آخر اللفات"
+}

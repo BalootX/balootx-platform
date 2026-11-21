@@ -116,7 +116,9 @@ def test_hosted_ci_contract(root):
                     assert condition.startswith(main_push) and "||" not in condition, name
             assert not step.get("continue-on-error")
     assert jobs["ci-gate"]["name"] == "${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'CI result' }}"
-    assert jobs["plan"]["if"] == "github.event_name != 'pull_request' || !github.event.pull_request.draft"
+    assert jobs["plan"]["if"] == (
+        "${{ !inputs.viewer-seat-proof && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}"
+    )
     assert jobs["plan"]["steps"][0]["with"]["fetch-depth"] == 2
     assert jobs["plan"]["steps"][-1]["env"] == {
         "PR_BASE": "${{ github.event.pull_request.base.sha }}",
@@ -138,8 +140,8 @@ def test_hosted_ci_contract(root):
     assert gate_step["env"]["IS_DRAFT"] == "${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}"
     draft_guard, gate_command = gate_step["run"].split("python3 -P scripts/ci_scope.py gate")
     assert "exit 1" in draft_guard and not gate_command.strip()
-    assert set(jobs["ci-gate"]["needs"]) == jobs.keys() - {"ci-gate"}
-    assert jobs["ci-gate"]["if"] == "always()"
+    assert set(jobs["ci-gate"]["needs"]) == jobs.keys() - {"ci-gate", "viewer-seat-proof"}
+    assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof }}"
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
         "media-inputs", "media-render", "media-release-smoke",
@@ -147,6 +149,28 @@ def test_hosted_ci_contract(root):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)
         assert flags and all("-P" in options.split() for options in flags), name
+
+
+def test_viewer_seat_proof_dispatch_uses_pinned_fixtures_and_skips_ci(root):
+    import hashlib
+
+    workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
+    option = workflow[True]["workflow_dispatch"]["inputs"]["viewer-seat-proof"]
+    assert option["type"] == "boolean" and option["default"] is False
+    jobs = workflow["jobs"]
+    assert jobs["preflight"]["if"] == "${{ !inputs.viewer-seat-proof }}"
+    proof = jobs["viewer-seat-proof"]
+    assert proof["if"] == "${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof }}"
+    assert "needs" not in proof
+    assert {name for name, job in jobs.items() if "needs" not in job} == {
+        "plan", "preflight", "dependency-review", "viewer-seat-proof",
+    }
+    cohort = proof["strategy"]["matrix"]["include"]
+    assert {row["clip"] for row in cohort} == {"16-05", "19-03", "18-03"}
+    for row in cohort:
+        path = root / f"examples/research-scenario-v4-single-winner-202611{row['clip']}.json"
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == row["sha256"]
+    assert "steps.proof.outcome != 'skipped'" in proof["steps"][-1]["if"]
 
 
 def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):
@@ -366,9 +390,10 @@ def test_one_run_never_holds_more_than_twenty_hosted_jobs(root):
         if all(name not in before[other] and other not in before[name] for other in chosen):
             best = max(best, width(jobs[name], is_pr) + peak(index + 1, chosen | {name}, names, is_pr))
         return best
-    full = jobs.keys() - {"python-affected"}
+    full = jobs.keys() - {"python-affected", "viewer-seat-proof"}
     assert peak(0, frozenset(), sorted(full), True) <= 20
     assert peak(0, frozenset(), sorted(full - {"dependency-review", "python-version-smoke"}), False) <= 20
+    assert peak(0, frozenset(), ["viewer-seat-proof"], False) <= 20
 
 
 def test_dependabot_groups_weekly_version_minor_and_patch_updates(root):

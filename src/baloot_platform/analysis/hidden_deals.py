@@ -25,6 +25,12 @@ class HiddenDealSet:
     coverage_complete: bool = False
 
 
+class HiddenDealBudgetExceeded(RuntimeError):
+    def __init__(self, candidate_bound: int):
+        self.candidate_bound = candidate_bound
+        super().__init__("exhaustive hidden allocations exceed the candidate budget")
+
+
 def _should_stop_hidden_deal_generation(
     method: str,
     *,
@@ -479,7 +485,11 @@ def generate_hidden_deals(
     maximum_attempts: int,
     seed: int,
     cancel_check: Callable[[], bool] | None = None,
+    exact_only: bool = False,
 ) -> HiddenDealSet:
+    """Exact-only callers require full public replay and receive no sampled fallback."""
+    if exact_only and (type(exact_allocation_limit) is not int or exact_allocation_limit < 1):
+        raise ValueError("exact hidden allocations require a positive candidate budget")
     if cancel_check is not None and cancel_check():
         raise InterruptedError("hidden-deal generation cancelled")
     unknown = tuple(c for c in FULL_DECK if not (info.known_cards_mask & (1 << c.id)))
@@ -506,9 +516,12 @@ def generate_hidden_deals(
     if not branches:
         raise RuntimeError("public facts leave no feasible hidden allocation")
     feasible_count = sum(item[1] for item in branches)
+    if exact_only and feasible_count > exact_allocation_limit:
+        raise HiddenDealBudgetExceeded(feasible_count)
 
     accepted: list[RoundState] = []
     attempts = 0
+    build_start = _build_start_reference if exact_only else _build_start
     if feasible_count <= max(1, int(exact_allocation_limit)):
         method = (
             "exhaustive_constrained_hidden_deals"
@@ -579,8 +592,12 @@ def generate_hidden_deals(
         if not _passes_voids(hands, voids):
             raise AssertionError("constructive allocation violated a hard void deduction")
         try:
-            accepted.append(_build_start(info, hands, engine))
-        except (ValueError, AssertionError):
+            accepted.append(build_start(info, hands, engine))
+        except ValueError:
+            continue
+        except AssertionError:
+            if exact_only:
+                raise
             continue
         if _should_stop_hidden_deal_generation(
             method,
