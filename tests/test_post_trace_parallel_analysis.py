@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import pytest
 import yaml
-from deterministic_work import HANG_GUARD
+from deterministic_work import HANG_GUARD, set_monotonic
 
 import baloot_platform.challenge.analysis_pipeline as pipeline_module
 from baloot_platform.agents.profiles import AgentProfileRegistry
@@ -577,8 +577,15 @@ def test_parallel_analysis_enforces_governed_timeout(trace_bundle):
     assert time.monotonic() - started < 10.0
 
 
-@pytest.mark.real_clock
-def test_abort_process_executor_uses_terminate_then_kill_fallback():
+@pytest.mark.controlled_clock
+@pytest.mark.parametrize(
+    "manager_reaps_worker", [False, True], ids=["caller-reaps", "manager-reaps"]
+)
+def test_abort_process_executor_uses_terminate_then_kill_fallback(
+    monkeypatch, manager_reaps_worker
+):
+    set_monotonic(monkeypatch, pipeline_module, 0.0)
+
     class FakeFuture:
         cancelled = False
 
@@ -598,19 +605,24 @@ def test_abort_process_executor_uses_terminate_then_kill_fallback():
         def join(self, *, timeout):
             assert timeout >= 0
             self.join_calls += 1
+            if self.killed and not manager_reaps_worker:
+                self.alive = False
 
         def terminate(self):
             self.terminated = True
 
         def kill(self):
             self.killed = True
-            self.alive = False
 
     class FakeManagerThread:
         joined = False
 
         def join(self, *, timeout):
             assert timeout > 0
+            if manager_reaps_worker:
+                # The manager publishes the exit status after the caller's timed join.
+                assert process.killed and process.join_calls == 3
+                process.alive = False
             self.joined = True
 
         def is_alive(self):
@@ -643,6 +655,7 @@ def test_abort_process_executor_uses_terminate_then_kill_fallback():
     assert process.killed
     assert process.join_calls == 3
     assert manager_thread.joined
+    assert not process.is_alive()
 
 
 @pytest.mark.real_clock

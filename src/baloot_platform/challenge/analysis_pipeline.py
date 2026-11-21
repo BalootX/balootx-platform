@@ -2788,7 +2788,6 @@ def _abort_process_executor(
             failures.append(f"process_kill:{type(exc).__name__}")
     join_until(survivors, time.monotonic() + wait_seconds)
 
-    survivors = tuple(process for process in survivors if process_alive(process))
     if manager_thread is not None:
         try:
             manager_thread.join(timeout=wait_seconds)
@@ -2799,6 +2798,8 @@ def _abort_process_executor(
                 failures.append("manager_join:still_alive")
         except BaseException as exc:
             failures.append(f"manager_alive:{type(exc).__name__}")
+    # The executor manager also reaps workers and may publish their exit status during its join.
+    survivors = tuple(process for process in survivors if process_alive(process))
     if survivors:
         failures.append(f"worker_processes_still_alive:{len(survivors)}")
     if failures:
