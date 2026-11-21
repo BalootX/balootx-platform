@@ -1,11 +1,33 @@
 """Editorial tags derived after native receipt validation, never proof admission."""
 
+from baloot_platform.core.cards import Card
+from baloot_platform.core.enums import Contract, Suit
 from .contracts import canonical_sha256
 from .scenario_contracts import ExactTracePrefixV1
 from .family_catalog import TAG_AXES
 from .decision_selection import baseline_strictly_prefers_alternative_v1
 from baloot_platform.core.models import LegalPlayActionV1
 from .lesson_prefilter import CLASSIFIED_LESSON_FAMILIES_V1, classify_public_lesson_v1
+
+
+def classify_public_mechanism_v1(*, rules, current_trick, contract, trump, action):
+    """Label the selected play using the public table and contract."""
+    chosen = LegalPlayActionV1.from_code(action).card
+    cards = [Card.parse(play["card"]) for play in current_trick["plays"]]
+    if not cards:
+        return "LEAD"
+    contract = Contract.parse(contract)
+    trump = Suit.parse(trump) if contract == Contract.HOKUM and trump is not None else None
+    led = cards[0].suit
+    if chosen.suit != led:
+        return "TRUMP_RUFF" if chosen.suit == trump else "VOID_OFF_SUIT_DISCARD"
+    if trump != led and any(card.suit == trump for card in cards):
+        return "FOLLOW_SUIT_UNDERPLAY"
+    strength = rules.play_domain.strength
+    if all(strength(chosen, contract, trump) > strength(card, contract, trump)
+           for card in cards if card.suit == led):
+        return "FOLLOW_SUIT_CAPTURE"
+    return "FOLLOW_SUIT_UNDERPLAY"
 
 
 def derive_trace_lesson_tags_v1(trace, *, normalized, rules):
