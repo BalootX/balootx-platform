@@ -52,6 +52,17 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _fixture_result_code(scenario_template: str, exact_state_id: str) -> str:
+    from baloot_platform.research.scenario_contracts import canonical_sha256
+
+    digest = canonical_sha256({
+        "seedDerivationVersion": 2,
+        "scenarioTemplate": scenario_template,
+        "exactStateId": exact_state_id,
+    })
+    return f"LAF-{digest[:10].upper()}"
+
+
 def build_golden_bundle(
     *,
     name: str,
@@ -70,10 +81,7 @@ def build_golden_bundle(
     from baloot_platform.research.render_service import (
         ResearchRenderPreparationServiceV1,
     )
-    from baloot_platform.research.scenario_contracts import (
-        ScenarioProofRequestV1,
-        canonical_sha256,
-    )
+    from baloot_platform.research.scenario_contracts import ScenarioProofRequestV1
 
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
     normalized = ExactStateNormalizerV1(rules).normalize(fixture["exactTracePrefix"])
@@ -110,14 +118,6 @@ def build_golden_bundle(
         "exactStateId": normalized.exact_state_id,
     }
     exact_state = normalized.to_dict()
-    result_hash = canonical_sha256(
-        {
-            "fixture": fixture,
-            "exactStateHash": exact_state["sha256"],
-            "proofHash": proof["semanticSha256"],
-            "scenarioProjection": projection,
-        }
-    )
     publication_eligible, disposition, failures, blockers, policy = (
         ResearchRenderPreparationServiceV1._scenario_publication_governance(
             {
@@ -135,7 +135,7 @@ def build_golden_bundle(
     )
     if not publication_eligible:
         raise ValueError(f"golden scenario {name} is not publication eligible")
-    result_code = f"LAF-{result_hash[:10].upper()}"
+    result_code = _fixture_result_code(name, normalized.exact_state_id)
     decision_reference = {"resultCode": result_code, "decisionOrdinal": 1}
     public_exact = build_observer_safe_exact_state_v1(
         exact_state=exact_state,
@@ -306,7 +306,7 @@ def build_audit_bundle(
         or expected["renderPurpose"] != "research_audit"
     ):
         raise ValueError(f"audit scenario {name} disposition no longer matches")
-    result_code = f"LAF-{result_hash[:10].upper()}"
+    result_code = _fixture_result_code(projection["scenarioTemplate"], normalized.exact_state_id)
     decision_reference = {"resultCode": result_code, "decisionOrdinal": 1}
     public_exact = build_observer_safe_exact_state_v1(
         exact_state=exact_state,

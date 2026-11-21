@@ -629,20 +629,18 @@ def test_render_bundle_voice_guard(root: Path, case: str, error: str | None) -> 
 
 
 @pytest.mark.parametrize(
-    ("legacy_profile", "game_number", "names", "timeline_sha"),
+    ("legacy_profile", "timeline_sha"),
     [
         pytest.param(
-            True, "LAF-691C32D46D", ("Player 09", "Player 13", "Player 05", "Player 12"),
-            "d058976495a20cf35a944af1a99372fad960d38bdb89d21b5ef3540e3aec30c9", id="unchanged-profile",
+            True, "cb84e41a084c17a4472e72c70b1ce7d1f1d5969d738d9534d8ea165628442d92", id="legacy-voice-profile",
         ),
         pytest.param(
-            False, "LAF-8328D3843E", ("Player 13", "Player 09", "Player 16", "Player 15"),
-            "c5bc9416f25c2cad499e7f7ade411db4b51e8b49233a0383602500568b2adfed", id="voice-off-profile",
+            False, "60684a53007ecc8483e0fe223dcf3edd622cefdb0452f36b8a7515fa7ca6ec26", id="voice-off-profile",
         ),
     ],
 )
 def test_public_notice_identity_and_six_visible_voice_phrases(
-    root: Path, legacy_profile: bool, game_number: str, names: tuple[str, ...], timeline_sha: str,
+    root: Path, legacy_profile: bool, timeline_sha: str,
 ) -> None:
     from scripts import render_research_notice as notice
 
@@ -654,8 +652,10 @@ def test_public_notice_identity_and_six_visible_voice_phrases(
         key = _RETIRED_VOICE_DEFAULTS["explanation_voice_localization_key"]
         profile["audio"]["explanation_voice_transcript"] = profile["localizations"][key]
     value = notice.build_notice_bundle(rules, profile).to_dict()
-    assert value["identity"]["gameSerial"] == game_number
-    assert tuple(value["identity"]["players"][seat] for seat in ("north", "west", "east", "south")) == names
+    assert value["identity"]["gameSerial"] == "LAF-98FBED199A"
+    assert tuple(value["identity"]["players"][seat] for seat in ("north", "west", "east", "south")) == (
+        "Player 15", "Player 11", "Player 07", "Player 03",
+    )
     assert content_hash(value["timeline"]) == timeline_sha
     audio = value["presentation"]["audio"]
     assert not audio.get("voice_pack_directory") and not audio.get("voice_provider")
@@ -682,6 +682,19 @@ def test_public_notice_identity_and_six_visible_voice_phrases(
     value.pop("bundleSha256")
     value["bundleSha256"] = content_hash(value)
     assert RenderBundleV1(value).verify(raise_voice_errors=True)
+
+
+def test_public_notice_identity_follows_the_deal_and_name_pool(root: Path) -> None:
+    from scripts import render_research_notice as notice
+    from scripts.render_research_scenario_v4_goldens import _fixture_result_code
+
+    rules = notice.RuleBook.load(root / "configs/rules/saudi_common_v1.yaml")
+    profile = notice.notice_profile(public=True)
+    profile["identity"]["player_name_pool"] = list("ABCD")
+    identity = notice.build_notice_bundle(rules, profile).value["identity"]
+    assert identity["gameSerial"] == "LAF-98FBED199A"
+    assert set(identity["players"].values()) == set("ABCD")
+    assert _fixture_result_code("scenario", "deal-a") != _fixture_result_code("scenario", "deal-b")
 
 
 def test_render_bundle_rejects_ungoverned_export_and_tampering(root: Path) -> None:

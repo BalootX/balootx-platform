@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import wave
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from baloot_platform.audit.models import content_hash
 from baloot_platform.config import build_bundle
 from baloot_platform.config import validate_profile_payload
 from baloot_platform.core.episode_io import load_episode_spec
+from baloot_platform.video import media_validation, render_bundle
 from baloot_platform.video.remotion_renderer import RemotionProfessionalRenderer
 from baloot_platform.video.media_validation import (
     REMOTION_RENDERER_VERSION,
@@ -374,6 +376,7 @@ def test_observer_safe_audio_plan_and_original_foley_are_deterministic(
     second_plan = build_audio_cue_plan(bundle)
     assert first_plan == second_plan
     assert first_plan["finisher"] == AUDIO_FINISHER_ID
+    assert first_plan["seedDerivationVersion"] == 2
     assert first_plan["music"] is False
     assert first_plan["targetLufs"] == -18
     assert first_plan["normalizationTruePeakDbtp"] == -2.5
@@ -400,6 +403,63 @@ def test_observer_safe_audio_plan_and_original_foley_are_deterministic(
         assert stream.getframerate() == 48_000
         assert stream.getnchannels() == 2
         assert stream.getnframes() == 20 * 48_000
+
+
+def test_renderer_provenance_changes_leave_foley_and_identity_unchanged(
+    root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts import render_research_notice as notice
+
+    fingerprint_root = tmp_path / "fingerprint"
+    for path in renderer_source_files(root):
+        target = fingerprint_root / path.relative_to(root)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
+    fingerprint = renderer_source_sha256
+    assert fingerprint(fingerprint_root) == fingerprint(root)
+    monkeypatch.setattr(media_validation, "renderer_source_sha256", lambda _: fingerprint(fingerprint_root))
+    monkeypatch.setattr(render_bundle, "renderer_source_sha256", lambda _: fingerprint(fingerprint_root))
+
+    rules = build_bundle(root).rules
+    episode = load_episode_spec(root / "examples/v7-outcome-flip-source.json", rules)
+    renderer = RemotionProfessionalRenderer(_profile(root), repository_root=root)
+
+    def capture() -> dict:
+        bundles = {
+            "notice": notice.build_notice_bundle(rules, notice.notice_profile(public=True)),
+            "v7-decision": renderer.build_render_request(episode, export_preset="decision_clip"),
+            "flagship": renderer.build_render_request(episode, export_preset="hooked_flagship"),
+        }
+        return {
+            key: (bundle.value["identity"], build_audio_cue_plan(bundle))
+            for key, bundle in bundles.items()
+        }
+
+    baseline = capture()
+    baseline_foley = {
+        key: generate_original_foley(plan, tmp_path / f"{key}-base.wav")["sha256"]
+        for key, (_, plan) in baseline.items()
+    }
+    source = fingerprint_root / "src/baloot_platform/video/audio_postprocess.py"
+    lock = source.parent / "remotion/package-lock.json"
+    source_bytes, lock_bytes = source.read_bytes(), lock.read_bytes()
+    lock_value = json.loads(lock_bytes)
+    package = lock_value["packages"]["node_modules/source-map-js"]
+    major, minor, patch = package["version"].split(".")
+    package["version"] = f"{major}.{minor}.{int(patch) + 1}"
+    for mutation, path, changed, original in (
+        ("comment", source, source_bytes + b"\n# fingerprint test\n", source_bytes),
+        ("lock", lock, json.dumps(lock_value).encode(), lock_bytes),
+    ):
+        path.write_bytes(changed)
+        for key, (identity, plan) in capture().items():
+            base_identity, base_plan = baseline[key]
+            assert plan["bundleSha256"] != base_plan["bundleSha256"]
+            assert plan["planSha256"] != base_plan["planSha256"]
+            assert identity == base_identity
+            paired = generate_original_foley(plan, tmp_path / f"{key}-{mutation}.wav")
+            assert paired["sha256"] == baseline_foley[key], (key, mutation)
+        path.write_bytes(original)
 
 
 def test_governed_copy_uses_concise_saudi_baloot_terms(root: Path) -> None:
