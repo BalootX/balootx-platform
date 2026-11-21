@@ -228,10 +228,14 @@ def _add_tone(
 def generate_original_foley(
     plan: Mapping[str, Any], destination: Path
 ) -> dict[str, Any]:
+    if "scenarioId" in plan and "seedDerivationVersion" not in plan:
+        raise ValueError("MISSING_FOLEY_SEED_DERIVATION_VERSION (scenarioId requires seedDerivationVersion)")
     version = plan.get("seedDerivationVersion", 1)
+    if type(version) is not int or version not in (1, FOLEY_SEED_DERIVATION_VERSION):
+        raise ValueError(f"unsupported Foley seed derivation version: {version}")
     if version == 1:
         legacy_seed = int(plan["planSha256"][:8], 16)
-    elif version == FOLEY_SEED_DERIVATION_VERSION:
+    else:
         seed_inputs = {
             key: plan[key]
             for key in (
@@ -239,8 +243,6 @@ def generate_original_foley(
                 "targetLufs", "normalizationTruePeakDbtp",
             )
         }
-    else:
-        raise ValueError(f"unsupported Foley seed derivation version: {version}")
     rate = int(plan["sampleRate"])
     sample_count = round(int(plan["totalFrames"]) * rate / int(plan["fps"]))
     left = array("h", [0]) * sample_count

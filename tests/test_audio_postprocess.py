@@ -33,6 +33,20 @@ def test_full_replay_schedules_every_card_and_collection_without_context(context
     assert len([row for row in events if row["kind"] == "card" and row["frame"] < 2880]) == 24
 
 
+@pytest.mark.parametrize("scenario_id", ["test-scenario", ""])
+def test_foley_rejects_unversioned_scenario_plan(tmp_path: Path, scenario_id: str) -> None:
+    plan = {
+        "scenarioId": scenario_id,
+        "sampleRate": 8000, "fps": 20, "totalFrames": 1,
+        "planSha256": "12345678" + "0" * 56,
+        "events": [],
+    }
+    dest = tmp_path / "foley.wav"
+    with pytest.raises(ValueError, match="^MISSING_FOLEY_SEED_DERIVATION_VERSION"):
+        audio_postprocess.generate_original_foley(plan, dest)
+    assert not dest.exists()
+
+
 def test_foley_seed_version_and_cue_locality(tmp_path: Path) -> None:
     legacy = {
         "sampleRate": 8000, "fps": 20, "totalFrames": 30,
@@ -71,8 +85,9 @@ def test_foley_seed_version_and_cue_locality(tmp_path: Path) -> None:
     for changes in ({"scenarioId": "other-scenario"}, {"targetLufs": -19}):
         audio_postprocess.generate_original_foley({**plan, **changes}, dest)
         assert dest.read_bytes() != before
-    with pytest.raises(ValueError, match="unsupported Foley seed derivation version"):
-        audio_postprocess.generate_original_foley({**plan, "seedDerivationVersion": 3}, dest)
+    for unknown_version in (3, None, True, 2.0):
+        with pytest.raises(ValueError, match="unsupported Foley seed derivation version"):
+            audio_postprocess.generate_original_foley({**plan, "seedDerivationVersion": unknown_version}, dest)
 
 
 def _measurement(
