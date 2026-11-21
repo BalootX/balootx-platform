@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
+MEASUREMENT_MP4_MARKER = "balootx-layout-measurement-never-post"
+
+
 def run_media_command(
     command: list[str],
     **kwargs: Any,
@@ -52,7 +55,7 @@ def probe_media(path: Path, *, ffprobe: Path) -> dict[str, Any]:
             "error",
             "-count_frames",
             "-show_entries",
-            "stream=index,codec_type,codec_name,width,height,r_frame_rate,pix_fmt,color_space,color_primaries,color_transfer,sample_rate,channels,nb_read_frames:format=duration",
+            "stream=index,codec_type,codec_name,width,height,r_frame_rate,pix_fmt,color_space,color_primaries,color_transfer,sample_rate,channels,nb_read_frames:format=duration:format_tags=comment",
             "-of",
             "json",
             str(path),
@@ -65,6 +68,8 @@ def probe_media(path: Path, *, ffprobe: Path) -> dict[str, Any]:
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
     )
     raw = json.loads(process.stdout)
+    if raw["format"].get("tags", {}).get("comment") == MEASUREMENT_MP4_MARKER:
+        raise ValueError("layout measurement MP4 is permanently NEVER_POST")
     video = next(
         (item for item in raw.get("streams", ()) if item.get("codec_type") == "video"),
         None,

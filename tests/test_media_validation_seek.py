@@ -16,6 +16,21 @@ def test_video_reexports_the_shared_media_boundary():
         assert getattr(media_validation, name) is getattr(shared_media, name)
 
 
+def test_media_probe_refuses_renamed_measurement_mp4(monkeypatch):
+    from baloot_platform.video import media_probe
+
+    def fake_probe(command, **kwargs):
+        assert "format_tags=comment" in command[command.index("-show_entries") + 1]
+        return SimpleNamespace(stdout=json.dumps({
+            "format": {"tags": {"comment": "balootx-layout-measurement-never-post"}},
+            "streams": [],
+        }))
+
+    monkeypatch.setattr(media_probe, "run_media_command", fake_probe)
+    with pytest.raises(ValueError, match="permanently NEVER_POST"):
+        media_probe.probe_media(Path("renamed-release.mp4"), ffprobe=Path("ffprobe"))
+
+
 @pytest.mark.parametrize("ci", [None, "false", "true"])
 def test_ci_media_threads_cap_each_decoder_filters_and_encoder(monkeypatch, ci):
     if ci is None:
@@ -69,8 +84,12 @@ def test_playback_checkpoint_seeks_to_exact_frame_time(tmp_path, monkeypatch):
     assert result["meanAbsoluteError"] == 0
 
 
-@pytest.mark.parametrize("fps", [24, 60])
-def test_verify_media_compares_checkpoints_at_frozen_bundle_fps(tmp_path, monkeypatch, fps):
+@pytest.mark.parametrize(("fps", "manifest_target", "probe_target"), [
+    (24, -19.4, -19.4), (60, -19.4, -19.4), (24, -19.3, -19.4), (24, -19.4, -19.3),
+])
+def test_verify_media_pins_loudness_and_compares_checkpoints(
+    tmp_path, monkeypatch, fps, manifest_target, probe_target
+):
     module = generate_media_probe
     monkeypatch.setattr(module, "ROOT", tmp_path)
     video = tmp_path / "video.mp4"
@@ -89,6 +108,7 @@ def test_verify_media_compares_checkpoints_at_frozen_bundle_fps(tmp_path, monkey
     manifest.write_text(json.dumps({
         "bundleSha256": "frozen-bundle",
         "video": {"sha256": module.sha256(video), "bytes": video.stat().st_size},
+        "audioFinishing": {"loudness": {"targetLufs": manifest_target}},
     }), encoding="utf-8")
     source = tmp_path / "reveal.png"
     Image.new("RGB", (4, 4), "red").save(source)
@@ -99,7 +119,7 @@ def test_verify_media_compares_checkpoints_at_frozen_bundle_fps(tmp_path, monkey
     }, "audio": {"codec": "aac", "sampleRate": 48000, "channels": 2}}
     monkeypatch.setattr(module, "probe_media", lambda *_args, **_kwargs: probe)
     monkeypatch.setattr(module, "probe_loudness", lambda *_args, **_kwargs: {
-        "integratedLufs": -16, "targetLufs": -16, "truePeakDbtp": -2,
+        "integratedLufs": -19.4, "targetLufs": probe_target, "truePeakDbtp": -2,
     })
     commands = []
 
@@ -108,10 +128,17 @@ def test_verify_media_compares_checkpoints_at_frozen_bundle_fps(tmp_path, monkey
         Image.new("RGB", (4, 4), "red").save(command[-1])
 
     monkeypatch.setattr(media_validation, "run_media_command", fake_ffmpeg)
-    result = module.verify_media({
+    item = {
         "video": video, "bundle": bundle_path, "manifest": manifest,
         "checkpoints": ((source.name, "reveal", 3),),
-    }, ffmpeg=Path("ffmpeg"), ffprobe=Path("ffprobe"), target_lufs=-16)
+    }
+    if manifest_target != -19.4 or probe_target != -19.4:
+        with pytest.raises(ValueError, match="release loudness targetLufs"):
+            module.verify_media(item, ffmpeg=Path("ffmpeg"), ffprobe=Path("ffprobe"))
+        assert commands == []
+        return
+
+    result = module.verify_media(item, ffmpeg=Path("ffmpeg"), ffprobe=Path("ffprobe"))
 
     assert len(commands) == 1
     assert commands[0][commands[0].index("-ss") + 1] == f"{51 / fps:.12f}"

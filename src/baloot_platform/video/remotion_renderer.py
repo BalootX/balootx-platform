@@ -47,6 +47,8 @@ from .render_bundle import (
 )
 from .audio_postprocess import finish_remotion_audio
 from .media_validation import (
+    APPROVED_LAYOUT_TABLE,
+    APPROVED_LAYOUT_TABLE_SHA256,
     REMOTION_RENDERER_VERSION,
     compare_source_frame,
     media_tool,
@@ -61,6 +63,7 @@ from .scene_adapter import build_legacy_episode_scene_package
 _CARD_LABEL = re.compile(r"(?:10|[2-9JQKA])[♠♥♦♣]")
 _LTR_ISOLATE = "\u2066"
 _POP_DIRECTIONAL_ISOLATE = "\u2069"
+_LAYOUT_PHASES = ("hook", "question", "reveal")
 
 
 def _localized_template_value(value: object) -> str:
@@ -105,6 +108,41 @@ def _json_write(path: Path, value: Mapping[str, Any]) -> None:
         path,
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
     )
+
+
+def _qualified_layout_evidence(
+    work: Path, *, bundle_path: Path, bundle_sha256: str
+) -> dict[str, Any]:
+    evidence = json.loads((work / "layout-evidence.json").read_text(encoding="utf-8"))
+    binding = evidence.get("binding", {})
+    if binding.get("mode") != "qualification" or evidence.get("disposition") == "NEVER_POST":
+        raise ValueError("layout measurement MP4 is permanently NEVER_POST")
+    table_path = work / "layout-table.json"
+    if (
+        evidence.get("schemaVersion") != 1
+        or evidence.get("status") != "passed"
+        or binding.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256
+        or _sha256(table_path) != APPROVED_LAYOUT_TABLE_SHA256
+        or binding.get("bundleFileSha256") != _sha256(bundle_path)
+        or binding.get("bundleSha256") != bundle_sha256
+        or evidence.get("videoSha256") != _sha256(work / "render.mp4")
+    ):
+        raise ValueError("qualification receipt must bind the exact layout table, bundle and rendered MP4")
+    rows = evidence.get("items", [])
+    if tuple(row.get("phase") for row in rows) != _LAYOUT_PHASES:
+        raise ValueError("qualified layout checkpoint coverage is incomplete")
+    for row in rows:
+        source = row.get("source", "")
+        validation = row.get("validation", {})
+        if (
+            not source or Path(source).name != source or not source.endswith(".png")
+            or row.get("binding") != binding
+            or validation.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256
+            or validation.get("status") != "passed"
+            or _sha256(work / source) != row.get("pngSha256")
+        ):
+            raise ValueError("qualified layout checkpoint binding mismatch")
+    return evidence
 
 
 def _process_exists(pid: int) -> bool:
@@ -908,6 +946,17 @@ class RemotionProfessionalRenderer:
             else "render-decision-clip.mjs"
         )
         playback_evidence = bool(kwargs.get("playback_evidence", False))
+        qualify_layout = (
+            export_preset == "decision_clip"
+            and bundle.value["presentation"].get("majlis", {}).get("research_notice") is True
+        )
+        if qualify_layout:
+            if "BALOOTX_LAYOUT_TABLE" in os.environ or "BALOOTX_LAYOUT_TABLE_SHA256" in os.environ:
+                raise ValueError("layout table overrides require NEVER_POST measurement mode")
+            if _sha256(self.renderer_root / APPROVED_LAYOUT_TABLE) != APPROVED_LAYOUT_TABLE_SHA256:
+                raise ValueError("approved layout table SHA-256 mismatch")
+        layout_files: dict[str, Path] = {}
+        layout_geometry = None
 
         with tempfile.TemporaryDirectory(
             prefix=".baloot-remotion-", dir=output_dir
@@ -928,6 +977,9 @@ class RemotionProfessionalRenderer:
                 },
                 cancel_event=kwargs.get("cancel_event"),
             )
+            layout_evidence = _qualified_layout_evidence(
+                work, bundle_path=bundle_path, bundle_sha256=bundle.bundle_sha256,
+            ) if qualify_layout else None
             audio_finishing = finish_remotion_audio(
                 work / "render.mp4",
                 bundle,
@@ -958,6 +1010,28 @@ class RemotionProfessionalRenderer:
                 expected_frames=expected_frames,
                 audio_rate=int(render_profile["audio_rate"]),
             )
+            if layout_evidence is not None:
+                for row in layout_evidence["items"]:
+                    phase = row["phase"]
+                    destination = output_dir / f"{basename}-layout-{phase}.png"
+                    shutil.copyfile(work / row["source"], destination)
+                    row["source"] = destination.name
+                    layout_files[f"layout:{phase}"] = destination
+                table_destination = output_dir / f"{basename}-layout-table.json"
+                shutil.copyfile(work / "layout-table.json", table_destination)
+                evidence_destination = output_dir / f"{basename}-layout.json"
+                _json_write(evidence_destination, layout_evidence)
+                layout_files.update(layoutTable=table_destination, layoutGeometry=evidence_destination)
+                layout_geometry = {
+                    "status": "passed",
+                    "mode": "qualification",
+                    "phases": {row["phase"]: row["validation"]["status"] for row in layout_evidence["items"]},
+                    "bundleSha256": bundle.bundle_sha256,
+                    "tableSha256": layout_evidence["binding"]["tableSha256"],
+                    "rendererVideoSha256": layout_evidence["videoSha256"],
+                    "videoSha256": _sha256(video),
+                    "evidenceSha256": _sha256(evidence_destination),
+                }
             playback_rows: list[dict[str, Any]] = []
             playback_files: dict[str, Path] = {}
             if playback_evidence:
@@ -1071,6 +1145,7 @@ class RemotionProfessionalRenderer:
                 f"scene:{path.stem.rsplit('-', 1)[-1]}": path for path in semantic_files
             },
             **playback_files,
+            **layout_files,
         }
         manifest_value = {
             "schemaVersion": 1,
@@ -1102,6 +1177,7 @@ class RemotionProfessionalRenderer:
             "mediaProbe": media_probe,
             "audioFinishing": audio_finishing,
             "playbackEvidence": playback_rows,
+            **({"layoutGeometry": layout_geometry} if layout_geometry is not None else {}),
             "files": {
                 key: {
                     "name": path.name,

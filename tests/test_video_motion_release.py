@@ -270,7 +270,19 @@ def test_renderer_release_decodes_the_rendered_qr_before_accepting_media(
         source = (
             root / f"src/baloot_platform/video/remotion/scripts/{name}"
         ).read_text(encoding="utf-8")
-        assert "ffmpegOverride: bt709FfmpegOverride" in source
+        if name == "render-decision-clip.mjs":
+            assert 'const measure = args[0] === "--measure-layout";' in source
+            assert 'const outputBase = measure ? "NEVER_POST-layout-measurement" :' in source
+            assert '...(measure ? {disposition: "NEVER_POST", postingAuthorized: false} : {})' in source
+            assert (
+                "ffmpegOverride: measure ? ({args}) => {\n"
+                "      const governed = bt709FfmpegOverride({args});\n"
+                '      return [...governed.slice(0, -1), "-metadata", '
+                '`comment=${layoutMeasurementMarker}`, governed.at(-1)];\n'
+                "    } : bt709FfmpegOverride,"
+            ) in source
+        else:
+            assert "ffmpegOverride: bt709FfmpegOverride" in source
         assert "governedH264Options" in source
 
     governed_options = (
@@ -328,7 +340,7 @@ def test_media_gate_requires_complete_bt709_and_exact_frame_count() -> None:
     (float("nan"), -2.0, False), (-19.4, float("-inf"), False),
 ])
 def test_release_loudness_boundaries(integrated, peak, passes) -> None:
-    evidence = {"integratedLufs": integrated, "truePeakDbtp": peak, "targetLufs": integrated}
+    evidence = {"integratedLufs": integrated, "truePeakDbtp": peak, "targetLufs": -19.4}
     if passes:
         validate_loudness(evidence)
     else:
@@ -416,6 +428,11 @@ def test_renderer_provenance_changes_leave_foley_and_identity_unchanged(
         shutil.copyfile(path, target)
     fingerprint = renderer_source_sha256
     assert fingerprint(fingerprint_root) == fingerprint(root)
+    table = fingerprint_root / "src/baloot_platform/video/remotion/scripts/approved-layout-adjacencies.json"
+    table_bytes = table.read_bytes()
+    table.write_bytes(table_bytes + b"\n")
+    assert fingerprint(fingerprint_root) != fingerprint(root)
+    table.write_bytes(table_bytes)
     monkeypatch.setattr(media_validation, "renderer_source_sha256", lambda _: fingerprint(fingerprint_root))
     monkeypatch.setattr(render_bundle, "renderer_source_sha256", lambda _: fingerprint(fingerprint_root))
 
