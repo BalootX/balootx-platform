@@ -1,5 +1,7 @@
 """ENGINE-INTEREST v1 scoring over evidence supplied by the pipeline stages."""
 
+import re
+from collections.abc import Mapping
 from math import fsum, isfinite
 
 from ..contracts import canonical_sha256
@@ -14,51 +16,61 @@ _POLICY = {
     "clarityByLegalCount": {2: 0.7, 3: 1.0, 4: 0.6},
     "difficultyBand": {"min": 25, "max": 75, "penalty": 10},
     "minimumScore": 60, "interestFloor": {"minimumS": 10, "minimumD": 20},
-    "variety": {"lastN": 10, "mechanismLookback": 2, "staleCellLookback": 3},
+    "variety": {"mechanismFrequencyLookback": 10, "familyLookback": 14,
+                "mechanismLookback": 2, "staleCellLookback": 3},
     "baselinePolicyId": "observer_safe_public_two_trick_control_v6",
     "maximumFinalMargin": 40, "maximumPlayIndex": 27, "maximumAuctionBeats": 10,
     "durationSeconds": 44.0, "durationToleranceSeconds": 0.25,
 }
 _POLICY_SHA = canonical_sha256(_POLICY)
 _WEIGHTS_SHA = canonical_sha256(_POLICY["weights"])
-_REPEAT_KEYS = ("scenarioFamily", "visibleOpenerSha256", "captionSha256")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+_LIFETIME_REPEAT_KEYS = ("exactStateId", "dealHash", "visibleOpenerSha256", "captionSha256")
 
 
 def _variety(row, posted_history, reasons):
-    """Use confirmed posts for this platform in newest-first order."""
-    keys = (*_REPEAT_KEYS, "mechanism", "contract", "trickBand")
+    """Use the full confirmed history for this platform in newest-first order."""
+    keys = (*_LIFETIME_REPEAT_KEYS, "scenarioFamily", "mechanism", "contract", "trickBand")
     if not isinstance(posted_history, (list, tuple)) or any(
-        entry.get(key) in (None, "") for entry in (row, *posted_history) for key in keys
+        not isinstance(entry, Mapping)
+        or any(not isinstance(entry.get(key), str) or not entry[key].strip() for key in keys)
+        or not _SHA256.fullmatch(entry["dealHash"])
+        for entry in (row, *posted_history)
     ):
         reasons.append("V_history_unavailable")
         return 1.0, None  # Provisional calibration score.
-    for key in _REPEAT_KEYS:
+    for key in _LIFETIME_REPEAT_KEYS:
         if any(post[key] == row[key] for post in posted_history):
             reasons.append(f"V_repeat_{key}")
     recent = _POLICY["variety"]
+    family = row["scenarioFamily"]
+    if posted_history and posted_history[0]["scenarioFamily"] == family:
+        reasons.append("V_repeat_scenarioFamily")
     mechanism = row["mechanism"]
-    count = sum(post["mechanism"] == mechanism for post in posted_history[:recent["lastN"]])
+    count = sum(post["mechanism"] == mechanism for post in posted_history[:recent["mechanismFrequencyLookback"]])
     mechanisms = [post["mechanism"] for post in posted_history[:recent["mechanismLookback"]]]
     same_latest = bool(mechanisms) and mechanism == mechanisms[0]
     if same_latest:
         reasons.append("V_same_as_latest_mechanism")
     cell = (row["contract"], row["trickBand"])
     stale = recent["staleCellLookback"]
+    if any(post["scenarioFamily"] == family for post in posted_history[:recent["familyLookback"]]):
+        return 0.0, count
     if len(posted_history) >= stale and all(
         (post["contract"], post["trickBand"]) == cell for post in posted_history[:stale]
     ):
         return 0.0, count
     if mechanism in mechanisms[1:]:
         return 0.5, count
-    return float(not same_latest and "V_repeat_scenarioFamily" not in reasons), count
+    return float(not same_latest), count
 
 
 def engine_interest_v1(row, policy=None, *, posted_history=None):
     """Score engine measurements and require verified evidence before posting.
 
-    The caller binds replay, exact actor proof, and publication QA to this candidate.
+    The caller binds replay, the exact actor proof receipt, and publication QA to this candidate.
     Publication QA supplies its §2 gate failures, or an empty list after validation.
-    For admission, the caller supplies fresh confirmed history for the target platform.
+    For admission, the caller supplies fresh, complete confirmed history for the target platform.
     """
     if policy is not None and canonical_sha256(policy) != _POLICY_SHA:
         raise ValueError("ENGINE-INTEREST v1 requires the frozen policy")
@@ -89,7 +101,10 @@ def engine_interest_v1(row, policy=None, *, posted_history=None):
                  and gap >= fairness["minimumWorldMeanGap"])
     if not viewer_ok:
         reasons.append("G3_viewer_unfair")
-    proof_ok = row.get("exactActorProofVerified") is True
+    proof_digest = row.get("exactActorProofSha256")
+    if not isinstance(proof_digest, str) or not _SHA256.fullmatch(proof_digest):
+        proof_digest = None
+    proof_ok = row.get("exactActorProofVerified") is True and proof_digest is not None
     if not proof_ok:
         reasons.append("G3_exact_actor_proof_unverified")
     margin, beats, duration = (row.get(key) for key in ("finalMargin", "auctionSetupBeats", "durationSeconds"))
@@ -132,10 +147,11 @@ def engine_interest_v1(row, policy=None, *, posted_history=None):
             "score": round(total, 1), "parts": parts, "gateReasons": reasons, "eligible": eligible,
             "gateStatus": {"T": timing_ok, "F": replay_ok and viewer_ok and proof_ok and margin_ok},
             "postAllowed": not reasons, "difficultyPrior": difficulty, "mechanismFrequency": mechanism_count,
-            "exactStateId": row["exactStateId"], "action": action}
+            "exactStateId": row["exactStateId"], "action": action, "exactActorProofSha256": proof_digest}
 
 
 def engine_interest_rank_key_v1(card):
     """Sort ascending to rank first by score, then by the versioned tie-breaks."""
-    return (-card["score"], -card["parts"]["S"], -card["parts"]["D"], abs(card["difficultyPrior"] - 50),
+    parts = card["parts"]
+    return (-fsum(parts.values()), -parts["S"], -parts["D"], abs(card["difficultyPrior"] - 50),
             card["mechanismFrequency"] or 0, card["exactStateId"])

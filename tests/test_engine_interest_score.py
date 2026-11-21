@@ -15,10 +15,17 @@ def candidate():
         "worldCoverageComplete": True, "bestShare": 1, "strictShare": 1, "worldMeanGap": 20,
         "baselineRegret": 20, "naiveRegret": 20, "interestingnessV4": {"difficulty_prior": 50},
         "legalReplayVerified": True, "hardDeductions": 1, "exactActorProofVerified": True,
+        "exactActorProofSha256": "e" * 64, "dealHash": "f" * 64,
         "finalMargin": 40, "playIndex": 27, "auctionSetupBeats": 10, "durationSeconds": 44.25,
         "publicationGateReasons": [], "scenarioFamily": "family-1", "visibleOpenerSha256": "a" * 64,
         "captionSha256": "b" * 64, "mechanism": "LEAD", "contract": "sun", "trickBand": "24-31",
     }
+
+
+@pytest.fixture
+def previous_post(candidate):
+    return {**candidate, "exactStateId": "previous", "dealHash": "1" * 64, "scenarioFamily": "family-2",
+            "visibleOpenerSha256": "c" * 64, "captionSha256": "d" * 64, "mechanism": "FOLLOW_SUIT_CAPTURE"}
 
 
 def test_calibrated_ranking_and_screen_rejections():
@@ -35,12 +42,13 @@ def test_calibrated_ranking_and_screen_rejections():
         assert [reason for reason in card["gateReasons"]
                 if reason in {"G1_clarity", "G2_no_decision", "G3_viewer_unfair"}] == rejections.get(name, [])
         assert "G3_exact_actor_proof_unverified" in card["gateReasons"]
+        assert card["exactActorProofSha256"] is None
         assert "V_history_unavailable" in card["gateReasons"]
         assert card["postAllowed"] is False
     ranked = sorted(cards, key=lambda name: (name in rejections, engine_interest_rank_key_v1(cards[name])))
     assert [(name, cards[name]["score"]) for name in ranked] == [
         ("16-02", 79), ("two-aces", 75), ("16-01", 68.6), ("18-01", 66.8),
-        ("ace-seven", 66.3), ("16-04", 61.3), ("21-01", 61.3), ("16-03", 59.7),
+        ("ace-seven", 66.3), ("21-01", 61.3), ("16-04", 61.3), ("16-03", 59.7),
         ("18-04", 59), ("16-06", 55.9), ("18-02", 53.3), ("18-03", 69.2),
         ("16-05", 60.2), ("19-03", 60.2), ("unique-saving", 35.3), ("golden", 24),
     ]
@@ -53,7 +61,10 @@ def test_complete_card_is_versioned_deterministic_and_scores_100(candidate):
     assert card == engine_interest_v1(dict(reversed(list(candidate.items()))), posted_history=[])
     assert card["scoreVersion"] == 1
     assert card["weightsSha256"] == "a0c9961a2ce7edd28a994afbda94472650d9639c1214a1def2cde8eea4495e66"
-    assert card["policySha256"] == "5f3aad6f3ac59703eaf11aa045a95749a72fc87e0a8460befab7b79722821779"
+    assert card["policySha256"] == "f42d1ec2b1fac2fb101510669dcb07303c1d2fc6c24461e324c1d89def9e5d1c"
+    assert card["exactActorProofSha256"] == candidate["exactActorProofSha256"]
+    assert engine_interest_v1({**candidate, "exactActorProofSha256": "0" * 64},
+                              posted_history=[])["exactActorProofSha256"] == "0" * 64
     assert card["score"] == 100
     assert card["parts"] == {"D": 25, "R": 10, "S": 25, "K": 15, "C": 10, "B": 0, "V": 15}
     assert card["gateStatus"] == {"T": True, "F": True} and card["action"] == candidate["action"]
@@ -89,6 +100,31 @@ def test_complete_card_is_versioned_deterministic_and_scores_100(candidate):
 def test_each_hard_gate_blocks_even_a_high_score(candidate, updates, reason):
     card = engine_interest_v1({**candidate, **updates}, posted_history=[])
     assert reason in card["gateReasons"] and not card["eligible"] and not card["postAllowed"]
+
+
+def test_missing_viewer_coverage_fails_the_scorecard(candidate):
+    del candidate["worldCoverageComplete"]
+    card = engine_interest_v1(candidate, posted_history=[])
+    assert card["gateReasons"] == ["G3_viewer_unfair"]
+    assert not card["gateStatus"]["F"] and not card["eligible"] and not card["postAllowed"]
+
+
+@pytest.mark.parametrize("value", [1, "true", "yes"])
+def test_truthy_exact_proof_flag_fails_the_scorecard(candidate, value):
+    card = engine_interest_v1({**candidate, "exactActorProofVerified": value}, posted_history=[])
+    assert card["gateReasons"] == ["G3_exact_actor_proof_unverified"]
+    assert not card["gateStatus"]["F"] and not card["eligible"] and not card["postAllowed"]
+
+
+@pytest.mark.parametrize("digest", [None, "f" * 63, "g" * 64, 1])
+def test_exact_proof_requires_a_receipt_digest(candidate, digest):
+    del candidate["exactActorProofSha256"]
+    if digest is not None:
+        candidate["exactActorProofSha256"] = digest
+    card = engine_interest_v1(candidate, posted_history=[])
+    assert card["exactActorProofSha256"] is None
+    assert card["gateReasons"] == ["G3_exact_actor_proof_unverified"]
+    assert not card["gateStatus"]["F"] and not card["eligible"] and not card["postAllowed"]
 
 
 def test_inclusive_viewer_and_timing_boundaries(candidate):
@@ -135,9 +171,8 @@ def test_clarity_counts_cards_and_round_win_accepts_ekka_variants_of_the_same_ca
     assert card["postAllowed"] and card["parts"]["C"] == 6
 
 
-def test_variety_uses_actual_latest_previous_and_stale_cell(candidate):
-    other = {**candidate, "scenarioFamily": "family-2", "visibleOpenerSha256": "c" * 64,
-             "captionSha256": "d" * 64, "mechanism": "FOLLOW_SUIT_CAPTURE"}
+def test_variety_uses_actual_latest_previous_and_stale_cell(candidate, previous_post):
+    other = previous_post
     same_mechanism = {**other, "mechanism": "LEAD"}
     other_cell = {**other, "trickBand": "16-23"}
     latest = engine_interest_v1(candidate, posted_history=[same_mechanism, other])
@@ -150,24 +185,49 @@ def test_variety_uses_actual_latest_previous_and_stale_cell(candidate):
     assert fresh["postAllowed"] and fresh["parts"]["V"] == 15 and fresh["mechanismFrequency"] == 0
 
 
-@pytest.mark.parametrize("key", ["scenarioFamily", "visibleOpenerSha256", "captionSha256"])
-def test_repeats_block_even_outside_the_last_ten_posts(candidate, key):
-    other = {**candidate, "scenarioFamily": "family-2", "visibleOpenerSha256": "c" * 64,
-             "captionSha256": "d" * 64, "mechanism": "FOLLOW_SUIT_CAPTURE"}
-    card = engine_interest_v1(candidate, posted_history=[other] * 10 + [{**other, key: candidate[key]}])
+@pytest.mark.parametrize(("position", "points"), [(1, 0), (2, 0), (14, 0), (15, 15)])
+def test_family_gate_uses_latest_and_variety_looks_back_fourteen(candidate, previous_post, position, points):
+    other = {**previous_post, "trickBand": "16-23"}
+    repeat = {**other, "scenarioFamily": candidate["scenarioFamily"]}
+    if position == 2:
+        repeat["mechanism"] = candidate["mechanism"]
+    card = engine_interest_v1(candidate, posted_history=[other] * (position - 1) + [repeat])
+    assert card["parts"]["V"] == points
+    assert card["gateReasons"] == (["V_repeat_scenarioFamily"] if position == 1 else [])
+    assert card["postAllowed"] is (position != 1)
+
+
+@pytest.mark.parametrize("key", ["exactStateId", "dealHash", "visibleOpenerSha256", "captionSha256"])
+def test_lifetime_repeats_block_even_outside_the_variety_window(candidate, previous_post, key):
+    other = {**previous_post, "trickBand": "16-23"}
+    card = engine_interest_v1(candidate, posted_history=[other] * 14 + [{**other, key: candidate[key]}])
     assert card["gateReasons"] == [f"V_repeat_{key}"] and not card["postAllowed"]
 
 
+@pytest.mark.parametrize("key", ["exactStateId", "dealHash"])
+def test_history_without_lifetime_identity_blocks_admission(candidate, previous_post, key):
+    del previous_post[key]
+    card = engine_interest_v1(candidate, posted_history=[previous_post])
+    assert card["gateReasons"] == ["V_history_unavailable"] and not card["postAllowed"]
+
+
+def test_rank_uses_unrounded_total_before_tie_breaks(candidate):
+    lower = engine_interest_v1({**candidate, "strictShare": 0.9}, posted_history=[])
+    higher = engine_interest_v1({**candidate, "strictShare": 0.901, "interestingnessV4": {"difficulty_prior": 51}},
+                                posted_history=[])
+    assert lower["score"] == higher["score"] == 99
+    assert engine_interest_rank_key_v1(higher) < engine_interest_rank_key_v1(lower)
+
+
 @pytest.mark.parametrize(("first", "second"), [
-    ({"score": 81}, {"parts": {"S": 11, "D": 6}}),
-    ({"parts": {"S": 11, "D": 5}}, {"parts": {"S": 10, "D": 6}}),
-    ({"parts": {"S": 10, "D": 6}}, {"difficultyPrior": 52}),
+    ({"parts": {"S": 11, "D": 5, "R": 7}}, {"parts": {"S": 10, "D": 6, "R": 7}}),
+    ({"parts": {"S": 10, "D": 6, "R": 7}}, {"difficultyPrior": 52}),
     ({"difficultyPrior": 52}, {"mechanismFrequency": 1}),
     ({"mechanismFrequency": 1}, {"exactStateId": "a"}),
     ({"exactStateId": "a"}, {}),
 ])
 def test_rank_breaks_ties_in_exact_order(first, second):
-    card = {"score": 80, "parts": {"S": 10, "D": 5}, "difficultyPrior": 47,
+    card = {"parts": {"S": 10, "D": 5, "R": 8}, "difficultyPrior": 47,
             "mechanismFrequency": 2, "exactStateId": "b"}
     assert engine_interest_rank_key_v1({**card, **first}) < engine_interest_rank_key_v1({**card, **second})
 

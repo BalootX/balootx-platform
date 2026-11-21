@@ -31,3 +31,18 @@ not enter observer-facing explanations or media. Referee-only evidence follows t
 Rendering and publication retain their own truth and compatibility checks. A unit
 fixture or local benchmark does not establish external certification, production
 qualification, or deployment authorization.
+
+### ENGINE-INTEREST v1
+
+Posting requires complete viewer-world coverage and a verified viewer-seat exact
+proof. The scorer requires a lowercase SHA-256 digest of that proof receipt and
+records it as `exactActorProofSha256` in the scorecard.
+
+Pass the full confirmed history for the target platform, newest first. Use a
+stable lowercase SHA-256 `dealHash` across every decision point and render of a
+deal. A repeated
+`exactStateId`, deal hash, visible opener, or caption blocks admission anywhere in
+that history. The family and mechanism gates compare against the latest confirmed
+post. A family match anywhere in the last 14 posts gives zero variety points.
+The score floor and ranking use the full-precision sum of the score parts. The
+one-decimal score is for display.
