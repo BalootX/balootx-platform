@@ -207,6 +207,7 @@ def test_refinement_preserves_prefix_and_never_qualifies(
     assert result["status"] == "priority_candidate"
     assert result["qualified"] is False and result["proposalOnly"] is True
     assert result["prefixHash"] == row["prefixHash"] and row == before
+    assert (result["bestShare"], result["strictShare"], result["worldMeanGap"]) == (1, 1, 100)
     changed = copy.deepcopy(policy)
     changed["minimumNextBestRegret"] += 1
     with pytest.raises(ValueError, match="frozen rules"):
@@ -223,6 +224,29 @@ def test_real_world_refinement_keeps_partial_coverage_explicit(
         maximum_seconds=10, maximum_worlds=1)
     assert result["status"] in {"worlds_incomplete", "single_world"}
     assert result["qualified"] is False
+    assert {"bestShare", "strictShare", "worldMeanGap"}.isdisjoint(result)
+
+
+def test_viewer_metrics_count_ties_and_compare_the_best_fixed_alternative(
+    rules, policy, completed_seed, heuristic, monkeypatch,
+):
+    row = next(row for row in run(rules, policy, completed_seed)["proposals"] if len(row["ddValues"]) >= 3)
+    selected, *alternatives = [row["action"], *(action for action in row["ddValues"] if action != row["action"])]
+    worlds = (
+        {selected: 10, alternatives[0]: 10, alternatives[1]: 2},
+        {selected: 10, alternatives[0]: 0, alternatives[1]: 8},
+        {selected: 10, alternatives[0]: 0, alternatives[1]: 11},
+    )
+    monkeypatch.setattr("baloot_platform.analysis.hidden_deals.generate_hidden_deals", lambda *args, **kwargs:
+        SimpleNamespace(states=worlds, method="test_only", coverage_complete=True))
+    monkeypatch.setattr(screen, "_proposal_root_values", lambda engine, world, *args:
+        (dict.fromkeys(row["ddValues"], 0) | world, 1))
+    result = screen.refine_runtime_proposal_v1(
+        rules, row, selection_policy=policy, maximum_nodes=100, maximum_seconds=10, maximum_worlds=3)
+    assert result["status"] == "priority_gap_lost"
+    assert result["bestShare"] == pytest.approx(2 / 3)
+    assert result["strictShare"] == pytest.approx(1 / 3)
+    assert result["worldMeanGap"] == 3
 
 
 def test_policy_solver_stop_cannot_become_a_proposal(rules, policy, completed_seed, monkeypatch):
