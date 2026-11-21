@@ -129,16 +129,19 @@ def test_bounded_linear_gain_is_used_only_when_both_limits_can_pass() -> None:
     plan = {"targetLufs": -18.0}
 
     assert audio_postprocess._bounded_linear_gain_db(
-        plan, _measurement(integrated_lufs=-19.8, true_peak_dbtp=-0.94)
-    ) == -0.11
+        plan, _measurement(integrated_lufs=-19.0, true_peak_dbtp=-1.44)
+    ) == -0.16
     assert audio_postprocess._bounded_linear_gain_db(
         plan, _measurement(integrated_lufs=-20.47, true_peak_dbtp=0.75)
     ) is None
     assert audio_postprocess._bounded_linear_gain_db(
         plan, _measurement(integrated_lufs=-20.12, true_peak_dbtp=-2.09)
-    ) == 0.22
+    ) is None
     assert audio_postprocess._bounded_linear_gain_db(
-        plan, _measurement(integrated_lufs=-19.77, true_peak_dbtp=-0.91)
+        plan, _measurement(integrated_lufs=-20.12, true_peak_dbtp=-2.5)
+    ) == 0.72
+    assert audio_postprocess._bounded_linear_gain_db(
+        plan, _measurement(integrated_lufs=-19.3, true_peak_dbtp=-1.41)
     ) == -0.14
 
 
@@ -214,7 +217,7 @@ def test_failed_audio_validation_does_not_replace_the_source_media(
         loudness_calls += 1
         if loudness_calls == 1:
             return _measurement()
-        return _measurement(integrated_lufs=-20.3)
+        return _measurement(integrated_lufs=-21.3)
 
     monkeypatch.setattr(audio_postprocess, "build_audio_cue_plan", lambda _bundle: plan)
     monkeypatch.setattr(audio_postprocess, "generate_original_foley", fake_foley)
@@ -243,6 +246,7 @@ def test_failed_post_encode_audio_is_normalized_until_admission(
     video = tmp_path / "source.mp4"
     evidence_path = tmp_path / "source.audio.json"
     video.write_bytes(b"source-media")
+    monkeypatch.setenv("BALOOTX_RELEASE_TARGET_LUFS", "-17.9")
     plan = {
         "seedDerivationVersion": 2,
         "targetLufs": -18.0,
@@ -279,7 +283,7 @@ def test_failed_post_encode_audio_is_normalized_until_admission(
             _measurement(),
             _measurement(integrated_lufs=-20.2, true_peak_dbtp=0.31),
             _measurement(integrated_lufs=-20.47, true_peak_dbtp=0.75),
-            _measurement(integrated_lufs=-19.54, true_peak_dbtp=-1.72),
+            _measurement(integrated_lufs=-19.4, true_peak_dbtp=-1.72),
         )
     )
 
@@ -320,27 +324,27 @@ def test_failed_post_encode_audio_is_normalized_until_admission(
         evidence_path=evidence_path,
     )
 
-    assert result["postEncodeLoudnessGainDb"] == 2.47
+    assert result["postEncodeLoudnessGainDb"] == 2.57
     assert result["seedDerivationVersion"] == 2
-    assert result["postEncodeTruePeakTrimDb"] == -1.77
+    assert result["postEncodeTruePeakTrimDb"] == -2.27
     assert len(result["postEncodeCorrections"]) == 2
-    assert result["loudness"]["integratedLufs"] == -19.54
+    assert result["loudness"]["integratedLufs"] == -19.4
     assert result["loudness"]["truePeakDbtp"] == -1.72
     loudnorm_commands = [
         command
         for command in commands
-        if any("loudnorm=I=-18.0:TP=" in argument for argument in command)
+        if any("loudnorm=I=" in argument for argument in command)
     ]
     assert len(loudnorm_commands) == 3
     filters = [
         argument
         for command in loudnorm_commands
         for argument in command
-        if "loudnorm=I=-18.0:TP=" in argument
+        if "loudnorm=I=" in argument
     ]
     assert "measured_I=-27.4" in filters[0]
-    assert filters[1].startswith("loudnorm=I=-18.0:TP=-3.83:LRA=11:linear=false:")
-    assert filters[2].startswith("loudnorm=I=-18.0:TP=-4.27:LRA=11:linear=false:")
+    assert filters[1].startswith("loudnorm=I=-17.9:TP=-4.33:LRA=11:linear=false:")
+    assert filters[2].startswith("loudnorm=I=-17.9:TP=-4.77:LRA=11:linear=false:")
     assert result["videoStreamPreserved"] is True
     assert video.read_bytes() == b"candidate-media"
     assert evidence_path.is_file()
