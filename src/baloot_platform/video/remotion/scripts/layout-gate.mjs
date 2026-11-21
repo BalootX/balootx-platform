@@ -9,6 +9,7 @@ const pairKey = (phase, pair) => [phase, ...[...pair].sort()].join("|");
 const positive = value => Number.isFinite(value) && value > 0;
 const roleId = /^(promptPill|namePills|buyerBadge|dealerBadge|choiceBox):(0|[1-9]\d*)$/;
 const hash = /^[a-f0-9]{64}$/;
+const approvedLayoutTableSha256 = "7c1aeee912e4b032d8fb35b50cacde5f464ebf279cbb34464e4054e322ae6a1c";
 
 export const layoutMeasurementMarker = "balootx-layout-measurement-never-post";
 export const sha256 = value => createHash("sha256").update(value).digest("hex");
@@ -23,13 +24,17 @@ export async function fileSha256(file) {
   return digest.digest("hex");
 }
 
-export async function loadLayoutTable(
-  file = new URL("./approved-layout-adjacencies.json", import.meta.url),
-  expectedSha256,
-) {
-  const bytes = await readFile(file);
+export async function loadLayoutTable({measure = false, file, expectedSha256} = {}) {
+  if (!measure && (file !== undefined || expectedSha256 !== undefined)) {
+    throw new Error("layout table overrides require NEVER_POST measurement mode");
+  }
+  if (file !== undefined && !expectedSha256) {
+    throw new Error("an external layout table requires its SHA-256 pin");
+  }
+  const pin = expectedSha256 ?? approvedLayoutTableSha256;
+  const bytes = await readFile(file ?? new URL("./approved-layout-adjacencies.json", import.meta.url));
   const tableSha256 = sha256(bytes);
-  if (expectedSha256 !== undefined && expectedSha256 !== tableSha256) {
+  if (pin !== tableSha256) {
     throw new Error("layout table SHA-256 mismatch");
   }
   const table = JSON.parse(bytes);
@@ -89,6 +94,7 @@ export function checkLayoutGeometry(row, expected, table) {
       || row.binding?.tableSha256 !== table.tableSha256) fail("render or table binding mismatch");
   const measure = expected.binding.mode === "measurement";
   if (!measure && expected.binding.mode !== "qualification") fail("invalid layout mode");
+  if (!measure && table.tableSha256 !== approvedLayoutTableSha256) fail("approved layout table SHA-256 mismatch");
   if (!Number.isFinite(row.rootRect?.left) || !Number.isFinite(row.rootRect?.top)
       || !positive(row.rootRect?.width) || !positive(row.rootRect?.height)) fail("root is unmeasured");
   if (!row.roles || Object.keys(row.roles).length !== roles.length) fail("role measurements missing");

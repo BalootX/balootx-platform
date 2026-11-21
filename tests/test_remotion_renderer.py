@@ -336,13 +336,19 @@ def test_playback_evidence_derives_all_complete_trace_boundaries(root: Path, vie
         renderer._playback_state_evidence(bundle, checkpoints)
 
 
-def test_layout_receipt_binds_raw_mp4_bundle_table_and_checkpoint_bytes(tmp_path):
+@pytest.mark.parametrize("widened", [False, True], ids=["approved", "widened"])
+def test_layout_receipt_binds_raw_mp4_bundle_table_and_checkpoint_bytes(root, tmp_path, widened):
     def retain(name, contents):
         target = tmp_path / name
         target.write_bytes(contents)
         return target, remotion_renderer_module._sha256(target)
 
-    table, table_sha = retain("layout-table.json", b"{}")
+    approved = (root / "src/baloot_platform/video/remotion/scripts/approved-layout-adjacencies.json").read_bytes()
+    if widened:
+        altered = json.loads(approved)
+        altered["rows"][0]["observedMaxWidth"] = 200
+        approved = json.dumps(altered).encode("utf-8")
+    table, table_sha = retain("layout-table.json", approved)
     bundle, bundle_sha = retain("render-bundle.json", b'{"schemaVersion": 1}')
     video, video_sha = retain("render.mp4", b"rendered media")
     binding = {
@@ -359,8 +365,13 @@ def test_layout_receipt_binds_raw_mp4_bundle_table_and_checkpoint_bytes(tmp_path
 
     def read():
         return remotion_renderer_module._qualified_layout_evidence(
-            tmp_path, bundle_path=bundle, bundle_sha256="bundle-sha", table_sha256=table_sha,
+            tmp_path, bundle_path=bundle, bundle_sha256="bundle-sha",
         )
+
+    if widened:
+        with pytest.raises(ValueError, match="layout table, bundle and rendered MP4"):
+            read()
+        return
 
     assert read() == evidence
     for file in (table, bundle, video, png):

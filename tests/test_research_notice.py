@@ -10,6 +10,11 @@ import pytest
 from scripts import render_research_notice as notice
 
 
+@pytest.fixture
+def approved_layout_bytes(root):
+    return (root / "src/baloot_platform/video/remotion/scripts/approved-layout-adjacencies.json").read_bytes()
+
+
 def test_public_notice_profile_builds_a_qualified_bundle_with_the_exact_notice():
     profile = notice.notice_profile(public=True)
     design = profile["approved_design"]
@@ -43,10 +48,10 @@ def test_public_notice_profile_rejects_unapproved_changes(section, key, value, e
         notice.validate_approved_v4_public_profile(profile)
 
 
-def _fake_qualification(video, bundle_sha, files):
+def _fake_qualification(video, bundle_sha, files, table_bytes):
     output = video.parent
     table = output / "layout-table.json"
-    table.write_text("{}\n", encoding="utf-8")
+    table.write_bytes(table_bytes)
     table_sha = notice._sha256(table)
     video_sha = notice._sha256(video)
     (output / "layout-evidence.json").write_text(json.dumps({
@@ -67,7 +72,7 @@ def _fake_qualification(video, bundle_sha, files):
     }
 
 
-def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch):
+def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch, approved_layout_bytes):
     root = tmp_path / "archive"
     (root / "release").mkdir(parents=True)
     (root / "release/source-manifest.json").write_text(
@@ -143,7 +148,7 @@ def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch
             manifest.write_text(
                 json.dumps({
                     "files": files, "playbackEvidence": evidence,
-                    "layoutGeometry": _fake_qualification(video, bundle.bundle_sha256, files),
+                    "layoutGeometry": _fake_qualification(video, bundle.bundle_sha256, files, approved_layout_bytes),
                 }),
                 encoding="utf-8",
             )
@@ -292,7 +297,7 @@ def test_notice_selectors_require_public_in_main_and_cli(monkeypatch, capsys, se
     assert "require --public" in capsys.readouterr().err
 
 
-def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monkeypatch):
+def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monkeypatch, approved_layout_bytes):
     selection = notice.select_deal(notice.DEAL_SOURCES[1][0])
     expected_trace = json.loads(selection["fixture"].read_text(encoding="utf-8"))["exactTracePrefix"]
     output = tmp_path / "output"
@@ -371,7 +376,7 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monk
                     "identity": bundle.value["identity"],
                     "files": files,
                     "playbackEvidence": evidence,
-                    "layoutGeometry": _fake_qualification(video, bundle.bundle_sha256, files),
+                    "layoutGeometry": _fake_qualification(video, bundle.bundle_sha256, files, approved_layout_bytes),
                 }),
                 encoding="utf-8",
             )
@@ -410,3 +415,24 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monk
     (output / "layout-table.json").write_bytes(b"{ }\n")
     with pytest.raises(ValueError, match="SHA-256 mismatch"):
         notice._release_layout(manifest, video, bundle.bundle_sha256)
+
+
+@pytest.mark.parametrize("change", ["table", "video"])
+def test_release_layout_rejects_widened_table_or_swapped_final_mp4(tmp_path, approved_layout_bytes, change):
+    video = tmp_path / "final.mp4"
+    video.write_bytes(b"qualified MP4")
+    for phase in ("hook", "question", "reveal"):
+        (tmp_path / f"{phase}.png").write_bytes(phase.encode("utf-8"))
+    files = {}
+    table_bytes = approved_layout_bytes
+    if change == "table":
+        altered = json.loads(table_bytes)
+        altered["rows"][0]["observedMaxWidth"] = 200
+        table_bytes = json.dumps(altered).encode("utf-8")
+    manifest = {"files": files, "layoutGeometry": _fake_qualification(video, "bundle-sha", files, table_bytes)}
+    if change == "video":
+        notice._release_layout(manifest, video, "bundle-sha")
+        video.write_bytes(b"different final MP4")
+    error = "approved layout table SHA-256" if change == "table" else "bound to the exact MP4"
+    with pytest.raises(ValueError, match=error):
+        notice._release_layout(manifest, video, "bundle-sha")

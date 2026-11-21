@@ -47,6 +47,8 @@ from .render_bundle import (
 )
 from .audio_postprocess import finish_remotion_audio
 from .media_validation import (
+    APPROVED_LAYOUT_TABLE,
+    APPROVED_LAYOUT_TABLE_SHA256,
     REMOTION_RENDERER_VERSION,
     compare_source_frame,
     media_tool,
@@ -109,7 +111,7 @@ def _json_write(path: Path, value: Mapping[str, Any]) -> None:
 
 
 def _qualified_layout_evidence(
-    work: Path, *, bundle_path: Path, bundle_sha256: str, table_sha256: str
+    work: Path, *, bundle_path: Path, bundle_sha256: str
 ) -> dict[str, Any]:
     evidence = json.loads((work / "layout-evidence.json").read_text(encoding="utf-8"))
     binding = evidence.get("binding", {})
@@ -119,8 +121,8 @@ def _qualified_layout_evidence(
     if (
         evidence.get("schemaVersion") != 1
         or evidence.get("status") != "passed"
-        or binding.get("tableSha256") != table_sha256
-        or _sha256(table_path) != table_sha256
+        or binding.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256
+        or _sha256(table_path) != APPROVED_LAYOUT_TABLE_SHA256
         or binding.get("bundleFileSha256") != _sha256(bundle_path)
         or binding.get("bundleSha256") != bundle_sha256
         or evidence.get("videoSha256") != _sha256(work / "render.mp4")
@@ -135,7 +137,7 @@ def _qualified_layout_evidence(
         if (
             not source or Path(source).name != source or not source.endswith(".png")
             or row.get("binding") != binding
-            or validation.get("tableSha256") != table_sha256
+            or validation.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256
             or validation.get("status") != "passed"
             or _sha256(work / source) != row.get("pngSha256")
         ):
@@ -948,23 +950,11 @@ class RemotionProfessionalRenderer:
             export_preset == "decision_clip"
             and bundle.value["presentation"].get("majlis", {}).get("research_notice") is True
         )
-        layout_environment = {}
         if qualify_layout:
-            table_input = os.environ.get("BALOOTX_LAYOUT_TABLE")
-            table_pin = os.environ.get("BALOOTX_LAYOUT_TABLE_SHA256")
-            if table_input and not table_pin:
-                raise ValueError("an external layout table requires its SHA-256 pin")
-            table_path = (
-                Path(table_input).resolve() if table_input
-                else self.renderer_root / "scripts/approved-layout-adjacencies.json"
-            )
-            table_sha256 = _sha256(table_path)
-            if table_pin is not None and table_pin != table_sha256:
-                raise ValueError("layout table SHA-256 mismatch")
-            layout_environment = {
-                "BALOOTX_LAYOUT_TABLE": str(table_path),
-                "BALOOTX_LAYOUT_TABLE_SHA256": table_sha256,
-            }
+            if "BALOOTX_LAYOUT_TABLE" in os.environ or "BALOOTX_LAYOUT_TABLE_SHA256" in os.environ:
+                raise ValueError("layout table overrides require NEVER_POST measurement mode")
+            if _sha256(self.renderer_root / APPROVED_LAYOUT_TABLE) != APPROVED_LAYOUT_TABLE_SHA256:
+                raise ValueError("approved layout table SHA-256 mismatch")
         layout_files: dict[str, Path] = {}
         layout_geometry = None
 
@@ -984,13 +974,11 @@ class RemotionProfessionalRenderer:
                     "BALOOTX_ASSETS_ROOT": str(self.repository_root / "assets"),
                     "BALOOTX_BATCH_RENDER": "1",
                     "BALOOTX_PLAYBACK_EVIDENCE": "1" if playback_evidence else "0",
-                    **layout_environment,
                 },
                 cancel_event=kwargs.get("cancel_event"),
             )
             layout_evidence = _qualified_layout_evidence(
                 work, bundle_path=bundle_path, bundle_sha256=bundle.bundle_sha256,
-                table_sha256=layout_environment["BALOOTX_LAYOUT_TABLE_SHA256"],
             ) if qualify_layout else None
             audio_finishing = finish_remotion_audio(
                 work / "render.mp4",

@@ -368,6 +368,15 @@ test("south tags stack below the question bar and reveal panel; north tray meets
 
 test("the calibration table qualifies exact red notice checkpoints and excludes planted contacts", async () => {
   const table = await loadLayoutTable();
+  const widened = JSON.parse(table.bytes);
+  widened.rows[0].observedMaxWidth = 200;
+  const bytes = Buffer.from(JSON.stringify(widened));
+  const file = new URL("widened-table.json", out);
+  writeFileSync(file, bytes);
+  const override = {file, expectedSha256: sha256(bytes)};
+  await assert.rejects(loadLayoutTable(override), /require NEVER_POST measurement mode/);
+  const measurementTable = await loadLayoutTable({measure: true, ...override});
+  assert.equal(measurementTable.tableSha256, override.expectedSha256);
   for (const phase of ["hook", "question", "reveal"]) {
     const reveal = phase === "reveal";
     const rect = (left, top, width, height) => ({left, top, right: left + width, bottom: top + height});
@@ -393,6 +402,14 @@ test("the calibration table qualifies exact red notice checkpoints and excludes 
     assert.equal(result.status, "passed");
     assert.equal(result.tableSha256, sha256(table.bytes));
     assert.deepEqual(result.designedAdjacencies.map(({width, height}) => [width, height]), [[167.578125, 3.8251953125]]);
+    const widenedBinding = {...binding, tableSha256: measurementTable.tableSha256};
+    assert.throws(() => checkLayoutGeometry(
+      {...row, binding: widenedBinding}, {...expected, binding: widenedBinding}, measurementTable,
+    ), /approved layout table SHA-256 mismatch/);
+    const measurementBinding = {...widenedBinding, mode: "measurement"};
+    assert.equal(checkLayoutGeometry(
+      {...row, binding: measurementBinding}, {...expected, binding: measurementBinding}, measurementTable,
+    ).status, "measured");
     for (const [role, bounds] of [
       ["broadcastHud", rect(40, 155, 1000, 50)],
       ["dealerBadge", name],
@@ -416,12 +433,22 @@ test("the calibration table qualifies exact red notice checkpoints and excludes 
   }
 });
 
-test("qualification reads and pins the exact calibration table bytes", async () => {
+test("measurement overrides require an exact SHA-256", async () => {
   const table = await loadLayoutTable();
-  const original = new URL("../scripts/approved-layout-adjacencies.json", import.meta.url);
-  assert.equal((await loadLayoutTable(original, table.tableSha256)).tableSha256, table.tableSha256);
-  const changed = new URL("reformatted-table.json", out);
-  writeFileSync(changed, `${table.bytes.toString().trim()}  \n`);
-  await assert.rejects(loadLayoutTable(changed, table.tableSha256), /SHA-256 mismatch/);
-  assert.notEqual((await loadLayoutTable(changed)).tableSha256, table.tableSha256);
+  const file = new URL("reformatted-table.json", out);
+  writeFileSync(file, `${table.bytes.toString().trim()}  \n`);
+  await assert.rejects(loadLayoutTable({measure: true, file}), /requires its SHA-256 pin/);
+  await assert.rejects(loadLayoutTable({measure: true, file, expectedSha256: table.tableSha256}), /SHA-256 mismatch/);
+  await assert.rejects(loadLayoutTable({expectedSha256: table.tableSha256}), /require NEVER_POST measurement mode/);
+});
+
+test("qualification rejects a changed default calibration without environment overrides", async () => {
+  const isolated = new URL("changed-default-layout/", out);
+  mkdirSync(isolated, {recursive: true});
+  const gate = new URL("layout-gate.mjs", isolated);
+  writeFileSync(gate, readFileSync(new URL("../scripts/layout-gate.mjs", import.meta.url)));
+  const approved = await loadLayoutTable();
+  writeFileSync(new URL("approved-layout-adjacencies.json", isolated), Buffer.concat([approved.bytes, Buffer.from("\n")]));
+  const {loadLayoutTable: loadChangedDefault} = await import(gate.href);
+  await assert.rejects(loadChangedDefault(), /layout table SHA-256 mismatch/);
 });

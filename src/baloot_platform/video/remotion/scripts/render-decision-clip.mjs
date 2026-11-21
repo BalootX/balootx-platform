@@ -27,10 +27,11 @@ const inputBytes = await readFile(inputPath);
 const bundleData = parseValidatedRenderBundle(inputBytes);
 const qualifyLayout = bundleData.presentation?.majlis?.research_notice === true;
 if (measure && (!qualifyLayout || stillsOnly)) throw new Error("layout measurement requires a red notice MP4");
-const tableFile = process.env.BALOOTX_LAYOUT_TABLE;
-const tablePin = process.env.BALOOTX_LAYOUT_TABLE_SHA256;
-if (qualifyLayout && tableFile && !tablePin) throw new Error("an external layout table requires its SHA-256 pin");
-const table = qualifyLayout ? await loadLayoutTable(tableFile, tablePin) : null;
+const table = qualifyLayout ? await loadLayoutTable({
+  measure,
+  file: process.env.BALOOTX_LAYOUT_TABLE,
+  expectedSha256: process.env.BALOOTX_LAYOUT_TABLE_SHA256,
+}) : null;
 const geometryFrames = table ? layoutFrames(bundleData) : [];
 const layoutBinding = table && {
   mode: measure ? "measurement" : "qualification",

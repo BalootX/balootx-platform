@@ -23,6 +23,8 @@ from baloot_platform.video.media_probe import (
 
 
 REMOTION_RENDERER_VERSION = "21.10.7"
+APPROVED_LAYOUT_TABLE = "scripts/approved-layout-adjacencies.json"
+APPROVED_LAYOUT_TABLE_SHA256 = "7c1aeee912e4b032d8fb35b50cacde5f464ebf279cbb34464e4054e322ae6a1c"
 MAXIMUM_LOUDNESS_DEVIATION_LUFS = 2.0
 MAXIMUM_TRUE_PEAK_DBTP = -1.0
 MINIMUM_SOURCE_COMPARISON_PSNR_DB = 28.0
@@ -40,6 +42,7 @@ def renderer_source_files(root: Path) -> tuple[Path, ...]:
         package / "package.json",
         package / "package-lock.json",
         package / "tsconfig.json",
+        package / APPROVED_LAYOUT_TABLE,
     ]
     values.extend(sorted((package / "scripts").glob("*.mjs")))
     values.extend(sorted((package / "src").glob("*.ts")))
