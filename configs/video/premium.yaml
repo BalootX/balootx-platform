@@ -580,23 +580,22 @@ audio:
   card_clicks: true
   countdown: true
   reveal_chime: true
-  voice_callouts: true
-  voice_provider: offline_smooth_pack_v2
-  voice_pack_directory: assets/audio/voice_packs/ar_sa_baloot_v2_smooth
-  voice_pack_manifest: manifest.json
+  voice_callouts: false
+  voice_provider: ''
+  voice_pack_directory: ''
+  voice_pack_manifest: ''
   synthetic_callout_cues: false
   table_foley: true
   stereo_seat_pan: true
   target_lufs: -18
   normalization_true_peak_dbtp: -2.5
-  spoken_voice_pack: true
+  spoken_voice_pack: false
   foley: true
   one_piece_explanation: false
-  explanation_voice_mode: exact_transcript_only
-  explanation_voice_localization_key: video.audio.entry_control_explanation
-  explanation_voice_file: explanation.wav
-  explanation_voice_transcript: الخصم اليمين ما مشى على اللون. حفظ العشرة كان أفضل،
-    لأنه يعطيك فرصة تمسك اللعب في الأكلة الجاية.
+  explanation_voice_mode: ''
+  explanation_voice_localization_key: ''
+  explanation_voice_file: ''
+  explanation_voice_transcript: ''
   explanation_voice_volume: 0.78
 themes:
   emerald:

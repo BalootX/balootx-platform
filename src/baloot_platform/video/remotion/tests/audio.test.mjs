@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {createHash} from "node:crypto";
 import {existsSync, readFileSync} from "node:fs";
 import {createRequire} from "node:module";
 import path from "node:path";
@@ -72,7 +73,6 @@ function audioBundle(exportPreset) {
     direction: "rtl",
     observerSeat: observer,
     render: {width: 1080, height: 1920, fps: 60},
-    // The explanation voice is justification, so show_justification_text=false silences it.
     presentation: {audio: {enabled: true}, presentation: {show_justification_text: true}, layout: {}, motion: {}, majlis},
     localizations: {
       [reasonKey]: "السبب المطابق للتسجيل",
@@ -127,45 +127,31 @@ for (const [preset, Component, props] of [
   ["hooked_flagship", ProfessionalPrototype, {stage: "flagship"}],
   ["decision_clip", ProfessionalDecisionClip, {}],
 ]) {
-  for (const enabled of [true, false, undefined]) {
-    test(`${preset} schedules audio with audio.enabled=${enabled ?? "legacy default"}`, () => {
+  for (const [name, key, wrongText] of [
+    ["a matching rationale cue", "video.analysis.expert_reason", false],
+    ["an allowlisted cue with mismatched text", "video.decision.best_move", true],
+    ["an allowlisted cue with matching text", "video.decision.best_move", false],
+  ]) {
+    test(`${preset} ignores ${name} from direct composition props`, () => {
       const bundle = audioBundle(preset);
-      if (enabled === undefined) delete bundle.presentation.audio;
-      else bundle.presentation.audio = {enabled};
+      const onScreenText = "Fixture text shown in the reveal";
+      bundle.localizations[key] = onScreenText;
+      bundle.scenes[1].layers[0].content.reasonKey = key;
+      bundle.audioCues[0].transcriptKey = key;
+      bundle.audioCues[0].transcriptSha256 = createHash("sha256")
+        .update(wrongText ? `${onScreenText} ` : onScreenText, "utf8").digest("hex");
       const html = renderToStaticMarkup(React.createElement(Component, {bundle, ...props}));
-      assert.equal((html.match(/<audio\b/g) ?? []).length, enabled === false ? 0 : 1);
-      if (enabled !== false) {
-        assert.match(html, /src="\/audio\/test-explanation\.wav"/);
-        assert.match(html, /data-volume="0\.42"/);
-      }
+      assert.match(html, /Fixture text shown in the reveal/);
+      assert.doesNotMatch(html, /<audio\b|test-explanation\.wav/);
     });
   }
 
-  {
-    test(`${preset} never voices a reason with show_justification_text=false`, () => {
-      const bundle = audioBundle(preset);
-      bundle.presentation.presentation.show_justification_text = false;
-      const html = renderToStaticMarkup(React.createElement(Component, {bundle, ...props}));
-      assert.doesNotMatch(html, /<audio\b/);
-      assert.doesNotMatch(html, /السبب المطابق للتسجيل/);
-    });
-  }
-
-  for (const missingCue of [true, false]) {
-    test(`${preset} suppresses audio with a ${missingCue ? "missing" : "mismatched"} governed cue`, () => {
-      const bundle = audioBundle(preset);
-      if (missingCue) bundle.audioCues = [];
-      else bundle.audioCues[0].transcriptKey = "video.analysis.other_reason";
-      const html = renderToStaticMarkup(React.createElement(Component, {bundle, ...props}));
-      assert.doesNotMatch(html, /<audio\b/);
-    });
-  }
+  test(`${preset} hides rationale text when justification is disabled`, () => {
+    const bundle = audioBundle(preset);
+    const key = bundle.audioCues[0].transcriptKey;
+    bundle.localizations[key] = "Fixture rationale";
+    bundle.presentation.presentation.show_justification_text = false;
+    const html = renderToStaticMarkup(React.createElement(Component, {bundle, ...props}));
+    assert.doesNotMatch(html, /<audio\b|Fixture rationale/);
+  });
 }
-
-test("prototype audio suppression still overrides an enabled bundle", () => {
-  const bundle = audioBundle("hooked_flagship");
-  const html = renderToStaticMarkup(React.createElement(ProfessionalPrototype, {
-    bundle, stage: "flagship", suppressAudio: true,
-  }));
-  assert.doesNotMatch(html, /<audio\b/);
-});

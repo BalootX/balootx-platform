@@ -3,8 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
-import wave
 from pathlib import Path
 
 import pytest
@@ -13,12 +11,12 @@ import yaml
 from baloot_platform.audit.models import content_hash
 from baloot_platform.video.media_validation import (
     REMOTION_RENDERER_VERSION,
-    renderer_source_files,
     validate_renderer_identity,
 )
 from baloot_platform.video.render_bundle import (
     RENDER_SOURCE_KEYS,
     RenderBundleV1,
+    _RETIRED_VOICE_DEFAULTS,
     build_export_timeline,
     build_render_bundle,
     normalize_render_source,
@@ -287,10 +285,11 @@ def test_render_bundle_is_deterministic_observer_safe_and_self_verifying(
     assert first.value["presentation"]["timeline"]["project_reveal_seconds"] == 6.0
     assert first.value["identity"]["gameSerial"] == "BLT-TEST-0001"
     assert first.value["audioCues"] == []
-    assert (
-        first.value["presentation"]["audio"]["explanation_voice_mode"]
-        == "exact_transcript_only"
-    )
+    audio = first.value["presentation"]["audio"]
+    assert audio["voice_callouts"] is False
+    assert audio["spoken_voice_pack"] is False
+    assert audio["voice_pack_directory"] == ""
+    assert audio["explanation_voice_localization_key"] == ""
     assert set(first.value["identity"]["players"]) == {"north", "west", "east", "south"}
     assert {item["id"] for item in first.value["assets"]} == {
         "balootx-professional-card-back",
@@ -523,88 +522,165 @@ def test_bundle_with_internally_consistent_but_stale_renderer_identity_is_reject
     assert not RenderBundleV1(bundle).verify()
 
 
-def test_render_bundle_only_cues_an_exact_governed_voice_transcript(root: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("case", "error"),
+    [
+        ("disabled", None),
+        ("allowed", None),
+        ("formatted_name", None),
+        ("unformatted_name", "video.decision.your_turn"),
+        ("justification", "outside the allowlist: video.audio.entry_control_explanation"),
+        ("legacy_justification", "unsupported voice setting .*video.audio.entry_control_explanation"),
+        ("retired_pack", "voice_pack_directory"),
+        ("retired_asset", "assets/.*/path"),
+        ("retired_provider", "retired voice pack reference at presentation/audio/voice_provider"),
+        ("outside_allowlist", "outside the allowlist: video.decision.reveal_card"),
+        ("different_text", "video.decision.choose_best_move"),
+        ("hidden_notice", "video.notice.title"),
+        ("rationale_field", "video.decision.choose_best_move"),
+        ("rationale_alias", "voice cue uses a rationale key: video.decision.choose_best_move"),
+    ],
+)
+def test_render_bundle_voice_guard(root: Path, case: str, error: str | None) -> None:
     profile, scenes = _inputs(root)
-    source_assets = [
-        profile["card_assets"]["manifest"],
-        "assets/fonts/NotoSansArabic-Regular.ttf",
-        "assets/fonts/NotoSansArabic-Bold.ttf",
-        "assets/fonts/NotoKufiArabic-Bold.ttf",
-        "assets/video/professional/card-back.svg",
-    ]
-    for source in [*(root / path for path in source_assets), *renderer_source_files(root)]:
-        destination = tmp_path / source.relative_to(root)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, destination)
-
-    audio = profile["audio"]
-    audio["voice_pack_directory"] = "assets/audio/voice_packs/unit-transcript"
-    directory = tmp_path / audio["voice_pack_directory"]
-    directory.mkdir(parents=True)
-    clip = {"file": audio["explanation_voice_file"], "textAr": audio["explanation_voice_transcript"]}
-    (directory / audio["voice_pack_manifest"]).write_text(
-        json.dumps({"clips": {"explanation": clip}}), encoding="utf-8",
-    )
-    with wave.open(str(directory / clip["file"]), "wb") as stream:
-        stream.setparams((1, 2, 48_000, 0, "NONE", "not compressed"))
-        stream.writeframes(bytes(96))
-    transcript_key = "video.analysis.expert_reason"
-    profile["audio"]["one_piece_explanation"] = True
-    profile["audio"]["explanation_voice_localization_key"] = transcript_key
-    profile["localizations"][transcript_key] = profile["audio"][
-        "explanation_voice_transcript"
-    ]
-    timeline = build_export_timeline(
-        scenes=scenes, profile=profile, export_preset="decision_clip"
-    )
-    identity = {
-        "gameSerial": "BLT-VOICE-1",
-        "sceneId": scenes[0].scene_id,
-        "enrollmentUri": "https://balootx.local/c/VOICE1",
-        "players": {"north": "Player 01", "west": "Player 04", "east": "Player 02", "south": "Player 03"},
+    args = {
+        "scenes": scenes,
+        "timeline": build_export_timeline(
+            scenes=scenes, profile=profile, export_preset="decision_clip"
+        ),
+        "profile": profile,
+        "export_preset": "decision_clip",
+        "localizations": profile["localizations"],
+        "identity": {
+            "gameSerial": "BLT-VOICE-1",
+            "sceneId": scenes[0].scene_id,
+            "enrollmentUri": "https://balootx.local/c/VOICE1",
+            "players": {"north": "N", "west": "W", "east": "E", "south": "S"},
+        },
+        "repository_root": root,
     }
-    exact = build_render_bundle(
-        scenes=scenes,
-        timeline=timeline,
-        profile=profile,
-        export_preset="decision_clip",
-        localizations=profile["localizations"],
-        identity=identity,
-        repository_root=tmp_path,
-    )
-    assert exact.verify()
-    assert exact.value["presentation"]["audio"]["explanation_voice_transcript"] == profile["audio"]["explanation_voice_transcript"]
-    assert exact.value["audioCues"] == [
-        {
-            "stage": "reveal",
-            "assetId": "voice-explanation",
-            "path": "audio/voice_packs/unit-transcript/explanation.wav",
-            "volume": 0.78,
-            "transcriptKey": transcript_key,
-            "transcriptSha256": exact.value["audioCues"][0]["transcriptSha256"],
+    justification_key = "video.audio.entry_control_explanation"
+    if case == "legacy_justification":
+        default_audio = profile["audio"].copy()
+        profile["audio"].update(
+            spoken_voice_pack=True,
+            one_piece_explanation=True,
+            explanation_voice_localization_key=justification_key,
+        )
+        with pytest.raises(ValueError, match=error):
+            build_render_bundle(**args)
+        profile["audio"] = default_audio
+    value = build_render_bundle(**args).to_dict()
+    if case == "legacy_justification":
+        value["presentation"]["audio"]["voice_callouts"] = True
+        value["presentation"]["audio"]["explanation_voice_localization_key"] = justification_key
+    elif case == "retired_pack":
+        value["presentation"]["audio"]["voice_pack_directory"] = (
+            "assets/audio/voice_packs/ar_sa_baloot_v2_smooth"
+        )
+    elif case == "retired_asset":
+        value["assets"][0]["path"] = "assets/audio/voice_packs/ar_sa_baloot_v2_smooth/clip.wav"
+    elif case == "retired_provider":
+        value["presentation"]["audio"]["voice_provider"] = "offline_smooth_pack_v2"
+    elif case != "disabled":
+        key = "video.decision.choose_best_move"
+        stage = "question"
+        if case == "justification":
+            key = justification_key
+        elif case == "outside_allowlist":
+            key = "video.decision.reveal_card"
+            value["localizations"][key] = "fixture"
+        elif case == "hidden_notice":
+            key = "video.notice.title"
+        elif case in {"formatted_name", "unformatted_name"}:
+            key = "video.decision.your_turn"
+        text = value["localizations"].get(key, "fixture")
+        if case == "different_text":
+            text += " "
+        elif case == "formatted_name":
+            text = text.replace("{name}", "S")
+        asset = {"id": "unit-voice", "path": "assets/audio/unit-voice.wav"}
+        cue = {
+            "stage": stage,
+            "assetId": asset["id"],
+            "path": "audio/unit-voice.wav",
+            "volume": 0.5,
+            "transcriptKey": key,
+            "transcriptSha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
         }
-    ]
-    assert {item["id"] for item in exact.value["assets"]} >= {
-        "voice-explanation",
-        "voice-pack-manifest",
-    }
+        if case == "rationale_field":
+            cue["rationale"] = "fixture"
+        elif case == "rationale_alias":
+            reveal = next(scene for scene in value["scenes"] if scene["stage"] == "reveal")
+            analysis = next(layer["content"] for layer in reveal["layers"] if layer["id"] == "analysis")
+            analysis["reasonKey"] = key
+        value["assets"].append(asset)
+        value["audioCues"].append(cue)
+    value.pop("bundleSha256")
+    value["bundleSha256"] = content_hash(value)
+    bundle = RenderBundleV1(value)
+    if error is None:
+        assert bundle.verify(raise_voice_errors=True)
+    else:
+        assert not bundle.verify()
+        with pytest.raises(ValueError, match=error):
+            bundle.verify(raise_voice_errors=True)
 
-    mismatched = dict(profile["localizations"])
-    mismatched[transcript_key] = "سبب ثاني ما يطابق التسجيل."
-    silent = build_render_bundle(
-        scenes=scenes,
-        timeline=timeline,
-        profile=profile,
-        export_preset="decision_clip",
-        localizations=mismatched,
-        identity=identity,
-        repository_root=tmp_path,
-    )
-    assert silent.verify()
-    assert silent.value["audioCues"] == []
-    assert silent.value["presentation"]["audio"]["explanation_voice_transcript"] == ""
-    assert profile["audio"]["explanation_voice_transcript"]
-    assert "voice-explanation" not in {item["id"] for item in silent.value["assets"]}
+
+@pytest.mark.parametrize(
+    ("legacy_profile", "game_number", "names", "timeline_sha"),
+    [
+        pytest.param(
+            True, "LAF-691C32D46D", ("Player 09", "Player 13", "Player 05", "Player 12"),
+            "d058976495a20cf35a944af1a99372fad960d38bdb89d21b5ef3540e3aec30c9", id="unchanged-profile",
+        ),
+        pytest.param(
+            False, "LAF-8328D3843E", ("Player 13", "Player 09", "Player 16", "Player 15"),
+            "c5bc9416f25c2cad499e7f7ade411db4b51e8b49233a0383602500568b2adfed", id="voice-off-profile",
+        ),
+    ],
+)
+def test_public_notice_identity_and_six_visible_voice_phrases(
+    root: Path, legacy_profile: bool, game_number: str, names: tuple[str, ...], timeline_sha: str,
+) -> None:
+    from scripts import render_research_notice as notice
+
+    rules = notice.RuleBook.load(root / "configs/rules/saudi_common_v1.yaml")
+    profile = notice.notice_profile(public=True)
+    if legacy_profile:
+        # Recover the pre-guard profile without copying a second justification transcript.
+        profile["audio"].update(_RETIRED_VOICE_DEFAULTS, voice_callouts=True, spoken_voice_pack=True)
+        key = _RETIRED_VOICE_DEFAULTS["explanation_voice_localization_key"]
+        profile["audio"]["explanation_voice_transcript"] = profile["localizations"][key]
+    value = notice.build_notice_bundle(rules, profile).to_dict()
+    assert value["identity"]["gameSerial"] == game_number
+    assert tuple(value["identity"]["players"][seat] for seat in ("north", "west", "east", "south")) == names
+    assert content_hash(value["timeline"]) == timeline_sha
+    audio = value["presentation"]["audio"]
+    assert not audio.get("voice_pack_directory") and not audio.get("voice_provider")
+    assert audio["voice_callouts"] is audio["spoken_voice_pack"] is False
+    assert value["audioCues"] == []
+    question = next(scene for scene in value["scenes"] if scene["stage"] == "question")
+    prompt = next(layer["content"] for layer in question["layers"] if layer["id"] == "decision-prompt")
+    name = value["identity"]["players"][prompt["actingSeat"]]
+    value["assets"].append({"id": "unit-voice", "path": "assets/audio/unit-voice.wav"})
+    for key, stage in (
+        ("video.decision.your_turn", "question"),
+        ("video.decision.choose_best_move", "question"),
+        ("video.notice.title", "setup"),
+        ("video.notice.sentence", "setup"),
+        ("video.decision.best_move", "reveal"),
+        ("video.result.title", "outcome"),
+    ):
+        text = value["localizations"][key].replace("{name}", name)
+        value["audioCues"].append({
+            "stage": stage, "assetId": "unit-voice", "path": "audio/unit-voice.wav",
+            "volume": 0.5, "transcriptKey": key,
+            "transcriptSha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        })
+    value.pop("bundleSha256")
+    value["bundleSha256"] = content_hash(value)
+    assert RenderBundleV1(value).verify(raise_voice_errors=True)
 
 
 def test_render_bundle_rejects_ungoverned_export_and_tampering(root: Path) -> None:

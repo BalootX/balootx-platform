@@ -1,4 +1,4 @@
-import {mkdir, readFile} from "node:fs/promises";
+import {mkdir} from "node:fs/promises";
 import {availableParallelism, cpus} from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -7,7 +7,7 @@ import {bundle} from "@remotion/bundler";
 import {openBrowser, renderMedia, renderStill, selectComposition} from "@remotion/renderer";
 import {bt709FfmpegOverride} from "./ffmpeg-profile.mjs";
 import {writeFileWithRetry} from "./fs-safe.mjs";
-import {cgroupCpuLimit, governedH264Options, hostSafeConcurrency} from "./render-options.mjs";
+import {cgroupCpuLimit, governedH264Options, hostSafeConcurrency, readValidatedRenderBundle} from "./render-options.mjs";
 
 const rendererRoot = process.cwd();
 const repositoryRoot = path.resolve(rendererRoot, "../../../..");
@@ -21,7 +21,7 @@ const collectionOnly = process.env.BALOOTX_COLLECTION_ONLY === "1";
 const batchRender = process.env.BALOOTX_BATCH_RENDER === "1";
 const playbackEvidence = process.env.BALOOTX_PLAYBACK_EVIDENCE === "1";
 const chromiumOptions = process.platform === "linux" ? {enableMultiProcessOnLinux: true} : undefined;
-const bundleData = JSON.parse(await readFile(inputPath, "utf8"));
+const bundleData = readValidatedRenderBundle(inputPath);
 const mediaRenderOptions = governedH264Options(bundleData.render);
 const sampleHostCpu = async () => {
   let previous = cpus();

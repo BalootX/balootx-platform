@@ -27653,7 +27653,7 @@
             "type": "integer"
           },
           "spokenVoicePack": {
-            "default": true,
+            "default": false,
             "title": "Spokenvoicepack",
             "type": "boolean"
           },
@@ -27699,7 +27699,7 @@
             "type": "string"
           },
           "voiceCallouts": {
-            "default": true,
+            "default": false,
             "title": "Voicecallouts",
             "type": "boolean"
           },

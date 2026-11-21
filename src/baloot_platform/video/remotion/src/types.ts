@@ -156,7 +156,7 @@ export type RenderBundle = {
     players: Record<"north" | "west" | "east" | "south", string>;
   };
   audioCues: Array<{
-    stage: "reveal";
+    stage: string;
     assetId: string;
     path: string;
     volume: number;
