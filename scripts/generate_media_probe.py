@@ -8,8 +8,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -18,6 +16,7 @@ from baloot_platform.video.media_validation import (  # noqa: E402
     media_tool,
     probe_loudness,
     probe_media,
+    release_loudness_target,
     validate_loudness,
     validate_media_probe,
 )
@@ -77,7 +76,7 @@ def verify_media(item: dict[str, Any], *, ffmpeg: Path, ffprobe: Path, target_lu
         audio_rate=48_000,
     )
     loudness = probe_loudness(video, ffmpeg=ffmpeg, target_lufs=target_lufs)
-    validate_loudness(loudness)
+    validate_loudness(loudness, target_lufs=target_lufs)
 
     segments = {segment["stage"]: segment for segment in timeline["segments"]}
     comparisons = []
@@ -108,8 +107,7 @@ def verify_media(item: dict[str, Any], *, ffmpeg: Path, ffprobe: Path, target_lu
 
 
 def main() -> None:
-    profile = yaml.safe_load((ROOT / "configs/video/premium.yaml").read_text(encoding="utf-8"))
-    target_lufs = float(profile["audio"]["target_lufs"])
+    target_lufs = release_loudness_target()
     ffmpeg = media_tool(ROOT, "ffmpeg")
     ffprobe = media_tool(ROOT, "ffprobe")
     value = {

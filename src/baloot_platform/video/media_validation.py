@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -25,10 +26,19 @@ from baloot_platform.video.media_probe import (
 REMOTION_RENDERER_VERSION = "21.10.7"
 APPROVED_LAYOUT_TABLE = "scripts/approved-layout-adjacencies.json"
 APPROVED_LAYOUT_TABLE_SHA256 = "7c1aeee912e4b032d8fb35b50cacde5f464ebf279cbb34464e4054e322ae6a1c"
-MAXIMUM_LOUDNESS_DEVIATION_LUFS = 2.0
-MAXIMUM_TRUE_PEAK_DBTP = -1.0
+RELEASE_TARGET_LUFS = -19.4
+MAXIMUM_LOUDNESS_DEVIATION_LUFS = 1.5
+MAXIMUM_TRUE_PEAK_DBTP = -1.5
 MINIMUM_SOURCE_COMPARISON_PSNR_DB = 28.0
 MAXIMUM_SOURCE_COMPARISON_MAE = 6.0
+
+
+def release_loudness_target() -> float:
+    """Read the release reference independently of the bundle's mix target."""
+    target = float(os.environ.get("BALOOTX_RELEASE_TARGET_LUFS", RELEASE_TARGET_LUFS))
+    if not -70.0 <= target <= -5.0:
+        raise ValueError("release loudness target must be between -70 and -5 LUFS")
+    return target
 
 
 def renderer_source_files(root: Path) -> tuple[Path, ...]:
@@ -97,8 +107,8 @@ def probe_loudness(
     path: Path,
     *,
     ffmpeg: Path,
-    target_lufs: float,
-    true_peak_dbtp: float = -1.5,
+    target_lufs: float = RELEASE_TARGET_LUFS,
+    true_peak_dbtp: float = MAXIMUM_TRUE_PEAK_DBTP,
 ) -> dict[str, float]:
     process = run_media_command(
         [
@@ -137,13 +147,22 @@ def probe_loudness(
     }
 
 
-def validate_loudness(evidence: Mapping[str, Any]) -> None:
-    if (
-        abs(float(evidence["integratedLufs"]) - float(evidence["targetLufs"]))
-        > MAXIMUM_LOUDNESS_DEVIATION_LUFS
-        or float(evidence["truePeakDbtp"]) > MAXIMUM_TRUE_PEAK_DBTP
-    ):
-        raise ValueError(f"governed audio loudness validation failed: {evidence}")
+def loudness_within_limits(evidence: Mapping[str, Any], *, target_lufs: float) -> bool:
+    integrated = float(evidence["integratedLufs"])
+    peak = float(evidence["truePeakDbtp"])
+    return (
+        all(math.isfinite(value) for value in (integrated, peak, target_lufs))
+        and abs(Decimal(str(integrated)) - Decimal(str(target_lufs)))
+        <= Decimal(str(MAXIMUM_LOUDNESS_DEVIATION_LUFS))
+        and peak <= MAXIMUM_TRUE_PEAK_DBTP
+    )
+
+
+def validate_loudness(
+    evidence: Mapping[str, Any], *, target_lufs: float = RELEASE_TARGET_LUFS
+) -> None:
+    if not loudness_within_limits(evidence, target_lufs=target_lufs):
+        raise ValueError(f"governed audio loudness validation failed at {target_lufs} LUFS: {evidence}")
 
 
 def compare_images(source: Path, encoded: Path) -> dict[str, float | int | str]:

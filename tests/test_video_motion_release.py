@@ -334,24 +334,23 @@ def test_media_gate_requires_complete_bt709_and_exact_frame_count() -> None:
         )
 
 
-def test_audio_loudness_and_source_frame_parity_are_release_gates(
+@pytest.mark.parametrize(("integrated", "peak", "passes"), [
+    (-20.9, -1.5, True), (-17.9, -1.5, True),
+    (-20.91, -2.0, False), (-17.89, -2.0, False), (-19.4, -1.49, False),
+    (float("nan"), -2.0, False), (-19.4, float("-inf"), False),
+])
+def test_release_loudness_boundaries(integrated, peak, passes) -> None:
+    evidence = {"integratedLufs": integrated, "truePeakDbtp": peak, "targetLufs": integrated}
+    if passes:
+        validate_loudness(evidence)
+    else:
+        with pytest.raises(ValueError, match="loudness"):
+            validate_loudness(evidence)
+
+
+def test_source_frame_parity_is_a_release_gate(
     tmp_path: Path,
 ) -> None:
-    validate_loudness(
-        {
-            "integratedLufs": -18.8,
-            "truePeakDbtp": -1.6,
-            "targetLufs": -18.0,
-        }
-    )
-    with pytest.raises(ValueError, match="loudness"):
-        validate_loudness(
-            {
-                "integratedLufs": -21.0,
-                "truePeakDbtp": -1.6,
-                "targetLufs": -18.0,
-            }
-        )
     from PIL import Image
 
     source = tmp_path / "source.png"
