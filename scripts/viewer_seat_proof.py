@@ -98,8 +98,15 @@ def prove_fixture(raw, *, fixture_sha, source_sha, maximum_allocations, maximum_
     rules = RuleBook.load(RULES_PATH)
     exact = ExactStateNormalizerV1(rules).normalize(prefix, decision_point={"kind": "play"})
     state = exact.round_state
+    rules_meaning = fixture.get("rulesMeaning")
+    if (state.current_player is None or not isinstance(rules_meaning, dict)
+            or rules_meaning.get("actingSeat") != state.current_player.name.lower()):
+        raise ValueError("scenario rulesMeaning.actingSeat does not match the replayed viewer seat")
     engine = BalootEngine(rules)
-    actions = sorted(action.code for action in engine.legal_play_actions(state))
+    legal_plays = engine.legal_play_actions(state)
+    if len({action.card for action in legal_plays}) == 1:
+        raise ValueError("D is undefined when only one card is legal")
+    actions = sorted(action.code for action in legal_plays)
     if selected not in actions:
         raise ValueError("the scenario must name a legal selected action")
     info = InformationState.from_complete(state, state.current_player)
@@ -112,7 +119,9 @@ def prove_fixture(raw, *, fixture_sha, source_sha, maximum_allocations, maximum_
             if backend == "native" or native_library is not None:
                 raise
     receipt = {
-        "schemaVersion": 1, "scope": "exhaustive_dealwise_double_dummy", "status": "INCOMPLETE",
+        "schemaVersion": 2, "scope": "exhaustive_dealwise_double_dummy", "status": "INCOMPLETE",
+        "rMeaning": "R is the share of rule-consistent hidden deals where the selected action has the highest value, including ties. "
+                    "Each deal counts equally and bids are not used as constraints. R is not a probability.",
         "utility": "awarded_point_margin", "selectedAction": selected,
         "observerSafePolicyProof": "NOT_RUN",
         "sourceCommit": source_sha, "scenarioSha256": fixture_sha, "rulesSha256": rules.sha256,
@@ -131,7 +140,8 @@ def prove_fixture(raw, *, fixture_sha, source_sha, maximum_allocations, maximum_
             return {**receipt, "reason": "maximum_allocations", "allocationCandidateBound": error.candidate_bound}
         if not deals.coverage_complete:
             raise ValueError("exact-only deal enumeration returned partial coverage")
-        receipt.update(allocationMethod=deals.method, allocationsAttempted=deals.attempted, dealsTotal=len(deals.states))
+        receipt.update(allocationMethod=deals.method, allocationsAttempted=deals.attempted,
+                       dealsTotal=len(deals.states), allocationRejectionsByReason=deals.rejections_by_reason)
         sums = dict.fromkeys(actions, 0)
         best = dict.fromkeys(actions, 0)
         strict = dict.fromkeys(actions, 0)
@@ -172,12 +182,11 @@ def prove_fixture(raw, *, fixture_sha, source_sha, maximum_allocations, maximum_
     count = receipt["dealsSolved"]
     moves = []
     for action in actions:
-        alternative = max((value for key, value in sums.items() if key != action), default=None)
-        gap = sums[action] - alternative if alternative is not None else None
+        alternative = max(value for key, value in sums.items() if key != action)
+        gap = sums[action] - alternative
         moves.append({"action": action, "bestDeals": best[action], "bestShare": best[action] / count,
                       "strictBestDeals": strict[action], "strictShare": strict[action] / count,
-                      "meanGapNumerator": gap, "meanGap": gap / count if gap is not None else None,
-                      "uniqueBest": gap is None or gap > 0})
+                      "meanGapNumerator": gap, "meanGap": gap / count, "uniqueBest": gap > 0})
     chosen = next(move for move in moves if move["action"] == selected)
     return {**receipt, "status": "exact_complete", "coverageComplete": True, "nodesInSolvedDeals": nodes,
             "dealRootValuesSha256": evidence.hexdigest(), "R": chosen["bestShare"], "D": chosen["meanGap"],

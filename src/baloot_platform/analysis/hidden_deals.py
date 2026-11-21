@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import itertools
 import math
+from collections import Counter
+from dataclasses import dataclass, field
 from functools import lru_cache
-from dataclasses import dataclass
 from typing import Callable
 
 from baloot_platform.core.cards import FULL_DECK, Card, cards_to_mask
@@ -23,12 +24,17 @@ class HiddenDealSet:
     method: str
     attempted: int
     coverage_complete: bool = False
+    rejections_by_reason: dict[str, int] = field(default_factory=dict)
 
 
 class HiddenDealBudgetExceeded(RuntimeError):
     def __init__(self, candidate_bound: int):
         self.candidate_bound = candidate_bound
         super().__init__("exhaustive hidden allocations exceed the candidate budget")
+
+
+class _PublicReplayMismatch(ValueError):
+    """A stable rejection reason that is safe to publish in a receipt."""
 
 
 def _should_stop_hidden_deal_generation(
@@ -125,8 +131,11 @@ def _build_start_reference(
     # project comparison/reveal timing, Baloot, trick winners, and points.
     for public in info.plays:
         if state.current_player != public.seat:
-            raise ValueError("public turn sequence is inconsistent")
-        engine.play_card(state, public.card, ekka=public.ekka)
+            raise _PublicReplayMismatch("public_turn_sequence_mismatch")
+        try:
+            engine.play_card(state, public.card, ekka=public.ekka)
+        except ValueError as error:
+            raise _PublicReplayMismatch("public_play_rejected") from error
 
     # Mandatory declarations may already have happened on the current turn,
     # before its card; replaying cards alone does not reproduce that boundary.
@@ -136,13 +145,13 @@ def _build_start_reference(
 
     state.match_score = list(info.match_score)
     if state.current_player != info.current_player:
-        raise ValueError("hypothesis does not reach the expected current player")
+        raise _PublicReplayMismatch("current_player_mismatch")
     if _public_project_signature(state, info.observer) != _information_project_signature(info):
-        raise ValueError("hypothesis does not reproduce the public project history")
+        raise _PublicReplayMismatch("public_project_history_mismatch")
     if tuple(sorted(state.baloot_teams, key=int)) != info.baloot_teams:
-        raise ValueError("hypothesis does not reproduce public Baloot declarations")
+        raise _PublicReplayMismatch("public_baloot_declarations_mismatch")
     if state.trump_broken != info.trump_broken:
-        raise ValueError("hypothesis does not reproduce trump-break state")
+        raise _PublicReplayMismatch("trump_break_mismatch")
     return state
 
 
@@ -520,6 +529,7 @@ def generate_hidden_deals(
         raise HiddenDealBudgetExceeded(feasible_count)
 
     accepted: list[RoundState] = []
+    rejections: Counter[str] = Counter()
     attempts = 0
     build_start = _build_start_reference if exact_only else _build_start
     if feasible_count <= max(1, int(exact_allocation_limit)):
@@ -593,7 +603,10 @@ def generate_hidden_deals(
             raise AssertionError("constructive allocation violated a hard void deduction")
         try:
             accepted.append(build_start(info, hands, engine))
-        except ValueError:
+        except ValueError as error:
+            if exact_only:
+                reason = str(error) if isinstance(error, _PublicReplayMismatch) else "other_replay_value_error"
+                rejections[reason] += 1
             continue
         except AssertionError:
             if exact_only:
@@ -612,4 +625,5 @@ def generate_hidden_deals(
         method,
         attempts,
         coverage_complete=method.startswith("exhaustive_"),
+        rejections_by_reason=dict(rejections),
     )

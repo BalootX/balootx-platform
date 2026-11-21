@@ -505,7 +505,7 @@
     "tests/test_video_visual_qa.py": 3.429,
     "tests/test_viewer_seat_proof.py": 1.61
   },
-  "shardTimingRationale": "Maximum completed per-file elapsed duration across Python 3.12 and 3.13 in run 44812185812. Retained times for node-sharded files and original timeout and isolation tiers.",
+  "shardTimingRationale": "Maximum completed per-file elapsed duration across Python 3.12 and 3.13 in run 44812185812. Retained times for node-sharded files and original timeout and isolation tiers. The 1.61-second weight for tests/test_viewer_seat_proof.py comes from hosted run 44954624725.",
   "versionedNodeShardedFiles": [
     "tests/test_research_ortools_backend_service.py",
     "tests/test_research_ortools_unified_executor.py",
