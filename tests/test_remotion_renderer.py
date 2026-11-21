@@ -336,11 +336,51 @@ def test_playback_evidence_derives_all_complete_trace_boundaries(root: Path, vie
         renderer._playback_state_evidence(bundle, checkpoints)
 
 
+def test_layout_receipt_binds_raw_mp4_bundle_table_and_checkpoint_bytes(tmp_path):
+    def retain(name, contents):
+        target = tmp_path / name
+        target.write_bytes(contents)
+        return target, remotion_renderer_module._sha256(target)
+
+    table, table_sha = retain("layout-table.json", b"{}")
+    bundle, bundle_sha = retain("render-bundle.json", b'{"schemaVersion": 1}')
+    video, video_sha = retain("render.mp4", b"rendered media")
+    binding = {
+        "mode": "qualification", "tableSha256": table_sha,
+        "bundleSha256": "bundle-sha", "bundleFileSha256": bundle_sha,
+    }
+    rows = []
+    for phase in ("hook", "question", "reveal"):
+        png, png_sha = retain(f"{phase}.png", b"checkpoint")
+        rows.append({"phase": phase, "source": png.name, "pngSha256": png_sha, "binding": binding,
+            "validation": {"status": "passed", "tableSha256": table_sha}})
+    evidence = {"schemaVersion": 1, "status": "passed", "binding": binding, "items": rows, "videoSha256": video_sha}
+    receipt, _ = retain("layout-evidence.json", json.dumps(evidence).encode("utf-8"))
+
+    def read():
+        return remotion_renderer_module._qualified_layout_evidence(
+            tmp_path, bundle_path=bundle, bundle_sha256="bundle-sha", table_sha256=table_sha,
+        )
+
+    assert read() == evidence
+    for file in (table, bundle, video, png):
+        original = file.read_bytes()
+        file.write_bytes(original + b"changed")
+        with pytest.raises(ValueError, match="layout table, bundle and rendered MP4|checkpoint binding"):
+            read()
+        file.write_bytes(original)
+    binding["mode"] = "measurement"
+    receipt.write_text(json.dumps(evidence), encoding="utf-8")
+    with pytest.raises(ValueError, match="permanently NEVER_POST"):
+        read()
+
+
 @pytest.mark.parametrize("pause", [24, 25, 26])
 def test_decision_clip_checks_selected_states_without_claiming_full_replay(root: Path, pause) -> None:
     script = (root / "src/baloot_platform/video/remotion/scripts/render-decision-clip.mjs").read_text(encoding="utf-8")
     # Remotion renders resolved composition props, not just inputProps.
-    assert "props: {...composition.props, capturePlaybackDom: true}" in script
+    assert "props: {...composition.props, ...stillProps}" in script
+    assert "{capturePlaybackDom: true}" in script
     renderer = _renderer(root)
     raw = renderer.build_render_request(_episode(root), export_preset="decision_clip").to_dict()
     continuation_scene = next(scene for scene in raw["scenes"] if scene["stage"] == "continuation")

@@ -1,23 +1,49 @@
-import {mkdir} from "node:fs/promises";
+import {mkdir, readFile} from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import {bundle} from "@remotion/bundler";
 import {openBrowser, renderMedia, renderStill, selectComposition} from "@remotion/renderer";
 import {bt709FfmpegOverride} from "./ffmpeg-profile.mjs";
 import {writeFileWithRetry} from "./fs-safe.mjs";
-import {governedH264Options, readValidatedRenderBundle} from "./render-options.mjs";
+import {governedH264Options, parseValidatedRenderBundle} from "./render-options.mjs";
+import {checkLayoutGeometry, fileSha256, layoutFrames, layoutMeasurementMarker, loadLayoutTable, pngHash, propsSha256, sha256} from "./layout-gate.mjs";
 
 const rendererRoot = process.cwd();
 const repositoryRoot = path.resolve(rendererRoot, "../../../..");
 const assetsRoot = process.env.BALOOTX_ASSETS_ROOT ?? path.join(repositoryRoot, "assets");
-const inputPath = process.env.BALOOTX_RENDER_BUNDLE ?? process.argv[2] ?? path.join(repositoryRoot, "outputs/professional-video-prototypes/render-bundle-decision.json");
-const outputDir = process.env.BALOOTX_RENDER_OUTPUT ?? process.argv[3] ?? path.join(repositoryRoot, "outputs/professional-video-decision");
-const outputBase = process.env.BALOOTX_RENDER_BASENAME ?? "balootx-decision-clip";
+const args = process.argv.slice(2);
+const measure = args[0] === "--measure-layout";
+if ((measure && args.length !== 3) || (!measure && (args.length > 2 || args.some(arg => arg.startsWith("--"))))) {
+  throw new Error("usage: render-decision-clip.mjs [--measure-layout] [bundle output]");
+}
+const inputPath = measure ? args[1] : process.env.BALOOTX_RENDER_BUNDLE ?? args[0] ?? path.join(repositoryRoot, "outputs/professional-video-prototypes/render-bundle-decision.json");
+const outputDir = measure ? args[2] : process.env.BALOOTX_RENDER_OUTPUT ?? args[1] ?? path.join(repositoryRoot, "outputs/professional-video-decision");
+const outputBase = measure ? "NEVER_POST-layout-measurement" : process.env.BALOOTX_RENDER_BASENAME ?? "balootx-decision-clip";
 const outputPath = path.join(outputDir, `${outputBase}.mp4`);
 const stillsOnly = process.env.BALOOTX_STILLS_ONLY === "1";
-const playbackEvidence = process.env.BALOOTX_PLAYBACK_EVIDENCE === "1";
+const playbackEvidence = !measure && process.env.BALOOTX_PLAYBACK_EVIDENCE === "1";
 const chromiumOptions = process.platform === "linux" ? {enableMultiProcessOnLinux: true} : undefined;
-const bundleData = readValidatedRenderBundle(inputPath);
+const inputBytes = await readFile(inputPath);
+const bundleData = parseValidatedRenderBundle(inputBytes);
+const qualifyLayout = bundleData.presentation?.majlis?.research_notice === true;
+if (measure && (!qualifyLayout || stillsOnly)) throw new Error("layout measurement requires a red notice MP4");
+const tableFile = process.env.BALOOTX_LAYOUT_TABLE;
+const tablePin = process.env.BALOOTX_LAYOUT_TABLE_SHA256;
+if (qualifyLayout && tableFile && !tablePin) throw new Error("an external layout table requires its SHA-256 pin");
+const table = qualifyLayout ? await loadLayoutTable(tableFile, tablePin) : null;
+const geometryFrames = table ? layoutFrames(bundleData) : [];
+const layoutBinding = table && {
+  mode: measure ? "measurement" : "qualification",
+  bundleFileSha256: sha256(inputBytes),
+  bundleSha256: bundleData.bundleSha256,
+  tableSha256: table.tableSha256,
+};
+const layoutEvidence = table && {
+  schemaVersion: 1, status: "running", binding: {...layoutBinding, propsSha256: propsSha256(bundleData)}, items: [],
+  ...(measure ? {disposition: "NEVER_POST", postingAuthorized: false} : {}),
+};
+const layoutPath = path.join(outputDir, measure ? "layout-measurement.json" : "layout-evidence.json");
+const saveLayout = () => writeFileWithRetry(layoutPath, `${JSON.stringify(layoutEvidence, null, 2)}\n`, "utf8");
 const mediaRenderOptions = governedH264Options(bundleData.render);
 const inputProps = {
   bundle: bundleData,
@@ -38,9 +64,14 @@ const timestamp = frames => {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 };
 
-await mkdir(outputDir, {recursive: true});
+await mkdir(outputDir, {recursive: !measure});
+if (table) {
+  await writeFileWithRetry(path.join(outputDir, "layout-table.json"), table.bytes);
+  await saveLayout();
+}
 const revealScene = bundleData.scenes.find((scene) => scene.stage === "reveal");
 const analysisLayer = revealScene?.layers.find((layer) => layer.id === "analysis");
+const playDecision = (analysisLayer?.content?.decisionKind ?? "play") === "play";
 const showJustification = bundleData.presentation?.presentation?.show_justification_text !== false;
 const captionSegment = segment("reveal");
 const captionText = showJustification
@@ -110,17 +141,30 @@ const checkpoints = completeReplay ? replayCheckpoints() : [
     ? [["08-outcome", middleFrame("outcome"), "outcome", 32]] : []),
 ];
 const evidence = [];
-for (const [name, frame, phase, completedPlayCount] of checkpoints) {
+const layoutStills = geometryFrames.map(({phase, frame}) => [`layout-${phase}`, frame, phase]);
+if (!measure) {
+  checkpoints.push(...layoutStills.filter(([, frame, phase]) =>
+    !checkpoints.some(([, existingFrame, existingPhase]) => frame === existingFrame && phase === existingPhase)));
+}
+for (const [name, frame, phase, completedPlayCount] of measure ? layoutStills : checkpoints) {
   let renderedDom;
+  let geometry;
+  const geometryFrame = geometryFrames.find(row => row.frame === frame && row.phase === phase);
+  const capturePlayback = playbackEvidence && phase && completedPlayCount !== undefined;
+  const stillProps = {
+    ...inputProps,
+    ...(capturePlayback || geometryFrame ? {capturePlaybackDom: true} : {}),
+    ...(geometryFrame ? {layoutBinding} : {}),
+  };
+  const stillPath = path.join(outputDir, `${name}.png`);
   await renderStill({
-    composition: playbackEvidence && phase
-      ? {...composition, props: {...composition.props, capturePlaybackDom: true}}
-      : composition,
+    composition: {...composition, props: {...composition.props, ...stillProps}},
     serveUrl,
-    output: path.join(outputDir, `${name}.png`),
-    inputProps: playbackEvidence && phase ? {...inputProps, capturePlaybackDom: true} : inputProps,
+    output: stillPath,
+    inputProps: stillProps,
     onArtifact: artifact => {
       if (artifact.filename === "playback-dom.json") renderedDom = JSON.parse(String(artifact.content));
+      if (artifact.filename === "layout-geometry.json") geometry = JSON.parse(String(artifact.content));
     },
     imageFormat: "png",
     frame,
@@ -128,12 +172,31 @@ for (const [name, frame, phase, completedPlayCount] of checkpoints) {
     chromiumOptions,
     puppeteerInstance: browser,
   });
-  if (playbackEvidence && phase) {
+  if (geometryFrame) {
+    const {width, height} = bundleData.render;
+    const row = {...geometry, source: `${name}.png`, pngSha256: pngHash(await readFile(stillPath), width, height)};
+    layoutEvidence.items.push(row);
+    try {
+      row.validation = checkLayoutGeometry(geometry, {...geometryFrame, width, height, playDecision, binding: layoutEvidence.binding}, table);
+    } catch (error) {
+      row.validation = error.validation ?? {status: "failed", error: String(error)};
+      layoutEvidence.status = "failed";
+      await saveLayout();
+      throw error;
+    }
+  }
+  if (capturePlayback) {
     if (!renderedDom || renderedDom.frame !== frame || renderedDom.completedPlayCount !== completedPlayCount) {
       throw new Error(`Decision-clip DOM checkpoint mismatch: ${JSON.stringify({phase, frame, completedPlayCount, renderedDom})}`);
     }
     evidence.push({phase, completedPlayCount, frame, source: `${name}.png`, renderedDom});
   }
+}
+if (table) {
+  if (layoutEvidence.items.length !== geometryFrames.length) throw new Error("layout checkpoints missing");
+  layoutEvidence.items = geometryFrames.map(({phase}) => layoutEvidence.items.find(row => row.phase === phase));
+  layoutEvidence.status = "stills_passed";
+  await saveLayout();
 }
 if (playbackEvidence) await writeFileWithRetry(path.join(outputDir, "playback-evidence.json"),
   `${JSON.stringify({schemaVersion: 1, items: evidence}, null, 2)}\n`, "utf8");
@@ -145,7 +208,10 @@ if (!stillsOnly) {
     inputProps,
     ...mediaRenderOptions,
     colorSpace: "bt709",
-    ffmpegOverride: bt709FfmpegOverride,
+    ffmpegOverride: measure ? ({args}) => {
+      const governed = bt709FfmpegOverride({args});
+      return [...governed.slice(0, -1), "-metadata", `comment=${layoutMeasurementMarker}`, governed.at(-1)];
+    } : bt709FfmpegOverride,
     disallowParallelEncoding: true,
     audioCodec: "aac",
     audioBitrate: "192k",
@@ -153,6 +219,12 @@ if (!stillsOnly) {
     chromiumOptions,
     puppeteerInstance: browser,
   });
+  if (table) {
+    const videoSha256 = await fileSha256(outputPath);
+    if (!measure && table.forbidden.includes(videoSha256)) throw new Error("layout measurement MP4 is permanently NEVER_POST");
+    Object.assign(layoutEvidence, {status: measure ? "measured" : "passed", videoSha256});
+    await saveLayout();
+  }
   process.stdout.write(`${outputPath}\n`);
 }
 } finally {

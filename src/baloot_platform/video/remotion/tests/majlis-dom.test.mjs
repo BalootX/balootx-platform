@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {test} from "node:test";
 import ts from "typescript";
+import {checkLayoutGeometry, loadLayoutTable, sha256} from "../scripts/layout-gate.mjs";
 
 const out = new URL("../node_modules/.cache/majlis-dom-test/", import.meta.url);
 mkdirSync(out, {recursive: true});
@@ -363,4 +364,64 @@ test("south tags stack below the question bar and reveal panel; north tray meets
   const top = bottom - (padTop + padBottom + 2 * border + cardHeight);
   assert.ok(bottom <= 540, `tray bottom ${bottom} must stay above the rug top 540`);
   assert.ok(Math.abs(top - 420) <= 5, `tray top ${top} should sit near the design's 420`);
+});
+
+test("the calibration table qualifies exact red notice checkpoints and excludes planted contacts", async () => {
+  const table = await loadLayoutTable();
+  for (const phase of ["hook", "question", "reveal"]) {
+    const reveal = phase === "reveal";
+    const rect = (left, top, width, height) => ({left, top, right: left + width, bottom: top + height});
+    const name = rect(200, 400, 180, 40);
+    const groups = {
+      promptPill: reveal ? [] : [rect(400, 280, 200, 100)],
+      namePills: [rect(40, 400, 100, 40), name, rect(900, 400, 100, 40), ...(reveal ? [rect(750, 400, 100, 40)] : [])],
+      buyerBadge: [rect(200, 436.1748046875, 167.578125, 50)],
+      dealerBadge: [rect(150, 500, 100, 40)],
+      choiceBox: reveal ? [rect(400, 630, 200, 60)] : [],
+      researchNotice: [rect(40, 40, 1000, 116)],
+      broadcastHud: [rect(40, 175, 1000, 50)],
+    };
+    const roles = Object.fromEntries(Object.entries(groups).map(([role, rectangles]) => [role, {
+      matchedCount: rectangles.length,
+      items: rectangles.map((bounds, index) => ({id: `${role}:${index}`, visible: true, ...bounds})),
+    }]));
+    const binding = {mode: "qualification", tableSha256: table.tableSha256};
+    const expected = {phase, frame: 30, width: 1080, height: 1920, binding, playDecision: true};
+    const row = {...expected, schemaVersion: 1, measurementMethod: "DOM.getBoundingClientRect",
+      coordinateSpace: "composition_pixels", rootRect: {left: 0, top: 0, width: 1080, height: 1920}, roles};
+    const result = checkLayoutGeometry(row, expected, table);
+    assert.equal(result.status, "passed");
+    assert.equal(result.tableSha256, sha256(table.bytes));
+    assert.deepEqual(result.designedAdjacencies.map(({width, height}) => [width, height]), [[167.578125, 3.8251953125]]);
+    for (const [role, bounds] of [
+      ["broadcastHud", rect(40, 155, 1000, 50)],
+      ["dealerBadge", name],
+      ["buyerBadge", rect(200, 430, 167.578125, 50)],
+      ["buyerBadge", rect(200, 436.1748046875, 170, 50)],
+    ]) {
+      const altered = structuredClone(row);
+      Object.assign(altered.roles[role].items[0], bounds);
+      assert.throws(() => checkLayoutGeometry(altered, expected, table), /uncalibrated intersections/);
+      const measureBinding = {...binding, mode: "measurement"};
+      assert.equal(checkLayoutGeometry(
+        {...altered, binding: measureBinding}, {...expected, binding: measureBinding}, table,
+      ).status, "measured");
+      assert.throws(() => checkLayoutGeometry({...altered, binding: measureBinding}, expected, table), /binding mismatch/);
+    }
+    const taller = structuredClone(row);
+    taller.roles.researchNotice.items[0].bottom += 1;
+    assert.throws(() => checkLayoutGeometry(taller, expected, table), /notice band height/);
+    const tableSha256 = "0".repeat(64);
+    assert.throws(() => checkLayoutGeometry(row, {...expected, binding: {...binding, tableSha256}}, table), /binding mismatch/);
+  }
+});
+
+test("qualification reads and pins the exact calibration table bytes", async () => {
+  const table = await loadLayoutTable();
+  const original = new URL("../scripts/approved-layout-adjacencies.json", import.meta.url);
+  assert.equal((await loadLayoutTable(original, table.tableSha256)).tableSha256, table.tableSha256);
+  const changed = new URL("reformatted-table.json", out);
+  writeFileSync(changed, `${table.bytes.toString().trim()}  \n`);
+  await assert.rejects(loadLayoutTable(changed, table.tableSha256), /SHA-256 mismatch/);
+  assert.notEqual((await loadLayoutTable(changed)).tableSha256, table.tableSha256);
 });

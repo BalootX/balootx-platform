@@ -16,6 +16,21 @@ def test_video_reexports_the_shared_media_boundary():
         assert getattr(media_validation, name) is getattr(shared_media, name)
 
 
+def test_media_probe_refuses_renamed_measurement_mp4(monkeypatch):
+    from baloot_platform.video import media_probe
+
+    def fake_probe(command, **kwargs):
+        assert "format_tags=comment" in command[command.index("-show_entries") + 1]
+        return SimpleNamespace(stdout=json.dumps({
+            "format": {"tags": {"comment": "balootx-layout-measurement-never-post"}},
+            "streams": [],
+        }))
+
+    monkeypatch.setattr(media_probe, "run_media_command", fake_probe)
+    with pytest.raises(ValueError, match="permanently NEVER_POST"):
+        media_probe.probe_media(Path("renamed-release.mp4"), ffprobe=Path("ffprobe"))
+
+
 @pytest.mark.parametrize("ci", [None, "false", "true"])
 def test_ci_media_threads_cap_each_decoder_filters_and_encoder(monkeypatch, ci):
     if ci is None:
