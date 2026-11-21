@@ -12,18 +12,18 @@
     "render:multi-angle": "node scripts/render-multi-angle.mjs"
   },
   "dependencies": {
-    "@remotion/bundler": "4.0.503",
-    "@remotion/renderer": "4.0.503",
+    "@remotion/bundler": "4.0.544",
+    "@remotion/renderer": "4.0.544",
     "jpeg-js": "0.4.4",
     "jsqr": "1.4.0",
     "qrcode.react": "4.2.0",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "remotion": "4.0.503"
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "remotion": "4.0.544"
   },
   "devDependencies": {
-    "@types/react": "19.2.2",
-    "@types/react-dom": "19.2.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "typescript": "5.9.3"
   },
   "engines": {
