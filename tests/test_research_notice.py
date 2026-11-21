@@ -10,6 +10,11 @@ import pytest
 from scripts import render_research_notice as notice
 
 
+@pytest.fixture
+def approved_layout_bytes(root):
+    return (root / "src/baloot_platform/video/remotion/scripts/approved-layout-adjacencies.json").read_bytes()
+
+
 def test_public_notice_profile_builds_a_qualified_bundle_with_the_exact_notice():
     profile = notice.notice_profile(public=True)
     design = profile["approved_design"]
@@ -43,7 +48,31 @@ def test_public_notice_profile_rejects_unapproved_changes(section, key, value, e
         notice.validate_approved_v4_public_profile(profile)
 
 
-def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch):
+def _fake_qualification(video, bundle_sha, files, table_bytes):
+    output = video.parent
+    table = output / "layout-table.json"
+    table.write_bytes(table_bytes)
+    table_sha = notice._sha256(table)
+    video_sha = notice._sha256(video)
+    (output / "layout-evidence.json").write_text(json.dumps({
+        "status": "passed", "videoSha256": video_sha,
+        "binding": {"mode": "qualification", "bundleSha256": bundle_sha, "tableSha256": table_sha},
+    }), encoding="utf-8")
+    phases = ("hook", "question", "reveal")
+    names = {
+        **{f"layout:{phase}": f"{phase}.png" for phase in phases},
+        "layoutTable": "layout-table.json",
+        "layoutGeometry": "layout-evidence.json",
+    }
+    files.update({key: {"name": name, "sha256": notice._sha256(output / name)} for key, name in names.items()})
+    return {
+        "mode": "qualification", "status": "passed", "phases": dict.fromkeys(phases, "passed"),
+        "bundleSha256": bundle_sha, "rendererVideoSha256": video_sha, "videoSha256": video_sha,
+        "tableSha256": table_sha, "evidenceSha256": files["layoutGeometry"]["sha256"],
+    }
+
+
+def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch, approved_layout_bytes):
     root = tmp_path / "archive"
     (root / "release").mkdir(parents=True)
     (root / "release/source-manifest.json").write_text(
@@ -117,7 +146,10 @@ def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch
                 evidence.append({"checkpointPhase": phase, "frame": index})
             manifest = output_dir / "manifest.json"
             manifest.write_text(
-                json.dumps({"files": files, "playbackEvidence": evidence}),
+                json.dumps({
+                    "files": files, "playbackEvidence": evidence,
+                    "layoutGeometry": _fake_qualification(video, bundle.bundle_sha256, files, approved_layout_bytes),
+                }),
                 encoding="utf-8",
             )
             return SimpleNamespace(video=video, manifest=manifest)
@@ -265,7 +297,7 @@ def test_notice_selectors_require_public_in_main_and_cli(monkeypatch, capsys, se
     assert "require --public" in capsys.readouterr().err
 
 
-def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monkeypatch):
+def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monkeypatch, approved_layout_bytes):
     selection = notice.select_deal(notice.DEAL_SOURCES[1][0])
     expected_trace = json.loads(selection["fixture"].read_text(encoding="utf-8"))["exactTracePrefix"]
     output = tmp_path / "output"
@@ -344,6 +376,7 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monk
                     "identity": bundle.value["identity"],
                     "files": files,
                     "playbackEvidence": evidence,
+                    "layoutGeometry": _fake_qualification(video, bundle.bundle_sha256, files, approved_layout_bytes),
                 }),
                 encoding="utf-8",
             )
@@ -373,3 +406,33 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monk
     assert receipt["publicResearchNoticeShown"] is True
     assert receipt["headerText"]["sentence"] == bundle.value["localizations"]["video.notice.sentence"]
     assert receipt["approvedDesignBinding"]["variant"] == "public_v4_no_justification_red_notice"
+    assert receipt["layoutGeometry"]["tableSha256"] == notice._sha256(output / "layout-table.json")
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    video = output / "clip.mp4"
+    measurement = {**manifest, "layoutGeometry": {**manifest["layoutGeometry"], "mode": "measurement"}}
+    with pytest.raises(ValueError, match="permanently NEVER_POST"):
+        notice._release_layout(measurement, video, bundle.bundle_sha256)
+    (output / "layout-table.json").write_bytes(b"{ }\n")
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        notice._release_layout(manifest, video, bundle.bundle_sha256)
+
+
+@pytest.mark.parametrize("change", ["table", "video"])
+def test_release_layout_rejects_widened_table_or_swapped_final_mp4(tmp_path, approved_layout_bytes, change):
+    video = tmp_path / "final.mp4"
+    video.write_bytes(b"qualified MP4")
+    for phase in ("hook", "question", "reveal"):
+        (tmp_path / f"{phase}.png").write_bytes(phase.encode("utf-8"))
+    files = {}
+    table_bytes = approved_layout_bytes
+    if change == "table":
+        altered = json.loads(table_bytes)
+        altered["rows"][0]["observedMaxWidth"] = 200
+        table_bytes = json.dumps(altered).encode("utf-8")
+    manifest = {"files": files, "layoutGeometry": _fake_qualification(video, "bundle-sha", files, table_bytes)}
+    if change == "video":
+        notice._release_layout(manifest, video, "bundle-sha")
+        video.write_bytes(b"different final MP4")
+    error = "approved layout table SHA-256" if change == "table" else "bound to the exact MP4"
+    with pytest.raises(ValueError, match=error):
+        notice._release_layout(manifest, video, "bundle-sha")

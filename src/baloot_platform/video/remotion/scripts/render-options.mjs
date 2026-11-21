@@ -26,8 +26,7 @@ const x264Presets = new Set([
   "placebo",
 ]);
 
-export const readValidatedRenderBundle = inputPath => {
-  const input = readFileSync(inputPath);
+export const parseValidatedRenderBundle = input => {
   execFileSync(process.env.BALOOTX_PYTHON ?? "python", [
     "-B", "-c",
     "import json, sys; sys.path.insert(0, sys.argv[1]); from baloot_platform.video.render_bundle import validate_render_voice; validate_render_voice(json.load(sys.stdin.buffer))",
@@ -35,6 +34,8 @@ export const readValidatedRenderBundle = inputPath => {
   ], {input, timeout: 30000, windowsHide: true, stdio: ["pipe", "ignore", "inherit"]});
   return JSON.parse(input.toString("utf8"));
 };
+
+export const readValidatedRenderBundle = inputPath => parseValidatedRenderBundle(readFileSync(inputPath));
 
 export const cgroupCpuLimit = (read = readFileSync) => {
   const text = filename => {

@@ -21,6 +21,7 @@ from PIL import Image, ImageDraw, ImageFont
 from baloot_platform.core.rules import RuleBook
 from baloot_platform.research.exact_state import ExactStateNormalizerV1
 from baloot_platform.research.scenario_contracts import canonical_sha256
+from baloot_platform.video.media_validation import APPROVED_LAYOUT_TABLE_SHA256
 from baloot_platform.video.remotion_renderer import (
     RemotionProfessionalRenderer,
     _json_write,
@@ -429,6 +430,55 @@ def _record_deal_manifest(
     return manifest
 
 
+def _release_layout(manifest: dict, video: Path, bundle_sha256: str) -> tuple[dict, list[Path]]:
+    geometry = manifest.get("layoutGeometry") or {}
+    if geometry.get("mode") == "measurement" or geometry.get("disposition") == "NEVER_POST":
+        raise ValueError("layout measurement MP4 is permanently NEVER_POST")
+    if geometry.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256:
+        raise ValueError("release requires the approved layout table SHA-256")
+    video_sha256 = _sha256(video)
+    if (
+        geometry.get("status") != "passed"
+        or geometry.get("mode") != "qualification"
+        or geometry.get("phases") != dict.fromkeys(("hook", "question", "reveal"), "passed")
+        or geometry.get("bundleSha256") != bundle_sha256
+        or geometry.get("videoSha256") != video_sha256
+    ):
+        raise ValueError("passed layoutGeometry bound to the exact MP4 and bundle is required")
+    files = manifest["files"]
+    paths = []
+    for key, pin in (
+        ("layoutTable", APPROVED_LAYOUT_TABLE_SHA256),
+        ("layoutGeometry", geometry["evidenceSha256"]),
+        *((f"layout:{phase}", files.get(f"layout:{phase}", {}).get("sha256")) for phase in geometry["phases"]),
+    ):
+        name = files.get(key, {}).get("name", "")
+        if not name or Path(name).name != name:
+            raise ValueError("release layout evidence file is missing or invalid")
+        file = video.parent / name
+        if files[key].get("sha256") != pin or _sha256(file) != pin:
+            raise ValueError("release layout evidence SHA-256 mismatch")
+        paths.append(file)
+    table = json.loads(paths[0].read_bytes())
+    evidence = json.loads(paths[1].read_bytes())
+    binding = evidence.get("binding", {})
+    if (
+        video_sha256 in table.get("forbiddenMeasurementSha256", ())
+        or evidence.get("disposition") == "NEVER_POST"
+        or binding.get("mode") == "measurement"
+    ):
+        raise ValueError("layout measurement MP4 is permanently NEVER_POST")
+    if (
+        evidence.get("status") != "passed"
+        or binding.get("mode") != "qualification"
+        or binding.get("bundleSha256") != bundle_sha256
+        or binding.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256
+        or evidence.get("videoSha256") != geometry["rendererVideoSha256"]
+    ):
+        raise ValueError("release layout checkpoint evidence does not match the qualification receipt")
+    return geometry, paths
+
+
 def _source_identity(
     source_head: str | None = None, source_tree: str | None = None
 ) -> tuple[str, str]:
@@ -526,6 +576,7 @@ def main(
         basename=basename, playback_evidence=True,
     )
     manifest = _record_deal_manifest(artifacts.manifest, selection, bundle, profile)
+    layout, layout_files = _release_layout(manifest, artifacts.video, bundle.bundle_sha256)
     rows = {row["checkpointPhase"]: row for row in manifest["playbackEvidence"]}
     segments = {row["stage"]: row for row in bundle.value["timeline"]["segments"]}
     # Thumbnail: the validated renderStill of the first, paused decision frame.
@@ -579,6 +630,7 @@ def main(
         "decisionReference": bundle.value["source"]["decisionReference"],
         "thumbnailFrame": rows["hook"]["frame"],
         "qaStillFrames": {phase: rows[phase]["frame"] for phase in PHASES},
+        "layoutGeometry": layout,
     }
     if public:
         receipt["approvedDesignBinding"] = profile["approved_design"]
@@ -588,7 +640,7 @@ def main(
             approvedDesignInputs=DESIGN_INPUT_SHA256,
             approvedDesignChange=DESIGN_CHANGE_REASON,
         )
-    deliverables = [artifacts.video, thumbnail, *stills, artifacts.manifest]
+    deliverables = [artifacts.video, thumbnail, *stills, artifacts.manifest, *layout_files]
     receipt["files"] = {path.name: _sha256(path) for path in deliverables}
     approval = output / "owner-approval.json"
     approval.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
