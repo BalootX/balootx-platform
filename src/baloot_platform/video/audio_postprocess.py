@@ -28,6 +28,7 @@ from .media_validation import (
 from .render_bundle import RenderBundleV1
 
 AUDIO_FINISHER_ID = "balootx_original_foley_v10"
+FOLEY_SEED_DERIVATION_VERSION = 2
 _MAX_POST_ENCODE_CORRECTIONS = 3
 _POST_ENCODE_MARGIN_DB = 0.10
 _SEAT_PAN = {"north": 0.0, "west": -0.55, "south": 0.0, "east": 0.55}
@@ -172,6 +173,8 @@ def build_audio_cue_plan(bundle: RenderBundleV1) -> dict[str, Any]:
     plan = {
         "schemaVersion": 1,
         "finisher": AUDIO_FINISHER_ID,
+        "seedDerivationVersion": FOLEY_SEED_DERIVATION_VERSION,
+        "scenarioId": bundle.value["identity"]["gameSerial"],
         "bundleSha256": bundle.bundle_sha256,
         "fps": fps,
         "sampleRate": int(bundle.value["render"].get("audio_rate", 48_000)),
@@ -225,6 +228,19 @@ def _add_tone(
 def generate_original_foley(
     plan: Mapping[str, Any], destination: Path
 ) -> dict[str, Any]:
+    version = plan.get("seedDerivationVersion", 1)
+    if version == 1:
+        legacy_seed = int(plan["planSha256"][:8], 16)
+    elif version == FOLEY_SEED_DERIVATION_VERSION:
+        seed_inputs = {
+            key: plan[key]
+            for key in (
+                "seedDerivationVersion", "scenarioId", "fps", "sampleRate",
+                "targetLufs", "normalizationTruePeakDbtp",
+            )
+        }
+    else:
+        raise ValueError(f"unsupported Foley seed derivation version: {version}")
     rate = int(plan["sampleRate"])
     sample_count = round(int(plan["totalFrames"]) * rate / int(plan["fps"]))
     left = array("h", [0]) * sample_count
@@ -237,8 +253,14 @@ def generate_original_foley(
         "outcome": (0.52, (392.0, 523.25, 659.25), 0.16, False),
     }
     for ordinal, event in enumerate(plan["events"]):
-        duration, frequencies, gain, noise = designs[str(event["kind"])]
+        design = designs[str(event["kind"])]
+        duration, frequencies, gain, noise = design
         pan = _SEAT_PAN.get(str(event.get("seat") or ""), 0.0)
+        # Each cue uses its own timing and synthesized sample parameters.
+        seed = (
+            legacy_seed ^ ordinal if version == 1 else
+            int(content_hash([seed_inputs, event, design, pan])[:8], 16)
+        )
         _add_tone(
             left,
             right,
@@ -249,7 +271,7 @@ def generate_original_foley(
             gain=gain,
             pan=pan,
             noise=noise,
-            seed=int(plan["planSha256"][:8], 16) ^ ordinal,
+            seed=seed,
         )
     destination.parent.mkdir(parents=True, exist_ok=True)
     interleaved = array("h")
@@ -660,6 +682,7 @@ def finish_remotion_audio(
             "schemaVersion": 1,
             "status": "passed",
             "finisher": AUDIO_FINISHER_ID,
+            "seedDerivationVersion": plan["seedDerivationVersion"],
             "bundleSha256": bundle.bundle_sha256,
             "audioProfileSha256": plan["profileSha256"],
             "cuePlanSha256": plan["planSha256"],

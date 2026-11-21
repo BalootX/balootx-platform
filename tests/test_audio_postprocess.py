@@ -21,6 +21,7 @@ def test_full_replay_schedules_every_card_and_collection_without_context(context
     tricks = [{"winner": "north", "plays": [{"seat": seat} for seat in ("north", "west", "south", "east")]} for _ in range(8)]
     candidate = SimpleNamespace(verify=lambda: True, bundle_sha256="test", value={
         "render": {"fps": 60}, "exportPreset": "hooked_flagship",
+        "identity": {"gameSerial": "test-scenario"},
         "presentation": {"audio": {"enabled": True, "card_clicks": True, "table_foley": True,
             "target_lufs": -18, "normalization_true_peak_dbtp": -2.5}},
         "timeline": {"totalFrames": 4320, "segments": segments},
@@ -30,6 +31,48 @@ def test_full_replay_schedules_every_card_and_collection_without_context(context
     assert len([row for row in events if row["kind"] == "card"]) == 32
     assert len([row for row in events if row["kind"] == "collect"]) == 8
     assert len([row for row in events if row["kind"] == "card" and row["frame"] < 2880]) == 24
+
+
+def test_foley_seed_version_and_cue_locality(tmp_path: Path) -> None:
+    legacy = {
+        "sampleRate": 8000, "fps": 20, "totalFrames": 30,
+        "planSha256": "12345678" + "0" * 56,
+        "events": [
+            {"kind": "card", "frame": 4, "seat": "west"},
+            {"kind": "collect", "frame": 20, "seat": "east"},
+        ],
+    }
+    dest = tmp_path / "foley.wav"
+    # Captured with the unversioned generator before the seed change.
+    assert audio_postprocess.generate_original_foley(legacy, dest)["sha256"] == (
+        "ca400aa8db7cdadbd9542f6c46c6cc01bd809cdfe45248aa9d8a73b795d9aee4"
+    )
+    plan = {
+        **legacy,
+        "seedDerivationVersion": 2, "scenarioId": "test-scenario",
+        "targetLufs": -18, "normalizationTruePeakDbtp": -2.5,
+        "profileSha256": "a" * 64,
+    }
+    audio_postprocess.generate_original_foley(plan, dest)
+    before = dest.read_bytes()
+    audio_postprocess.generate_original_foley({**plan, "profileSha256": "b" * 64}, dest)
+    assert dest.read_bytes() == before
+    moved = {**plan, "events": [{**plan["events"][0], "frame": 5}, plan["events"][1]]}
+    audio_postprocess.generate_original_foley(moved, dest)
+    after = dest.read_bytes()
+    # The moving card occupies frames 4 through 6 at the two positions.
+    first_byte, last_byte = (44 + frame * 400 * 4 for frame in (4, 7))
+    assert before[first_byte:last_byte] != after[first_byte:last_byte]
+    assert before[:first_byte] == after[:first_byte]
+    assert before[last_byte:] == after[last_byte:]
+    moved_start = first_byte + 400 * 4
+    assert before[first_byte:first_byte + 440 * 4] != after[moved_start:moved_start + 440 * 4]
+
+    for changes in ({"scenarioId": "other-scenario"}, {"targetLufs": -19}):
+        audio_postprocess.generate_original_foley({**plan, **changes}, dest)
+        assert dest.read_bytes() != before
+    with pytest.raises(ValueError, match="unsupported Foley seed derivation version"):
+        audio_postprocess.generate_original_foley({**plan, "seedDerivationVersion": 3}, dest)
 
 
 def _measurement(
@@ -110,6 +153,7 @@ def test_failed_audio_validation_does_not_replace_the_source_media(
     video.write_bytes(b"approved-source-media")
     evidence.write_text("approved-evidence\n", encoding="utf-8")
     plan = {
+        "seedDerivationVersion": 2,
         "targetLufs": -18.0,
         "normalizationTruePeakDbtp": -2.5,
         "sampleRate": 48_000,
@@ -185,6 +229,7 @@ def test_failed_post_encode_audio_is_normalized_until_admission(
     evidence_path = tmp_path / "source.audio.json"
     video.write_bytes(b"source-media")
     plan = {
+        "seedDerivationVersion": 2,
         "targetLufs": -18.0,
         "normalizationTruePeakDbtp": -2.5,
         "sampleRate": 48_000,
@@ -261,6 +306,7 @@ def test_failed_post_encode_audio_is_normalized_until_admission(
     )
 
     assert result["postEncodeLoudnessGainDb"] == 2.47
+    assert result["seedDerivationVersion"] == 2
     assert result["postEncodeTruePeakTrimDb"] == -1.77
     assert len(result["postEncodeCorrections"]) == 2
     assert result["loudness"]["integratedLufs"] == -19.54
