@@ -121,6 +121,7 @@
     "tests/test_double_dummy.py": 1.691,
     "tests/test_effective_runtime_config.py": 96.304,
     "tests/test_engine_guide.py": 48.385,
+    "tests/test_engine_interest_score.py": 3.0,
     "tests/test_escalation_compiler_v1.py": 5.695,
     "tests/test_exact_holdout_labels.py": 168.955,
     "tests/test_exact_observed_reproof_classification.py": 0.001,
@@ -223,6 +224,7 @@
     "tests/test_double_dummy.py": 7.424,
     "tests/test_effective_runtime_config.py": 58.456,
     "tests/test_engine_guide.py": 30.477,
+    "tests/test_engine_interest_score.py": 3.0,
     "tests/test_escalation_compiler_v1.py": 3.86,
     "tests/test_exact_holdout_labels.py": 8.52,
     "tests/test_exact_observed_reproof_classification.py": 2.78,
@@ -500,7 +502,8 @@
     "tests/test_verifier_preflight.py": 6.014,
     "tests/test_video_batch_executor.py": 24.773,
     "tests/test_video_motion_release.py": 6.911,
-    "tests/test_video_visual_qa.py": 3.429
+    "tests/test_video_visual_qa.py": 3.429,
+    "tests/test_viewer_seat_proof.py": 1.61
   },
   "shardTimingRationale": "Maximum completed per-file elapsed duration across Python 3.12 and 3.13 in run 44812185812. Retained times for node-sharded files and original timeout and isolation tiers.",
   "versionedNodeShardedFiles": [

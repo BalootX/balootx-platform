@@ -538,15 +538,25 @@ def refine_runtime_proposal_v1(rules, proposal, *, selection_policy, maximum_nod
             result["status"] = "single_world"
         else:
             uppers = {action: math.inf for action in row["ddValues"]}
+            totals = dict.fromkeys(uppers, 0)
+            selected = row["action"]
+            best_count = strict_count = 0
             for world in worlds.states:
                 values, _nodes = _proposal_root_values(engine, world, maximum_nodes, check)
                 if set(values) != set(uppers):
                     raise ValueError("proposal hidden worlds disagree on visible legal actions")
+                best_alternative = max(value for action, value in values.items() if action != selected)
+                best_count += values[selected] >= best_alternative
+                strict_count += values[selected] > best_alternative
                 for action in uppers:
                     uppers[action] = min(uppers[action], values[action])
-            selected = row["action"]
+                    totals[action] += values[action]
+            world_count = len(worlds.states)
+            mean_gap = (totals[selected] - max(value for action, value in totals.items() if action != selected)) / world_count
             gap = uppers[selected] - max(value for action, value in uppers.items() if action != selected)
-            result.update(worldMinDdUpper=uppers, worldMinDdGap=gap, status="priority_gap_lost")
+            result.update(worldMinDdUpper=uppers, worldMinDdGap=gap, worldMeanGap=mean_gap,
+                          bestShare=best_count / world_count, strictShare=strict_count / world_count,
+                          status="priority_gap_lost")
             if gap >= policy["minimumNextBestRegret"]:
                 def score(world):
                     return _proposal_policy_score(rules, engine, world, policy["baselinePolicyId"], deadline, check)

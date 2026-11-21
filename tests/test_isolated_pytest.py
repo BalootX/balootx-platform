@@ -596,6 +596,8 @@ def test_measured_slow_files_keep_exact_union_with_balanced_wall_time():
     assert {backend, unified} <= set(history["serialFiles"])
     assert history["shardTimingSourceRun"] == 44812185812
     assert history["shardSeconds"][unified] == 869.454
+    scorer = "tests/test_engine_interest_score.py"
+    assert scorer in files and history["seconds"][scorer] == history["shardSeconds"][scorer] == 3.0
     assert set(files) <= set(history["shardSeconds"])
     assert sorted(path for group in groups for path in group) == files
     inventory = {path.relative_to(lane.ROOT).as_posix() for path in lane.ROOT.glob("tests/test_*.py")}
