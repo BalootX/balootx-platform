@@ -15,6 +15,16 @@ def approved_layout_bytes(root):
     return (root / "src/baloot_platform/video/remotion/scripts/approved-layout-adjacencies.json").read_bytes()
 
 
+@pytest.mark.parametrize("legacy_title", [None, "ملاحظة بحثية"], ids=["title-absent", "legacy-title"])
+def test_research_notice_renderer_accepts_optional_title(root, legacy_title):
+    profile = notice.notice_profile(public=True)
+    title_key = "video.notice.title"
+    if legacy_title is not None:
+        profile["localizations"][title_key] = legacy_title
+    renderer = notice.RemotionProfessionalRenderer(profile, repository_root=root)
+    assert renderer.profile["localizations"].get(title_key) == legacy_title
+
+
 def test_public_notice_profile_builds_a_qualified_bundle_with_the_exact_notice():
     profile = notice.notice_profile(public=True)
     design = profile["approved_design"]
@@ -26,8 +36,11 @@ def test_public_notice_profile_builds_a_qualified_bundle_with_the_exact_notice()
     bundle = notice.build_notice_bundle(rules, profile)
     notice.validate_notice_bundle(bundle, notice.engine_round_result(rules), public=True)
     sentence = bundle.value["localizations"]["video.notice.sentence"]
-    assert sentence == "هذا الفيديو لأغراض البحث فقط، ويُمنع تداوله."
-    assert hashlib.sha256(sentence.encode("utf-8")).hexdigest() == "93ff9d2bd274a95b3160bee0e519b258abcf1702801284f9f797fc4c535d5860"
+    assert "video.notice.title" not in profile["localizations"]
+    assert "video.notice.title" not in bundle.value["localizations"]
+    assert sentence == "هذا الفيديو لأغراض البحث فقط، ويُمنع تداوله أو نشره أو مشاركته"
+    assert len(sentence.encode("utf-8")) == 114
+    assert hashlib.sha256(sentence.encode("utf-8")).hexdigest() == "290e2a2d03424ea7846a71afc80e019140fac3d56e465b4766a89d57a3c3b8ac"
     assert bundle.value["presentation"]["majlis"]["research_notice"] is True
     presentation = bundle.value["presentation"]["presentation"]
     assert presentation["show_justification"] is presentation["show_justification_text"] is False
@@ -35,6 +48,7 @@ def test_public_notice_profile_builds_a_qualified_bundle_with_the_exact_notice()
 
 @pytest.mark.parametrize(("section", "key", "value", "error"), [
     ("majlis", "research_notice", False, "research notice must match"),
+    ("localizations", "video.notice.sentence", "هذا الفيديو لأغراض البحث فقط، ويُمنع تداوله.", "sentence hash mismatch"),
     ("localizations", "video.notice.sentence", "changed", "sentence hash mismatch"),
     ("approved_design", "reference_variant", "public_v4_no_justification_red_notice", "binding mismatch: reference_variant"),
     ("approved_design", "reference_mp4_sha256", "0" * 64, "binding mismatch: reference_mp4_sha256"),
@@ -106,7 +120,7 @@ def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch
                 ]
             },
             "render": {"fps": 30},
-            "localizations": {"video.notice.title": "title", "video.notice.sentence": "sentence"},
+            "localizations": {"video.notice.sentence": "sentence"},
             "identity": {"players": {"north": "N", "east": "E", "south": "S", "west": "W"}},
             "source": {"decisionReference": "fixture:1"},
         },
@@ -316,7 +330,7 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monk
                 ]
             },
             "render": {"fps": 30},
-            "localizations": {"video.notice.title": "title", "video.notice.sentence": "sentence"},
+            "localizations": {"video.notice.sentence": "sentence"},
             "identity": {
                 "gameSerial": selection["identifier"],
                 "players": {"north": "N", "east": "E", "south": "S", "west": "W"},
@@ -404,6 +418,7 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monk
     assert receipt["dealIdentifier"] == selection["identifier"]
     assert receipt["fixture"] == selection["source"]
     assert receipt["publicResearchNoticeShown"] is True
+    assert "title" not in receipt["headerText"]
     assert receipt["headerText"]["sentence"] == bundle.value["localizations"]["video.notice.sentence"]
     assert receipt["approvedDesignBinding"]["variant"] == "public_v4_no_justification_red_notice"
     assert receipt["layoutGeometry"]["tableSha256"] == notice._sha256(output / "layout-table.json")

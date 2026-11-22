@@ -2100,7 +2100,6 @@
         "video.hud.session",
         "video.hud.trick",
         "video.notice.sentence",
-        "video.notice.title",
         "video.observer.identify_threat",
         "video.observer.infer_distribution",
         "video.observer.insight",

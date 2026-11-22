@@ -537,7 +537,8 @@ def test_bundle_with_internally_consistent_but_stale_renderer_identity_is_reject
         ("outside_allowlist", "outside the allowlist: video.decision.reveal_card"),
         ("wrong_stage", "voice key is not visible on screen: video.decision.choose_best_move"),
         ("different_text", "video.decision.choose_best_move"),
-        ("hidden_notice", "video.notice.title"),
+        ("hidden_notice", "video.notice.sentence"),
+        ("retired_notice_title", "outside the allowlist: video.notice.title"),
         ("rationale_field", "video.decision.choose_best_move"),
         ("rationale_alias", "voice cue uses a rationale key: video.decision.choose_best_move"),
     ],
@@ -592,7 +593,11 @@ def test_render_bundle_voice_guard(root: Path, case: str, error: str | None) -> 
             key = "video.decision.reveal_card"
             value["localizations"][key] = "fixture"
         elif case == "hidden_notice":
+            key = "video.notice.sentence"
+        elif case == "retired_notice_title":
             key = "video.notice.title"
+            value["presentation"]["majlis"]["research_notice"] = True
+            value["localizations"][key] = "ملاحظة بحثية"
         elif case in {"formatted_name", "unformatted_name"}:
             key = "video.decision.your_turn"
         text = value["localizations"].get(key, "fixture")
@@ -632,14 +637,14 @@ def test_render_bundle_voice_guard(root: Path, case: str, error: str | None) -> 
     ("legacy_profile", "timeline_sha"),
     [
         pytest.param(
-            True, "cb84e41a084c17a4472e72c70b1ce7d1f1d5969d738d9534d8ea165628442d92", id="legacy-voice-profile",
+            True, "553f7f627320b073462b9eb7bfc688703c22684fe8df4929c53c50b7cba5ae0f", id="legacy-voice-profile",
         ),
         pytest.param(
-            False, "60684a53007ecc8483e0fe223dcf3edd622cefdb0452f36b8a7515fa7ca6ec26", id="voice-off-profile",
+            False, "906beef957f3af75da9b62f0957e4fc3d79e954922fab6aca19b9679d0d2c571", id="voice-off-profile",
         ),
     ],
 )
-def test_public_notice_identity_and_six_visible_voice_phrases(
+def test_public_notice_identity_and_five_visible_voice_phrases(
     root: Path, legacy_profile: bool, timeline_sha: str,
 ) -> None:
     from scripts import render_research_notice as notice
@@ -668,7 +673,6 @@ def test_public_notice_identity_and_six_visible_voice_phrases(
     for key, stage in (
         ("video.decision.your_turn", "question"),
         ("video.decision.choose_best_move", "question"),
-        ("video.notice.title", "setup"),
         ("video.notice.sentence", "setup"),
         ("video.decision.best_move", "reveal"),
         ("video.result.title", "outcome"),
