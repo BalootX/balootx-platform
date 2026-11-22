@@ -65,7 +65,9 @@ def check_parity(node_modules, lockfile):
     for path, row in sorted(expected.items()):
         version = row["version"]
         if path not in installed:
-            if not (row.get("optional") or row.get("devOptional")):
+            optional = row.get("optional") or row.get("devOptional")
+            platform_specific = any(row.get(key) for key in target)
+            if not optional or platform_specific:
                 problems.append(f"missing {path}: expected {version}")
             continue
         manifest = json.loads(installed[path].read_bytes())

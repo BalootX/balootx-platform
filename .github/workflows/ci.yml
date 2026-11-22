@@ -37,6 +37,7 @@ jobs:
       sdk: ${{ steps.plan.outputs.sdk }}
       foundry: ${{ steps.plan.outputs.foundry }}
       remotion: ${{ steps.plan.outputs.remotion }}
+      video_worker: ${{ steps.plan.outputs.video_worker }}
       tests: ${{ steps.plan.outputs.tests }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -557,45 +558,43 @@ jobs:
 
   remotion-image-parity:
     needs: plan
-    if: needs.plan.outputs.full == 'true'
+    if: needs.plan.outputs.video_worker == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - *checkout
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: remotion-build-cache
-        with: &remotion-build-cache
-          path: ${{ runner.temp }}/remotion-build-cache
-          key: ${{ runner.os }}-remotion-build-${{ hashFiles('Dockerfile', '.dockerignore', 'src/baloot_platform/video/remotion/package*.json') }}
-      - name: Build the Remotion runtime
+        id: video-worker-build-cache
+        with: &video-worker-build-cache
+          path: ${{ runner.temp }}/video-worker-build-cache
+          key: ${{ runner.os }}-video-worker-build-${{ hashFiles('Dockerfile', '.dockerignore', 'pyproject.toml', 'src/baloot_platform/video/remotion/package*.json') }}
+      - name: Build the video worker
         shell: bash
         env:
-          CACHE_HIT: ${{ steps.remotion-build-cache.outputs.cache-hit }}
+          CACHE_HIT: ${{ steps.video-worker-build-cache.outputs.cache-hit }}
           MAIN_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           docker buildx create --driver docker-container --use
-          cache_dir="$RUNNER_TEMP/remotion-build-cache"
+          cache_dir="$RUNNER_TEMP/video-worker-build-cache"
           cache_args=()
           if [[ "$CACHE_HIT" == 'true' ]]; then
             cache_args+=(--cache-from "type=local,src=$cache_dir")
           elif [[ "$MAIN_PUSH" == 'true' ]]; then
             cache_args+=(--cache-to "type=local,dest=$cache_dir,mode=min")
           fi
-          docker buildx build --target remotion-runtime --load --tag balootx-remotion-parity "${cache_args[@]}" .
+          docker buildx build --target video-worker --load --tag balootx-video-worker-parity "${cache_args[@]}" .
       - name: Check the runtime against the checkout lockfile
         run: |
-          docker run --rm --workdir /check \
+          docker run --rm --network none --workdir /check \
             --mount "type=bind,source=$GITHUB_WORKSPACE/src/baloot_platform/video/remotion/package-lock.json,target=/check/package-lock.json,readonly" \
             --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/remotion_image_parity.py,target=/check/scripts/remotion_image_parity.py,readonly" \
-            balootx-remotion-parity sh -ec '
-              sha256sum --check --strict /remotion/.lock-sha256
-              apt-get -qq update
-              apt-get -qq install -y --no-install-recommends python3
-              exec python3 -P scripts/remotion_image_parity.py /remotion/node_modules package-lock.json
+            balootx-video-worker-parity sh -ec '
+              sha256sum --check --strict /opt/baloot-remotion/.lock-sha256
+              exec python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules package-lock.json
             '
-      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.remotion-build-cache.outputs.cache-hit != 'true'
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.video-worker-build-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: *remotion-build-cache
+        with: *video-worker-build-cache
 
   media-render:
     needs: [plan, media-inputs, remotion-image-parity]

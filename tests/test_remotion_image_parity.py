@@ -47,7 +47,7 @@ def test_cli_reports_installed_version_mismatch_missing_and_extra(root, tree):
     ]
 
 
-def test_omits_dev_and_inapplicable_optional_packages(tree, monkeypatch):
+def test_requires_native_optional_packages_for_the_current_platform(tree, monkeypatch):
     monkeypatch.setattr(remotion_image_parity, "npm_platform", lambda: {"os": "linux", "cpu": "x64", "libc": "glibc"})
     node_modules, lockfile = tree
     lock = json.loads(lockfile.read_bytes())
@@ -56,18 +56,47 @@ def test_omits_dev_and_inapplicable_optional_packages(tree, monkeypatch):
         "node_modules/foreign-os": {"version": "1", "optional": True, "os": ["darwin"]},
         "node_modules/foreign-cpu": {"version": "1", "optional": True, "cpu": ["!x64"]},
         "node_modules/foreign-libc": {"version": "1", "optional": True, "libc": ["musl"]},
-        "node_modules/optional": {"version": "1", "optional": True, "libc": "!musl"},
+        "node_modules/native": {"version": "1", "optional": True, "os": ["linux"], "cpu": ["x64"], "libc": "!musl"},
+        "node_modules/wasm-fallback": {"version": "1", "optional": True},
     })
     lockfile.write_text(json.dumps(lock), encoding="utf-8")
+    assert remotion_image_parity.check_parity(*tree) == ["missing node_modules/native: expected 1"]
+
+    native = node_modules / "native/package.json"
+    native.parent.mkdir()
+    native.write_text('{"version": "1"}', encoding="utf-8")
     assert remotion_image_parity.check_parity(*tree) == []
 
-    optional = node_modules / "optional/package.json"
-    optional.parent.mkdir()
-    optional.write_text('{"version": "2"}', encoding="utf-8")
-    foreign = node_modules / "foreign-libc/package.json"
-    foreign.parent.mkdir()
-    foreign.write_text('{"version": "1"}', encoding="utf-8")
+    native.write_text('{"version": "2"}', encoding="utf-8")
+    for package in ("foreign-cpu", "foreign-libc"):
+        foreign = node_modules / package / "package.json"
+        foreign.parent.mkdir()
+        foreign.write_text('{"version": "1"}', encoding="utf-8")
     assert remotion_image_parity.check_parity(*tree) == [
-        "version mismatch node_modules/optional: expected 1, found '2'",
+        "version mismatch node_modules/native: expected 1, found '2'",
+        "extra node_modules/foreign-cpu",
         "extra node_modules/foreign-libc",
     ]
+
+
+def test_rejects_unsupported_lockfile_version(tree):
+    _, lockfile = tree
+    lock = json.loads(lockfile.read_bytes())
+    lock["lockfileVersion"] = 1
+    lockfile.write_text(json.dumps(lock), encoding="utf-8")
+    with pytest.raises(ValueError, match="version 2 or 3"):
+        remotion_image_parity.check_parity(*tree)
+
+
+def test_ignores_hidden_node_modules_folders(tree):
+    node_modules, _ = tree
+    hidden = node_modules / ".remotion/package.json"
+    hidden.parent.mkdir()
+    hidden.write_text('{"version": "1"}', encoding="utf-8")
+    assert remotion_image_parity.check_parity(*tree) == []
+
+
+@pytest.mark.parametrize(("machine", "npm_arch"), [("AMD64", "x64"), ("x86_64", "x64"), ("aarch64", "arm64")])
+def test_maps_machine_names_to_npm_architectures(monkeypatch, machine, npm_arch):
+    monkeypatch.setattr(remotion_image_parity.platform, "machine", lambda: machine)
+    assert remotion_image_parity.npm_platform()["cpu"] == npm_arch

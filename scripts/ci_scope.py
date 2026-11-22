@@ -18,9 +18,11 @@ VERSIONS = ("3.12", "3.13")
 FULL = {
     "python-wheelhouse", "ffmpeg-packages", "native-build", "native-sanitizers", "python-fast-run",
     "python-backend-run", "python-heavy", "python-coverage", "media-inputs",
-    "media-render", "media-release-smoke", "remotion-image-parity",
+    "media-render", "media-release-smoke",
 }
-SCOPED = {"sdks": "sdk", "foundry": "foundry", "remotion-checks": "remotion"}
+SCOPED = {
+    "sdks": "sdk", "foundry": "foundry", "remotion-checks": "remotion", "remotion-image-parity": "video_worker",
+}
 TEST_SETUP = {"ffmpeg-packages", "native-build"}
 FOUNDRY = "src/baloot_platform/service/foundry_dashboard/src/"
 FOUNDRY_TESTS = {
@@ -114,11 +116,14 @@ def scoped_plan(paths: set[str]) -> dict | None:
         if (not tests <= set(fast_files(history)) or not tests <= seconds.keys()
                 or sum(seconds[path] for path in tests) > 600):
             return None
-    return {"full": False, "sdk": sdk, "foundry": foundry, "remotion": False, "tests": sorted(tests)}
+    # Foundry UI is the scoped change class included in the worker's COPY src.
+    return {
+        "full": False, "sdk": sdk, "foundry": foundry, "remotion": False, "video_worker": foundry, "tests": sorted(tests),
+    }
 
 
 def current_plan(event: str = "", base: str = "", head: str = "") -> dict:
-    full = {"full": True, "sdk": True, "foundry": True, "remotion": True, "tests": []}
+    full = {"full": True, **dict.fromkeys(SCOPED.values(), True), "tests": []}
     if event == "pull_request":
         try:
             return scoped_plan(changed_paths(base, head)) or full
