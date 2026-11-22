@@ -189,6 +189,7 @@
     "tests/test_research_ortools_unified_executor.py": 900.087,
     "tests/test_research_scenario_v4.py": 900.199,
     "tests/test_search_timeout_boundaries.py": 43.013,
+    "tests/test_slot_sequencer.py": 4.11,
     "tests/test_time_censored_service_boundaries.py": 21.176
   },
   "shardTimingSourceRun": 44812185812,
@@ -480,6 +481,7 @@
     "tests/test_search_timeout_boundaries.py": 14.816,
     "tests/test_second_trick_project_ties.py": 10.302,
     "tests/test_security_report.py": 2.148,
+    "tests/test_slot_sequencer.py": 4.11,
     "tests/test_storage_service_studio.py": 20.284,
     "tests/test_strategic_play_pilot.py": 3.121,
     "tests/test_strength_benchmark.py": 0.621,
