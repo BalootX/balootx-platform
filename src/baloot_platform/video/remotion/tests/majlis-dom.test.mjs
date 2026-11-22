@@ -256,9 +256,12 @@ test("north and south side items sit in a lane around the real name width", () =
   value.scenes[1].layers[0].content.buyer = "north";
   const html = render(value);
   const lane = (side) => {
-    const start = html.indexOf(`<div class="seat-lane lane-${side}" dir="ltr">`);
+    const state = side === "south" ? " is-play-prompt" : "";
+    const tag = `<div class="seat-lane lane-${side}${state}" dir="ltr">`;
+    const start = html.indexOf(tag);
     assert.ok(start >= 0, side);
-    return html.slice(start + `<div class="seat-lane lane-${side}" dir="ltr">`.length, html.indexOf('<div class="seat-lane', start + 1) > 0 ? html.indexOf('<div class="seat-lane', start + 1) : undefined);
+    const end = html.indexOf('<div class="seat-lane', start + 1);
+    return html.slice(start + tag.length, end > 0 ? end : undefined);
   };
   const north = lane("north");
   assert.match(north, /^<div class="lane-side lane-start" dir="rtl"><div class="seat-tags tags-north"><span class="tag buyer"/);
@@ -363,15 +366,29 @@ test("reveal: choice badge, name pills and the raised card keep a 12 px gap at e
   }
 });
 
-test("south tags stack below the question bar and reveal panel; north tray meets the pill-row bottom", () => {
+test("play prompts and east name pills have clearance from role tags", () => {
   const z = (selector) => Number(rule(selector).match(/z-index:\s*(\d+)/)[1]);
   assert.ok(z(".lane-south") < z(".decision-prompt"));
   assert.ok(z(".lane-south") < z(".reveal-reason"));
   const value = bundle();
   value.scenes[0].layers[0].content.dealer = "south";
-  const html = render(value, "hook");
-  assert.match(html, /class="seat-lane lane-south"[\s\S]*?class="seat-tags tags-south"><span class="tag dealer"/);
-  assert.ok(html.indexOf('class="seat-lane lane-south"') < html.indexOf('class="decision-prompt"'));
+  value.timeline.segments = [{stage: "hook", startFrame: 0, durationFrames: 60},
+    {stage: "question", startFrame: 60, durationFrames: 60}, {stage: "reveal", startFrame: 120, durationFrames: 60}];
+  for (const frame of [30, 90]) {
+    assert.match(frameAt(value, frame), /class="seat-lane lane-south is-play-prompt"[^>]*><div[^>]*><div class="seat-tags tags-south"><span class="tag dealer"/);
+  }
+  assert.doesNotMatch(frameAt(value, 150), /is-play-prompt/);
+
+  const theta = Number(rule(".pcard").match(/rotate\((-?\d+)deg\)/)[1]) * Math.PI / 180;
+  const cardHalfHeight = (px(".pcard", "height") * Math.cos(theta) + px(".pcard", "width") * Math.abs(Math.sin(theta))) / 2;
+  const tagHalfHeight = px(".tag", "height") / 2;
+  const southBottom = px(".lane-south.is-play-prompt", "top") + tagHalfHeight + cardHalfHeight;
+  assert.ok(southBottom < px(".decision-prompt", "top"), "south purchase card stays above the prompt");
+  const eastTop = px(".tags-east", "top") + px(".tags-east > .tag.buyer:has(.pcard)", "margin-top") + tagHalfHeight - cardHalfHeight;
+  assert.ok(eastTop > px(".row-east", "top") + px(".seat", "height"), "east purchase card stays below the name");
+});
+
+test("north tray meets the pill-row bottom", () => {
   assert.match(rule(".lane-north .ptray"), /align-self:\s*end/);
   const laneTop = Number(rule(".lane-north").match(/top:\s*(\d+)px/)[1]);
   const rowHeight = Number(rule(".lane-north").match(/grid-template-rows:\s*(\d+)px/)[1]);

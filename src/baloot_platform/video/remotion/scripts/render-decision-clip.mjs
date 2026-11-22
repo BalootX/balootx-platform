@@ -13,26 +13,31 @@ const repositoryRoot = path.resolve(rendererRoot, "../../../..");
 const assetsRoot = process.env.BALOOTX_ASSETS_ROOT ?? path.join(repositoryRoot, "assets");
 const args = process.argv.slice(2);
 const measure = args[0] === "--measure-layout";
-if ((measure && args.length !== 3) || (!measure && (args.length > 2 || args.some(arg => arg.startsWith("--"))))) {
-  throw new Error("usage: render-decision-clip.mjs [--measure-layout] [bundle output]");
+const hookOnly = args[0] === "--check-hook";
+const layoutOnly = measure || hookOnly;
+if ((layoutOnly && args.length !== 3) || (!layoutOnly && (args.length > 2 || args.some(arg => arg.startsWith("--"))))) {
+  throw new Error("usage: render-decision-clip.mjs [--measure-layout | --check-hook] [bundle output]");
 }
-const inputPath = measure ? args[1] : process.env.BALOOTX_RENDER_BUNDLE ?? args[0] ?? path.join(repositoryRoot, "outputs/professional-video-prototypes/render-bundle-decision.json");
-const outputDir = measure ? args[2] : process.env.BALOOTX_RENDER_OUTPUT ?? args[1] ?? path.join(repositoryRoot, "outputs/professional-video-decision");
+const inputPath = layoutOnly ? args[1] : process.env.BALOOTX_RENDER_BUNDLE ?? args[0] ?? path.join(repositoryRoot, "outputs/professional-video-prototypes/render-bundle-decision.json");
+const outputDir = layoutOnly ? args[2] : process.env.BALOOTX_RENDER_OUTPUT ?? args[1] ?? path.join(repositoryRoot, "outputs/professional-video-decision");
 const outputBase = measure ? "NEVER_POST-layout-measurement" : process.env.BALOOTX_RENDER_BASENAME ?? "balootx-decision-clip";
 const outputPath = path.join(outputDir, `${outputBase}.mp4`);
 const stillsOnly = process.env.BALOOTX_STILLS_ONLY === "1";
-const playbackEvidence = !measure && process.env.BALOOTX_PLAYBACK_EVIDENCE === "1";
+const playbackEvidence = !layoutOnly && process.env.BALOOTX_PLAYBACK_EVIDENCE === "1";
 const chromiumOptions = process.platform === "linux" ? {enableMultiProcessOnLinux: true} : undefined;
 const inputBytes = await readFile(inputPath);
 const bundleData = parseValidatedRenderBundle(inputBytes);
 const qualifyLayout = bundleData.presentation?.majlis?.research_notice === true;
 if (measure && (!qualifyLayout || stillsOnly)) throw new Error("layout measurement requires a red notice MP4");
+if (hookOnly && (!qualifyLayout || bundleData.exportPreset !== "decision_clip")) {
+  throw new Error("hook layout check requires a research-notice decision clip");
+}
 const table = qualifyLayout ? await loadLayoutTable({
   measure,
   file: process.env.BALOOTX_LAYOUT_TABLE,
   expectedSha256: process.env.BALOOTX_LAYOUT_TABLE_SHA256,
 }) : null;
-const geometryFrames = table ? layoutFrames(bundleData) : [];
+const geometryFrames = table ? layoutFrames(bundleData).filter(({phase}) => !hookOnly || phase === "hook") : [];
 const layoutBinding = table && {
   mode: measure ? "measurement" : "qualification",
   bundleFileSha256: sha256(inputBytes),
@@ -42,10 +47,11 @@ const layoutBinding = table && {
 const layoutEvidence = table && {
   schemaVersion: 1, status: "running", binding: {...layoutBinding, propsSha256: propsSha256(bundleData)}, items: [],
   ...(measure ? {disposition: "NEVER_POST", postingAuthorized: false} : {}),
+  ...(hookOnly ? {scope: "hook", postingAuthorized: false} : {}),
 };
-const layoutPath = path.join(outputDir, measure ? "layout-measurement.json" : "layout-evidence.json");
+const layoutPath = path.join(outputDir, hookOnly ? "hook-layout-evidence.json" : measure ? "layout-measurement.json" : "layout-evidence.json");
 const saveLayout = () => writeFileWithRetry(layoutPath, `${JSON.stringify(layoutEvidence, null, 2)}\n`, "utf8");
-const mediaRenderOptions = governedH264Options(bundleData.render);
+const mediaRenderOptions = hookOnly ? null : governedH264Options(bundleData.render);
 const inputProps = {
   bundle: bundleData,
   reducedMotion: false,
@@ -65,7 +71,7 @@ const timestamp = frames => {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 };
 
-await mkdir(outputDir, {recursive: !measure});
+await mkdir(outputDir, {recursive: !layoutOnly});
 if (table) {
   await writeFileWithRetry(path.join(outputDir, "layout-table.json"), table.bytes);
   await saveLayout();
@@ -73,19 +79,21 @@ if (table) {
 const revealScene = bundleData.scenes.find((scene) => scene.stage === "reveal");
 const analysisLayer = revealScene?.layers.find((layer) => layer.id === "analysis");
 const playDecision = (analysisLayer?.content?.decisionKind ?? "play") === "play";
-const showJustification = bundleData.presentation?.presentation?.show_justification_text !== false;
-const captionSegment = segment("reveal");
-const captionText = showJustification
-  ? bundleData.localizations[analysisLayer?.content?.reasonKey ?? "video.analysis.expert_reason"]
-  : "";
-if (showJustification && !captionText) throw new Error("Missing governed reveal localization");
-await writeFileWithRetry(
-  path.join(outputDir, `${outputBase}.ar.vtt`),
-  showJustification
-    ? `WEBVTT\n\n${timestamp(captionSegment.startFrame)} --> ${timestamp(captionSegment.startFrame + Math.min(240, captionSegment.durationFrames))}\n${captionText}\n`
-    : "WEBVTT\n\n",
-  "utf8",
-);
+if (!hookOnly) {
+  const showJustification = bundleData.presentation?.presentation?.show_justification_text !== false;
+  const captionSegment = segment("reveal");
+  const captionText = showJustification
+    ? bundleData.localizations[analysisLayer?.content?.reasonKey ?? "video.analysis.expert_reason"]
+    : "";
+  if (showJustification && !captionText) throw new Error("Missing governed reveal localization");
+  await writeFileWithRetry(
+    path.join(outputDir, `${outputBase}.ar.vtt`),
+    showJustification
+      ? `WEBVTT\n\n${timestamp(captionSegment.startFrame)} --> ${timestamp(captionSegment.startFrame + Math.min(240, captionSegment.durationFrames))}\n${captionText}\n`
+      : "WEBVTT\n\n",
+    "utf8",
+  );
+}
 const serveUrl = await bundle({
   entryPoint: path.join(rendererRoot, "src/index.ts"),
   publicDir: assetsRoot,
@@ -127,10 +135,11 @@ const replayCheckpoints = () => {
     ...tail,
   ];
 };
-const continuation = completeReplay ? undefined : segment("continuation");
-const firstContinuationFrame = completeReplay ? 0 : continuation.startFrame + Math.min(continuation.durationFrames - 1,
-  Math.max(0, Math.ceil(continuation.durationFrames / Math.max(1, allPlays.length - pause)) - 1));
-const checkpoints = completeReplay ? replayCheckpoints() : [
+const continuation = completeReplay || layoutOnly ? undefined : segment("continuation");
+const firstContinuationFrame = continuation ? continuation.startFrame + Math.min(continuation.durationFrames - 1,
+  Math.max(0, Math.ceil(continuation.durationFrames / Math.max(1, allPlays.length - pause)) - 1)) : 0;
+const layoutStills = geometryFrames.map(({phase, frame}) => [`layout-${phase}`, frame, phase]);
+const checkpoints = layoutOnly ? layoutStills : completeReplay ? replayCheckpoints() : [
   ["01-hook", 0],
   ["02-rewind", middleFrame("rewind")],
   ["03-context", segment("context").startFrame + segment("context").durationFrames - 1, "context", pause],
@@ -142,12 +151,11 @@ const checkpoints = completeReplay ? replayCheckpoints() : [
     ? [["08-outcome", middleFrame("outcome"), "outcome", 32]] : []),
 ];
 const evidence = [];
-const layoutStills = geometryFrames.map(({phase, frame}) => [`layout-${phase}`, frame, phase]);
-if (!measure) {
+if (!layoutOnly) {
   checkpoints.push(...layoutStills.filter(([, frame, phase]) =>
     !checkpoints.some(([, existingFrame, existingPhase]) => frame === existingFrame && phase === existingPhase)));
 }
-for (const [name, frame, phase, completedPlayCount] of measure ? layoutStills : checkpoints) {
+for (const [name, frame, phase, completedPlayCount] of checkpoints) {
   let renderedDom;
   let geometry;
   const geometryFrame = geometryFrames.find(row => row.frame === frame && row.phase === phase);
@@ -201,7 +209,9 @@ if (table) {
 }
 if (playbackEvidence) await writeFileWithRetry(path.join(outputDir, "playback-evidence.json"),
   `${JSON.stringify({schemaVersion: 1, items: evidence}, null, 2)}\n`, "utf8");
-if (!stillsOnly) {
+if (hookOnly) {
+  process.stdout.write(`${layoutPath}\n`);
+} else if (!stillsOnly) {
   await renderMedia({
     composition,
     serveUrl,

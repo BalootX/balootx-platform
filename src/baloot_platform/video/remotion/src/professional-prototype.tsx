@@ -921,6 +921,7 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
   }
   // Answer-only reveal: the badge joins the south lane beside the name pill, clear of the raised card.
   const answerOnlyReveal = showReveal && !showJustification;
+  const southLaneState = answerOnlyReveal ? " is-reveal" : showPrompt && decisionKind === "play" ? " is-play-prompt" : "";
   const revealPanel = showReveal ? (
     <section
       className="reveal-reason"
@@ -1071,7 +1072,7 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
         <div className="lane-spacer" aria-hidden="true"><SeatPill count={counts[northActual]} name={playerNames[northActual]} active={false} /></div>
         <div className="lane-side lane-end" dir="rtl">{[...setupCalls, ...playCallouts].filter((item) => item.visual === "north").map((item) => item.node)}</div>
       </div>
-      <div className={`seat-lane lane-south${answerOnlyReveal ? " is-reveal" : ""}`} dir="ltr">
+      <div className={`seat-lane lane-south${southLaneState}`} dir="ltr">
         <div className="lane-side lane-start" dir="rtl">{tagsFor("south")}</div>
         <div className="lane-spacer" aria-hidden="true"><SeatPill count={counts[observer]} name={playerNames[observer]} active={false} /></div>
         <div className="lane-side lane-end">{answerOnlyReveal ? revealPanel : null}</div>

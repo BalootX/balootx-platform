@@ -643,6 +643,9 @@ jobs:
           name: media-bundles
           path: outputs/professional-video-prototypes
           digest-mismatch: error
+      - name: Check synthetic hook layouts
+        if: matrix.shard == 'decision'
+        run: node tests/hook-layout.integration.mjs ../../../../outputs/professional-video-prototypes/render-bundle-decision.json
       - name: Render the governed media shard
         working-directory: .
         env:

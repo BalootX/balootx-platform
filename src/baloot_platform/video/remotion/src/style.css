@@ -602,6 +602,11 @@
   width: 208px;
 }
 
+/* The tilted purchase card extends 16px above the badge row. */
+.tags-east > .tag.buyer:has(.pcard) {
+  margin-top: 8px;
+}
+
 /* North and south side items sit in a lane around an invisible copy of the name pill,
    so long names push them outward instead of overlapping. */
 .seat-lane {
@@ -625,6 +630,11 @@
   z-index: 31;
   top: 1180px;
   grid-template-rows: 40px;
+}
+
+/* The play prompt starts at y 1200. Leave room above it for the tilted card. */
+.lane-south.is-play-prompt {
+  top: 1140px;
 }
 
 /* Answer-only reveal: tags, name pill and choice badge share the lane bottom (y 1220),
