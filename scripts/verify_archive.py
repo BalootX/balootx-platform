@@ -26,6 +26,11 @@ ARCHIVE_NODE_TIMEOUT_SECONDS = 600
 ARCHIVE_NATIVE_TIMEOUT_SECONDS = 600
 ARCHIVE_LONG_PYTHON_FILES = {
     "test_research_audit_trace_service.py",
+    "test_research_audit_trace_service_conflict.py",
+    "test_research_audit_trace_service_qualification.py",
+    "test_research_audit_trace_service_retained.py",
+    "test_research_audit_trace_service_retry.py",
+    "test_research_audit_trace_service_submission.py",
     "test_research_foundry.py",
     "test_research_sharding.py",
     "test_research_strategic_play.py",

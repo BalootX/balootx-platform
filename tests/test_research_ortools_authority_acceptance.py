@@ -75,7 +75,7 @@ _DOWNSTREAM_ONLY_IMPORT_EDGES = frozenset(
 _LEGACY_SUPPORT_OWNERS = (
     (
         "exact_manually_defined_legal_scenario",
-        "tests/test_research_scenario_v4.py::test_exact_trace_prefix_replays_and_proves_every_root_action",
+        "tests/test_research_scenario_v4_proof.py::test_exact_trace_prefix_replays_and_proves_every_root_action",
     ),
     (
         "deterministically_generated_scenario",
@@ -83,7 +83,7 @@ _LEGACY_SUPPORT_OWNERS = (
     ),
     (
         "exact_complete_state_proof",
-        "tests/test_research_scenario_v4.py::test_golden_sun_hundred_project_has_one_saving_move",
+        "tests/test_research_scenario_v4_proof.py::test_golden_sun_hundred_project_has_one_saving_move",
     ),
     (
         "exact_actor_information_set_proof",
@@ -91,31 +91,31 @@ _LEGACY_SUPPORT_OWNERS = (
     ),
     (
         "bounded_proof",
-        "tests/test_research_scenario_v4.py::test_bounded_and_policy_conditioned_proofs_keep_their_labels",
+        "tests/test_research_scenario_v4_proof.py::test_bounded_and_policy_conditioned_proofs_keep_their_labels",
     ),
     (
         "policy_conditioned_proof",
-        "tests/test_research_scenario_v4.py::test_bounded_and_policy_conditioned_proofs_keep_their_labels",
+        "tests/test_research_scenario_v4_proof.py::test_bounded_and_policy_conditioned_proofs_keep_their_labels",
     ),
     (
         "zero_winning_root_actions",
-        "tests/test_research_scenario_v4.py::test_golden_sun_hundred_project_has_exactly_no_salvage",
+        "tests/test_research_scenario_v4_proof.py::test_golden_sun_hundred_project_has_exactly_no_salvage",
     ),
     (
         "one_winning_root_action",
-        "tests/test_research_scenario_v4.py::test_golden_sun_hundred_project_has_one_saving_move",
+        "tests/test_research_scenario_v4_proof.py::test_golden_sun_hundred_project_has_one_saving_move",
     ),
     (
         "multiple_winning_root_actions",
-        "tests/test_research_scenario_v4.py::test_policy_continuation_count_is_for_selected_root_not_all_roots",
+        "tests/test_research_scenario_v4_proof.py::test_policy_continuation_count_is_for_selected_root_not_all_roots",
     ),
     (
         "exact_continuation_line_count",
-        "tests/test_research_scenario_v4.py::test_golden_ace_sacrifice_is_only_win_and_final_nine_takes_two_aces",
+        "tests/test_research_scenario_v4_proof.py::test_golden_ace_sacrifice_is_only_win_and_final_nine_takes_two_aces",
     ),
     (
         "incomplete_continuation_line_bounds",
-        "tests/test_research_scenario_v4.py::test_exact_proof_budget_exhaustion_returns_only_incomplete_bounds",
+        "tests/test_research_scenario_v4_proof.py::test_exact_proof_budget_exhaustion_returns_only_incomplete_bounds",
     ),
     (
         "contradictory_scenario_rejection",
@@ -127,7 +127,7 @@ _LEGACY_SUPPORT_OWNERS = (
     ),
     (
         "exact_structural_infeasibility",
-        "tests/test_research_scenario_v4.py::test_structural_solver_proves_feasible_deal_and_exact_infeasible_core",
+        "tests/test_research_scenario_v4_proof.py::test_structural_solver_proves_feasible_deal_and_exact_infeasible_core",
     ),
     (
         "not_found_within_budget",
@@ -135,19 +135,19 @@ _LEGACY_SUPPORT_OWNERS = (
     ),
     (
         "semantic_postcondition_miss",
-        "tests/test_research_scenario_v4.py::test_search_candidate_skips_illegal_selected_action_without_aborting_budget",
+        "tests/test_research_scenario_v4_proof.py::test_search_candidate_skips_illegal_selected_action_without_aborting_budget",
     ),
     (
         "proof_incomplete",
-        "tests/test_research_scenario_v4.py::test_exact_proof_budget_exhaustion_returns_only_incomplete_bounds",
+        "tests/test_research_scenario_v4_proof.py::test_exact_proof_budget_exhaustion_returns_only_incomplete_bounds",
     ),
     (
         "proof_false",
-        "tests/test_research_scenario_v4.py::test_bounded_and_policy_conditioned_proofs_keep_their_labels",
+        "tests/test_research_scenario_v4_proof.py::test_bounded_and_policy_conditioned_proofs_keep_their_labels",
     ),
     (
         "qualified_scenario_through_foundry",
-        "tests/test_research_scenario_v4.py::test_v4_exact_public_api_journey_retains_and_queries_proof",
+        "tests/test_research_scenario_v4_api_exact.py::test_v4_exact_public_api_journey_retains_and_queries_proof",
     ),
     (
         "qualified_result_to_video_preparation",
@@ -167,7 +167,7 @@ _LEGACY_SUPPORT_OWNERS = (
     ),
     (
         "no_false_optimality_claim",
-        "tests/test_research_scenario_v4.py::test_bounded_and_policy_conditioned_proofs_keep_their_labels",
+        "tests/test_research_scenario_v4_proof.py::test_bounded_and_policy_conditioned_proofs_keep_their_labels",
     ),
 )
 

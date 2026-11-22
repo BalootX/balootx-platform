@@ -121,12 +121,15 @@ def schedule(files: list[str], history: dict, light_timeout: int = 900) -> list[
            for durations in (seconds, weights) for value in durations.values()):
         raise ValueError("historical durations must be finite nonnegative seconds")
     heavy = set(history["incompleteFiles"]) | {path for path, value in seconds.items() if value >= 900}
+    heavy |= {file for file, source in history.get("splitFileLimitSources", {}).items() if source in heavy}
     ordered = sorted(files, key=lambda path: (path not in heavy, -weights.get(path, seconds.get(path, 0)), path))
     return [(path, 3600 if path in heavy else light_timeout) for path in ordered]
 
 
 def work_file_budget(path: str, timeout: int, history: dict) -> float:
     recorded = [history.get(field, {}).get(path, 0) for field in ("seconds", "shardSeconds")]
+    if source := history.get("splitFileLimitSources", {}).get(path):
+        recorded.append(history.get("seconds", {}).get(source, 0))
     if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0 for value in recorded):
         raise ValueError("historical durations must be finite nonnegative seconds")
     budget = min(FILE_SAFETY_SECONDS, timeout - 60)
