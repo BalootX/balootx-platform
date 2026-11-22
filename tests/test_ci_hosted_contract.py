@@ -29,6 +29,7 @@ def test_codeowners_covers_hosted_ci_and_release_controls(root, codeowners_rules
     required = {
         "/.github/", "/ci/", "/scripts/__init__.py", "/scripts/*/", "/scripts/ci_known_failures.py",
         "/tests/conftest.py", "/tests/test_ci_hosted_contract.py",
+        "/scripts/remotion_image_parity.py", "/tests/test_remotion_image_parity.py", "/tests/test_remotion_image_parity/",
         "/*.py", "/src/*.py", "/*/__init__.py", "/src/*/__init__.py",
         "/*/__init__.pyc", "/src/*/__init__.pyc", "/*/__init__*.so", "/src/*/__init__*.so",
         "/*/__init__*.pyd", "/src/*/__init__*.pyd",
@@ -144,11 +145,30 @@ def test_hosted_ci_contract(root):
     assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof }}"
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
-        "media-inputs", "media-render", "media-release-smoke", "viewer-seat-proof",
+        "media-inputs", "media-render", "media-release-smoke", "viewer-seat-proof", "remotion-image-parity",
     ):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)
         assert flags and all("-P" in options.split() for options in flags), name
+
+
+def test_remotion_image_parity_builds_and_checks_the_runtime(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    parity = jobs["remotion-image-parity"]
+    assert parity["needs"] == "plan"
+    assert "remotion-image-parity" in jobs["media-render"]["needs"]
+    checkout, restore, build, check, save = parity["steps"]
+    assert checkout["with"]["persist-credentials"] is False
+    assert restore["with"] == save["with"]
+    assert "Dockerfile" in restore["with"]["key"] and "remotion/package*.json" in restore["with"]["key"]
+    assert "--target remotion-runtime --load" in build["run"] and "--push" not in build["run"]
+    assert "sha256sum --check --strict /remotion/.lock-sha256" in check["run"]
+    assert "scripts/remotion_image_parity.py /remotion/node_modules package-lock.json" in check["run"]
+    assert "target=/check/package-lock.json,readonly" in check["run"]
+    assert "target=/check/scripts/remotion_image_parity.py,readonly" in check["run"]
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    assert "sha256sum package-lock.json > .lock-sha256" in dockerfile
+    assert "COPY --from=remotion-runtime /remotion/.lock-sha256 /opt/baloot-remotion/.lock-sha256" in dockerfile
 
 
 def test_viewer_seat_proof_dispatch_uses_pinned_fixtures_and_skips_ci(root):
@@ -260,6 +280,8 @@ def test_gate_requires_exact_scoped_producers(root, paths, producers):
     "tests/conftest.py", "tests/test_ci_hosted_contract.py", "tests/test_core.py",
     "tests/test_research_ortools_unified_executor.py", "tests/test_unmeasured.py",
     "docs/architecture/authority-map.json", "src/baloot_platform/core/rules.py",
+    "Dockerfile", ".dockerignore", "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py",
+    "src/baloot_platform/video/remotion/package.json", "src/baloot_platform/video/remotion/package-lock.json",
 ])
 def test_unknown_shared_and_ci_paths_force_the_full_profile(monkeypatch, path):
     monkeypatch.setattr(ci_scope, "changed_paths", lambda *_: {"README.md", path})

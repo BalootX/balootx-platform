@@ -25,4 +25,6 @@ Use the next exact-head run to recalculate this table. Compare job durations, qu
 
 Report scoped PR timings by change type. A docs-only run exercises the smoke path, while SDK and Foundry runs exercise their named producers and the Python 3.12 and 3.13 affected-test jobs. Record the full fallback separately because workflow changes select it.
 
+Before the media shards start, the full CI profile builds the Dockerfile's `remotion-runtime` target. It compares the image's recorded SHA-256 with the checkout's Remotion lockfile and verifies the installed production dependency tree. Main pushes save the BuildKit cache, and PRs restore it. Rebuild the video worker after changing the Remotion lockfile. To check a worker image's lockfile identity, compare `/opt/baloot-remotion/.lock-sha256` with the SHA-256 of the lockfile for the intended release.
+
 CODEOWNERS protects the CI control plane, including the gate, plan, coverage guard, launchers, and their startup and import paths. Media and release verifiers are product checks reviewed with the product. Existing ownership of verifier scripts governs review of changes to those files.

@@ -18,7 +18,7 @@ VERSIONS = ("3.12", "3.13")
 FULL = {
     "python-wheelhouse", "ffmpeg-packages", "native-build", "native-sanitizers", "python-fast-run",
     "python-backend-run", "python-heavy", "python-coverage", "media-inputs",
-    "media-render", "media-release-smoke",
+    "media-render", "media-release-smoke", "remotion-image-parity",
 }
 SCOPED = {"sdks": "sdk", "foundry": "foundry", "remotion-checks": "remotion"}
 TEST_SETUP = {"ffmpeg-packages", "native-build"}
@@ -38,6 +38,7 @@ SDK_TESTS = {
 CI_TESTS = {
     "tests/test_heavy_pytest.py", "tests/test_isolated_pytest.py",
     "tests/test_repository_structure.py", "tests/test_media_render_artifact.py",
+    "tests/test_remotion_image_parity.py",
 }
 
 

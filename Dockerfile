@@ -6,7 +6,7 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean && printf '%s\n' 'Acquire::Retries "5
 FROM node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS remotion-build
 WORKDIR /remotion
 COPY src/baloot_platform/video/remotion/package.json src/baloot_platform/video/remotion/package-lock.json ./
-RUN --mount=type=cache,id=balootx-remotion-npm,target=/root/.npm,sharing=locked npm ci --ignore-scripts
+RUN --mount=type=cache,id=balootx-remotion-npm,target=/root/.npm,sharing=locked sha256sum package-lock.json > .lock-sha256 && npm ci --ignore-scripts
 RUN node --input-type=module -e "import {ensureBrowser} from '@remotion/renderer'; await ensureBrowser({logLevel: 'warn'});"
 
 FROM remotion-build AS foundry-build
@@ -55,6 +55,7 @@ USER root
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked apt-get update && apt-get install -y --no-install-recommends libnss3 libdbus-1-3 libatk1.0-0 libgbm1 libasound2 libxrandr2 libxkbcommon0 libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 && rm -rf /var/lib/apt/lists/*
 COPY --from=remotion-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=remotion-runtime /remotion/node_modules /opt/baloot-remotion/node_modules
+COPY --from=remotion-runtime /remotion/.lock-sha256 /opt/baloot-remotion/.lock-sha256
 RUN renderer_dir="$(python -c 'from pathlib import Path; import baloot_platform.video.remotion_renderer as module; print(Path(module.__file__).parent / "remotion")')" && ln -s /opt/baloot-remotion/node_modules "$renderer_dir/node_modules" && chown -h baloot:baloot "$renderer_dir/node_modules"
 USER 10001
 HEALTHCHECK NONE
@@ -90,6 +91,7 @@ COPY --from=build /tmp/native/libbaloot_native.so /app/build/native-release/libb
 COPY --from=build /tmp/native/baloot_native_tests /usr/local/bin/baloot_native_tests
 COPY --from=remotion-build /usr/local/bin/node /usr/local/bin/node
 COPY --from=remotion-build /remotion/node_modules ./src/baloot_platform/video/remotion/node_modules
+COPY --from=remotion-build /remotion/.lock-sha256 ./src/baloot_platform/video/remotion/.lock-sha256
 COPY --from=foundry-build /foundry/node_modules ./src/baloot_platform/service/foundry_dashboard/node_modules
 RUN --mount=type=cache,target=/root/.cache/pip wheel_path="$(echo /tmp/baloot_platform-*.whl)" && python -m pip install --no-cache-dir "${wheel_path}[dev,grpc-dev,postgres,s3,redis,security,optimization]" && rm -f /tmp/*.whl
 COPY . .

@@ -555,8 +555,50 @@ jobs:
         with: *remotion-cache
       - run: npm run typecheck && npm test
 
+  remotion-image-parity:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - *checkout
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: remotion-build-cache
+        with: &remotion-build-cache
+          path: ${{ runner.temp }}/remotion-build-cache
+          key: ${{ runner.os }}-remotion-build-${{ hashFiles('Dockerfile', '.dockerignore', 'src/baloot_platform/video/remotion/package*.json') }}
+      - name: Build the Remotion runtime
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.remotion-build-cache.outputs.cache-hit }}
+          MAIN_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          docker buildx create --driver docker-container --use
+          cache_dir="$RUNNER_TEMP/remotion-build-cache"
+          cache_args=()
+          if [[ "$CACHE_HIT" == 'true' ]]; then
+            cache_args+=(--cache-from "type=local,src=$cache_dir")
+          elif [[ "$MAIN_PUSH" == 'true' ]]; then
+            cache_args+=(--cache-to "type=local,dest=$cache_dir,mode=min")
+          fi
+          docker buildx build --target remotion-runtime --load --tag balootx-remotion-parity "${cache_args[@]}" .
+      - name: Check the runtime against the checkout lockfile
+        run: |
+          docker run --rm --workdir /check \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/src/baloot_platform/video/remotion/package-lock.json,target=/check/package-lock.json,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/remotion_image_parity.py,target=/check/scripts/remotion_image_parity.py,readonly" \
+            balootx-remotion-parity sh -ec '
+              sha256sum --check --strict /remotion/.lock-sha256
+              apt-get -qq update
+              apt-get -qq install -y --no-install-recommends python3
+              exec python3 -P scripts/remotion_image_parity.py /remotion/node_modules package-lock.json
+            '
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.remotion-build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *remotion-build-cache
+
   media-render:
-    needs: [plan, media-inputs]
+    needs: [plan, media-inputs, remotion-image-parity]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -699,7 +741,7 @@ jobs:
 
   ci-gate:
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'CI result' }}
-    needs: [plan, preflight, dependency-review, python-version-smoke, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, media-render, media-release-smoke]
+    needs: [plan, preflight, dependency-review, python-version-smoke, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
     if: ${{ always() && !inputs.viewer-seat-proof }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

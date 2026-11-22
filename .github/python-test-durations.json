@@ -335,6 +335,7 @@
     "tests/test_release_packaging.py": 1.894,
     "tests/test_release_quality.py": 9.759,
     "tests/test_release_readiness.py": 4.385,
+    "tests/test_remotion_image_parity.py": 1.0,
     "tests/test_remotion_renderer.py": 31.622,
     "tests/test_render_api_contract_closure.py": 21.653,
     "tests/test_render_batch_service_api.py": 36.649,
