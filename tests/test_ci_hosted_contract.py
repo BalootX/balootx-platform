@@ -29,6 +29,7 @@ def test_codeowners_covers_hosted_ci_and_release_controls(root, codeowners_rules
     required = {
         "/.github/", "/ci/", "/scripts/__init__.py", "/scripts/*/", "/scripts/ci_known_failures.py",
         "/tests/conftest.py", "/tests/test_ci_hosted_contract.py",
+        "/scripts/remotion_image_parity.py", "/tests/test_remotion_image_parity.py", "/tests/test_remotion_image_parity/",
         "/*.py", "/src/*.py", "/*/__init__.py", "/src/*/__init__.py",
         "/*/__init__.pyc", "/src/*/__init__.pyc", "/*/__init__*.so", "/src/*/__init__*.so",
         "/*/__init__*.pyd", "/src/*/__init__*.pyd",
@@ -144,11 +145,36 @@ def test_hosted_ci_contract(root):
     assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof }}"
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
-        "media-inputs", "media-render", "media-release-smoke", "viewer-seat-proof",
+        "media-inputs", "media-render", "media-release-smoke", "viewer-seat-proof", "remotion-image-parity",
     ):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)
         assert flags and all("-P" in options.split() for options in flags), name
+
+
+def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    parity = jobs["remotion-image-parity"]
+    assert parity["needs"] == "plan"
+    assert parity["if"] == "needs.plan.outputs.video_worker == 'true'"
+    assert jobs["plan"]["outputs"]["video_worker"] == "${{ steps.plan.outputs.video_worker }}"
+    assert "remotion-image-parity" in jobs["media-render"]["needs"]
+    checkout, restore, build, check, save = parity["steps"]
+    assert checkout["with"]["persist-credentials"] is False
+    assert restore["with"] == save["with"]
+    assert all(path in restore["with"]["key"] for path in ("Dockerfile", ".dockerignore", "pyproject.toml", "remotion/package*.json"))
+    assert "--target video-worker --load" in build["run"] and "--push" not in build["run"]
+    assert "docker run --rm --network none" in check["run"]
+    assert "sha256sum --check --strict /opt/baloot-remotion/.lock-sha256" in check["run"]
+    assert "python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules package-lock.json" in check["run"]
+    assert "target=/check/package-lock.json,readonly" in check["run"]
+    assert "target=/check/scripts/remotion_image_parity.py,readonly" in check["run"]
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    assert re.fullmatch(r"FROM python:3\.13-slim@sha256:[0-9a-f]{64} AS python-base", dockerfile.splitlines()[0])
+    assert jobs["python-wheelhouse"]["strategy"]["matrix"]["python"] == jobs["python-fast-run"]["strategy"]["matrix"]["python"]
+    assert '"3.13"' in jobs["python-wheelhouse"]["strategy"]["matrix"]["python"]
+    assert "sha256sum package-lock.json > .lock-sha256" in dockerfile
+    assert "COPY --from=remotion-runtime /remotion/.lock-sha256 /opt/baloot-remotion/.lock-sha256" in dockerfile
 
 
 def test_viewer_seat_proof_dispatch_uses_pinned_fixtures_and_skips_ci(root):
@@ -217,7 +243,7 @@ def test_gate_rejects_unproven_full_producers(event):
                        "python-backend-run": {"result": "skipped"}, "python-coverage": {"result": "skipped"}}
     with pytest.raises(ValueError, match="CI producers differ from the plan"):
         ci_scope.validate_results(event, blocked_backend)
-    for key in ("full", "sdk", "remotion"):
+    for key in ("full", *ci_scope.SCOPED.values()):
         plan[key] = "false"
         with pytest.raises(ValueError):
             ci_scope.validate_results(event, results)
@@ -229,10 +255,10 @@ def test_gate_rejects_unproven_full_producers(event):
 
 @pytest.mark.parametrize(("paths", "producers"), [
     ({f"docs/{__name__}.md"}, set()),
-    ({ci_scope.FOUNDRY + "main.tsx"}, {"foundry", "python-affected", *ci_scope.TEST_SETUP}),
+    ({ci_scope.FOUNDRY + "main.tsx"}, {"foundry", "remotion-image-parity", "python-affected", *ci_scope.TEST_SETUP}),
     ({"sdk/go/client.go"}, {"sdks", "python-affected", *ci_scope.TEST_SETUP}),
     ({f"docs/{__name__}.md", ci_scope.FOUNDRY + "main.tsx", "sdk/typescript/src/client.ts"},
-     {"foundry", "sdks", "python-affected", *ci_scope.TEST_SETUP}),
+     {"foundry", "sdks", "remotion-image-parity", "python-affected", *ci_scope.TEST_SETUP}),
 ])
 def test_gate_requires_exact_scoped_producers(root, paths, producers):
     selection = ci_scope.scoped_plan(paths)
@@ -260,6 +286,11 @@ def test_gate_requires_exact_scoped_producers(root, paths, producers):
     "tests/conftest.py", "tests/test_ci_hosted_contract.py", "tests/test_core.py",
     "tests/test_research_ortools_unified_executor.py", "tests/test_unmeasured.py",
     "docs/architecture/authority-map.json", "src/baloot_platform/core/rules.py",
+    "Dockerfile", ".dockerignore", "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py",
+    "src/baloot_platform/video/remotion/package.json", "src/baloot_platform/video/remotion/package-lock.json",
+    "LICENSE", "THIRD-PARTY-NOTICES", "native/CMakeLists.txt", "configs/runtime/docker_v1.yaml",
+    "schemas/version.schema.json", "generated/openapi.json", "proto/baloot.proto", "migrations/001_initial.sql",
+    "assets/fonts/manifest.json", "release/saudi-baloot-official-source-verification-20260831-v2.json",
 ])
 def test_unknown_shared_and_ci_paths_force_the_full_profile(monkeypatch, path):
     monkeypatch.setattr(ci_scope, "changed_paths", lambda *_: {"README.md", path})

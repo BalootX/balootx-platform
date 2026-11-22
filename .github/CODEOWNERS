@@ -10,6 +10,7 @@
 /scripts/ci_known_failures.py @BalootX/maintainers
 /scripts/run_isolated_pytest.py @BalootX/maintainers
 /scripts/run_heavy_pytest.py @BalootX/maintainers
+/scripts/remotion_image_parity.py @BalootX/maintainers
 /tests/conftest.py @BalootX/maintainers
 /tests/test_ci_hosted_contract.py @BalootX/maintainers
 /tests/test_repository_structure.py @BalootX/maintainers
@@ -17,6 +18,7 @@
 /tests/test_ci_known_failures.py @BalootX/maintainers
 /tests/test_isolated_pytest.py @BalootX/maintainers
 /tests/test_heavy_pytest.py @BalootX/maintainers
+/tests/test_remotion_image_parity.py @BalootX/maintainers
 /src/baloot_platform/service/foundry_dashboard/scripts/check-generated-api.mjs @BalootX/maintainers
 
 # Python imports and pytest configuration from the repository root and PYTHONPATH.
@@ -68,6 +70,7 @@
 /tests/test_ci_hosted_contract/ @BalootX/maintainers
 /tests/test_repository_structure/ @BalootX/maintainers
 /tests/test_media_render_artifact/ @BalootX/maintainers
+/tests/test_remotion_image_parity/ @BalootX/maintainers
 /tests/__pycache__/ @BalootX/maintainers
 /tests/*.so @BalootX/maintainers
 /tests/*.pyd @BalootX/maintainers
