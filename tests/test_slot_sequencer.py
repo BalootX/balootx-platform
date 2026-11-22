@@ -1,6 +1,5 @@
 import json
 import os
-import subprocess
 from datetime import UTC, datetime, timedelta
 from fractions import Fraction
 from hashlib import sha256
@@ -18,6 +17,7 @@ MECHANISMS = ("LEAD", "FOLLOW_SUIT_CAPTURE")
 def route(slot, mechanism, label, binding=None):
     return sequencer.Route(
         Path(f"packet-{label}"),
+        datetime.fromisoformat(slot),
         {
             "slotUtc": slot,
             "exactStateId": label,
@@ -53,11 +53,19 @@ def cli(monkeypatch, tmp_path):
         "private": {},
         "evidence": {"scope": "STANDING_TIKTOK"},
     }
+
+    class Reject(ValueError):
+        pass
+
+    def read(path, expected):
+        if path.name == "evidence" and expected != "evidence-digest":
+            raise Reject("INPUT_SHA_MISMATCH")
+        return json.dumps(payloads[path.name]).encode()
+
     gate = SimpleNamespace(
         LEDGER=ledger,
-        Inputs=lambda: SimpleNamespace(
-            read=lambda path, _: json.dumps(payloads[path.name]).encode()
-        ),
+        Inputs=lambda: SimpleNamespace(read=read),
+        Reject=Reject,
         CAPTION_POOL_SHA="pool-digest",
         PRIVATE=Path("private"),
         PRIVATE_SHA="private-digest",
@@ -156,7 +164,6 @@ def test_valid_plan_publishes_coverage_and_standing_gate_arguments(cli, capsys):
         "dayUtc": "2030-01-02",
         "gateScriptSha256": sequencer.GATE_SHA,
         "gatePolicySha256": sequencer.POLICY_SHA,
-        "archiveDryRun": "NOT_RUN",
         "evidenceScope": "STANDING_TIKTOK",
         "plannedSlots": 4,
         "coverageByReleasedDay": [
@@ -206,7 +213,9 @@ def test_search_chooses_highest_ranked_primary_that_can_complete_the_day():
             return None
         return (-candidate.base,)
 
-    plan = sequencer.choose_slots(inventory, SLOTS, rank)
+    plan = sequencer.choose_slots(
+        inventory, list(map(datetime.fromisoformat, SLOTS)), rank
+    )
     assert plan[0] == (inventory[1], inventory[0])
 
 
@@ -225,97 +234,29 @@ def test_gate_digest_mismatch_rejected_before_execution(which, monkeypatch, tmp_
         sequencer.load_gate(script, policy)
 
 
-@pytest.mark.parametrize("changed_audit", [False, True])
-def test_read_only_archive_handoff(monkeypatch, tmp_path, changed_audit):
-    plan = [
-        tuple(
-            route(slot, mechanism, f"{i}-{j}") for j, mechanism in enumerate(MECHANISMS)
-        )
-        for i, slot in enumerate(SLOTS)
-    ]
-    args = SimpleNamespace(
-        gate=tmp_path / "release_gate.py",
-        archive_day=tmp_path / "archive",
-        day_seal_sha="seal",
-        ledger=tmp_path / "ledger",
-        evidence=tmp_path / "catalog",
-        evidence_sha="catalog",
-    )
-    runner = args.gate.with_name("dry_run_gate.py")
-    runner.write_bytes(b"synthetic archive runner")
-    monkeypatch.setattr(
-        sequencer, "ARCHIVE_RUNNER_SHA", sha256(runner.read_bytes()).hexdigest()
-    )
-    replay = {
-        "status": "COMPLETED_READ_ONLY",
-        "dryRun": True,
-        "daySealSha256": "seal",
-        "canonicalLedgerSha256Before": "ledger",
-        "canonicalLedgerSha256After": "ledger",
-        "scenarios": {},
+def test_equivalent_utc_slots_keep_the_exact_bound_gate_argument(cli, capsys):
+    inventory, output, argv = cli
+    argv[argv.index("--slots") + 1] = SLOTS[0].replace("Z", "+00:00")
+    bound_slot = SLOTS[1].replace("Z", "+00:00")
+    inventory[2].binding["slotUtc"] = bound_slot
+    assert sequencer.main(argv) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["plannedSlots"] == 4
+    assert report["coverageByReleasedDay"][0]["candidateSlots"] == 4
+    plan = json.loads(output.read_bytes())
+    assert plan["slots"][1]["primary"]["slot"] == SLOTS[1]
+    assert plan["slots"][1]["fallback"]["slot"] == bound_slot
+
+
+def test_cli_preserves_gate_rejection_reason(cli, capsys):
+    _, output, argv = cli
+    argv[argv.index("--evidence-sha") + 1] = "changed-digest"
+    assert sequencer.main(argv) == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "PLAN_REJECTED",
+        "reason": "INPUT_SHA_MISMATCH",
     }
-    for j, scenario in enumerate(("primary", "fallback")):
-        slots = []
-        for i, pair in enumerate(plan):
-            selected = pair[j]
-            audit = {
-                "decision": "WOULD_RELEASE",
-                "dryRun": True,
-                "reasons": [],
-                "gateScriptSha256": sequencer.GATE_SHA,
-                "policySha256": sequencer.POLICY_SHA,
-                "packetId": selected.packet.name,
-                "slotUtc": SLOTS[i],
-                "evidenceExpectedSha256": "catalog",
-                "canonicalLedgerSha256": "ledger",
-                "ledgerReadbackSha256": "ledger",
-            }
-            slots.append(
-                {
-                    "slotUtc": SLOTS[i],
-                    "assumedPostedPacketId": selected.packet.name,
-                    "routes": [
-                        {
-                            "packetId": selected.packet.name,
-                            "decision": "WOULD_RELEASE",
-                            "dryRun": True,
-                            "predecessorMatched": True,
-                            "agreesWithSealedEligibility": True,
-                            "reasons": [],
-                            "auditRow": audit,
-                        }
-                    ],
-                }
-            )
-        replay["scenarios"][scenario] = {"slots": slots}
-    if changed_audit:
-        audit["policySha256"] = "mismatch"
-
-    def run(argv, **kwargs):
-        assert argv[1:] == [
-            "-I",
-            "-B",
-            str(runner),
-            "--sequential-dry-run",
-            str(args.archive_day),
-            "--day-seal-sha",
-            "seal",
-            "--ledger",
-            str(args.ledger),
-            "--evidence",
-            str(args.evidence),
-            "--evidence-sha",
-            "catalog",
-        ]
-        assert kwargs["capture_output"] is True
-        return subprocess.CompletedProcess(argv, 1, stdout=json.dumps(replay).encode())
-
-    monkeypatch.setattr(subprocess, "run", run)
-    if changed_audit:
-        with pytest.raises(sequencer.PlanError, match="^ARCHIVE_ROUTE_DID_NOT_PASS$"):
-            sequencer.check_archive(args, plan, "ledger")
-    else:
-        sequencer.check_archive(args, plan, "ledger")
+    assert not output.exists()
 
 
 @pytest.fixture(scope="module")

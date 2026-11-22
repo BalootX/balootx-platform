@@ -3,11 +3,9 @@
 import argparse
 import json
 import os
-import subprocess
-import sys
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from fractions import Fraction
 from hashlib import sha256
 from pathlib import Path
@@ -18,7 +16,6 @@ from .calibration.score import engine_interest_rank_key_v1
 
 GATE_SHA = "5af4fa770edea3f1fb18e8bc1f9f319cfbf7d1725a226ad34989449c6e300e22"
 POLICY_SHA = "d060b4615d9d45cb44670ba94e03bf30292ca0549cea2d76c332c9a44cb108bb"
-ARCHIVE_RUNNER_SHA = "6d13301cc85187cd6be92aafcecda1d4f726d03d4d63f0bd52f9b3bdf60efa4a"
 SLOT_COUNT = 4
 
 
@@ -54,6 +51,7 @@ def load_gate(script, policy):
 @dataclass(frozen=True)
 class Route:
     packet: Path
+    slot: datetime
     binding: dict
     clip: dict
     released_day: str
@@ -157,6 +155,7 @@ def released_routes(gate, inputs, buffer, evidence, pool, private, account):
         routes.append(
             Route(
                 packet,
+                slot,
                 b,
                 clip,
                 day,
@@ -244,7 +243,7 @@ def choose_slots(routes, slots, rank):
         raise PlanError("INSUFFICIENT_DISTINCT_MECHANISMS")
     by_slot = defaultdict(list)
     for route in routes:
-        by_slot[route.binding["slotUtc"]].append(route)
+        by_slot[route.slot].append(route)
 
     def eligible(slot, prior):
         ranked = [(rank(route, prior), route) for route in by_slot[slot]]
@@ -281,7 +280,10 @@ def choose_slots(routes, slots, rank):
 
     result = search([], ())
     if result is None:
-        raise PlanError("SLOT_NO_DIFFERENT_MECHANISM_FALLBACK", slotUtc=slots[furthest])
+        raise PlanError(
+            "SLOT_NO_DIFFERENT_MECHANISM_FALLBACK",
+            slotUtc=slots[furthest].isoformat().replace("+00:00", "Z"),
+        )
     return result
 
 
@@ -296,9 +298,7 @@ def coverage_by_day(routes, plan):
                     {route.binding["exactStateId"] for route in inventory}
                 ),
                 "distinctMechanisms": len({route.mechanism for route in inventory}),
-                "candidateSlots": len(
-                    {route.binding["slotUtc"] for route in inventory}
-                ),
+                "candidateSlots": len({route.slot for route in inventory}),
                 "primarySlots": sum(primary.released_day == day for primary, _ in plan),
                 "fallbackSlots": sum(
                     fallback.released_day == day for _, fallback in plan
@@ -321,82 +321,7 @@ def gate_args(args, route):
     }
 
 
-def check_archive(args, plan, ledger_sha):
-    runner = args.gate.resolve().with_name("dry_run_gate.py")
-    pinned_bytes(runner, ARCHIVE_RUNNER_SHA, "ARCHIVE_RUNNER_DIGEST_MISMATCH")
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-I",
-            "-B",
-            str(runner),
-            "--sequential-dry-run",
-            str(args.archive_day),
-            "--day-seal-sha",
-            args.day_seal_sha,
-            "--ledger",
-            str(args.ledger),
-            "--evidence",
-            str(args.evidence),
-            "--evidence-sha",
-            args.evidence_sha,
-        ],
-        capture_output=True,
-        timeout=60,
-        check=False,
-    )
-    # The documented replay exits one even on a completed comparison.
-    require(result.returncode == 1, "ARCHIVE_DRY_RUN_FAILED")
-    replay = json.loads(result.stdout)
-    require(
-        replay["status"] == "COMPLETED_READ_ONLY"
-        and replay["dryRun"] is True
-        and replay["daySealSha256"] == args.day_seal_sha
-        and replay["canonicalLedgerSha256Before"]
-        == replay["canonicalLedgerSha256After"]
-        == ledger_sha,
-        "ARCHIVE_DRY_RUN_NOT_BOUND",
-    )
-    for scenario, selected in (
-        ("primary", [row[0] for row in plan]),
-        ("fallback", [row[1] for row in plan]),
-    ):
-        slots = replay["scenarios"][scenario]["slots"]
-        require(len(slots) == SLOT_COUNT, "ARCHIVE_PLAN_MISMATCH")
-        for slot, route in zip(slots, selected):
-            packet_id = route.packet.name
-            slot_utc = route.binding["slotUtc"]
-            require(
-                slot["slotUtc"] == slot_utc
-                and slot["assumedPostedPacketId"] == packet_id,
-                "ARCHIVE_PLAN_MISMATCH",
-            )
-            matches = [row for row in slot["routes"] if row["packetId"] == packet_id]
-            require(len(matches) == 1, "ARCHIVE_PLAN_MISMATCH")
-            row = matches[0]
-            audit = row["auditRow"]
-            require(
-                row["decision"] == audit["decision"] == "WOULD_RELEASE"
-                and row["dryRun"]
-                is audit["dryRun"]
-                is row["predecessorMatched"]
-                is True
-                and row["agreesWithSealedEligibility"] is True
-                and row["reasons"] == audit["reasons"] == []
-                and audit["gateScriptSha256"] == GATE_SHA
-                and audit["policySha256"] == POLICY_SHA
-                and audit["packetId"] == packet_id
-                and audit["slotUtc"] == slot_utc
-                and audit["evidenceExpectedSha256"] == args.evidence_sha
-                and audit["canonicalLedgerSha256"]
-                == audit["ledgerReadbackSha256"]
-                == ledger_sha,
-                "ARCHIVE_ROUTE_DID_NOT_PASS",
-            )
-
-
-def build_plan(args):
-    gate = load_gate(args.gate, args.policy)
+def build_plan(args, gate):
     require(
         args.ledger.resolve() == gate.LEDGER.resolve(), "CANONICAL_LEDGER_PATH_REQUIRED"
     )
@@ -406,9 +331,6 @@ def build_plan(args):
         and not any((parent / ".git").exists() for parent in output.parents),
         "INVALID_OUTPUT_PATH",
     )
-    require(
-        bool(args.archive_day) == bool(args.day_seal_sha), "ARCHIVE_DAY_SEAL_REQUIRED"
-    )
     inputs = gate.Inputs()
     ledger_bytes = args.ledger.read_bytes()
     ledger_sha = sha256(ledger_bytes).hexdigest()
@@ -416,8 +338,7 @@ def build_plan(args):
     pool = gate.parse(inputs.read(args.caption_pool, gate.CAPTION_POOL_SHA))
     private = gate.parse(inputs.read(gate.PRIVATE, gate.PRIVATE_SHA))
     evidence = gate.parse(inputs.read(args.evidence, args.evidence_sha))
-    scope = "DRY_RUN_20261123" if args.archive_day else "STANDING_TIKTOK"
-    require(evidence["scope"] == scope, "INVALID_GATE_EVIDENCE_SCOPE")
+    require(evidence["scope"] == "STANDING_TIKTOK", "INVALID_GATE_EVIDENCE_SCOPE")
     buffer = gate.parse(inputs.read(args.buffer, args.buffer_sha))
     routes = released_routes(
         gate, inputs, buffer, evidence, pool, private, args.account
@@ -427,7 +348,7 @@ def build_plan(args):
         slots == sorted(set(slots)) and len({slot.date() for slot in slots}) == 1,
         "INVALID_DAILY_SLOTS",
     )
-    daily = [route for route in routes if route.binding["slotUtc"] in args.slots]
+    daily = [route for route in routes if route.slot in slots]
 
     ids = {row.get("id") for row in ledger["records"]}
     simulated_ids = [
@@ -447,28 +368,23 @@ def build_plan(args):
                 ),
             ],
         }
-        return eligible_rank(
-            gate, inputs, projected, route, gate.utc(route.binding["slotUtc"])
-        )
+        return eligible_rank(gate, inputs, projected, route, route.slot)
 
     try:
-        plan = choose_slots(daily, args.slots, rank)
+        plan = choose_slots(daily, slots, rank)
     except PlanError as exc:
         exc.details["coverageByReleasedDay"] = coverage_by_day(routes, [])
         raise
-    if args.archive_day:
-        check_archive(args, plan, ledger_sha)
     pinned_bytes(args.gate, GATE_SHA, "GATE_SCRIPT_DIGEST_MISMATCH")
     pinned_bytes(args.policy, POLICY_SHA, "GATE_POLICY_DIGEST_MISMATCH")
     pinned_bytes(args.ledger, ledger_sha, "CANONICAL_LEDGER_CHANGED_DURING_PLANNING")
     report = {
-        "status": "ARCHIVE_CHECKED" if args.archive_day else "PLAN_READY",
+        "status": "PLAN_READY",
         "platform": "TikTok",
         "dayUtc": slots[0].date().isoformat(),
         "gateScriptSha256": GATE_SHA,
         "gatePolicySha256": POLICY_SHA,
-        "archiveDryRun": "VERIFIED" if args.archive_day else "NOT_RUN",
-        "evidenceScope": scope,
+        "evidenceScope": "STANDING_TIKTOK",
         "plannedSlots": SLOT_COUNT,
         "coverageByReleasedDay": coverage_by_day(routes, plan),
     }
@@ -523,11 +439,13 @@ def main(argv=None):
     for name in ("account", "evidence-sha", "buffer-sha"):
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--slots", nargs=SLOT_COUNT, required=True)
-    parser.add_argument("--archive-day", type=Path)
-    parser.add_argument("--day-seal-sha")
     try:
         args = parser.parse_args(argv)
-        report, handoff = build_plan(args)
+        gate = load_gate(args.gate, args.policy)
+        try:
+            report, handoff = build_plan(args, gate)
+        except gate.Reject as exc:
+            raise PlanError(str(exc)) from exc
         write_handoff(args.output, handoff)
     except PlanError as exc:
         print(
@@ -546,7 +464,6 @@ def main(argv=None):
         IndexError,
         RecursionError,
         ArithmeticError,
-        subprocess.SubprocessError,
     ):
         print(
             json.dumps(

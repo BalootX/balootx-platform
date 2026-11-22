@@ -26,7 +26,3 @@ The sequencer reads the catalog-pinned bindings, release requests, candidate ind
 Stdout contains a single JSON report with counts grouped by released day, the number of primary and fallback slots assigned from each day, and both approved gate digests. The private output file contains each slot's `primary` and `fallback` as named arguments for the documented standing gate command. The controller supplies the fresh `studio-post-id` and `studio-observed-at` at admission and checks the audit against the exact packet, ledger and approved digests.
 
 `PLAN_REJECTED` exits nonzero without producing a handoff. `INSUFFICIENT_DISTINCT_MECHANISMS` means the day's released options offer fewer than two mechanisms. `SLOT_NO_DIFFERENT_MECHANISM_FALLBACK` identifies the slot that prevented a complete four-slot plan. Changes to either approved gate digest also close the plan.
-
-## Read-only archive check
-
-The reviewed sequential replay is scoped to the sealed 23 November archive. For that replay, use its archive evidence catalog and add `--archive-day <sealed-day-directory> --day-seal-sha <trusted-seal-sha256>`. The sequencer runs the documented replay with no publication side effects and accepts its nonzero process exit only with a bound, completed report and `WOULD_RELEASE` for each selected route on its corresponding archive trajectory. `ARCHIVE_CHECKED` records archive evidence. Future days use the `STANDING_TIKTOK` catalog and the slot-time controller handoff.
