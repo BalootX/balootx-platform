@@ -25,6 +25,8 @@ Use the next exact-head run to recalculate this table. Compare job durations, qu
 
 Report scoped PR timings by change type. A docs-only run exercises the smoke path, while SDK and Foundry runs exercise their named producers and the Python 3.12 and 3.13 affected-test jobs. Record the full fallback separately because workflow changes select it.
 
+Each PR has one CI concurrency group. A new run for that PR supersedes the previous run. Main pushes, workflow dispatches and merge-group runs each use a distinct run-ID group with cancellation disabled. Track cancelled runs and their runner minutes separately from completed PR gate timings.
+
 CI builds the committed Dockerfile's full `video-worker` target on main pushes and on PRs that change worker inputs, including Foundry UI changes copied with `src`. It verifies that the built image's recorded SHA-256 and installed Remotion production dependencies match the checkout's lockfile. Main pushes populate the BuildKit cache, and PRs can restore it.
 
 The render host preflight checks deployed images for staleness. Compare the worker's `/opt/baloot-remotion/.lock-sha256` with the SHA-256 of the Remotion lockfile for the source being rendered. Run `python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules <lockfile>` with that same lockfile.
