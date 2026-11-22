@@ -296,11 +296,17 @@ def test_full_workflow_requires_coverage_for_all_matrices(root):
         assert "max-parallel" not in jobs[name]["strategy"]
         assert any("--workers 4" in step.get("run", "") for step in jobs[name]["steps"])
     assert jobs["python-coverage"]["needs"] == ["plan", "python-fast-run", "python-backend-run", "python-heavy"]
+    base_step = jobs["python-fast-run"]["steps"][1]
+    assert base_step["if"] == "github.event_name == 'merge_group'"
+    assert base_step["env"] == {"MERGE_GROUP_BASE": "${{ github.event.merge_group.base_sha }}"}
+    assert 'git fetch --no-tags --depth=1 origin "$MERGE_GROUP_BASE"' in base_step["run"]
+    assert all(jobs[name]["steps"][1] is base_step for name in ("python-backend-run", "python-heavy", "python-coverage"))
     assert jobs["python-coverage"]["steps"][-1]["run"].startswith("python -P scripts/ci_scope.py coverage ")
 
 
-@pytest.mark.parametrize("event", ["push", "pull_request"])
-def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path, monkeypatch, event):
+@pytest.mark.parametrize("event", ["push", "pull_request", "merge_group"])
+def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path, monkeypatch, capsys, event):
+    head_sha = "b" * 40
     files = [f"tests/test_sample_{index}.py" for index in range(12)]
     monkeypatch.setattr(ci_scope, "fast_files", lambda _history: files)
     backend_nodes = [f"{BACKEND}::test_case[{index:03d}]" for index in range(15)]
@@ -322,22 +328,30 @@ def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path,
     for version in versions:
         for index, group in enumerate(isolated.split_files(files, history), 1):
             write(f"python-fast-run-{version}-{index}", "python-fast-status.json",
-                  {"head": "head", "python": version, "result": "success", "shard": index, "files": group})
+                  {"head": head_sha, "python": version, "result": "success", "shard": index, "files": group})
         for row in receipts(backend_nodes, BACKEND, version, weights, 4):
-            write(f"python-backend-run-{version}-{row['shard']}", "receipt.json", row)
+            write(f"python-backend-run-{version}-{row['shard']}", "receipt.json", {**row, "head": head_sha})
     for row in receipts(heavy_nodes, FILE, "3.13", heavy_weights, 2):
-        write(f"python-heavy-3.13-{row['shard']}", "receipt.json", row)
+        write(f"python-heavy-3.13-{row['shard']}", "receipt.json", {**row, "head": head_sha})
 
-    coverage = ci_scope.validate_coverage(tmp_path, "head", history, event)
+    history_file = tmp_path / "history.json"
+    history_file.write_text(json.dumps(history), encoding="utf-8")
+    monkeypatch.setattr(ci_scope, "HISTORY", history_file)
+    monkeypatch.setattr(ci_scope.sys, "argv", ["ci_scope.py", "coverage", str(tmp_path)])
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event)
+    monkeypatch.setenv("GITHUB_SHA", head_sha)
+    ci_scope.main()
+    coverage = json.loads(capsys.readouterr().out)
+    assert all(value["head"] == head_sha for value in coverage.values())
     assert {key: value["executed"] for key, value in coverage.items()} == {
         **{f"backend-{version}": 15 for version in versions}, "heavy": 12,
     }
     if event == "pull_request":
         with pytest.raises(ValueError):
-            ci_scope.validate_coverage(tmp_path, "head", history, "push")
+            ci_scope.validate_coverage(tmp_path, head_sha, history, "push")
         stray = write("python-fast-run-3.12-1", "python-fast-status.json", {})
         with pytest.raises(ValueError, match="unexpected Python version"):
-            ci_scope.validate_coverage(tmp_path, "head", history, event)
+            ci_scope.validate_coverage(tmp_path, head_sha, history, event)
         stray.unlink()
     for name, filename, changes in (
         (f"python-fast-run-{versions[0]}-1", "python-fast-status.json",
@@ -351,12 +365,12 @@ def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path,
         for field, value in changes.items():
             write(name, filename, {**saved, field: value})
             with pytest.raises(ValueError):
-                ci_scope.validate_coverage(tmp_path, "head", history, event)
+                ci_scope.validate_coverage(tmp_path, head_sha, history, event)
         path.unlink()
         with pytest.raises(ValueError):
-            ci_scope.validate_coverage(tmp_path, "head", history, event)
+            ci_scope.validate_coverage(tmp_path, head_sha, history, event)
         write(name, filename, saved)
         duplicate = write(name + "-duplicate", filename, saved)
         with pytest.raises(ValueError):
-            ci_scope.validate_coverage(tmp_path, "head", history, event)
+            ci_scope.validate_coverage(tmp_path, head_sha, history, event)
         duplicate.unlink()

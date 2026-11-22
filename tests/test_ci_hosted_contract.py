@@ -99,7 +99,7 @@ def test_hosted_ci_contract(root):
     workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
     triggers = workflow[True]  # PyYAML's YAML 1.1 spelling of on.
     assert triggers["push"] == {"branches": ["main"]}
-    assert "merge_group" not in triggers
+    assert triggers["merge_group"] == {"types": ["checks_requested"], "branches": ["main"]}
     assert "pull_request_target" not in triggers
     assert not {"paths", "paths-ignore"} & triggers["pull_request"].keys()
     assert workflow["permissions"] == {"contents": "read"}
@@ -111,6 +111,9 @@ def test_hosted_ci_contract(root):
         for step in job["steps"]:
             if "uses" in step:
                 assert re.fullmatch(r"[0-9a-f]{40}", step["uses"].rsplit("@", 1)[-1])
+                if step["uses"].startswith("actions/checkout@"):
+                    assert step["with"]["persist-credentials"] is False
+                    assert not {"ref", "repository"} & step["with"].keys(), name
                 if step["uses"].startswith(("actions/cache/save@", "actions/cache@")):
                     condition = step.get("if") or ""
                     assert condition.startswith(main_push) and "||" not in condition, name
@@ -140,7 +143,10 @@ def test_hosted_ci_contract(root):
     assert gate_step["env"]["IS_DRAFT"] == "${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}"
     draft_guard, gate_command = gate_step["run"].split("python3 -P scripts/ci_scope.py gate")
     assert "exit 1" in draft_guard and not gate_command.strip()
-    assert set(jobs["ci-gate"]["needs"]) == jobs.keys() - {"ci-gate", "viewer-seat-proof"}
+    expected_producers = ci_scope.FULL | ci_scope.SCOPED.keys() | {
+        "plan", "preflight", "dependency-review", "python-version-smoke", "python-affected",
+    }
+    assert set(jobs["ci-gate"]["needs"]) == expected_producers == jobs.keys() - {"ci-gate", "viewer-seat-proof"}
     assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof }}"
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
@@ -177,6 +183,8 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert restore["with"] == save["with"]
     assert all(path in restore["with"]["key"] for path in ("Dockerfile", ".dockerignore", "pyproject.toml", "remotion/package*.json"))
     assert "--target video-worker --load" in build["run"] and "--push" not in build["run"]
+    assert build["env"]["MAIN_PUSH"] == "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}"
+    assert "elif [[ \"$MAIN_PUSH\" == 'true' ]]; then\n  cache_args+=(--cache-to " in build["run"]
     assert "docker run --rm --network none" in check["run"]
     assert "sha256sum --check --strict /opt/baloot-remotion/.lock-sha256" in check["run"]
     assert "python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules package-lock.json" in check["run"]
@@ -235,7 +243,7 @@ def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):
     assert jobs["media-render"]["timeout-minutes"] == 25
 
 
-@pytest.mark.parametrize("event", ["pull_request", "push", "workflow_dispatch"])
+@pytest.mark.parametrize("event", ["pull_request", "push", "workflow_dispatch", "merge_group"])
 def test_gate_rejects_unproven_full_producers(event):
     plan = {key: json.dumps(value) for key, value in ci_scope.current_plan().items()}
     results = {job: {"result": "success"} for job in ci_scope.FULL | ci_scope.SCOPED.keys()
@@ -245,6 +253,10 @@ def test_gate_rejects_unproven_full_producers(event):
     results["python-affected"]["result"] = "skipped"
     results["python-version-smoke"]["result"] = results["dependency-review"]["result"]
     ci_scope.validate_results(event, results)
+    with pytest.raises(ValueError, match="its outputs are unavailable"):
+        ci_scope.validate_results(event, {**results, "plan": {"result": "success"}})
+    with pytest.raises(ValueError, match="CI producers differ from the plan"):
+        ci_scope.validate_results(event, {**results, "extra-job": {"result": "success"}})
     for job in results:
         old = results[job]["result"]
         for bad in {"failure", "cancelled", "skipped", "success", ""} - {old}:
@@ -289,8 +301,9 @@ def test_gate_requires_exact_scoped_producers(root, paths, producers):
             with pytest.raises(ValueError):
                 ci_scope.validate_results("pull_request", results)
         details["result"] = status
-    with pytest.raises(ValueError, match="full CI plan"):
-        ci_scope.validate_results("push", results)
+    for event in ("push", "merge_group"):
+        with pytest.raises(ValueError, match="full CI plan is required"):
+            ci_scope.validate_results(event, results)
 
 
 @pytest.mark.parametrize("path", [
@@ -389,8 +402,43 @@ def test_only_exact_pr_merge_diff_can_select_scoped_work(tmp_path, monkeypatch):
     assert ci_scope.current_plan("pull_request", head, base) == full
     assert ci_scope.current_plan("push", base, head) == full
     assert ci_scope.current_plan("workflow_dispatch", base, head) == full
+    assert ci_scope.current_plan("merge_group", base, head) == full
     monkeypatch.setattr(ci_scope, "git", lambda *_: git("diff", "absent-ref"))
     assert ci_scope.current_plan("pull_request", base, head) == full
+
+
+def test_merge_group_plan_binds_checkout_and_event_context(tmp_path, monkeypatch):
+    ref = "refs/heads/gh-readonly-queue/main/pr-104-example"
+    base_sha, head_sha = "a" * 40, "b" * 40
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"merge_group": {
+        "head_ref": ref, "head_sha": head_sha, "base_ref": "refs/heads/main", "base_sha": base_sha,
+    }}), encoding="utf-8")
+    outputs = tmp_path / "outputs"
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "merge_group")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    monkeypatch.setenv("GITHUB_REF", ref)
+    monkeypatch.setenv("GITHUB_SHA", head_sha)
+    monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
+    monkeypatch.setattr(ci_scope.sys, "argv", ["ci_scope.py", "plan"])
+
+    def checkout(*args):
+        assert args == ("rev-parse", "HEAD")
+        return head_sha.encode("ascii") + b"\n"
+
+    monkeypatch.setattr(ci_scope, "git", checkout)
+    ci_scope.main()
+    pairs = dict(line.split("=", 1) for line in outputs.read_text(encoding="utf-8").splitlines())
+    assert {key: json.loads(value) for key, value in pairs.items()} == ci_scope.current_plan()
+    outputs.unlink()
+    for key, wrong in (("GITHUB_REF", "refs/heads/main"), ("GITHUB_SHA", base_sha)):
+        with monkeypatch.context() as patch, pytest.raises(ValueError, match="does not match the merge group head"):
+            patch.setenv(key, wrong)
+            ci_scope.main()
+    monkeypatch.setattr(ci_scope, "git", lambda *_: base_sha.encode("ascii"))
+    with pytest.raises(ValueError, match="does not match the merge group head"):
+        ci_scope.main()
+    assert not outputs.exists()
 
 
 @pytest.mark.parametrize("delta", [
