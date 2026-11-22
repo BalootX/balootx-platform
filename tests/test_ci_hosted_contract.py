@@ -147,17 +147,9 @@ def test_hosted_ci_contract(root):
         "plan", "preflight", "dependency-review", "python-version-smoke", "python-affected",
     }
     assert set(jobs["ci-gate"]["needs"]) == expected_producers == jobs.keys() - {
-        "ci-gate", "legacy-ci-result", "viewer-seat-proof",
+        "ci-gate", "viewer-seat-proof",
     }
     assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof }}"
-    legacy = jobs["legacy-ci-result"]
-    assert legacy["name"] == "${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic compatibility' || 'CI result' }}"
-    assert legacy["needs"] == "ci-gate"
-    assert legacy["if"] == "${{ always() && github.event_name != 'workflow_dispatch' }}"
-    assert legacy["steps"] == [{
-        "env": {"CI_GATE_RESULT": "${{ needs.ci-gate.result }}"},
-        "run": 'test "$CI_GATE_RESULT" = success',
-    }]
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
         "media-inputs", "media-render", "media-release-smoke", "viewer-seat-proof", "remotion-image-parity",
@@ -174,10 +166,9 @@ def _assert_single_ci_check_producers(workflows):
         if path.is_file() and path.suffix in {".yml", ".yaml"}
         for job_id, job in yaml.safe_load(path.read_bytes())["jobs"].items()
     }
-    legacy = ("ci.yml", "legacy-ci-result")
     expected = {
         "ci-gate": [("ci.yml", "ci-gate")],
-        "CI result": [legacy] if legacy in names else [],
+        "CI result": [],
     }
     for check, producers in expected.items():
         actual = [source for source, name in names.items() if check in name]

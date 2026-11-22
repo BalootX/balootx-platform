@@ -774,15 +774,3 @@ jobs:
             exit 1
           fi
           python3 -P scripts/ci_scope.py gate
-
-  legacy-ci-result:
-    # Keep the old required context available until the ruleset cutover is verified.
-    name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic compatibility' || 'CI result' }}
-    needs: ci-gate
-    if: ${{ always() && github.event_name != 'workflow_dispatch' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 1
-    steps:
-      - env:
-          CI_GATE_RESULT: ${{ needs.ci-gate.result }}
-        run: test "$CI_GATE_RESULT" = success
