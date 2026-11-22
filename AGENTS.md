@@ -9,19 +9,22 @@
 - Leads: BalootX Master, BalootX Delivery, BalootX Design
 - UI project: yes
 - Other repos: none
-- Environments used: CI, dev for release candidates, production for gated TikTok clip publishing
+- Environments used: [CI](DELIVERY.md#ci)
 
-See [DELIVERY.md](DELIVERY.md) for the release path and [DESIGN.md](DESIGN.md) for the UI contract. Maintainers load the engineering standard and the project-delivery-orchestration skill through their approved local setup.
+## Links
+
+- [Delivery](DELIVERY.md) and [design](DESIGN.md)
+- Engineering standard v1.2 and the project-delivery-orchestration skill
 
 ## Product and current goal
 
-BalootX combines a Saudi Baloot engine, a research studio and Foundry, and rendered clips that show card-play decisions. The goal is to turn legally replayable synthetic scenarios into verifiable observer-safe explanations and media.
+BalootX combines a Saudi Baloot engine, the Foundry research dashboard, and rendered clips that show card-play decisions. The goal is to turn legally replayable synthetic scenarios into verifiable observer-safe explanations and media.
 
 ## Architecture and sources of truth
 
 - The Python engine owns rules, transitions and replay. The [authority map](docs/architecture/authority-map.json) identifies the owner for each contract.
 - The [OR-Tools Foundry guide](docs/OR_TOOLS_RESEARCH_FOUNDRY.md) covers rule and proof authority. The [Scenario V4 contract](docs/RESEARCH_SCENARIO_V4.md) covers research requests, result evidence and engine-interest criteria.
-- The FastAPI service serves the studio and the [Foundry dashboard](src/baloot_platform/service/foundry_dashboard). The [OpenAPI contract](api) drives generated clients.
+- The FastAPI service serves the [Foundry dashboard](src/baloot_platform/service/foundry_dashboard) at `/foundry`. `/studio` redirects there. The [OpenAPI contract](api) drives generated clients.
 - The [video package](src/baloot_platform/video) projects the observer's replay into a render bundle for the Remotion compositions. See [the render design](DESIGN.md#rendered-clips) for the visual authorities.
 
 ## Commands
@@ -38,22 +41,23 @@ Run the Python commands at the repository root. Run npm commands in the named pa
 | Fast test | `python -m pytest -q tests/test_ci_hosted_contract.py tests/test_repository_structure.py tests/test_media_render_artifact.py` |
 | Full test | Use the hosted full profile in [DELIVERY.md](DELIVERY.md#ci). |
 | Build | Python `python -m pip wheel --no-deps .`. Foundry `npm run build`. |
-| Run locally | `uvicorn baloot_platform.service.api:app --host 127.0.0.1 --port 8080`. Open `/studio` or `/foundry` after building the dashboard. |
+| Run locally | `uvicorn baloot_platform.service.api:app --host 127.0.0.1 --port 8080`. Open `/foundry` after building the dashboard. |
 
 ## Coding rules
 
 - Preserve the public rules and replay contracts at their owning source. Update generated views and packaged copies from that source. Use `python scripts/sync_package_resources.py` after changing mirrored resources and `python scripts/generate_openapi.py --check` to check the OpenAPI output.
-- Keep the full affected change together, including schemas, generated clients, tests and fixtures. Qualify the exact head with the relevant checks. Keep heavy tests, browser suites and renders on hosted CI.
 - Treat a valid replay, a bounded result and an exact proof as separate evidence. Preserve a result's scope and budget when exposing it through the API, UI or render bundle.
 
 ## Risk paths
 
 Apply the independent review in [DELIVERY.md](DELIVERY.md#merge) to changes in any of these paths.
 
-- Every path matched by [.github/CODEOWNERS](.github/CODEOWNERS), which covers the CI control plane and its imports, generated contracts, release and packaging controls, migrations and dependency manifests.
+- Every path matched by [.github/CODEOWNERS](.github/CODEOWNERS).
+- Contracts and generated outputs under `api/`, `proto/`, `generated/`, `schemas/` and `src/baloot_platform/resources/schemas/`. This includes the render profile schema.
 - Rendering and layout under `src/baloot_platform/video/`, `configs/video/`, `assets/` and the corresponding packaged config and asset mirrors under `src/baloot_platform/resources/`.
-- Engine and proof criteria under `src/baloot_platform/{core,analysis,challenge,research}/` and `native/`, plus `configs/{rules,research,challenge}/`, `configs/bundle_ortools_research_*.yaml` and their packaged mirrors. This includes engine-interest scoring, viewer-seat proof and the [Scenario V4 contract](docs/RESEARCH_SCENARIO_V4.md).
-- Release evidence and admission under `release/` and `src/baloot_platform/resources/release/`, including changes to the [media release policy](DELIVERY.md#media-release).
+- Engine and proof criteria under `src/baloot_platform/{core,analysis,challenge,research,native}/` and `native/`, plus `configs/{rules,research,challenge,game,belief,match_value,challenge_contracts}/`, `configs/bundle_ortools_research_*.yaml` and their mirrors under `src/baloot_platform/resources/configs/`. This includes engine-interest scoring, viewer-seat proof and the [Scenario V4 contract](docs/RESEARCH_SCENARIO_V4.md).
+- Release evidence and admission under `release/` and `src/baloot_platform/resources/release/`.
+- Project definitions in `AGENTS.md`, `CLAUDE.md`, `DELIVERY.md` and `DESIGN.md`.
 
 ## Data safety
 
@@ -62,5 +66,5 @@ Apply the independent review in [DELIVERY.md](DELIVERY.md#merge) to changes in a
 
 ## Privacy and public pushes
 
-- Use a reviewed GitHub App helper and keep its installation token out of output, files and logs. Push through the approved public push guard with the exact base, head, branch, PR title and PR body. Use the same verified PR metadata and retain the guard receipt.
+- Pushes go through the project's privacy guard with the App identity.
 - Keep credentials, real personal or customer data, account and session details, private infrastructure identifiers, private instructions, live captions and publication records out of this public repository and its issues, PRs and logs.
