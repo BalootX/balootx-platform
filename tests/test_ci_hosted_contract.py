@@ -103,7 +103,6 @@ def test_hosted_ci_contract(root):
     assert "pull_request_target" not in triggers
     assert not {"paths", "paths-ignore"} & triggers["pull_request"].keys()
     assert workflow["permissions"] == {"contents": "read"}
-    assert workflow["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
     jobs = workflow["jobs"]
     main_push = "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
     for name, job in jobs.items():
@@ -150,6 +149,20 @@ def test_hosted_ci_contract(root):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)
         assert flags and all("-P" in options.split() for options in flags), name
+
+
+def test_workflow_only_cancels_superseded_runs_of_the_same_pr(root):
+    workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
+    # A PR group has its PR number and a stable suffix. Push, dispatch and merge
+    # group events include their unique run ID, protecting pending runs as well.
+    assert workflow["concurrency"] == {
+        "group": (
+            "ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-"
+            "${{ github.event_name != 'pull_request' && github.run_id || 'pr' }}"
+        ),
+        "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+    }
+    assert all("concurrency" not in job for job in workflow["jobs"].values())
 
 
 def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
