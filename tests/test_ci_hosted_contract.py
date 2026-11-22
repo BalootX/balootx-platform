@@ -167,6 +167,37 @@ def test_hosted_ci_contract(root):
         assert flags and all("-P" in options.split() for options in flags), name
 
 
+def _assert_single_ci_check_producers(workflows):
+    names = {
+        (path.name, job_id): str(job.get("name") or job_id)
+        for path in sorted(workflows.iterdir())
+        if path.is_file() and path.suffix in {".yml", ".yaml"}
+        for job_id, job in yaml.safe_load(path.read_bytes())["jobs"].items()
+    }
+    legacy = ("ci.yml", "legacy-ci-result")
+    expected = {
+        "ci-gate": [("ci.yml", "ci-gate")],
+        "CI result": [legacy] if legacy in names else [],
+    }
+    for check, producers in expected.items():
+        actual = [source for source, name in names.items() if check in name]
+        assert actual == producers, f"{check} producers: expected {producers}, found {actual}"
+
+
+def test_ci_check_names_have_single_producers(root):
+    _assert_single_ci_check_producers(root / ".github/workflows")
+
+
+def test_ci_check_producer_contract_rejects_duplicate_workflow_job(root, tmp_path):
+    (tmp_path / "ci.yml").write_bytes((root / ".github/workflows/ci.yml").read_bytes())
+    (tmp_path / "extra.yml").write_text(
+        "on: push\njobs:\n  ci-gate:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: exit 0\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(AssertionError, match="ci-gate producers"):
+        _assert_single_ci_check_producers(tmp_path)
+
+
 def test_workflow_only_cancels_superseded_runs_of_the_same_pr(root):
     workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
     # A PR group has its PR number and a stable suffix. Push, dispatch and merge
