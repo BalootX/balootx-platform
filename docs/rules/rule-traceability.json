@@ -27,7 +27,7 @@
     {
       "id": "deal.shuffle-cut-packets",
       "profilePaths": ["dealing.shuffle_algorithm", "dealing.cut_enabled", "dealing.initial_packets"],
-      "evidence": ["tests/test_core.py", "tests/test_v8_identity_sakka.py"],
+      "evidence": ["tests/test_core.py", "tests/test_v8_identity_sakka_round.py", "tests/test_v8_identity_sakka_match.py"],
       "status": "existing_executable_evidence"
     },
     {

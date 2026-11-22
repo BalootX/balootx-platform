@@ -32,7 +32,14 @@ _SOLVER_PACKAGES = ("baloot_platform.analysis", "baloot_platform.challenge", "ba
 @lru_cache(maxsize=None)
 def solver_test_module(path: Path) -> bool:
     """Select direct solver imports, including imports inside test functions."""
-    if path.name in {"test_exact_holdout_labels.py", "test_v9_shared_explain_review.py"}:
+    if path.name in {
+        "test_exact_holdout_labels.py",
+        "test_research_audit_trace_service_retained.py",
+        "test_research_audit_trace_service_retry.py",
+        "test_research_audit_trace_service_submission.py",
+        "test_research_scenario_v4_api_search.py",
+        "test_v9_shared_explain_review.py",
+    }:
         return True  # These consumers load solver code indirectly.
     source = path.read_text(encoding="utf-8-sig")
     for node in ast.walk(ast.parse(source)):

@@ -528,6 +528,12 @@ def test_ci_failure_wave_history_preserves_censored_heavy_files_and_serial_budge
     assert all("40161394797" in history["additionalSources"][path] and
                "censored" in history["additionalSources"][path].lower() for path in heavy)
     assert all(planned[path] == (3600 if path in heavy else 900) for path in serial)
+    scenario = "tests/test_research_scenario_v4.py"
+    split_scenario = {f"tests/test_research_scenario_v4_{name}.py"
+                      for name in ("api_estimate", "api_exact", "api_search", "proof")}
+    assert history["splitFileLimitSources"] == dict.fromkeys(split_scenario, scenario)
+    assert all(planned[path] == planned[scenario] == 3600 for path in split_scenario)
+    assert all(lane.work_file_budget(path, planned[path], history) == 0 for path in split_scenario)
 
 
 @pytest.mark.parametrize(("files", "workers", "timeout"), [([], 4, 900), (["../other.py"], 4, 900),
