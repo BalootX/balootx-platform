@@ -11,6 +11,7 @@ Follows engineering standard v1.2.
 | Ready pull request | Preflight, dependency review and Python version smoke. [The CI selector](scripts/ci_scope.py) adds affected Python, SDK, Foundry and worker checks. Unrecognized paths or an unresolved diff select the full profile. |
 | Main push and merge group | Full profile with the Python wheelhouse, native build and sanitizers, fast, backend and heavy Python shards with exact coverage verification, SDK and Foundry checks, Remotion and video-worker parity, media rendering and release smoke. The merge group verifies its event head before running the profile. |
 | Manual dispatch | Full diagnostics under `CI diagnostic result`, or the dedicated viewer-seat proof cohort when selected. |
+| [Nightly at 00:30 UTC](.github/workflows/nightly-candidates.yml) | Searches seeded synthetic deals for up to four clips and retains the candidate index, exact viewer-seat receipts, calibrated hook evidence and passing media for seven days. The score is provisional while publication history and publication QA are pending. |
 | Media verification | The full profile builds the governed inputs, renders shards, checks repeatability and playback parity, decodes the sample media, and generates media and supply-chain evidence. |
 
 The **ci-gate** check compares the producer results to the plan and fails on missing, failed, cancelled or unexpectedly skipped work. During the ruleset cutover, **CI result** also reports the gate's verdict. See [the current limits in the workflow](.github/workflows/ci.yml) and the [historical timing samples](ci/TIMINGS.md).
@@ -25,6 +26,7 @@ Concurrency groups use the PR number for pull requests and a unique run ID for o
 ## Media release
 
 - Clips are published outside this repository. Each clip requires individual release approval until the clip release gate is reviewed and Portfolio approves its activation. Once active, the gate releases passing clips automatically.
+- Nightly artifacts contain candidate evidence only. Use the run's `candidate-index.json` to resolve the exact source tree, per-candidate reasons and file hashes. Only IDs in `qualified` have passed the hosted candidate checks.
 - The clip gate's audit rows live in a private evidence store on the posting machine. Each row records the gate and ledger hashes.
 - Require independent media QA, [engine-interest and viewer-seat proof](docs/RESEARCH_SCENARIO_V4.md#engine-interest-v1), the [approved clip presentation](DESIGN.md#rendered-clips), caption policy and a current per-platform publication history. Hold a failing or unverified clip and record the reason.
 

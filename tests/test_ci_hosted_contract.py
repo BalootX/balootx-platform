@@ -261,6 +261,25 @@ def test_viewer_seat_proof_dispatch_uses_pinned_fixtures_and_skips_ci(root):
     assert "steps.proof.outcome != 'skipped'" in proof["steps"][-1]["if"]
 
 
+def test_nightly_candidates_is_schedule_only_and_retains_rejections(root):
+    workflow = yaml.safe_load((root / ".github/workflows/nightly-candidates.yml").read_bytes())
+    assert workflow[True] == {"schedule": [{"cron": "30 0 * * *"}]}
+    assert workflow["permissions"] == {"contents": "read"}
+    job, = workflow["jobs"].values()
+    assert job["runs-on"] == "ubuntu-24.04" and job["timeout-minutes"] > 0
+    assert "permissions" not in job
+    for step in job["steps"]:
+        if "uses" in step:
+            assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", step["uses"])
+    assert job["steps"][0]["with"]["persist-credentials"] is False
+    qualify, upload = job["steps"][-2:]
+    assert qualify["id"] == "qualify"
+    assert '--source "$GITHUB_SHA"' in qualify["run"]
+    assert upload["if"] == "${{ !cancelled() && steps.qualify.outcome != 'skipped' }}"
+    assert upload["with"]["path"] == "${{ runner.temp }}/nightly-candidates/"
+    assert upload["with"]["if-no-files-found"] == "error"
+
+
 def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
     consumers = {

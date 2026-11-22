@@ -89,6 +89,7 @@
 /scripts/verify_professional_decision_clip.py @BalootX/maintainers
 /scripts/verify_professional_video_prototypes.py @BalootX/maintainers
 /scripts/viewer_seat_proof.py @BalootX/maintainers
+/scripts/nightly_candidates.py @BalootX/maintainers
 /scripts/generate_scene_preview.py @BalootX/maintainers
 /scripts/generate_media_probe.py @BalootX/maintainers
 /scripts/generate_test_inventory_v20.py @BalootX/maintainers
