@@ -37,6 +37,7 @@ Concurrency groups use the PR number for pull requests and a unique run ID for o
 
 | Rule | BalootX reason | Review date |
 | --- | --- | --- |
+| Required check named `ci-gate` | The workflow publishes both `CI result` and `ci-gate`. The ruleset requires `CI result` until settings step `PUT-01` is applied and verified. | 2026-12-22 |
 | Gate job runs without a skip condition | The result job skips the manual viewer-seat proof lane, which runs its own proof checks. | 2026-12-22 |
 | Measured per-job limits | Per-job p95 for setting the timeouts is not yet measured. The timing samples above cover earlier workflow runs. | 2026-12-22 |
 | Release tags and GitHub Releases | There are no release tags or GitHub Releases, and the tag lock blocks tag creation. The release unit is a clip. | 2026-12-22 |
