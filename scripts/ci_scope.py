@@ -123,6 +123,7 @@ def scoped_plan(paths: set[str]) -> dict | None:
 
 
 def current_plan(event: str = "", base: str = "", head: str = "") -> dict:
+    """Only pull requests can narrow work. Pushes and merge groups always run the full profile."""
     full = {"full": True, **dict.fromkeys(SCOPED.values(), True), "tests": []}
     if event == "pull_request":
         try:
@@ -134,7 +135,10 @@ def current_plan(event: str = "", base: str = "", head: str = "") -> dict:
 
 def validate_results(event: str, results: dict) -> None:
     """Require success from selected producers and an explicit skip from every other producer."""
-    selection = results["plan"]["outputs"]
+    plan = results.get("plan", {})
+    selection = plan.get("outputs")
+    if plan.get("result") != "success" or not isinstance(selection, dict):
+        raise ValueError("CI plan did not succeed or its outputs are unavailable")
     for key in ("full", *SCOPED.values()):
         if selection.get(key) not in ("true", "false"):
             raise ValueError(f"invalid CI plan output: {key}")
@@ -191,7 +195,14 @@ def validate_coverage(receipts: Path, head: str, history: dict, event: str) -> d
 def main() -> None:
     mode = sys.argv[1]
     if mode == "plan":
-        outputs = current_plan(os.environ["GITHUB_EVENT_NAME"], os.getenv("PR_BASE", ""), os.getenv("PR_HEAD", ""))
+        event = os.environ["GITHUB_EVENT_NAME"]
+        if event == "merge_group":
+            group = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes())["merge_group"]
+            checked_out = git("rev-parse", "HEAD").decode("ascii").strip()
+            if (group["head_ref"] != os.environ["GITHUB_REF"] or group["head_sha"] != os.environ["GITHUB_SHA"]
+                    or group["head_sha"] != checked_out):
+                raise ValueError("checkout or workflow context does not match the merge group head")
+        outputs = current_plan(event, os.getenv("PR_BASE", ""), os.getenv("PR_HEAD", ""))
         with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
             for key, value in outputs.items():
                 print(f"{key}={json.dumps(value, ensure_ascii=True, separators=(',', ':'))}", file=stream)
