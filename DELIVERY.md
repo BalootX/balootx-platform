@@ -1,4 +1,4 @@
-Follows engineering standard v1.2.
+Follows engineering standard v1.4.
 
 # BalootX delivery
 
@@ -13,7 +13,9 @@ Follows engineering standard v1.2.
 | Manual dispatch | Full diagnostics under `CI diagnostic result`, or the dedicated viewer-seat proof cohort when selected. |
 | Media verification | The full profile builds the governed inputs, renders shards, checks repeatability and playback parity, decodes the sample media, and generates media and supply-chain evidence. |
 
-The **ci-gate** check compares the producer results to the plan and fails on missing, failed, cancelled or unexpectedly skipped work. During the ruleset cutover, **CI result** also reports the gate's verdict. See [the current limits in the workflow](.github/workflows/ci.yml) and the [historical timing samples](ci/TIMINGS.md).
+The required **ci-gate** check compares the producer results to the plan and fails on missing, failed, cancelled or unexpectedly skipped work. See [the current limits in the workflow](.github/workflows/ci.yml) and the [historical timing samples](ci/TIMINGS.md).
+
+The main ruleset's CodeQL rule evaluates each PR at admission and blocks high or critical alerts on lines the PR changes. The main-push scan surfaces alerts that arise only in the combined commit.
 
 Concurrency groups use the PR number for pull requests and a unique run ID for other events.
 
@@ -37,7 +39,6 @@ Concurrency groups use the PR number for pull requests and a unique run ID for o
 
 | Rule | BalootX reason | Review date |
 | --- | --- | --- |
-| Required check named `ci-gate` | The workflow publishes both `CI result` and `ci-gate`. The ruleset requires `CI result` until settings step `PUT-01` is applied and verified. | 2026-12-22 |
 | Gate job runs without a skip condition | The result job skips the manual viewer-seat proof lane, which runs its own proof checks. | 2026-12-22 |
 | Measured per-job limits | Per-job p95 for setting the timeouts is not yet measured. The timing samples above cover earlier workflow runs. | 2026-12-22 |
 | Release tags and GitHub Releases | There are no release tags or GitHub Releases, and the tag lock blocks tag creation. The release unit is a clip. | 2026-12-22 |
@@ -45,5 +46,4 @@ Concurrency groups use the PR number for pull requests and a unique run ID for o
 | One attested artifact across environments | No single attested artifact is promoted across environments. Clip releases use individually verified media artifacts. | 2026-12-22 |
 | Committed Python lockfile and locked CI installs | There is no Python lockfile. CI resolves dependencies from the ranges in [pyproject.toml](pyproject.toml) for installs and wheel builds. | 2026-12-22 |
 | Tracked pre-commit and pre-push hooks | The repository ships neither hook. Hosted preflight runs lint and focused tests, and the [privacy guard](AGENTS.md#privacy-and-public-pushes) checks pushes. | 2026-12-22 |
-| High-severity code-scanning ruleset | The active main ruleset has no code-scanning requirement. Review how to add the rule with its check producer. | 2026-12-22 |
 | Privacy deny check in CI on every branch push and merge group | The tracked CI workflow has no equivalent to the pre-push privacy scan. | 2026-12-22 |
