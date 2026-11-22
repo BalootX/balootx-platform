@@ -118,7 +118,7 @@ def test_hosted_ci_contract(root):
                     condition = step.get("if") or ""
                     assert condition.startswith(main_push) and "||" not in condition, name
             assert not step.get("continue-on-error")
-    assert jobs["ci-gate"]["name"] == "${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'CI result' }}"
+    assert jobs["ci-gate"]["name"] == "${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}"
     assert jobs["plan"]["if"] == (
         "${{ !inputs.viewer-seat-proof && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}"
     )
@@ -146,8 +146,18 @@ def test_hosted_ci_contract(root):
     expected_producers = ci_scope.FULL | ci_scope.SCOPED.keys() | {
         "plan", "preflight", "dependency-review", "python-version-smoke", "python-affected",
     }
-    assert set(jobs["ci-gate"]["needs"]) == expected_producers == jobs.keys() - {"ci-gate", "viewer-seat-proof"}
+    assert set(jobs["ci-gate"]["needs"]) == expected_producers == jobs.keys() - {
+        "ci-gate", "legacy-ci-result", "viewer-seat-proof",
+    }
     assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof }}"
+    legacy = jobs["legacy-ci-result"]
+    assert legacy["name"] == "${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic compatibility' || 'CI result' }}"
+    assert legacy["needs"] == "ci-gate"
+    assert legacy["if"] == "${{ always() && github.event_name != 'workflow_dispatch' }}"
+    assert legacy["steps"] == [{
+        "env": {"CI_GATE_RESULT": "${{ needs.ci-gate.result }}"},
+        "run": 'test "$CI_GATE_RESULT" = success',
+    }]
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
         "media-inputs", "media-render", "media-release-smoke", "viewer-seat-proof", "remotion-image-parity",

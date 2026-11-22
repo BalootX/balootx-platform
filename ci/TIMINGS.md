@@ -29,7 +29,7 @@ Each PR has one CI concurrency group. A new run for that PR supersedes the previ
 
 CI builds the committed Dockerfile's full `video-worker` target on main pushes and on PRs that change worker inputs, including Foundry UI changes copied with `src`. It verifies that the built image's recorded SHA-256 and installed Remotion production dependencies match the checkout's lockfile. Main pushes populate the BuildKit cache, and PRs can restore it.
 
-For the main merge queue, GitHub requests checks on the temporary merge-group ref. CI verifies the checkout against the event's head SHA and runs the same full producer and Python shard profile as a main push. The queue waits for `CI result` on that SHA. PRs keep scoped feedback, and main pushes keep the full post-merge run. Merge groups can restore caches. Only main pushes save them.
+For the main merge queue, GitHub requests checks on the temporary merge-group ref. CI verifies the checkout against the event's head SHA and runs the same full producer and Python shard profile as a main push. The gate reports on that SHA. PRs keep scoped feedback, and main pushes keep the full post-merge run. Merge groups can restore caches. Only main pushes save them.
 
 The render host preflight checks deployed images for staleness. Compare the worker's `/opt/baloot-remotion/.lock-sha256` with the SHA-256 of the Remotion lockfile for the source being rendered. Run `python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules <lockfile>` with that same lockfile.
 

@@ -13,7 +13,7 @@ Follows engineering standard v1.2.
 | Manual dispatch | Full diagnostics under `CI diagnostic result`, or the dedicated viewer-seat proof cohort when selected. |
 | Media verification | The full profile builds the governed inputs, renders shards, checks repeatability and playback parity, decodes the sample media, and generates media and supply-chain evidence. |
 
-The required status check is **CI result**. The check compares the producer results to the plan and fails on missing, failed, cancelled or unexpectedly skipped work. See [the current limits in the workflow](.github/workflows/ci.yml) and the [historical timing samples](ci/TIMINGS.md).
+The **ci-gate** check compares the producer results to the plan and fails on missing, failed, cancelled or unexpectedly skipped work. During the ruleset cutover, **CI result** also reports the gate's verdict. See [the current limits in the workflow](.github/workflows/ci.yml) and the [historical timing samples](ci/TIMINGS.md).
 
 Concurrency groups use the PR number for pull requests and a unique run ID for other events.
 
@@ -37,7 +37,6 @@ Concurrency groups use the PR number for pull requests and a unique run ID for o
 
 | Rule | BalootX reason | Review date |
 | --- | --- | --- |
-| Required check named `ci-gate` | `CI result` is the existing protected context. Rename the workflow check and its ruleset binding together. | 2026-12-22 |
 | Gate job runs without a skip condition | The result job skips the manual viewer-seat proof lane, which runs its own proof checks. | 2026-12-22 |
 | Measured per-job limits | Per-job p95 for setting the timeouts is not yet measured. The timing samples above cover earlier workflow runs. | 2026-12-22 |
 | Release tags and GitHub Releases | There are no release tags or GitHub Releases, and the tag lock blocks tag creation. The release unit is a clip. | 2026-12-22 |
