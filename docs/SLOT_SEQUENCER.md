@@ -5,7 +5,7 @@ Use the sequencer after preparation has released clips and built slot-specific p
 Run from an environment with the package installed.
 
 ```text
-python -B -m baloot_platform.research.slot_sequencer
+python -I -B -m baloot_platform.research.slot_sequencer
   --slots <slot-1-utc> <slot-2-utc> <slot-3-utc> <slot-4-utc>
   --buffer <released-buffer-json> --buffer-sha <trusted-buffer-sha256>
   --evidence <trusted-gate-catalog> --evidence-sha <trusted-catalog-sha256>
