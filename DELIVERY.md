@@ -24,7 +24,8 @@ Fix failed checks at the source. Do not rerun failures, widen deadlines or skip 
 
 ## Merge
 
-- The `main` merge queue is the only path to trunk. Use a short-lived PR branch and push without rewriting history. Merge, split or close an open PR within two days of its first push. Enable auto-merge against the exact head after green PR checks. For [risk paths](AGENTS.md#risk-paths), first record an independent full-diff review at that head by the designated risk-path reviewer. The ruleset requires zero human approvals.
+- The `main` merge queue is the only path to trunk. Use a short-lived PR branch and push without rewriting history. Merge, split or close an open PR within two days of its first push. Enable auto-merge against the exact head after green PR checks and any required review. The ruleset requires zero human approvals.
+- For a change to a [risk path](AGENTS.md#risk-paths), record one independent full-diff review by the designated reviewer on the PR, with the reviewed head SHA. A push after the verdict requires a new review only if that push touches a risk path. Verify other fixes to review findings with tests.
 - Disable auto-merge and dequeue whenever a PR head moves or a review sends it back. Requalify the replacement head before re-enabling auto-merge.
 - Use `Closes #n` in the PR body only if merging meets the item's whole Done-when. Otherwise use `Refs #n`.
 

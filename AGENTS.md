@@ -57,15 +57,21 @@ Run the Python commands at the repository root. Run npm commands in the named pa
 
 ## Risk paths
 
-Apply the independent review in [DELIVERY.md](DELIVERY.md#merge) to changes in any of these paths.
+The engineering standard's “Branches, merging and releases” section defines high risk. Apply the review in [Delivery](DELIVERY.md#merge) to these BalootX paths and the specific controls named below.
 
-- Every path matched by [.github/CODEOWNERS](.github/CODEOWNERS).
-- Contracts and generated outputs under `api/`, `proto/`, `generated/`, `schemas/` and `src/baloot_platform/resources/schemas/`. This includes the render profile schema.
-- Rendering and layout under `src/baloot_platform/video/`, `configs/video/`, `assets/` and the corresponding packaged config and asset mirrors under `src/baloot_platform/resources/`.
-- Engine and proof criteria under `src/baloot_platform/{core,analysis,challenge,research,native}/` and `native/`, plus `configs/{rules,research,challenge,game,belief,match_value,challenge_contracts}/`, `configs/bundle_ortools_research_*.yaml` and their mirrors under `src/baloot_platform/resources/configs/`. This includes engine-interest scoring, viewer-seat proof and the [Scenario V4 contract](docs/RESEARCH_SCENARIO_V4.md).
-- Observer projections and restricted evidence under `src/baloot_platform/service/` and `src/baloot_platform/adjudication/`.
-- Release evidence and admission under `release/` and `src/baloot_platform/resources/release/`.
-- Project definitions in `AGENTS.md`, `CLAUDE.md`, `DELIVERY.md` and `DESIGN.md`.
+- `.github/workflows/`, the test-path inventory in `.github/python-test-durations.json`, `scripts/{ci_scope,ci_known_failures,run_isolated_pytest,run_heavy_pytest}.py` and `ci/{known-failures.json,all-skipped-allowlist.txt}` control merge-check execution and outcomes.
+- The CI-invoked scripts in `src/baloot_platform/service/foundry_dashboard/package.json` and `src/baloot_platform/video/remotion/package.json`, plus `src/baloot_platform/service/foundry_dashboard/scripts/check-generated-api.mjs`, control what required checks run.
+- `.gitleaks.toml` controls exemptions from secret scanning.
+- `migrations/`, `src/baloot_platform/resources/migrations/`, `scripts/migrate_{postgres,to_canonical_v17}.py` and `src/baloot_platform/history/migration_v17.py` can rewrite stored data.
+- `src/baloot_platform/storage/{artifact_store,game_store,postgres}.py` and `src/baloot_platform/configuration/{service,store}.py` can remove or replace stored media, game data or published configuration.
+- `src/baloot_platform/{identity,security,adjudication}/`, `configs/{identity,security}/` and their packaged configuration mirrors control sign-in, credential handling and access to restricted evidence.
+- `src/baloot_platform/service/{api,client_identity,container,grpc_service,mcp_server}.py`, `src/baloot_platform/service/routes/{adjudication,auth,canonical_history,configuration,foundry_admin_v2,hitl,live,security,shared}.py` and `src/baloot_platform/{shared/access,live/service}.py` enforce access and observer visibility. Review changes to personal-data visibility in API contracts and UI where they govern what is exposed and to whom.
+- `src/baloot_platform/challenge/{evidence_v3,locator,perspective_pipeline,publication_service}.py`, `src/baloot_platform/research/render_service.py` and `src/baloot_platform/video/render_projection.py` control what evidence is exposed or eligible for publication.
+- `src/baloot_platform/video/remotion/scripts/{layout-gate.mjs,approved-layout-adjacencies.json}` and the approved research-notice digest and validation in `src/baloot_platform/video/render_bundle.py` protect clip admission.
+- The release checks in `src/baloot_platform/video/media_validation.py` and `scripts/render_research_notice.py` verify loudness and bind the layout evidence to the clip.
+- `schemas/profiles/video.schema.json` and `src/baloot_platform/resources/schemas/profiles/video.schema.json` validate the render profile used for admission.
+- `release/`, `src/baloot_platform/resources/release/`, `scripts/{check_release_readiness,verify_release}.py` and `src/baloot_platform/release_scope.py` bind release admission to approved evidence.
+- `Dockerfile`, `.dockerignore`, `configs/runtime/docker_v1.yaml` and its packaged copy configure the production image or runtime.
 
 ## Data safety
 
