@@ -14,7 +14,7 @@
 ## Links
 
 - [Delivery](DELIVERY.md) and [design](DESIGN.md)
-- Engineering standard v1.2 and the project-delivery-orchestration skill
+- Engineering standard (version in [DELIVERY.md](DELIVERY.md)) and the project-delivery-orchestration skill
 
 ## Product and current goal
 
@@ -45,6 +45,14 @@ Run the Python commands at the repository root. Run npm commands in the named pa
 
 ## Coding rules
 
+- Before adding code, configuration or tooling, look for something to reuse in the repo, related projects and existing work. Cite the search and current primary documentation in the PR when adding a component, file, dependency or contract. Keep one owner for each rule and value. Use validated, versioned configuration for values that vary by installation and for business rules that can be added as rows. Record who changed configuration, when and why.
+- Read callers before editing. Reproduce bugs, keep the PR to one purpose, and update the owning docs and affected tests with the change. Add a regression test for changed behavior, exercise external boundaries with local services, and reserve end-to-end tests for core flows. Use a fixed clock and controlled inputs instead of sleeps or external network calls.
+- Validate API, import and configuration inputs at entry. Keep client-facing API versions and the previous release's schema working during rollouts. Add a forward migration for schema corrections. Ship destructive cleanup separately after callers have moved.
+- Check actor, role and ownership on the server before serving protected data or mutating it. Reject access unless explicitly allowed, and test allowed and denied requests for each affected role.
+- Store instants in UTC and local schedules with their named time zone. Give background work a dedupe key and outbound calls a deadline and bounded backoff. Reconcile an uncertain external write before another attempt.
+- Use structured logs with a request or trace ID and identify people and records by ID only. Return safe errors with a next step. Page growing lists and check database query plans for indexing and per-row lookups.
+- Use the [design contract](DESIGN.md) for UI changes. Preserve Arabic and right-to-left layout, source visible copy from translations, and verify the changed flows against WCAG 2.2 AA.
+
 - Preserve the public rules and replay contracts at their owning source. Update generated views and packaged copies from that source. Use `python scripts/sync_package_resources.py` after changing mirrored resources and `python scripts/generate_openapi.py --check` to check the OpenAPI output.
 - Treat a valid replay, a bounded result and an exact proof as separate evidence. Preserve a result's scope and budget when exposing it through the API, UI or render bundle.
 
@@ -56,15 +64,27 @@ Apply the independent review in [DELIVERY.md](DELIVERY.md#merge) to changes in a
 - Contracts and generated outputs under `api/`, `proto/`, `generated/`, `schemas/` and `src/baloot_platform/resources/schemas/`. This includes the render profile schema.
 - Rendering and layout under `src/baloot_platform/video/`, `configs/video/`, `assets/` and the corresponding packaged config and asset mirrors under `src/baloot_platform/resources/`.
 - Engine and proof criteria under `src/baloot_platform/{core,analysis,challenge,research,native}/` and `native/`, plus `configs/{rules,research,challenge,game,belief,match_value,challenge_contracts}/`, `configs/bundle_ortools_research_*.yaml` and their mirrors under `src/baloot_platform/resources/configs/`. This includes engine-interest scoring, viewer-seat proof and the [Scenario V4 contract](docs/RESEARCH_SCENARIO_V4.md).
+- Observer projections and restricted evidence under `src/baloot_platform/service/` and `src/baloot_platform/adjudication/`.
 - Release evidence and admission under `release/` and `src/baloot_platform/resources/release/`.
 - Project definitions in `AGENTS.md`, `CLAUDE.md`, `DELIVERY.md` and `DESIGN.md`.
 
 ## Data safety
 
 - Use synthetic fixtures for tests, previews and public examples. Enforce the observer boundary for hands, future actions and solver evidence, and follow the [adjudication boundary](docs/ADJUDICATION_RESEARCH_BOUNDARY.md) for restricted evidence.
-- Preserve immutable release evidence and applied migrations. Follow the [rollback procedure](DELIVERY.md#rollback) when a shipped change must be reversed.
+- Preserve immutable release evidence. Follow the [rollback procedure](DELIVERY.md#rollback) when a shipped change must be reversed.
+
+The service can hold these records outside Git.
+
+| Personal data | Retention and deletion |
+| --- | --- |
+| Account and guest IDs, usernames, display names, password hashes and salts, friend links and requests | The service has no automatic expiry or account deletion flow for these rows. |
+| Session IDs, token and user-agent hashes, CSRF state, and activity timestamps | Guest and local-account sessions expire according to the [identity profile](configs/identity/optional_simple_v1.yaml). Logout revokes access. The service has no automatic row purge. |
+| Linked sign-in provider IDs and claims, which can include name and email, and passkey IDs, public keys, labels and usage metadata | The service has no automatic expiry or unlink/delete flow for these rows. Sign-in transactions, passkey challenges and WebSocket tickets expire or become unusable after consumption. Their backing rows have no automatic purge. |
+| Room memberships and player display names, account-linked game and attempt history, review and adjudication records, consent and other actor-linked audit records | These records have no project-wide retention period or deletion procedure. Keep them out of public fixtures and artifacts. |
+
+| Request network addresses and rate-limit activity | The rate limiter checks a rolling one-minute window in process memory. Access-log retention and deletion depend on the deployment. |
 
 ## Privacy and public pushes
 
-- Pushes go through the project's privacy guard with the App identity.
-- Keep credentials, real personal or customer data, account and session details, private infrastructure identifiers, private instructions, live captions and publication records out of this public repository and its issues, PRs and logs.
+- Pushes go through the project's privacy guard. Check the changed files, commit metadata, branch name and proposed PR text before publishing.
+- Keep credentials, real personal or customer data, account and session details, private infrastructure identifiers, private instructions, live captions and publication records out of this public repository and its issues, PRs and logs. Keep deploy credentials in the target environment's secret store. Report exposures through [private vulnerability reporting](SECURITY.md).
