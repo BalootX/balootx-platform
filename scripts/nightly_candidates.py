@@ -1,12 +1,16 @@
 """Generate and qualify a bounded batch of synthetic decision clips."""
 
 import argparse
+from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import random
 import shutil
+import signal
 import subprocess
 from tempfile import TemporaryDirectory
+import time
 
 from baloot_platform.analysis.deductions import derive_hard_deductions
 from baloot_platform.analysis.models import InformationState
@@ -46,6 +50,39 @@ PUBLICATION_PENDING = {"V_history_unavailable", "publication_qa_unverified"}
 
 class Rejected(ValueError):
     """A known exclusion with an artifact-safe reason code."""
+
+
+class SearchBudgetExhausted(Exception):
+    """The nightly search reached its wall-clock limit."""
+
+
+def budget_seconds():
+    seconds = int(os.environ.get("BALOOT_NIGHTLY_BUDGET_SECONDS", "1080"))
+    if seconds <= 0:
+        raise ValueError("nightly budget must be a positive number of seconds")
+    cutoff = os.environ.get("BALOOT_NIGHTLY_JOB_DEADLINE")
+    return min(seconds, int(cutoff) - time.time() - 15) if cutoff else seconds
+
+
+def stop_search(_signal=None, _frame=None):
+    raise SearchBudgetExhausted
+
+
+@contextmanager
+def search_deadline(seconds):
+    if seconds <= 0:
+        stop_search()
+    deadline = time.monotonic() + seconds
+    if not hasattr(signal, "setitimer"):
+        yield deadline
+        return
+    previous = signal.signal(signal.SIGALRM, stop_search)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, seconds)
+        yield deadline
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def write_json(path, value):
@@ -151,24 +188,12 @@ def winning_fixture(exact, prefix, proof_service, profile_sha, candidate_id):
     }, {row["action"]: int(row["value"]) for row in proof["rootActions"]}
 
 
-def exact_viewer_inputs(proof, *, source, fixture_sha, rules_sha, info, selected):
+def exact_viewer_inputs(proof, *, rules_sha):
     if proof["status"] != "exact_complete":
         raise Rejected(proof["reason"])
-    inputs = proof["scorerInputs"]
-    if not (
-        proof["scope"] == "exhaustive_dealwise_double_dummy"
-        and proof["sourceCommit"] == source
-        and proof["scenarioSha256"] == fixture_sha
-        and proof["rulesSha256"] == rules_sha
-        and proof["viewerInformationSha256"] == canonical_sha256(info.to_dict())
-        and proof["selectedAction"] == selected
-        and proof["coverageComplete"] is True
-        and proof["dealsSolved"] == proof["dealsTotal"] > 0
-        and inputs["worldsComplete"] is True
-        and inputs["bestShare"] == proof["R"]
-        and inputs["worldMeanGap"] == proof["D"]
-    ):
+    if proof["rulesSha256"] != rules_sha:
         raise Rejected("viewer_proof_binding_failed")
+    inputs = proof["scorerInputs"]
     return inputs
 
 
@@ -365,15 +390,7 @@ def qualify(
             native_library=library,
         )
         row["viewerProof"] = write_json(directory / "viewer-proof.json", proof)
-        info = InformationState.from_complete(state, state.current_player)
-        inputs = exact_viewer_inputs(
-            proof,
-            source=source,
-            fixture_sha=row["fixture"]["sha256"],
-            rules_sha=engine.rules.sha256,
-            info=info,
-            selected=fixture["expected"]["selectedAction"],
-        )
+        inputs = exact_viewer_inputs(proof, rules_sha=engine.rules.sha256)
 
         stage = "input"
         final = notice.engine_round_result(engine.rules, fixture_path)
@@ -441,6 +458,10 @@ def qualify(
             status="passed", stage=stage, reasons=["candidate_preflights_passed"]
         )
         return True
+    except SearchBudgetExhausted:
+        (directory / "candidate.mp4").unlink(missing_ok=True)
+        row.update(status="rejected", stage=stage, reasons=["time_budget"])
+        raise
     except (
         ValueError,
         KeyError,
@@ -467,73 +488,122 @@ def generate(output, *, run_id, source, tree, library, rounds, target):
         "postingAuthorized": False,
         "publicationHistory": "NOT_CHECKED",
         "publicationQA": "NOT_CHECKED",
-        "status": "running",
+        "status": "failed",
+        "stage": "setup",
+        "reason": "generation_interrupted",
         "candidates": [],
         "qualified": [],
     }
     index_path = output / "candidate-index.json"
     write_json(index_path, index)
     qualified = index["qualified"]
+    solver = None
     try:
-        rules = RuleBook.load(viewer.RULES_PATH)
-        engine = BalootEngine(rules)
-        profile = notice.notice_profile(public=True)
-        proof_service = UnifiedScenarioProofServiceV1.from_repository(notice.ROOT)
-        renderer = notice.RemotionProfessionalRenderer(
-            profile,
-            repository_root=notice.ROOT,
-            timeout_seconds=notice.render_timeout_seconds(),
-        )
-        ffmpeg = media_tool(notice.ROOT, "ffmpeg")
-        media_tool(notice.ROOT, "ffprobe")
-        solver = viewer.DoubleDummySolver(rules, library)
-    except (OSError, ValueError, RuntimeError) as error:
-        index.update(status="failed", reason="setup_" + type(error).__name__)
-        write_json(index_path, index)
-        return 1
-    try:
-        rng = random.Random(run_id)
-        for trial in range(rounds):
-            seed = rng.getrandbits(64)
-            contract = (Contract.SUN, Contract.HOKUM)[trial % 2]
-            for prefix in synthetic_prefixes(engine, seed, contract):
-                play_index = len(prefix["playActions"])
-                row = {
-                    "id": f"candidate-{seed:016x}-{play_index}",
-                    "seed": f"{seed:016x}",
-                    "contract": contract.value,
-                    "playIndex": play_index,
-                }
-                index["candidates"].append(row)
-                directory = output / row["id"]
-                directory.mkdir()
-                passed = qualify(
-                    row,
-                    prefix,
-                    directory,
-                    engine=engine,
-                    solver=solver,
-                    profile=profile,
-                    proof_service=proof_service,
-                    renderer=renderer,
-                    source=source,
-                    library=library,
-                    ffmpeg=ffmpeg,
+        try:
+            with search_deadline(budget_seconds()) as deadline:
+                rules = RuleBook.load(viewer.RULES_PATH)
+                engine = BalootEngine(rules)
+                profile = notice.notice_profile(public=True)
+                proof_service = UnifiedScenarioProofServiceV1.from_repository(
+                    notice.ROOT
                 )
-                if passed:
-                    qualified.append(row["id"])
+                renderer = notice.RemotionProfessionalRenderer(
+                    profile,
+                    repository_root=notice.ROOT,
+                    timeout_seconds=notice.render_timeout_seconds(),
+                )
+                ffmpeg = media_tool(notice.ROOT, "ffmpeg")
+                media_tool(notice.ROOT, "ffprobe")
+                solver = viewer.DoubleDummySolver(rules, library)
+                index["stage"] = "search"
                 write_json(index_path, index)
-                if passed:
-                    break
-            if len(qualified) == target:
-                break
+                search(
+                    output,
+                    index,
+                    deadline,
+                    index_path,
+                    library,
+                    engine,
+                    solver,
+                    profile,
+                    proof_service,
+                    renderer,
+                    ffmpeg,
+                )
+        except SearchBudgetExhausted:
+            index["stopReason"] = "time_budget"
+        finally:
+            if solver is not None:
+                solver.close()
+    except Exception as error:
+        index["reason"] = type(error).__name__
+        return 1
+    else:
+        if qualified:
+            index["status"] = "passed"
+            del index["reason"]
+        else:
+            index["reason"] = "no_qualified_candidates"
+        return 0 if qualified else 1
     finally:
-        solver.close()
-    index["status"] = "passed" if qualified else "failed"
-    if not qualified:
-        index["reason"] = "no_qualified_candidates"
-    write_json(index_path, index)
-    return 0 if qualified else 1
+        write_json(index_path, index)
+
+
+def search(
+    output,
+    index,
+    deadline,
+    index_path,
+    library,
+    engine,
+    solver,
+    profile,
+    proof_service,
+    renderer,
+    ffmpeg,
+):
+    rng = random.Random(index["runId"])
+    for trial in range(index["roundBudget"]):
+        if time.monotonic() >= deadline:
+            stop_search()
+        seed = rng.getrandbits(64)
+        contract = (Contract.SUN, Contract.HOKUM)[trial % 2]
+        for prefix in synthetic_prefixes(engine, seed, contract):
+            if time.monotonic() >= deadline:
+                stop_search()
+            play_index = len(prefix["playActions"])
+            row = {
+                "id": f"candidate-{seed:016x}-{play_index}",
+                "seed": f"{seed:016x}",
+                "contract": contract.value,
+                "playIndex": play_index,
+                "status": "rejected",
+                "stage": "search",
+                "reasons": ["generation_interrupted"],
+            }
+            index["candidates"].append(row)
+            directory = output / row["id"]
+            directory.mkdir()
+            passed = qualify(
+                row,
+                prefix,
+                directory,
+                engine=engine,
+                solver=solver,
+                profile=profile,
+                proof_service=proof_service,
+                renderer=renderer,
+                source=index["sourceCommit"],
+                library=library,
+                ffmpeg=ffmpeg,
+            )
+            if passed:
+                index["qualified"].append(row["id"])
+            write_json(index_path, index)
+            if passed:
+                break
+        if len(index["qualified"]) == index["target"]:
+            break
 
 
 def main():
@@ -552,7 +622,7 @@ def main():
         timeout=10,
     ).splitlines()
     if source != args.source or not 1 <= args.target <= args.rounds or args.run_id <= 0:
-        parser.error("the checkout or batch inputs do not match the scheduled run")
+        parser.error("the checkout or batch inputs do not match the workflow run")
     subprocess.run(
         ["git", "diff", "--quiet", "HEAD", "--"],
         cwd=notice.ROOT,

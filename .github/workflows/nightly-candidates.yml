@@ -3,6 +3,11 @@ name: Nightly synthetic candidates
 on:
   schedule:
     - cron: '30 0 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-candidates
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -18,29 +23,40 @@ jobs:
       CMAKE_BUILD_PARALLEL_LEVEL: '4'
       OMP_NUM_THREADS: '4'
     steps:
+      - name: Reserve time for the artifact
+        timeout-minutes: 1
+        run: |
+          echo "BALOOT_NIGHTLY_JOB_DEADLINE=$(( $(date +%s) + 21 * 60 ))" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        timeout-minutes: 2
         with:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        timeout-minutes: 2
         with:
           python-version: '3.13'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        timeout-minutes: 2
         with:
           node-version: '22'
           package-manager-cache: false
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        timeout-minutes: 2
         with:
           path: ~/.npm
           key: ${{ runner.os }}-node22-remotion-${{ hashFiles('src/baloot_platform/video/remotion/package-lock.json') }}
       - name: Install the locked Remotion dependencies
+        timeout-minutes: 3
         working-directory: src/baloot_platform/video/remotion
         run: npm ci --ignore-scripts --no-audit --no-fund
       - id: ffmpeg-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        timeout-minutes: 2
         with:
           path: ${{ runner.temp }}/ffmpeg-debs
           key: ${{ runner.os }}-${{ runner.arch }}-ffmpeg-6.1.1-3ubuntu5-${{ hashFiles('.github/ffmpeg/noble-amd64.sha256') }}
       - name: Install the pinned media tools
+        timeout-minutes: 3
         env:
           CACHE_HIT: ${{ steps.ffmpeg-cache.outputs.cache-hit }}
         run: |
@@ -58,6 +74,7 @@ jobs:
           mapfile -t packages < <(awk '{print "./" $2}' "$lock")
           sudo env DEBIAN_FRONTEND=noninteractive dpkg --skip-same-version --install "${packages[@]}"
       - name: Build the native exact solver
+        timeout-minutes: 4
         run: |
           python -m pip install .
           cmake -S native -B build/native-release -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -65,12 +82,29 @@ jobs:
       - name: Generate and qualify synthetic candidates
         id: qualify
         run: |
-          python -B -P scripts/nightly_candidates.py \
+          remaining=$(( BALOOT_NIGHTLY_JOB_DEADLINE - $(date +%s) ))
+          (( remaining > 0 ))
+          timeout --kill-after=10s "${remaining}s" python -B -P scripts/nightly_candidates.py \
             --run-id "$GITHUB_RUN_ID" --source "$GITHUB_SHA" \
             --native-library build/native-release/libbaloot_native.so \
             --rounds 96 --target 4 --out "$RUNNER_TEMP/nightly-candidates"
+      - name: Ensure an index exists after an early failure
+        if: ${{ !cancelled() }}
+        timeout-minutes: 1
+        env:
+          QUALIFY_OUTCOME: ${{ steps.qualify.outcome }}
+        run: |
+          output="$RUNNER_TEMP/nightly-candidates"
+          mkdir -p "$output"
+          if [[ ! -f "$output/candidate-index.json" ]]; then
+            stage=workflow_setup
+            if [[ "$QUALIFY_OUTCOME" == 'failure' ]]; then stage=generation; fi
+            printf '{"schemaVersion":1,"status":"failed","stage":"%s","reason":"no_index_produced","sourceCommit":"%s","runId":%s,"synthetic":true,"postingAuthorized":false,"candidates":[],"qualified":[]}\n' \
+              "$stage" "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$output/candidate-index.json"
+          fi
       - name: Retain the candidate index and evidence
-        if: ${{ !cancelled() && steps.qualify.outcome != 'skipped' }}
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nightly-synthetic-candidates
