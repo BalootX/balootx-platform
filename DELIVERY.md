@@ -26,7 +26,7 @@ Fix failed checks at the source. Do not rerun failures, widen deadlines or skip 
 
 - The `main` merge queue is the only path to trunk and uses squash merges only. Workers push their own short-lived branches without rewriting history and open PRs under the project's App identity. Merge, split or close an open PR within two days of its first push. The ruleset requires zero human approvals.
 - For a low-risk PR, the worker enables auto-merge at once. The PR merges through the queue on green `ci-gate`.
-- For a high-risk PR, see [risk paths](AGENTS.md#risk-paths). Get one independent review. The worker enables auto-merge only after the reviewer's verdict comment names the current PR head SHA. Keep that head unchanged while auto-merge is on. If a push is needed, turn off auto-merge first. A push touching a risk path needs a new verdict. Verify other fixes to review findings with tests.
+- For a high-risk PR, see [risk paths](AGENTS.md#risk-paths). Get one independent full-diff review. The worker enables auto-merge only after the reviewer posts a verdict comment naming the reviewed head SHA. Keep the PR head unchanged while auto-merge is on. If a push is needed, turn off auto-merge first. A later push touching a risk path needs a new verdict on that head. Otherwise the recorded verdict carries forward. Verify other fixes to review findings with tests.
 - Delivery owns the queue, CI health and speed, releases, deploys, rollback and alerts. Workers handle each PR.
 - Use `Closes #n` in the PR body only if merging meets the item's whole Done-when. Otherwise use `Refs #n`.
 
