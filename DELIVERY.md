@@ -20,11 +20,11 @@ The main ruleset's CodeQL rule evaluates each PR at admission and blocks new hig
 
 The concurrency key uses the PR number to keep same-named branches from different forks in separate groups. A new run supersedes only the same PR's older run. Other events use distinct run IDs and never cancel, preserving the standard's behavior.
 
-Fix failed checks at the source. Do not rerun failures, widen deadlines or skip tests to get CI green. Use synthetic fixtures and local test services. Workflow changes must pin actions by commit SHA and grant write permissions only to jobs that need them. A new `tests/test_*.py` file needs both `seconds` and `shardSeconds` entries in [.github/python-test-durations.json](.github/python-test-durations.json).
+Fix failed checks at the source. Do not rerun failures, widen deadlines or skip tests to get CI green. Keep authorization, privacy, migration and concurrency tests. Removing a test that only detects change requires two weeks of evidence. Use synthetic fixtures and local test services. Pin actions by full commit SHA, keep workflow defaults read-only, and grant writes only to jobs that need them. Keep secrets off fork runs and untrusted code off privileged triggers. A new `tests/test_*.py` file needs both `seconds` and `shardSeconds` entries in [.github/python-test-durations.json](.github/python-test-durations.json).
 
 ## Merge
 
-- The `main` merge queue is the only path to trunk. Use a short-lived PR branch and push without rewriting history. Enable auto-merge against the exact head after green PR checks. For [risk paths](AGENTS.md#risk-paths), first record an independent full-diff review at that head by the designated risk-path reviewer. The ruleset requires zero human approvals.
+- The `main` merge queue is the only path to trunk. Use a short-lived PR branch and push without rewriting history. Merge, split or close an open PR within two days of its first push. Enable auto-merge against the exact head after green PR checks. For [risk paths](AGENTS.md#risk-paths), first record an independent full-diff review at that head by the designated risk-path reviewer. The ruleset requires zero human approvals.
 - Disable auto-merge and dequeue whenever a PR head moves or a review sends it back. Requalify the replacement head before re-enabling auto-merge.
 - Use `Closes #n` in the PR body only if merging meets the item's whole Done-when. Otherwise use `Refs #n`.
 
@@ -37,7 +37,7 @@ Fix failed checks at the source. Do not rerun failures, widen deadlines or skip 
 
 ## Rollback
 
-- For a bad code release, start a revert branch at current `main`, run `git revert <squash-merge-sha>` and submit the revert through the [merge queue](#merge).
+- Revert the change that broke main or the queue if the failure remains after 30 minutes. For a bad code release, start a revert branch at current `main`, run `git revert <squash-merge-sha>` and submit the revert through the [merge queue](#merge).
 - For a media release regression, stop affected releases and restore the last approved release configuration and artifact pins. Reconcile any completed or uncertain publish in the audit ledger before resuming.
 
 ## Deviations
