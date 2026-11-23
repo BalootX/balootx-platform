@@ -56,34 +56,22 @@ def sample(rules, tmp_path_factory):
     )
 
 
-def test_viewer_receipt_is_bound_to_the_candidate(sample, rules):
-    state = sample.exact.round_state
-    options = {
-        "source": sample.source,
-        "fixture_sha": sample.digest,
-        "rules_sha": rules.sha256,
-        "info": nightly.InformationState.from_complete(state, state.current_player),
-        "selected": "HA",
-    }
-    assert nightly.exact_viewer_inputs(sample.receipt, **options)["bestShare"] == 1
-    for field, value in {
-        "sourceCommit": "b" * 40,
-        "scenarioSha256": "c" * 64,
-        "rulesSha256": "d" * 64,
-        "viewerInformationSha256": "e" * 64,
-        "selectedAction": "SA",
-        "coverageComplete": False,
-        "dealsSolved": 0,
-    }.items():
-        with pytest.raises(nightly.Rejected, match="viewer_proof_binding_failed"):
-            nightly.exact_viewer_inputs({**sample.receipt, field: value}, **options)
+def test_viewer_score_requires_exact_status_and_matching_rules(sample, rules):
+    assert (
+        nightly.exact_viewer_inputs(sample.receipt, rules_sha=rules.sha256)
+        == sample.receipt["scorerInputs"]
+    )
+    with pytest.raises(nightly.Rejected, match="viewer_proof_binding_failed"):
+        nightly.exact_viewer_inputs(sample.receipt, rules_sha="d" * 64)
     with pytest.raises(nightly.Rejected, match="maximum_nodes"):
         nightly.exact_viewer_inputs(
-            {"status": "INCOMPLETE", "reason": "maximum_nodes"}, **options
+            {"status": "INCOMPLETE", "reason": "maximum_nodes"}, rules_sha=rules.sha256
         )
 
 
-@pytest.mark.parametrize("failure", ["input", "hook_layout", "media_preflight", None])
+@pytest.mark.parametrize(
+    "failure", ["input", "hook_layout", "media_preflight", "time_budget", None]
+)
 def test_only_passing_media_enters_the_artifact(tmp_path, monkeypatch, sample, failure):
     def prove(raw, **options):
         assert (raw, options["fixture_sha"], options["source_sha"]) == (
@@ -104,6 +92,8 @@ def test_only_passing_media_enters_the_artifact(tmp_path, monkeypatch, sample, f
         video.write_bytes(b"synthetic media")
         if failure == "media_preflight":
             raise ValueError("synthetic failed decode")
+        if failure == "time_budget":
+            raise nightly.SearchBudgetExhausted
         return video, [], {"bundleSha256": bundle.bundle_sha256, "status": "passed"}
 
     monkeypatch.setattr(nightly.viewer, "prove_fixture", prove)
@@ -119,19 +109,30 @@ def test_only_passing_media_enters_the_artifact(tmp_path, monkeypatch, sample, f
     )
     prefix = sample.prefix if failure != "input" else {**sample.prefix, "deckOrder": []}
     row = {"id": sample.scenario_id}
-    passed = nightly.qualify(
-        row,
-        prefix,
-        tmp_path,
-        engine=sample.engine,
-        solver=solver,
-        profile=sample.profile,
-        proof_service=sample.service,
-        renderer=None,
-        source=sample.source,
-        library=None,
-        ffmpeg=None,
-    )
+
+    def qualify():
+        return nightly.qualify(
+            row,
+            prefix,
+            tmp_path,
+            engine=sample.engine,
+            solver=solver,
+            profile=sample.profile,
+            proof_service=sample.service,
+            renderer=None,
+            source=sample.source,
+            library=None,
+            ffmpeg=None,
+        )
+
+    if failure == "time_budget":
+        with pytest.raises(nightly.SearchBudgetExhausted):
+            qualify()
+        assert row["status"] == "rejected" and row["reasons"] == ["time_budget"]
+        assert row["stage"] == "media_preflight"
+        assert not (tmp_path / "candidate.mp4").exists()
+        return
+    passed = qualify()
 
     assert passed is (failure is None)
     assert (tmp_path / "candidate.mp4").exists() is passed
@@ -186,3 +187,95 @@ def test_hook_check_requires_the_receipt_for_the_exact_bundle(tmp_path, monkeypa
     bundle.write_bytes(b"changed")
     with pytest.raises(nightly.Rejected, match="hook_layout_binding_failed"):
         nightly.check_hook(bundle, "a" * 64, hook)
+
+
+@pytest.fixture
+def batch(tmp_path, monkeypatch, rules):
+    output = tmp_path / "candidates"
+    monkeypatch.delenv("BALOOT_NIGHTLY_BUDGET_SECONDS", raising=False)
+    monkeypatch.delenv("BALOOT_NIGHTLY_JOB_DEADLINE", raising=False)
+    monkeypatch.setattr(nightly, "signal", SimpleNamespace())
+    monkeypatch.setattr(nightly.RuleBook, "load", lambda path: rules)
+    monkeypatch.setattr(nightly.notice, "notice_profile", lambda **kwargs: {})
+    monkeypatch.setattr(
+        nightly.notice, "RemotionProfessionalRenderer", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        nightly.UnifiedScenarioProofServiceV1, "from_repository", lambda path: None
+    )
+    monkeypatch.setattr(nightly, "media_tool", lambda *args: None)
+    monkeypatch.setattr(
+        nightly.viewer,
+        "DoubleDummySolver",
+        lambda *args: SimpleNamespace(close=lambda: None),
+    )
+    monkeypatch.setattr(
+        nightly,
+        "synthetic_prefixes",
+        lambda *args: [
+            {"playActions": []},
+            {"playActions": [{}]},
+        ],
+    )
+
+    def run():
+        code = nightly.generate(
+            output,
+            run_id=1,
+            source="a" * 40,
+            tree="b" * 40,
+            library=None,
+            rounds=3,
+            target=2,
+        )
+        return code, json.loads((output / "candidate-index.json").read_bytes())
+
+    return run
+
+
+@pytest.mark.parametrize("qualified", [False, True])
+def test_budget_stops_before_the_next_candidate(batch, monkeypatch, qualified):
+    clock = 0
+    attempts = []
+    monkeypatch.setattr(nightly, "time", SimpleNamespace(monotonic=lambda: clock))
+    assert nightly.budget_seconds() == 18 * 60
+
+    def qualify(row, *args, **kwargs):
+        nonlocal clock
+        attempts.append(row["id"])
+        clock += 18 * 60
+        row["status"] = "passed" if qualified else "rejected"
+        return qualified
+
+    monkeypatch.setattr(nightly, "qualify", qualify)
+    code, index = batch()
+    assert len(attempts) == 1
+    assert code == (0 if qualified else 1)
+    assert index["status"] == ("passed" if qualified else "failed")
+    assert index["stopReason"] == "time_budget"
+    assert index["qualified"] == (attempts if qualified else [])
+
+
+def test_job_deadline_reserves_cleanup_time(monkeypatch):
+    monkeypatch.setenv("BALOOT_NIGHTLY_BUDGET_SECONDS", "20")
+    monkeypatch.setenv("BALOOT_NIGHTLY_JOB_DEADLINE", "130")
+    monkeypatch.setattr(nightly, "time", SimpleNamespace(time=lambda: 100))
+    assert nightly.budget_seconds() == 15
+    monkeypatch.setenv("BALOOT_NIGHTLY_BUDGET_SECONDS", "10")
+    assert nightly.budget_seconds() == 10
+
+
+@pytest.mark.parametrize("stage", ["setup", "search"])
+def test_unexpected_failure_finalizes_index(batch, monkeypatch, stage):
+    def fail(*args, **kwargs):
+        raise AssertionError("synthetic failure")
+
+    if stage == "setup":
+        monkeypatch.setattr(nightly, "media_tool", fail)
+    else:
+        monkeypatch.setattr(nightly, "qualify", fail)
+    code, index = batch()
+    assert code == 1
+    assert index["status"] == "failed"
+    assert index["stage"] == stage
+    assert index["reason"] == "AssertionError"

@@ -252,21 +252,27 @@ def test_viewer_seat_proof_dispatch_uses_pinned_fixtures_and_skips_ci(root):
     assert "steps.proof.outcome != 'skipped'" in proof["steps"][-1]["if"]
 
 
-def test_nightly_candidates_is_schedule_only_and_retains_rejections(root):
+def test_nightly_candidates_serializes_runs_and_retains_failure_evidence(root):
     workflow = yaml.safe_load((root / ".github/workflows/nightly-candidates.yml").read_bytes())
-    assert workflow[True] == {"schedule": [{"cron": "30 0 * * *"}]}
+    assert workflow[True] == {"schedule": [{"cron": "30 0 * * *"}], "workflow_dispatch": None}
+    assert workflow["concurrency"] == {"group": "nightly-candidates", "cancel-in-progress": False}
     assert workflow["permissions"] == {"contents": "read"}
     job, = workflow["jobs"].values()
-    assert job["runs-on"] == "ubuntu-24.04" and job["timeout-minutes"] > 0
+    assert job["runs-on"] == "ubuntu-24.04" and job["timeout-minutes"] == 25
     assert "permissions" not in job
     for step in job["steps"]:
         if "uses" in step:
             assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", step["uses"])
-    assert job["steps"][0]["with"]["persist-credentials"] is False
-    qualify, upload = job["steps"][-2:]
+    assert job["steps"][1]["with"]["persist-credentials"] is False
+    qualify, finalize, upload = job["steps"][-3:]
+    assert sum(step["timeout-minutes"] for step in job["steps"][:-3] + [finalize, upload]) < job["timeout-minutes"]
     assert qualify["id"] == "qualify"
     assert '--source "$GITHUB_SHA"' in qualify["run"]
-    assert upload["if"] == "${{ !cancelled() && steps.qualify.outcome != 'skipped' }}"
+    assert 'timeout --kill-after=10s' in qualify["run"]
+    assert "BALOOT_NIGHTLY_JOB_DEADLINE" in job["steps"][0]["run"]
+    assert "BALOOT_NIGHTLY_JOB_DEADLINE" in qualify["run"]
+    assert 'candidate-index.json' in finalize["run"]
+    assert finalize["if"] == upload["if"] == "${{ !cancelled() }}"
     assert upload["with"]["path"] == "${{ runner.temp }}/nightly-candidates/"
     assert upload["with"]["if-no-files-found"] == "error"
 
