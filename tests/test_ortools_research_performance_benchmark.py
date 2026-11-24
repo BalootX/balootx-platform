@@ -422,7 +422,13 @@ def test_publish_explicit_bundle_uses_configuration_ssot_and_checks_identity(
     ]
 
 
-def test_benchmark_emits_hash_bound_cold_warm_p50_p95(root: Path, tmp_path: Path):
+def test_benchmark_emits_hash_bound_cold_warm_p50_p95(
+    root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    peak_memory_bytes = 64 * 1024 * 1024
+    monkeypatch.setattr(
+        benchmark, "process_lifetime_peak_rss_bytes", lambda: peak_memory_bytes
+    )
     profile = benchmark._load_profile(
         root / "configs/research/ortools_performance_benchmark_v1.yaml"
     )
@@ -495,7 +501,9 @@ def test_benchmark_emits_hash_bound_cold_warm_p50_p95(root: Path, tmp_path: Path
         assert set(operation["cold"]["stageTimingsSeconds"]) == set(
             benchmark._REQUIRED_STAGE_TIMINGS[name]
         )
-        assert operation["resourceGate"]["passed"] is True
+        resource_gate = operation["resourceGate"]
+        assert resource_gate["passed"] is True
+        assert resource_gate["observed"]["peakMemoryBytes"] == peak_memory_bytes
         assert operation["sha256"] == canonical_sha256(
             {key: value for key, value in operation.items() if key != "sha256"}
         )
