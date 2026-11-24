@@ -79,7 +79,7 @@ USER 10001
 
 FROM production-runtime AS video-worker
 USER root
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked apt-get update && apt-get install -y --no-install-recommends libnss3 libdbus-1-3 libatk1.0-0 libgbm1 libasound2t64 libxrandr2 libxkbcommon0 libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked apt-get update && apt-get install -y --no-install-recommends git libnss3 libdbus-1-3 libatk1.0-0 libgbm1 libasound2t64 libxrandr2 libxkbcommon0 libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 && rm -rf /var/lib/apt/lists/*
 COPY --from=remotion-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=remotion-runtime /remotion/node_modules /opt/baloot-remotion/node_modules
 COPY --from=remotion-runtime /remotion/.lock-sha256 /opt/baloot-remotion/.lock-sha256

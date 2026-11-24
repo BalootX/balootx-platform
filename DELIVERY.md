@@ -70,7 +70,7 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 
 ### Manual render kickoff
 
-At each batch kickoff, invoke the [shared preflight](scripts/render_kickoff.py) from a trusted public-main checkout that contains it. Give it the clean, full-history checkout for the selected inputs, the selected build receipt, and the image ID observed by the launcher. Capture stdout as the batch's kickoff receipt and stop on any nonzero exit.
+At each batch kickoff, invoke the [shared preflight](scripts/render_kickoff.py) from a trusted public-main checkout with the project dependencies installed. Give it the clean, full-history checkout for the selected inputs, the selected build receipt, and the image ID observed by the launcher. Capture stdout as the batch's kickoff receipt and proceed only with a `passed` verdict.
 
 ```sh
 python -B -m scripts.render_kickoff --checkout "$SOURCE_CHECKOUT" \
@@ -78,9 +78,9 @@ python -B -m scripts.render_kickoff --checkout "$SOURCE_CHECKOUT" \
   --build-receipt "$BUILD_RECEIPT" --image-id "$IMAGE_ID" > "$KICKOFF_RECEIPT"
 ```
 
-The command snapshots public `main` from the configured remote and fetches the observed commit into the selected checkout's Git object store if needed. It checks for missing merged changes under the [configured renderer paths](scripts/render-kickoff.json). Changes on main outside those paths do not invalidate a pin. The verdict binds the input commit and tree to the selected worker image.
+The command snapshots public `main` from the configured remote and fetches the observed commit into the selected checkout's Git object store if needed. It requires every merged change under the [configured renderer paths](scripts/render-kickoff.json), matching renderer content on the two commits, and a clean renderer worktree. The verdict binds the input commit and tree to the selected worker image.
 
-Exit `0` means the preflight passed. Exit `1` means it refused the batch. Both write one JSON object with `schemaVersion` (`1`), `status` (`passed` or `failed`), `sourceHead`, `sourceTree`, `imageId`, `packageLockSha256`, `mainHead`, `missingRendererCommit`, and `reason`. Unavailable evidence is `null`. Exit `2` means invalid CLI usage. Keep the fresh receipt read-only for the batch. Pass it as `BALOOT_RENDER_KICKOFF_RECEIPT` to `render_research_notice --public` alongside `BALOOT_RENDER_BUILD_RECEIPT` and `BALOOT_RENDER_IMAGE_ID`.
+Stdout always carries one JSON verdict with `schemaVersion` (`1`), `status`, `sourceHead`, `sourceTree`, `imageId`, `packageLockSha256`, `mainHead`, `checkedAt` (UTC), `missingRendererCommit`, and `reason`. Unavailable evidence is `null`. Exit `0` carries `passed` or `help`, exit `1` carries a refusal, and exit `2` carries a usage error. Keep the receipt read-only for the batch. Run `render_research_notice --public` from the pinned Git checkout with `BALOOT_RENDER_KICKOFF_RECEIPT`, `BALOOT_RENDER_BUILD_RECEIPT`, and `BALOOT_RENDER_IMAGE_ID`. The producer checks its own commit and tree and rejects future-dated receipts or receipts older than the configured limit. Run kickoff again before starting a producer with an expired receipt.
 
 ## Rollback
 

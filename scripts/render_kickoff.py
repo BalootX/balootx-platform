@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import subprocess
+import sys
 
 
-POLICY = Path(__file__).with_name("render-kickoff.json")
+TRUSTED_ROOT = Path(__file__).resolve().parents[1]
+POLICY = TRUSTED_ROOT / "scripts/render-kickoff.json"
+POLICY_SCHEMA = POLICY.with_suffix(".schema.json")
 MAIN_REF = "refs/heads/main"
 SOURCE_SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}")
+UTC_TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 def read_object(path: Path, label: str) -> dict:
@@ -24,6 +33,20 @@ def read_object(path: Path, label: str) -> dict:
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be a JSON object")
     return value
+
+
+def load_policy() -> dict:
+    from jsonschema import Draft202012Validator
+
+    policy = read_object(POLICY, "render kickoff policy")
+    schema = read_object(POLICY_SCHEMA, "render kickoff policy schema")
+    error = next(Draft202012Validator(schema).iter_errors(policy), None)
+    if error is not None:
+        field = ".".join(map(str, error.path))
+        if error.validator in {"additionalProperties", "required"}:
+            field = error.message
+        raise ValueError(f"render kickoff policy has an invalid field ({field})")
+    return policy
 
 
 def verify_worker_build(
@@ -46,25 +69,42 @@ def verify_worker_build(
     return lock_digest
 
 
-def git(checkout: Path, *args: str, timeout: int = 10) -> str:
+def git(checkout: Path, *args: str, timeout: int = 10, mismatch: str | None = None) -> str:
+    env = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
+    env.update(
+        GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0",
+    )
     try:
         return subprocess.run(
             ["git", "--no-replace-objects", "--literal-pathspecs", *args],
             cwd=checkout,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            env=env,
             check=True,
             capture_output=True,
             text=True,
             timeout=timeout,
         ).stdout.strip()
     except (OSError, UnicodeError, subprocess.SubprocessError) as exc:
+        if mismatch and isinstance(exc, subprocess.CalledProcessError) and exc.returncode == 1:
+            raise ValueError(mismatch) from exc
         raise ValueError(f"cannot verify render source with git {args[0]}") from exc
 
 
-def verify_kickoff(
-    checkout: Path, source_head: str, source_tree: str, receipt_path: Path, image_id: str
-) -> dict:
-    verdict = {
+def verify_checkout(checkout: Path, source_head: str, source_tree: str, paths: list[str]) -> None:
+    top, head, tree = git(
+        checkout, "rev-parse", "--show-toplevel", "HEAD", "HEAD^{tree}"
+    ).splitlines()
+    if Path(top).resolve() != checkout.resolve() or (head, tree) != (source_head, source_tree):
+        raise ValueError("render checkout does not match the pinned source commit and tree")
+    if git(checkout, "status", "--porcelain", "--untracked-files=no") or git(
+        checkout, "status", "--porcelain", "--untracked-files=all", "--", *paths
+    ):
+        raise ValueError("render kickoff requires clean tracked source and renderer inputs")
+
+
+def new_verdict(source_head: str = "", source_tree: str = "", image_id: str = "") -> dict:
+    return {
         "schemaVersion": 1,
         "status": "failed",
         "sourceHead": source_head if SOURCE_SHA.fullmatch(source_head) else None,
@@ -72,45 +112,34 @@ def verify_kickoff(
         "imageId": image_id if IMAGE_ID.fullmatch(image_id) else None,
         "packageLockSha256": None,
         "mainHead": None,
+        "checkedAt": None,
         "missingRendererCommit": None,
         "reason": None,
     }
+
+
+def verify_kickoff(
+    checkout: Path, source_head: str, source_tree: str, receipt_path: Path, image_id: str
+) -> dict:
+    verdict = new_verdict(source_head, source_tree, image_id)
     try:
         verdict["packageLockSha256"] = verify_worker_build(
             receipt_path, source_head, source_tree, image_id
         )
-        top, head, tree = git(
-            checkout, "rev-parse", "--show-toplevel", "HEAD", "HEAD^{tree}"
-        ).splitlines()
-        if Path(top).resolve() != checkout.resolve() or (head, tree) != (source_head, source_tree):
-            raise ValueError("render checkout does not match the pinned source commit and tree")
+        policy = load_policy()
+        paths = policy["rendererPaths"]
+        remote = policy["publicRemote"]
+        verify_checkout(checkout, source_head, source_tree, paths)
         if git(checkout, "rev-parse", "--is-shallow-repository") != "false":
             raise ValueError("render kickoff requires a complete Git history")
-        if git(checkout, "status", "--porcelain", "--untracked-files=no"):
-            raise ValueError("render kickoff requires clean tracked source inputs")
-
-        policy = read_object(POLICY, "render kickoff policy")
-        remote = policy.get("publicRemote")
-        paths = policy.get("rendererPaths")
-        if not isinstance(remote, str) or not remote or remote.startswith("-"):
-            raise ValueError("render kickoff policy requires a public remote")
-        if not isinstance(paths, list) or not paths or any(
-            not isinstance(path, str)
-            or not re.fullmatch(r"[A-Za-z0-9_./-]+", path)
-            or PurePosixPath(path).as_posix() != path
-            or PurePosixPath(path).is_absolute()
-            or path == "."
-            or ".." in PurePosixPath(path).parts
-            for path in paths
-        ):
-            raise ValueError("render kickoff policy requires repository-relative renderer paths")
-
+        checked_at = utc_now().isoformat(timespec="seconds").replace("+00:00", "Z")
         main, separator, ref = git(
-            checkout, "ls-remote", "--exit-code", remote, MAIN_REF, timeout=30
+            TRUSTED_ROOT, "ls-remote", "--exit-code", remote, MAIN_REF, timeout=30
         ).partition("\t")
         if not separator or ref != MAIN_REF or not SOURCE_SHA.fullmatch(main):
             raise ValueError("public main did not resolve to one commit")
         verdict["mainHead"] = main
+        verdict["checkedAt"] = checked_at
         if main != source_head:
             try:
                 git(checkout, "cat-file", "-e", f"{main}^{{commit}}")
@@ -127,20 +156,28 @@ def verify_kickoff(
             if missing:
                 verdict["missingRendererCommit"] = missing
                 raise ValueError("render source is missing a merged renderer commit; repin and rebuild")
+            git(
+                checkout, "diff", "--quiet", "--no-ext-diff", "--no-textconv", f"{main}..{source_head}", "--", *paths,
+                mismatch="render source differs from public main under rendererPaths; repin and rebuild",
+            )
     except ValueError as exc:
         verdict["reason"] = str(exc)
+    except (Exception, KeyboardInterrupt):
+        verdict["reason"] = "unexpected render kickoff error"
     else:
         verdict["status"] = "passed"
     return verdict
 
 
 def require_kickoff_receipt(
-    path: Path, source_head: str, source_tree: str, image_id: str, lock_digest: str
-) -> str:
+    path: Path, source_head: str, source_tree: str, image_id: str, lock_digest: str, *, checkout: Path
+) -> tuple[str, str]:
     verdict = read_object(path, "render kickoff receipt")
     main = verdict.get("mainHead")
     if (
-        verdict.get("schemaVersion") != 1
+        verdict.keys() != new_verdict().keys()
+        or type(verdict.get("schemaVersion")) is not int
+        or verdict["schemaVersion"] != 1
         or verdict.get("status") != "passed"
         or not isinstance(main, str)
         or not SOURCE_SHA.fullmatch(main)
@@ -151,20 +188,45 @@ def require_kickoff_receipt(
     keys = ("sourceHead", "sourceTree", "imageId", "packageLockSha256")
     if tuple(verdict.get(key) for key in keys) != (source_head, source_tree, image_id, lock_digest):
         raise ValueError("public render kickoff receipt does not match the selected source and image")
-    return main
+    checked_at = verdict["checkedAt"]
+    if not isinstance(checked_at, str) or not UTC_TIMESTAMP.fullmatch(checked_at):
+        raise ValueError("public render kickoff receipt requires a UTC checkedAt timestamp")
+    try:
+        age = (utc_now() - datetime.fromisoformat(checked_at)).total_seconds()
+    except ValueError as exc:
+        raise ValueError("public render kickoff receipt requires a valid checkedAt timestamp") from exc
+    if age < 0:
+        raise ValueError("public render kickoff receipt is future-dated")
+    policy = load_policy()
+    if age > policy["maxReceiptAgeSeconds"]:
+        raise ValueError("public render kickoff receipt has expired; rerun kickoff")
+    verify_checkout(checkout, source_head, source_tree, policy["rendererPaths"])
+    return main, checked_at
+
+
+class VerdictParser(argparse.ArgumentParser):
+    def print_help(self, file=None):
+        super().print_help(file or sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = VerdictParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--checkout", type=Path, required=True)
     parser.add_argument("--source-head", required=True)
     parser.add_argument("--source-tree", required=True)
     parser.add_argument("--build-receipt", type=Path, required=True)
     parser.add_argument("--image-id", required=True)
-    args = parser.parse_args(argv)
-    verdict = verify_kickoff(
-        args.checkout, args.source_head, args.source_tree, args.build_receipt, args.image_id
-    )
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        verdict = new_verdict()
+        if exc.code == 0:
+            verdict["status"] = "help"
+        else:
+            verdict["reason"] = "invalid CLI usage"
+        print(json.dumps(verdict, sort_keys=True))
+        return exc.code
+    verdict = verify_kickoff(args.checkout, args.source_head, args.source_tree, args.build_receipt, args.image_id)
     print(json.dumps(verdict, sort_keys=True))
     return 0 if verdict["status"] == "passed" else 1
 

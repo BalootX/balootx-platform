@@ -553,8 +553,8 @@ def _verify_public_renderer(
     kickoff_path = os.environ.get("BALOOT_RENDER_KICKOFF_RECEIPT")
     if not kickoff_path:
         raise ValueError("public render requires a passed render kickoff receipt")
-    main_head = require_kickoff_receipt(
-        Path(kickoff_path), source_head, source_tree, image_id, lock_digest
+    main_head, checked_at = require_kickoff_receipt(
+        Path(kickoff_path), source_head, source_tree, image_id, lock_digest, checkout=ROOT
     )
 
     lockfile = ROOT / "src/baloot_platform/video/remotion/package-lock.json"
@@ -567,7 +567,10 @@ def _verify_public_renderer(
         raise ValueError("public render lockfile does not match the selected build")
     if check_parity(renderer_root / "node_modules", lockfile):
         raise ValueError("public render dependencies do not match the selected lockfile")
-    return {"imageId": image_id, "packageLockSha256": digest, "kickoffMainHead": main_head}
+    return {
+        "imageId": image_id, "packageLockSha256": digest,
+        "kickoffMainHead": main_head, "checkedAt": checked_at,
+    }
 
 
 def main(

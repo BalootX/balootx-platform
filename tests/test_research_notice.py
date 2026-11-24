@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 import hashlib
 import json
 import runpy
@@ -333,68 +334,101 @@ def test_notice_selectors_require_public_in_main_and_cli(monkeypatch, capsys, se
     assert "require --public" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("pin", ["4fd9b56a", "diverged", "current", "newer", "after-fix", "configured-layout"])
-def test_render_kickoff_checks_live_public_renderer_history(tmp_path, monkeypatch, capsys, pin):
-    def git(repo, *args):
-        return subprocess.check_output(
-            ["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@users.noreply.github.com",
-             "-c", "commit.gpgsign=false", *args],
-            cwd=repo, text=True, timeout=10,
-        ).strip()
+def fixture_git(repo, *args):
+    return subprocess.check_output(
+        ["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@users.noreply.github.com",
+         "-c", "commit.gpgsign=false", *args],
+        cwd=repo, text=True, timeout=10,
+    ).strip()
 
+
+@pytest.fixture
+def kickoff_clock(monkeypatch):
+    now = datetime(2026, 1, 1, 12, tzinfo=UTC)
+    monkeypatch.setattr(render_kickoff, "utc_now", lambda: now)
+    return now
+
+
+@pytest.fixture
+def kickoff_inputs(tmp_path, monkeypatch):
     public = tmp_path / "public"
     public.mkdir()
-    git(public, "init", "--initial-branch=main")
-    renderer_path = "scene" if pin == "configured-layout" else "src/baloot_platform/video"
-    layout = public / renderer_path / "layout.txt"
+    fixture_git(public, "init", "--initial-branch=main")
+    layout = public / "scene/layout.txt"
     layout.parent.mkdir(parents=True)
     layout.write_text("before layout fix\n", encoding="utf-8")
-    git(public, "add", ".")
-    git(public, "commit", "-m", "4fd9b56a pre-fix renderer")
-    before_fix = git(public, "rev-parse", "HEAD")
+    fixture_git(public, "add", ".")
+    fixture_git(public, "commit", "-m", "4fd9b56a pre-fix renderer")
     checkout = tmp_path / "source"
-    git(tmp_path, "clone", "--no-local", str(public), str(checkout))
-    layout.write_text("after layout fix\n", encoding="utf-8")
-    git(public, "commit", "-am", "3e073db layout fix")
-    fix = git(public, "rev-parse", "HEAD")
-    git(public, "commit", "--allow-empty", "-m", "unrelated main change")
-    main_head = git(public, "rev-parse", "HEAD")
-    assert git(checkout, "rev-parse", "origin/main") == before_fix
-
-    if pin in {"current", "newer", "after-fix"}:
-        git(checkout, "fetch", "origin")
-        git(checkout, "checkout", "--detach", fix if pin == "after-fix" else "origin/main")
-    if pin in {"diverged", "newer"}:
-        git(checkout, "commit", "--allow-empty", "-m", "newer candidate change")
-    source_head, source_tree = git(checkout, "rev-parse", "HEAD", "HEAD^{tree}").splitlines()
-
+    fixture_git(tmp_path, "clone", "--no-local", str(public), str(checkout))
     policy = tmp_path / "policy.json"
     policy.write_text(json.dumps({
-        "publicRemote": str(public),
-        "rendererPaths": [renderer_path],
+        "publicRemote": public.as_uri(), "maxReceiptAgeSeconds": 60, "rendererPaths": ["scene"],
     }), encoding="utf-8")
     monkeypatch.setattr(render_kickoff, "POLICY", policy)
-    image_id = "sha256:" + "3" * 64
-    build = tmp_path / "build.json"
-    build.write_text(json.dumps({
-        "status": "PASSED", "target": "video-worker", "sourceHead": source_head,
-        "sourceTree": source_tree, "imageId": image_id, "packageLockSha256": "4" * 64,
-    }), encoding="utf-8")
+    return public, checkout, layout, policy
 
-    status = render_kickoff.main([
-        "--checkout", str(checkout), "--source-head", source_head, "--source-tree", source_tree,
+
+def kickoff_cli_args(checkout, build, *, head=None, tree=None, image_id=None, build_edits=None):
+    actual_head, actual_tree = fixture_git(checkout, "rev-parse", "HEAD", "HEAD^{tree}").splitlines()
+    head = actual_head if head is None else head
+    tree = actual_tree if tree is None else tree
+    image_id = image_id if image_id is not None else "sha256:" + "3" * 64
+    build.write_text(json.dumps({
+        "status": "PASSED", "target": "video-worker", "sourceHead": head,
+        "sourceTree": tree, "imageId": image_id, "packageLockSha256": "4" * 64,
+        **(build_edits or {}),
+    }), encoding="utf-8")
+    return [
+        "--checkout", str(checkout), "--source-head", head, "--source-tree", tree,
         "--build-receipt", str(build), "--image-id", image_id,
-    ])
+    ]
+
+
+@pytest.mark.parametrize("pin", ["4fd9b56a", "diverged", "current", "newer", "after-fix", "reverted"])
+def test_render_kickoff_checks_live_public_renderer_history(tmp_path, monkeypatch, capsys, kickoff_inputs, kickoff_clock, pin):
+    public, checkout, layout, _ = kickoff_inputs
+    before_fix = fixture_git(public, "rev-parse", "HEAD")
+    layout.write_text("after layout fix\n", encoding="utf-8")
+    fixture_git(public, "commit", "-am", "3e073db layout fix")
+    fix = fixture_git(public, "rev-parse", "HEAD")
+    fixture_git(public, "commit", "--allow-empty", "-m", "unrelated main change")
+    main_head = fixture_git(public, "rev-parse", "HEAD")
+    assert fixture_git(checkout, "rev-parse", "origin/main") == before_fix
+
+    if pin in {"current", "newer", "after-fix", "reverted"}:
+        fixture_git(checkout, "fetch", "origin")
+        fixture_git(checkout, "checkout", "--detach", fix if pin == "after-fix" else "origin/main")
+    if pin in {"diverged", "newer"}:
+        fixture_git(checkout, "commit", "--allow-empty", "-m", "newer candidate change")
+    if pin == "reverted":
+        fixture_git(checkout, "revert", "--no-edit", fix)
+    if pin == "4fd9b56a":
+        alternate = tmp_path / "alternate"
+        fixture_git(tmp_path, "clone", "--branch=main", str(checkout), str(alternate))
+        directive = f"url.{alternate.as_uri()}.insteadOf"
+        fixture_git(checkout, "config", directive, public.as_uri())
+        global_config = tmp_path / "global.cfg"
+        fixture_git(checkout, "config", "--file", str(global_config), directive, public.as_uri())
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+        # Seed the real objects before testing discovery independently of fetching.
+        fixture_git(checkout, "fetch", str(public), "main")
+    args = kickoff_cli_args(checkout, tmp_path / "build.json")
+    status = render_kickoff.main(args)
     verdict = json.loads(capsys.readouterr().out)
     assert verdict["mainHead"] == main_head
-    assert verdict["sourceHead"] == source_head
-    assert verdict["sourceTree"] == source_tree
-    assert verdict["imageId"] == image_id
-    if pin in {"4fd9b56a", "diverged", "configured-layout"}:
+    assert verdict["checkedAt"] == kickoff_clock.strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert (verdict["sourceHead"], verdict["sourceTree"], verdict["imageId"]) == (args[3], args[5], args[9])
+    if pin in {"4fd9b56a", "diverged"}:
         assert status == 1
         assert verdict["status"] == "failed"
         assert verdict["missingRendererCommit"] == fix
         assert "repin and rebuild" in verdict["reason"]
+    elif pin == "reverted":
+        assert status == 1
+        assert verdict["status"] == "failed"
+        assert verdict["missingRendererCommit"] is None
+        assert "differs from public main" in verdict["reason"]
     else:
         assert status == 0
         assert verdict["status"] == "passed"
@@ -402,9 +436,99 @@ def test_render_kickoff_checks_live_public_renderer_history(tmp_path, monkeypatc
         assert verdict["reason"] is None
 
 
-@pytest.mark.parametrize("stale", [None, "image", "source", "kickoff receipt", "lockfile", "dependencies"])
+@pytest.mark.parametrize(("argv", "code", "status"), [([], 2, "failed"), (["--help"], 0, "help")])
+def test_render_kickoff_usage_writes_json(capsys, argv, code, status):
+    assert render_kickoff.main(argv) == code
+    captured = capsys.readouterr()
+    verdict = json.loads(captured.out)
+    assert verdict["status"] == status
+    assert verdict["mainHead"] is None and verdict["checkedAt"] is None
+    assert "usage:" in captured.err
+
+
+@pytest.mark.parametrize(("case", "reason"), [
+    ("head", "does not match the pinned source"), ("tree", "does not match the pinned source"),
+    ("subdirectory", "does not match the pinned source"), ("dirty", "requires clean"),
+    ("untracked", "requires clean"), ("shallow", "requires a complete Git history"),
+    ("build", "requires a passed video-worker build"), ("build-source", "build source does not match"),
+    ("policy", "rendererPaths"), ("remote", "git ls-remote"),
+    ("ids", "requires full source commit and tree IDs"), ("unexpected", "unexpected render kickoff error"),
+])
+def test_render_kickoff_refuses_invalid_inputs(tmp_path, monkeypatch, capsys, kickoff_inputs, case, reason):
+    public, checkout, _, policy_path = kickoff_inputs
+    if case == "shallow":
+        checkout = tmp_path / "shallow"
+        fixture_git(tmp_path, "clone", "--depth=1", public.as_uri(), str(checkout))
+    args = kickoff_cli_args(
+        checkout, tmp_path / "build.json", head="1" * 40 if case == "head" else "bad" if case == "ids" else None,
+        tree="2" * 40 if case == "tree" else "bad" if case == "ids" else None,
+        image_id="bad" if case == "ids" else None,
+        build_edits={"status": "FAILED"} if case == "build" else {"sourceHead": "0" * 40} if case == "build-source" else None,
+    )
+    if case == "subdirectory":
+        args[1] = str(checkout / "scene")
+    if case in {"dirty", "untracked"}:
+        (checkout / "scene" / ("layout.txt" if case == "dirty" else "shadow.txt")).write_bytes(b"dirty")
+    if case in {"policy", "remote"}:
+        policy = json.loads(policy_path.read_bytes())
+        if case == "policy":
+            policy["rendererPaths"] = ["../scene"]
+        else:
+            policy["publicRemote"] = (tmp_path / "unreachable").as_uri()
+        policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    if case == "unexpected":
+        def fail():
+            raise RuntimeError("internal error")
+        monkeypatch.setattr(render_kickoff, "load_policy", fail)
+
+    assert render_kickoff.main(args) == 1
+    verdict = json.loads(capsys.readouterr().out)
+    assert verdict["status"] == "failed" and reason in verdict["reason"]
+    assert verdict["mainHead"] is None and verdict["checkedAt"] is None
+    if case == "ids":
+        assert verdict["sourceHead"] is None and verdict["sourceTree"] is None and verdict["imageId"] is None
+
+
+@pytest.mark.parametrize(("edits", "reason"), [
+    ({"status": "failed"}, "requires a passed"),
+    ({"missingRendererCommit": "1" * 40}, "requires a passed"),
+    ({"reason": "refused"}, "requires a passed"),
+    ({"sourceHead": "2" * 40}, "does not match"),
+    ({"sourceTree": "3" * 40}, "does not match"),
+    ({"packageLockSha256": "4" * 64}, "does not match"),
+    ({"schemaVersion": True}, "requires a passed"),
+    ({"schemaVersion": 1.0}, "requires a passed"),
+    ({"extra": True}, "requires a passed"),
+    ({"checkedAt": None}, "requires a UTC checkedAt"),
+    ({"checkedAt": "2026-02-30T12:00:00Z"}, "requires a valid checkedAt"),
+    ({"checkedAt": "2026-01-01T12:00:01Z"}, "future-dated"),
+    ({"checkedAt": "2026-01-01T11:58:59Z"}, "has expired"),
+    ([], "must be a JSON object"),
+])
+def test_public_renderer_refuses_invalid_kickoff_receipts(
+    tmp_path, kickoff_inputs, kickoff_clock, edits, reason
+):
+    _, checkout, _, _ = kickoff_inputs
+    source_head, source_tree = fixture_git(checkout, "rev-parse", "HEAD", "HEAD^{tree}").splitlines()
+    image_id = "sha256:" + "6" * 64
+    lock_digest = "7" * 64
+    verdict = {
+        **render_kickoff.new_verdict(source_head, source_tree, image_id),
+        "status": "passed", "mainHead": source_head, "packageLockSha256": lock_digest,
+        "checkedAt": (kickoff_clock - timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    receipt = tmp_path / "kickoff.json"
+    receipt.write_text(json.dumps(verdict), encoding="utf-8")
+    args = (receipt, source_head, source_tree, image_id, lock_digest)
+    assert render_kickoff.require_kickoff_receipt(*args, checkout=checkout) == (source_head, verdict["checkedAt"])
+    receipt.write_text(json.dumps({**verdict, **edits} if isinstance(edits, dict) else edits), encoding="utf-8")
+    with pytest.raises(ValueError, match=reason):
+        render_kickoff.require_kickoff_receipt(*args, checkout=checkout)
+
+
+@pytest.mark.parametrize("stale", [None, "image", "source", "kickoff receipt", "missing kickoff", "checkout", "lockfile", "dependencies"])
 def test_notice_selected_main_reaches_gates_with_selected_fixture(
-    tmp_path, monkeypatch, approved_layout_bytes, stale
+    tmp_path, monkeypatch, approved_layout_bytes, kickoff_clock, stale
 ):
     selection = notice.select_deal(notice.DEAL_SOURCES[1][0])
     expected_trace = json.loads(selection["fixture"].read_text(encoding="utf-8"))["exactTracePrefix"]
@@ -422,6 +546,13 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
         '{"lockfileVersion":3,"packages":{"node_modules/renderer":{"version":"2.0.0"}}}',
         encoding="utf-8",
     )
+    (root / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+    fixture_git(root, "init")
+    fixture_git(root, "add", ".")
+    fixture_git(root, "commit", "-m", "pinned producer checkout")
+    source_head, source_tree = fixture_git(root, "rev-parse", "HEAD", "HEAD^{tree}").splitlines()
+    if stale == "checkout":
+        fixture_git(root, "commit", "--allow-empty", "-m", "wrong producer checkout")
     lock_digest = notice._sha256(lockfile)
     stamp = tmp_path / ".lock-sha256"
     stamp_digest = "0" * 64 if stale == "lockfile" else lock_digest
@@ -432,8 +563,8 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
         json.dumps({
             "status": "PASSED",
             "target": "video-worker",
-            "sourceHead": "c" * 40 if stale == "source" else "a" * 40,
-            "sourceTree": "b" * 40,
+            "sourceHead": "c" * 40 if stale == "source" else source_head,
+            "sourceTree": source_tree,
             "imageId": image_id,
             "packageLockSha256": lock_digest,
         }),
@@ -447,11 +578,15 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
     kickoff = tmp_path / "kickoff.json"
     kickoff.write_text(json.dumps({
         "schemaVersion": 1, "status": "passed", "mainHead": "d" * 40,
-        "sourceHead": "a" * 40, "sourceTree": "b" * 40,
+        "sourceHead": source_head, "sourceTree": source_tree,
         "imageId": "sha256:" + "4" * 64 if stale == "kickoff receipt" else image_id,
+        "checkedAt": kickoff_clock.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "packageLockSha256": lock_digest, "missingRendererCommit": None, "reason": None,
     }), encoding="utf-8")
-    monkeypatch.setenv("BALOOT_RENDER_KICKOFF_RECEIPT", str(kickoff))
+    if stale == "missing kickoff":
+        monkeypatch.delenv("BALOOT_RENDER_KICKOFF_RECEIPT", raising=False)
+    else:
+        monkeypatch.setenv("BALOOT_RENDER_KICKOFF_RECEIPT", str(kickoff))
     output = tmp_path / "output"
     events = []
     monkeypatch.setattr(notice, "RuleBook", SimpleNamespace(load=lambda path: object()))
@@ -545,11 +680,15 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
         output_dir=output,
         public=True,
         deal_id=selection["identifier"],
-        source_head="a" * 40,
-        source_tree="b" * 40,
+        source_head=source_head,
+        source_tree=source_tree,
     )
     if stale:
-        with pytest.raises(ValueError, match=rf"public render (build )?{stale} .*\b(does|do) not match"):
+        mismatch = {
+            "missing kickoff": "requires a passed render kickoff receipt",
+            "checkout": "checkout does not match the pinned source",
+        }.get(stale, rf"public render (build )?{stale} .*\b(does|do) not match")
+        with pytest.raises(ValueError, match=mismatch):
             notice.main(**inputs)
         assert events == ["design"]
         assert not output.exists()
@@ -564,6 +703,7 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
         assert document["imageId"] == image_id
         assert document["packageLockSha256"] == lock_digest
         assert document["kickoffMainHead"] == "d" * 40
+        assert document["checkedAt"] == kickoff_clock.strftime("%Y-%m-%dT%H:%M:%SZ")
     assert receipt["dealIdentifier"] == selection["identifier"]
     assert receipt["fixture"] == selection["source"]
     assert receipt["publicResearchNoticeShown"] is True

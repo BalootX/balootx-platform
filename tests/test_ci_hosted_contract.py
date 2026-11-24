@@ -44,6 +44,7 @@ def test_codeowners_covers_hosted_ci_and_release_controls(root, codeowners_rules
         "/src/baloot_platform/service/foundry_dashboard/scripts/check-generated-api.mjs",
         "/src/baloot_platform/video/remotion/scripts/", "/scripts/render_remotion_plugin_parity.py",
         "/scripts/render_research_notice.py", "/scripts/render_research_scenario_v4_goldens.py",
+        "/scripts/render_kickoff.py", "/scripts/render-kickoff.json", "/scripts/render-kickoff.schema.json",
         "/scripts/verify_professional_flagship.py", "/scripts/verify_professional_decision_clip.py",
         "/scripts/verify_professional_video_prototypes.py",
         "/scripts/build_reproducible_wheel.py", "/scripts/package_release*.py", "/scripts/verify_release*.py",
