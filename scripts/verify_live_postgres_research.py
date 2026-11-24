@@ -80,6 +80,9 @@ REQUIRED_MIGRATION_HASHES = {
     "031_oidc_registry_access.sql": (
         "79f0419b6e14eff0320087847edf5688745041507c3b63df8f8e5254cc8871da"
     ),
+    "032_oidc_identity_authority.sql": (
+        "4bd244d098d27a3cf86097c50db52052f7cd4e1cd0375bb623a444d812b20f10"
+    ),
 }
 CONFIGURATION_V25_CONSTRAINTS = frozenset(
     {

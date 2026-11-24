@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import gc
 import json
 import os
 import re
@@ -28,6 +30,64 @@ def _previous_module(root, monkeypatch, ref, module_name):
     monkeypatch.setitem(sys.modules, module.__name__, module)
     exec(compile(source, path, "exec"), module.__dict__)
     return module
+
+
+def _previous_middleware(root, ref, api, identities):
+    path = "src/baloot_platform/service/api.py"
+    source = subprocess.check_output(["git", "show", f"{ref}:{path}"], cwd=root)
+    middleware, = [node for node in ast.parse(source).body
+                   if isinstance(node, ast.AsyncFunctionDef) and node.name == "platform_security"]
+    middleware.decorator_list = []
+    namespace = {**vars(api), "IDENTITY": identities}
+    exec(compile(ast.Module(body=[middleware], type_ignores=[]), path, "exec"), namespace)
+    return namespace["platform_security"]
+
+
+def test_sqlite_oidc_storage_survives_release_roundtrip(root, tmp_path, monkeypatch):
+    from baloot_platform.identity import IdentityService
+    from baloot_platform.identity.store import SQLiteIdentityStore
+    from baloot_platform.security.state_v20 import SQLiteSecurityStateStore, complete_oidc_sign_in
+
+    ref = os.environ.get("BALOOT_TEST_OIDC_LEGACY_REF", "")
+    assert re.fullmatch(r"[0-9a-f]{40}", ref)
+    old_state = _previous_module(root, monkeypatch, ref, "baloot_platform.security.state_v20")
+    old_identity = _previous_module(root, monkeypatch, ref, "baloot_platform.identity.store")
+    old_service = _previous_module(root, monkeypatch, ref, "baloot_platform.identity.service")
+    security_path, identity_path = tmp_path / "security.sqlite3", tmp_path / "identity.sqlite3"
+    provider, issuer = "default", "https://signin.example"
+
+    def previous_login(subject):
+        store = old_state.SQLiteSecurityStateStore(security_path)
+        service = old_service.IdentityService(old_identity.SQLiteIdentityStore(identity_path))
+        link = store.get_external_identity(provider, issuer, subject)
+        session = service.create_external(
+            kind="oidc", display_name="Fixture", subject_id=link["local_subject_id"] if link else None,
+        )
+        owner = session["identity"]["subjectId"]
+        store.link_external_identity(
+            provider_id=provider, issuer=issuer, external_subject=subject,
+            local_subject_id=owner, claims={}, linked_at="2026-01-01T00:00:00Z",
+        )
+        return owner
+
+    def current_login(subject):
+        gc.collect()  # The legacy store relies on connection destruction on process exit.
+        identities = IdentityService(SQLiteIdentityStore(identity_path))
+        store = SQLiteSecurityStateStore(security_path)
+        session = complete_oidc_sign_in(
+            store, identities, {"providerId": provider, "issuer": issuer, "externalSubject": subject, "claims": {}},
+            display_name="Fixture", user_agent=None,
+        )
+        return session["identity"]["subjectId"]
+
+    existing = previous_login("existing")
+    assert current_login("existing") == existing
+    upgraded = current_login("upgraded")
+    assert previous_login("upgraded") == upgraded
+    downgraded = previous_login("downgraded")
+    assert current_login("downgraded") == downgraded
+    assert current_login("upgraded") == upgraded
+    assert len({existing, upgraded, downgraded}) == 3
 
 
 def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog):
@@ -73,7 +133,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
     migrate_postgres.main()
     with psycopg.connect(dsn) as conn:
         conn.execute("CREATE ROLE oidc_ci_app LOGIN NOSUPERUSER NOBYPASSRLS")
-        conn.execute("GRANT USAGE ON SCHEMA configuration, identity, security TO oidc_ci_app")
+        conn.execute("GRANT USAGE ON SCHEMA configuration, hitl, identity, security TO oidc_ci_app")
         conn.execute(
             "GRANT SELECT, INSERT, UPDATE ON configuration.profile_revisions, configuration.invalidation_epochs,"
             " configuration.bundle_revisions, configuration.aggregate_heads TO oidc_ci_app"
@@ -95,6 +155,8 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
         assert conn.execute("SELECT current_user, session_user").fetchone() == ("oidc_ci_app", "oidc_ci_app")
     legacy = "https://signin.example/"
     canonical = "https://signin.example"
+    service_key = "synthetic-oidc-api-key"
+    legacy_headers = {"x-api-key": service_key, "x-baloot-role": "service"}
     legacy_metadata = {
         "ISSUER": legacy,
         "AUTHORIZATION_ENDPOINT": canonical + "/authorize",
@@ -134,10 +196,12 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
         if request.method == "GET":
             assert str(request.url) == canonical + "/.well-known/openid-configuration"
             return httpx.Response(200, json={"issuer": canonical, "jwks_uri": keys_uri})
-        assert CURRENT_DATABASE_IDENTITY.get().role == "anonymous"
         assert str(request.url) == legacy_metadata["TOKEN_ENDPOINT"]
         form = parse_qs(request.content.decode())
         nonce, challenge, subject, issuer = outstanding_codes.pop(form["code"][0])
+        identity_context = CURRENT_DATABASE_IDENTITY.get()
+        assert identity_context.role == ("service" if issuer == legacy else "anonymous")
+        assert identity_context.oidc_identity_authority == ""
         assert oidc.PkceTransactionStore._challenge(form["code_verifier"][0]) == challenge
         assert form["client_id"] == [legacy_metadata["CLIENT_ID"]]
         assert form["redirect_uri"] == [legacy_metadata["REDIRECT_URI"]]
@@ -146,7 +210,8 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
             race.wait(timeout=15)
         claims = {"iss": issuer, "aud": form["client_id"][0], "sub": subject,
                   "nonce": nonce, "iat": now, "exp": now + 60}
-        encoded = jwt.encode(claims, signing_key, algorithm="EdDSA", headers={"kid": "fixture"})
+        key = Ed25519PrivateKey.from_private_bytes(b"b" * 32) if form["code"][0] == "invalid-signature" else signing_key
+        encoded = jwt.encode(claims, key, algorithm="EdDSA", headers={"kid": "fixture"})
         return httpx.Response(200, json={"id_token": encoded})
 
     with httpx.Client(transport=httpx.MockTransport(provider_http)) as client:
@@ -165,7 +230,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
     @contextmanager
     def operator_connection():
         token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(
-            subject_id="operator-1", role="service", configuration_admin=True,
+            subject_id="operator-1", role="service", configuration_admin=True, oidc_identity_authority="migration",
         ))
         try:
             with psycopg.connect(dsn, row_factory=dict_row) as conn:
@@ -197,16 +262,23 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
             (issuer, subject),
         ).fetchone()
 
-    def begin(client, *, code, subject, issuer=canonical):
-        response = client.post("/api/v1/security/oidc:begin", json={"providerId": "default", "returnTo": "/app"})
+    def begin(client, *, code, subject, issuer=canonical, headers=None):
+        response = client.post(
+            "/api/v1/security/oidc:begin", headers=headers, json={"providerId": "default", "returnTo": "/app"},
+        )
         assert response.status_code == 200, response.text
         started = response.json()
         query = parse_qs(urlsplit(started["authorizationUrl"]).query)
         outstanding_codes[code] = (query["nonce"][0], query["code_challenge"][0], subject, issuer)
         return {"providerId": "default", "state": started["state"], "code": code}
 
-    def callback(client, transaction):
-        return client.post("/api/v1/security/oidc:callback", json=transaction)
+    def callback(client, transaction, *, headers=None):
+        return client.post("/api/v1/security/oidc:callback", headers=headers, json=transaction)
+
+    def linked_owner(issuer, subject):
+        with operator_connection() as conn:
+            item = lookup(conn, issuer, subject)
+            return item["local_subject_id"] if item else None
 
     def complete(client, transaction):
         response = callback(client, transaction)
@@ -219,6 +291,18 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
         return result["identity"]["subjectId"]
 
     with ExitStack() as stack:
+        monkeypatch.setenv("BALOOT_DATABASE_URL", app_dsn)
+        monkeypatch.setenv("BALOOT_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("BALOOT_RUNTIME", str(tmp_path / "runtime"))
+        monkeypatch.setenv("BALOOT_CHALLENGE_LOCATOR_KEY", "fixture-" * 5)
+        monkeypatch.setenv("BALOOT_CURATED_SAKKA_SIGNING_KEY", "fixture-" * 5)
+        monkeypatch.setenv("BALOOT_API_KEY", service_key)
+        monkeypatch.setenv("BALOOT_ENFORCE_SESSION_CSRF", "true")
+        monkeypatch.setenv("BALOOT_RATE_LIMIT_PER_MINUTE", "0")
+        monkeypatch.setattr(httpx.HTTPTransport, "handle_request", lambda _self, request: provider_http(request))
+        from baloot_platform.service import api
+
+        stack.callback(api.CONTAINER.shutdown)
         provider_client = stack.enter_context(httpx.Client(transport=httpx.MockTransport(provider_http)))
         legacy_store = old_state.PostgresSecurityStateStore(app_dsn)
         stack.callback(legacy_store.close)
@@ -233,6 +317,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
         legacy_transactions = old_oidc.PkceTransactionStore(backend=legacy_store)
         legacy_providers = {"default": legacy_provider}
         previous = FastAPI()
+        previous.middleware("http")(_previous_middleware(root, legacy_ref, api, identities))
         previous.include_router(old_routes.build_security_router(
             identities, None, None, legacy_transactions, legacy_providers,
             old_oidc.OidcCallbackService(legacy_providers, legacy_transactions, http_client=provider_client),
@@ -245,8 +330,9 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
             identities, None, profile, {},
         ))
         previous_client = stack.enter_context(TestClient(previous))
-        legacy_existing = begin(previous_client, code="old-existing", subject="existing")
-        legacy_new = begin(previous_client, code="old-new", subject="old-callback")
+        assert previous_client.post("/api/v1/security/oidc:begin", json={"providerId": "default"}).status_code == 401
+        legacy_existing = begin(previous_client, code="old-existing", subject="existing", headers=legacy_headers)
+        legacy_new = begin(previous_client, code="old-new", subject="old-callback", headers=legacy_headers)
 
         with operator_connection() as conn:
             configuration = bind(conn)
@@ -314,18 +400,6 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
                 link(conn, canonical, "unverified")
 
         monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
-        monkeypatch.setenv("BALOOT_DATABASE_URL", app_dsn)
-        monkeypatch.setenv("BALOOT_DATA_DIR", str(tmp_path))
-        monkeypatch.setenv("BALOOT_RUNTIME", str(tmp_path / "runtime"))
-        monkeypatch.setenv("BALOOT_CHALLENGE_LOCATOR_KEY", "fixture-" * 5)
-        monkeypatch.setenv("BALOOT_CURATED_SAKKA_SIGNING_KEY", "fixture-" * 5)
-        monkeypatch.setenv("BALOOT_API_KEY", "synthetic-oidc-api-key")
-        monkeypatch.setenv("BALOOT_ENFORCE_SESSION_CSRF", "true")
-        monkeypatch.setenv("BALOOT_RATE_LIMIT_PER_MINUTE", "0")
-        monkeypatch.setattr(httpx.HTTPTransport, "handle_request", lambda _self, request: provider_http(request))
-        from baloot_platform.service import api
-
-        stack.callback(api.CONTAINER.shutdown)
         current_client = stack.enter_context(TestClient(api.app, base_url="https://app.example"))
         runtime = api.app.state.oidc
         assert current_client.get("/readyz").status_code == 200
@@ -353,7 +427,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
                 f"{prefix}:compare?left={revision}&right={revision}",
                 f"{prefix}/{revision}/events",
             )
-            admin = {"x-api-key": "synthetic-oidc-api-key", "x-baloot-role": "admin"}
+            admin = {"x-api-key": service_key, "x-baloot-role": "admin"}
             ordinary = {**session_headers, "x-baloot-role": "admin", "x-api-key": "incorrect"}
             narrowed = api.ACCESS_TOKENS.issue(subject_id="fixture-operator", scopes=(Scope.READ,), role="admin")
             signed_admin = api.ACCESS_TOKENS.issue(
@@ -365,6 +439,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
                 assert current_client.get(path, headers=ordinary).status_code == 404
                 assert current_client.get(path, headers={"authorization": f"Bearer {narrowed}"}).status_code == 404
                 assert previous_client.get(path, headers=session_headers).status_code == 404
+                assert previous_client.get(path, headers=legacy_headers).status_code == 404
             with psycopg.connect(app_dsn) as conn:
                 apply_postgres_identity_context(conn, DatabaseIdentityContext(subject_id="fixture", role="admin"))
                 assert conn.execute(
@@ -372,27 +447,38 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
                 ).fetchone() == (0,)
 
         assert_registry_boundary(revision_id)
+        unsigned_identity = begin(current_client, code="invalid-signature", subject="invalid-identity")
+        refused = callback(current_client, unsigned_identity)
+        assert refused.status_code == 400 and refused.json()["detail"] == "OIDC ID token validation failed"
+        assert linked_owner(canonical, "invalid-identity") is None
         assert complete(current_client, legacy_existing) == "local-existing"
         legacy_subject = complete(current_client, legacy_new)
         assert complete(current_client, begin(current_client, code="new-existing", subject="existing")) == "local-existing"
         new_subject = complete(current_client, begin(current_client, code="new-new", subject="new-callback"))
         assert new_subject not in {legacy_subject, "local-existing"}
-        assert store.get_external_identity("default", canonical, "old-callback")["local_subject_id"] == legacy_subject
-        assert store.get_external_identity("default", legacy, "new-callback")["local_subject_id"] == new_subject
-        with pytest.raises(psycopg.errors.RaiseException, match="already linked"):
-            store.link_external_identity(
-                provider_id="default", issuer=canonical, external_subject="new-callback",
-                local_subject_id="wrong-account", claims={}, linked_at="2026-01-01T00:00:00Z",
-            )
+        assert linked_owner(canonical, "old-callback") == legacy_subject
+        assert linked_owner(legacy, "new-callback") == new_subject
+
+        def assert_owner_cannot_change(subject, error):
+            with pytest.raises(error, match="already linked"):
+                with store.external_identity_transaction(identity_store, ("default", canonical, subject)) as conn:
+                    store.link_external_identity(
+                        provider_id="default", issuer=canonical, external_subject=subject,
+                        local_subject_id="wrong-account", claims={}, linked_at="2026-01-01T00:00:00Z", connection=conn,
+                    )
+
+        assert_owner_cannot_change("new-callback", psycopg.errors.RaiseException)
 
         # An old callback can consume a new transaction and verify PKCE, but RLS still blocks its write.
         wrong_route = begin(current_client, code="wrong-route", subject="legacy-write-denied", issuer=legacy)
+        assert callback(previous_client, wrong_route).status_code == 401
         with pytest.raises(psycopg.errors.InsufficientPrivilege, match="row-level security"):
-            callback(previous_client, wrong_route)
+            callback(previous_client, wrong_route, headers=legacy_headers)
         assert wrong_route["code"] not in outstanding_codes
         replay = callback(current_client, wrong_route)
         assert replay.status_code == 400 and "reused OIDC state" in replay.json()["detail"]
-        assert store.get_external_identity("default", legacy, "legacy-write-denied") is None
+        assert linked_owner(legacy, "legacy-write-denied") is None
+        assert linked_owner(canonical, "legacy-write-denied") is None
 
         drain = begin(current_client, code="drain", subject="existing")
         expired = begin(current_client, code="expire", subject="existing")
@@ -440,10 +526,13 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
         assert callback(current_client, drain).json()["detail"] == "OIDC provider is not configured"
         assert_registry_boundary(revision_id)
         assert_registry_boundary(newer_revision["revisionId"])
-        previous_existing = begin(previous_client, code="rollback-legacy", subject="existing", issuer=legacy)
+        previous_existing = begin(
+            previous_client, code="rollback-legacy", subject="existing", issuer=legacy, headers=legacy_headers,
+        )
         with pytest.raises(psycopg.errors.InsufficientPrivilege, match="row-level security"):
-            callback(previous_client, previous_existing)
-        assert store.get_external_identity("default", legacy, "existing")["local_subject_id"] == "local-existing"
+            callback(previous_client, previous_existing, headers=legacy_headers)
+        assert previous_existing["code"] not in outstanding_codes
+        assert linked_owner(legacy, "existing") == "local-existing"
         with operator_connection() as conn:
             configuration = bind(conn)
             repeated = migrate_legacy_oidc(
@@ -473,12 +562,8 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
         assert len(accounts) == 1
         owner, = accounts
         assert complete(current_client, begin(current_client, code="race-retry", subject="same-account")) == owner
-        assert store.get_external_identity("default", canonical, "same-account")["local_subject_id"] == owner
-        with pytest.raises(ValueError, match="already linked"):
-            store.link_external_identity(
-                provider_id="default", issuer=canonical, external_subject="same-account",
-                local_subject_id="wrong-account", claims={}, linked_at="2026-01-01T00:00:00Z",
-            )
+        assert linked_owner(canonical, "same-account") == owner
+        assert_owner_cannot_change("same-account", ValueError)
         with operator_connection() as conn:
             assert conn.execute(
                 "SELECT count(*) AS n FROM identity.sessions WHERE subject_id=%s", (owner,),
@@ -503,7 +588,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
                 callback(current_client, failed)
         assert counts() == previous_counts
         assert callback(current_client, failed).status_code == 400
-        assert store.get_external_identity("default", canonical, "retry-account") is None
+        assert linked_owner(canonical, "retry-account") is None
         account = complete(current_client, begin(current_client, code="link-retry", subject="retry-account"))
-        assert store.get_external_identity("default", canonical, "retry-account")["local_subject_id"] == account
+        assert linked_owner(canonical, "retry-account") == account
         assert counts() == {name: value + 1 for name, value in previous_counts.items()}

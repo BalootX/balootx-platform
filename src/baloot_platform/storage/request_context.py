@@ -15,6 +15,7 @@ class DatabaseIdentityContext:
     session_id: str = ""
     configuration_admin: bool = False
     oidc_registry_read: bool = False
+    oidc_identity_authority: str = ""
 
 
 CURRENT_DATABASE_IDENTITY: ContextVar[DatabaseIdentityContext] = ContextVar(
@@ -30,6 +31,7 @@ def apply_postgres_identity_context(connection: Any, context: DatabaseIdentityCo
         "app.session_id": selected.session_id, "baloot.subject_id": selected.subject_id,
         "app.configuration_admin": "on" if selected.configuration_admin else "",
         "app.oidc_registry_read": "on" if selected.oidc_registry_read else "",
+        "app.oidc_identity_authority": selected.oidc_identity_authority,
     }
     for key, value in values.items():
         connection.execute("SELECT set_config(%s,%s,true)", (key, str(value or "")))

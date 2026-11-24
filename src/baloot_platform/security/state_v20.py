@@ -39,13 +39,12 @@ def complete_oidc_sign_in(state, identities, verified, *, display_name, user_age
 
 class SQLiteSecurityStateStore:
     """Durable one-time security state for V20 development and tests."""
-    def __init__(self, path: str | Path, *, identity_store=None):
+    def __init__(self, path: str | Path):
         self.path = Path(path); self.path.parent.mkdir(parents=True, exist_ok=True); self._lock = threading.RLock()
-        self._identity_store = identity_store
         with closing(self._connect()) as conn, conn:
             conn.executescript(
                 """
-                PRAGMA journal_mode=WAL;
+                PRAGMA journal_mode=DELETE;
                 CREATE TABLE IF NOT EXISTS security_oidc_transactions_v20(
                   state TEXT PRIMARY KEY, payload_json TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed_at INTEGER
                 );
@@ -65,37 +64,17 @@ class SQLiteSecurityStateStore:
                 """
             )
             conn.execute(_SQLITE_OIDC_LINKS)
-            if identity_store is not None:
-                self._move_oidc_links(conn, identity_store)
 
-    @staticmethod
-    def _move_oidc_links(previous, identity_store):
-        with identity_store.write_transaction() as conn:
-            exists = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='security_external_identities_v20'"
-            ).fetchone()
-            if not exists:
-                conn.execute(_SQLITE_OIDC_LINKS)
-                conn.executemany(
-                    "INSERT INTO security_external_identities_v20 VALUES(?,?,?,?,?,?)",
-                    previous.execute("SELECT * FROM security_external_identities_v20"),
-                )
-
-    def external_identity_transaction(self, identity_store, key):
-        if self._identity_store is not identity_store:
-            raise RuntimeError("OIDC links and local identities must use one SQLite transaction")
-        return identity_store.write_transaction()
+    def external_identity_transaction(self, identity_store, _key):
+        return identity_store.write_transaction(security_path=self.path)
 
     @contextmanager
     def _link_connection(self, connection):
         if connection is not None:
-            yield connection
-        elif self._identity_store is not None:
-            with self._identity_store.write_transaction() as conn:
-                yield conn
+            yield connection, "oidc_security"
         else:
             with self._lock, closing(self._connect()) as conn, conn:
-                yield conn
+                yield conn, "main"
 
     def _connect(self) -> sqlite3.Connection:
         conn=sqlite3.connect(self.path,timeout=30); conn.row_factory=sqlite3.Row; return conn
@@ -157,15 +136,19 @@ class SQLiteSecurityStateStore:
         return result
 
     def get_external_identity(self, provider_id: str, issuer: str, external_subject: str, *, connection=None) -> dict[str,Any] | None:
-        with self._link_connection(connection) as conn:
-            row=conn.execute("SELECT * FROM security_external_identities_v20 WHERE provider_id=? AND issuer=? AND external_subject=?",(provider_id,issuer,external_subject)).fetchone()
+        with self._link_connection(connection) as (conn, schema):
+            row = conn.execute(
+                f"SELECT * FROM {schema}.security_external_identities_v20 "
+                "WHERE provider_id=? AND issuer=? AND external_subject=?",
+                (provider_id, issuer, external_subject),
+            ).fetchone()
         if not row:return None
         d=dict(row); d["claims"]=json.loads(d.pop("claims_json")); return d
 
     def link_external_identity(self, *, provider_id: str, issuer: str, external_subject: str, local_subject_id: str, claims: dict[str,Any], linked_at: str, connection=None) -> None:
-        with self._link_connection(connection) as conn:
+        with self._link_connection(connection) as (conn, schema):
             row = conn.execute(
-                "INSERT INTO security_external_identities_v20 VALUES(?,?,?,?,?,?) "
+                f"INSERT INTO {schema}.security_external_identities_v20 VALUES(?,?,?,?,?,?) "
                 "ON CONFLICT(provider_id,issuer,external_subject) DO UPDATE SET claims_json=excluded.claims_json "
                 "WHERE security_external_identities_v20.local_subject_id=excluded.local_subject_id",
                 (provider_id, issuer, external_subject, local_subject_id,
@@ -188,10 +171,12 @@ class PostgresSecurityStateStore:
     def require_oidc_rls(self) -> None:
         with contextual_connection(self.pool) as conn:
             active = conn.execute(
-                "SELECT row_security_active('security.external_identities')"
+                "SELECT row_security_active('security.external_identities') AND EXISTS ("
+                "SELECT 1 FROM pg_policies WHERE schemaname='security' AND tablename='external_identities' "
+                "AND policyname='external_identity_authority_v32')"
             ).fetchone()
         if not active or not active[0]:
-            raise RuntimeError("OIDC requires a PostgreSQL application role subject to row-level security")
+            raise RuntimeError("OIDC requires the identity policy and a PostgreSQL role subject to row-level security")
 
     def save_oidc(self,state,payload,expires_at):
         with contextual_connection(self.pool) as conn: conn.execute("INSERT INTO security.oidc_transactions(state,payload_json,expires_at) VALUES(%s,%s::jsonb,to_timestamp(%s)) ON CONFLICT(state) DO UPDATE SET payload_json=excluded.payload_json,expires_at=excluded.expires_at,consumed_at=NULL",(state,json.dumps(payload,ensure_ascii=False),expires_at))
@@ -218,14 +203,12 @@ class PostgresSecurityStateStore:
         with contextual_connection(self.pool) as conn: rows=conn.execute("SELECT credential_id,subject_id,public_key_cose,sign_count,transports_json,extract(epoch from created_at)::bigint,extract(epoch from last_used_at)::bigint,label FROM security.passkey_credentials WHERE subject_id IN (%s,%s) ORDER BY created_at",ownership_ids(subject_id)).fetchall()
         return [{"credential_id":r[0],"subject_id":r[1],"public_key_cose":bytes(r[2]),"sign_count":int(r[3]),"transports":tuple(r[4]),"created_at":int(r[5]),"last_used_at":int(r[6]) if r[6] is not None else None,"label":r[7]} for r in rows]
     def _link_connection(self, connection=None):
-        if connection is not None:
-            return nullcontext(connection)
-        context = replace(CURRENT_DATABASE_IDENTITY.get(), role="oidc_link")
-        return contextual_connection(self.pool, context)
+        return nullcontext(connection) if connection is not None else contextual_connection(self.pool)
 
     @contextmanager
     def external_identity_transaction(self, identity_store, key):
-        with self._link_connection() as conn:
+        context = replace(CURRENT_DATABASE_IDENTITY.get(), role="oidc_link", oidc_identity_authority="callback")
+        with contextual_connection(self.pool, context) as conn:
             # Legacy issuer aliases share the same provider and external subject.
             lock_key = json.dumps((key[0], key[2]), separators=(",", ":"))
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 31))", (lock_key,))

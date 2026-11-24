@@ -381,7 +381,17 @@ def test_postgres_receipt_snapshot_uses_named_read_only_cursor_and_cleans_up():
     assert connection.executed[0][0] == (
         "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
     )
-    assert len([sql for sql, _args in connection.executed if "set_config" in sql]) == 6
+    assert dict(args for sql, args in connection.executed if "set_config" in sql) == {
+        "app.subject_id": "",
+        "app.tenant_id": "",
+        "app.role": "anonymous",
+        "app.request_id": "",
+        "app.session_id": "",
+        "baloot.subject_id": "",
+        "app.configuration_admin": "",
+        "app.oidc_registry_read": "",
+        "app.oidc_identity_authority": "",
+    }
     assert len(connection.cursor_names) == 1
     assert cursor.itersize == 1
     assert cursor.fetch_sizes == [1, 1]

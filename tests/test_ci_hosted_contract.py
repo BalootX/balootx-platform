@@ -274,7 +274,9 @@ def test_oidc_postgres_proof_uses_hosted_database_before_the_shard(root):
     assert shard["services"]["postgres"]["image"].endswith("'postgres:17-alpine' || '' }}")
     assert "job.services.postgres.ports[5432]" in proof["env"]["BALOOT_TEST_OIDC_POSTGRES_DSN"]
     assert re.fullmatch(r"[0-9a-f]{40}", proof["env"]["BALOOT_TEST_OIDC_LEGACY_REF"])
-    assert "python -m scripts.run_required_pytest tests/oidc_postgres_integration.py::test_oidc_issuer_transition_on_postgres" in proof["run"]
+    assert "python -m scripts.run_required_pytest" in proof["run"]
+    assert "tests/oidc_postgres_integration.py::test_oidc_issuer_transition_on_postgres" in proof["run"]
+    assert "tests/oidc_postgres_integration.py::test_sqlite_oidc_storage_survives_release_roundtrip" in proof["run"]
     assert "!cancelled()" in proof["if"]
     assert shard["steps"].index(proof) < shard["steps"].index(steps["Run isolated Python shard"])
     assert "python-fast-run" in jobs["ci-gate"]["needs"]

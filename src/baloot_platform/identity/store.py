@@ -21,10 +21,10 @@ class SQLiteIdentityStore:
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.executescript(
                 """
-                PRAGMA journal_mode=WAL;
+                PRAGMA journal_mode=DELETE;
                 PRAGMA foreign_keys=ON;
                 CREATE TABLE IF NOT EXISTS identity_subjects_v8(
                   subject_id TEXT PRIMARY KEY,
@@ -75,8 +75,14 @@ class SQLiteIdentityStore:
         return conn
 
     @contextmanager
-    def write_transaction(self):
+    def write_transaction(self, *, security_path: Path):
         with self._lock, closing(self._connect()) as conn, conn:
+            conn.execute("ATTACH DATABASE ? AS oidc_security", (str(security_path),))
+            # SQLite needs rollback journals on both files for a crash-atomic commit.
+            for schema in ("main", "oidc_security"):
+                if conn.execute(f"PRAGMA {schema}.journal_mode=DELETE").fetchone()[0] != "delete":
+                    raise RuntimeError("OIDC sign-in requires SQLite rollback journals")
+                conn.execute(f"PRAGMA {schema}.synchronous=FULL")
             conn.execute("BEGIN IMMEDIATE")
             yield conn
 

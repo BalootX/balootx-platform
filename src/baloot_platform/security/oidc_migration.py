@@ -248,7 +248,9 @@ def main() -> None:
                 )
         root = platform_root()
         control_plane = build_bundle(root).component("configuration")
-        context = DatabaseIdentityContext(subject_id=actor, role="service", configuration_admin=True)
+        context = DatabaseIdentityContext(
+            subject_id=actor, role="service", configuration_admin=True, oidc_identity_authority="migration",
+        )
         identity_token = CURRENT_DATABASE_IDENTITY.set(context)
         try:
             with psycopg.connect(dsn, row_factory=dict_row) as conn:

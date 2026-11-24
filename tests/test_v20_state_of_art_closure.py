@@ -138,7 +138,7 @@ def test_sqlite_oidc_sign_in_adopts_existing_ownership(tmp_path):
         provider_id="fixture", issuer=issuer, external_subject="subject",
         local_subject_id="fixture-owner", claims={}, linked_at="2026-01-01T00:00:00Z",
     )
-    state = SQLiteSecurityStateStore(security_path, identity_store=identities.store)
+    state = SQLiteSecurityStateStore(security_path)
     session = complete_oidc_sign_in(
         state, identities, {"providerId": "fixture", "issuer": issuer, "externalSubject": "subject", "claims": {}},
         display_name="Fixture", user_agent=None,
