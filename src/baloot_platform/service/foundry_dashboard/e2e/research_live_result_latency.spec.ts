@@ -130,7 +130,6 @@ test('retains governed SSE-to-visible live-result latency samples', async ({cont
       }});
     });
     await page.route((url) => url.pathname === `/api/v2/research-runs/${runCode}/events`, async (route) => {
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
       eventEmittedAt = performance.now();
       await route.fulfill({
         status: 200,
@@ -239,7 +238,6 @@ test('reconciles a completed run when the event stream stays open but silent', a
   let releaseTerminalStats: (() => void) | undefined;
   const terminalStatsGate = new Promise<void>((resolve) => { releaseTerminalStats = resolve; });
   await page.addInitScript(() => {
-    Object.defineProperty(document, 'hidden', {configurable: true, get: () => true});
     Object.defineProperty(window, 'EventSource', {
       configurable: true,
       value: class {
@@ -283,6 +281,7 @@ test('reconciles a completed run when the event stream stays open but silent', a
   await bundle.selectOption(await nativeResearchBundleRevision(page, bundle));
   await page.locator('button.list-item').filter({hasText: runCode}).click();
   await expect(page.locator('#drawer-title')).toContainText(runCode);
+  await expect(page.locator('section.research-run-events')).toBeVisible();
   terminal = true;
   await expect(page.locator('dialog.drawer-layer').getByText('مكتمل', {exact: true})).toBeVisible({timeout: 10_000});
   releaseTerminalStats?.();

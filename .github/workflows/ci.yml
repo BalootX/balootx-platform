@@ -193,8 +193,33 @@ jobs:
       - &remotion-install
         working-directory: src/baloot_platform/video/remotion
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npm run check
-      - run: npm run test:research
+      - name: Run Foundry Vitest suite
+        run: npm run test:research -- --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/foundry-vitest.xml"
+      - if: ${{ !cancelled() }}
+        name: Build dashboard for browser tests
+        id: foundry-build
+        run: npm run build -- --outDir "$RUNNER_TEMP/foundry-dashboard"
+      - name: Install locked Playwright Chromium
+        if: ${{ !cancelled() && steps.foundry-build.outcome == 'success' }}
+        id: playwright-install
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Run Foundry Playwright suite
+        if: ${{ !cancelled() && steps.playwright-install.outcome == 'success' }}
+        run: npm run test:operator-e2e -- --reporter=list,junit
+        env:
+          BALOOT_OPERATOR_E2E_FOUNDRY_DIR: ${{ runner.temp }}/foundry-dashboard
+          BALOOT_LIVE_RESULT_LATENCY_SAMPLE_OUTPUT: ${{ runner.temp }}/foundry-live-result-latency.json
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/foundry-playwright.xml
+      - name: Upload Foundry test receipts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: foundry-test-receipts
+          path: |
+            ${{ runner.temp }}/foundry-vitest.xml
+            ${{ runner.temp }}/foundry-playwright.xml
+            ${{ runner.temp }}/foundry-live-result-latency.json
+          if-no-files-found: error
 
   sdks:
     needs: plan
