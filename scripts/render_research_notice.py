@@ -565,7 +565,11 @@ def _verify_public_renderer(
         or _sha256(renderer_root / "package-lock.json") != digest
     ):
         raise ValueError("public render lockfile does not match the selected build")
-    if check_parity(renderer_root / "node_modules", lockfile):
+    dependencies = renderer_root / "node_modules"
+    if (
+        dependencies.resolve() != WORKER_LOCK_STAMP.with_name("node_modules").resolve()
+        or check_parity(dependencies, lockfile)
+    ):
         raise ValueError("public render dependencies do not match the selected lockfile")
     return {
         "imageId": image_id, "packageLockSha256": digest,
@@ -602,6 +606,7 @@ def main(
     profile = notice_profile(public=public)
     renderer = RemotionProfessionalRenderer(
         profile, repository_root=ROOT, timeout_seconds=render_timeout_seconds(),
+        use_worker_renderer=public,
     )
     renderer_provenance = (
         _verify_public_renderer(renderer.renderer_root, source_head, source_tree)

@@ -83,7 +83,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked apt-get update && ap
 COPY --from=remotion-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=remotion-runtime /remotion/node_modules /opt/baloot-remotion/node_modules
 COPY --from=remotion-runtime /remotion/.lock-sha256 /opt/baloot-remotion/.lock-sha256
-RUN renderer_dir="$(python -c 'from pathlib import Path; import baloot_platform.video.remotion_renderer as module; print(Path(module.__file__).parent / "remotion")')" && ln -s /opt/baloot-remotion/node_modules "$renderer_dir/node_modules" && chown -h baloot:baloot "$renderer_dir/node_modules"
+RUN renderer_dir="$(python -c 'from baloot_platform.video.remotion_renderer import WORKER_RENDERER_ROOT; print(WORKER_RENDERER_ROOT)')" && ln -s /opt/baloot-remotion/node_modules "$renderer_dir/node_modules" && chown -h baloot:baloot "$renderer_dir/node_modules"
 USER 10001
 HEALTHCHECK NONE
 CMD ["baloot-worker"]

@@ -174,7 +174,12 @@ def verify_kickoff(
                 local_git(
                     "diff", "--quiet", "--no-ext-diff", "--no-textconv", f"{main}..{source_head}", "--", *paths,
                 )
-            except RenderContentMismatch:
+            except RenderContentMismatch as exc:
+                content_mismatch = exc
+            else:
+                content_mismatch = None
+            common = local_git("merge-base", source_head, main)
+            if content_mismatch is not None or common not in (main, source_head):
                 missing = local_git(
                     "log", "--full-history", "--diff-merges=first-parent",
                     "--format=%H", "--max-count=1", f"{source_head}..{main}", "--", *paths,
@@ -182,8 +187,8 @@ def verify_kickoff(
                 if missing:
                     verdict["missingRendererCommit"] = missing
                     raise ValueError("render source is missing a merged renderer commit; repin and rebuild") from None
-                raise
-            local_git("merge-base", source_head, main)
+            if content_mismatch is not None:
+                raise content_mismatch
     except ValueError as exc:
         verdict["reason"] = str(exc)
     except (Exception, KeyboardInterrupt):

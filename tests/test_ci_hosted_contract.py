@@ -236,8 +236,11 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert "sudo chown -R 10001" in check_checkout["run"]
     assert "docker run --rm --network none --read-only --workdir /checkout" in check_checkout["run"]
     assert "target=/checkout,readonly" in check_checkout["run"]
+    assert "target=/receipts,readonly" in check_checkout["run"]
     assert 'test "$(id -u)" -eq 10001' in check_checkout["run"]
-    assert "verify_checkout(Path.cwd(), source_head, source_tree, timeout=timeout)" in check_checkout["run"]
+    assert "notice.main(public=True, source_head=head, source_tree=tree)" in check_checkout["run"]
+    assert 'run_producer("wrong", source_tree, source_tree)' in check_checkout["run"]
+    assert 'notice.STYLE.parents[1] / "node_modules"' in check_checkout["run"]
     assert "safe.directory" not in check_checkout["run"]
     dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
     assert re.fullmatch(r"FROM python:3\.13-slim@sha256:[0-9a-f]{64} AS python-base", dockerfile.splitlines()[0])

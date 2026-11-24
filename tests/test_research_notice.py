@@ -399,7 +399,10 @@ def kickoff_cli_args(checkout, build, *, head=None, tree=None, image_id=None, bu
     ]
 
 
-@pytest.mark.parametrize("pin", ["4fd9b56a", "diverged", "current", "newer", "after-fix", "reverted", "main-reverted"])
+@pytest.mark.parametrize("pin", [
+    "4fd9b56a", "diverged", "diverged-equal", "current", "newer",
+    "after-fix", "after-fix-newer", "reverted", "main-reverted",
+])
 def test_render_kickoff_checks_live_public_renderer_history(tmp_path, monkeypatch, capsys, kickoff_inputs, kickoff_clock, pin):
     public, checkout, layout, policy = kickoff_inputs
     before_fix = fixture_git(public, "rev-parse", "HEAD")
@@ -416,14 +419,19 @@ def test_render_kickoff_checks_live_public_renderer_history(tmp_path, monkeypatc
     main_head = fixture_git(public, "rev-parse", "HEAD")
     assert fixture_git(checkout, "rev-parse", "origin/main") == before_fix
 
-    if pin in {"current", "newer", "after-fix", "reverted"}:
+    if pin in {"current", "newer", "after-fix", "after-fix-newer", "reverted"}:
         fixture_git(checkout, "fetch", "origin")
-        fixture_git(checkout, "checkout", "--detach", fix if pin == "after-fix" else "origin/main")
+        fixture_git(checkout, "checkout", "--detach", fix if pin.startswith("after-fix") else "origin/main")
     if pin == "current":
         (checkout / "outputs").mkdir()
         (checkout / "outputs/render.json").write_bytes(b"{}")
-    if pin in {"diverged", "newer"}:
+    if pin in {"diverged", "newer", "after-fix-newer"}:
         fixture_git(checkout, "commit", "--allow-empty", "-m", "newer candidate change")
+    if pin == "diverged-equal":
+        (checkout / "scene/layout.txt").write_bytes(layout.read_bytes())
+        fixture_git(checkout, "commit", "-am", "same layout on different history")
+        assert fixture_git(checkout, "rev-parse", "HEAD^{tree}") == fixture_git(public, "rev-parse", f"{fix}^{{tree}}")
+        assert fixture_git(checkout, "rev-parse", "HEAD^") == before_fix
     if pin == "reverted":
         fixture_git(checkout, "revert", "--no-edit", fix)
     if pin == "4fd9b56a":
@@ -442,7 +450,7 @@ def test_render_kickoff_checks_live_public_renderer_history(tmp_path, monkeypatc
     assert verdict["mainHead"] == main_head
     assert verdict["checkedAt"] == kickoff_clock.strftime("%Y-%m-%dT%H:%M:%SZ")
     assert (verdict["sourceHead"], verdict["sourceTree"], verdict["imageId"]) == (args[3], args[5], args[9])
-    if pin in {"4fd9b56a", "diverged"}:
+    if pin in {"4fd9b56a", "diverged", "diverged-equal"}:
         assert status == 1
         assert verdict["status"] == "failed"
         assert verdict["missingRendererCommit"] == fix
@@ -586,7 +594,10 @@ def test_public_renderer_refuses_invalid_kickoff_receipts(
         render_kickoff.require_kickoff_receipt(*args, checkout=checkout)
 
 
-@pytest.mark.parametrize("stale", [None, "image", "source", "kickoff receipt", "missing kickoff", "checkout", "lockfile", "dependencies"])
+@pytest.mark.parametrize("stale", [
+    None, "image", "source", "kickoff receipt", "missing kickoff",
+    "checkout", "lockfile", "dependencies", "dependency path",
+])
 def test_notice_selected_main_reaches_gates_with_selected_fixture(
     tmp_path, monkeypatch, approved_layout_bytes, kickoff_clock, stale
 ):
@@ -595,18 +606,20 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
     design = notice.notice_profile(public=True)["approved_design"]
     root = tmp_path / "source"
     renderer_root = root / "src/baloot_platform/video/remotion"
-    dependency = renderer_root / "node_modules/renderer/package.json"
+    worker = tmp_path / "worker"
+    dependency = worker / "node_modules/renderer/package.json"
     dependency.parent.mkdir(parents=True)
     dependency.write_text(
         json.dumps({"version": "1.0.0" if stale == "dependencies" else "2.0.0"}),
         encoding="utf-8",
     )
     lockfile = renderer_root / "package-lock.json"
+    lockfile.parent.mkdir(parents=True)
     lockfile.write_text(
         '{"lockfileVersion":3,"packages":{"node_modules/renderer":{"version":"2.0.0"}}}',
         encoding="utf-8",
     )
-    (root / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+    (worker / "package-lock.json").write_bytes(lockfile.read_bytes())
     fixture_git(root, "init")
     fixture_git(root, "add", ".")
     fixture_git(root, "commit", "-m", "pinned producer checkout")
@@ -614,7 +627,7 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
     if stale == "checkout":
         fixture_git(root, "commit", "--allow-empty", "-m", "wrong producer checkout")
     lock_digest = notice._sha256(lockfile)
-    stamp = tmp_path / ".lock-sha256"
+    stamp = worker / ".lock-sha256"
     stamp_digest = "0" * 64 if stale == "lockfile" else lock_digest
     stamp.write_bytes(f"{stamp_digest}  package-lock.json\n".encode("ascii"))
     image_id = "sha256:" + "3" * 64
@@ -700,8 +713,9 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
     monkeypatch.setattr(notice, "notice_sentence_fit", lambda text: {"widthPx": 1, "availablePx": 1})
 
     class FakeRenderer:
-        def __init__(self, *args, **kwargs):
-            self.renderer_root = renderer_root
+        def __init__(self, *args, use_worker_renderer, **kwargs):
+            assert use_worker_renderer
+            self.renderer_root = renderer_root if stale == "dependency path" else worker
 
         def execute(self, bundle, *, output_dir, **kwargs):
             events.append("ffprobe")
@@ -747,6 +761,7 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
         mismatch = {
             "missing kickoff": "requires a passed render kickoff receipt",
             "checkout": "checkout does not match the pinned source",
+            "dependency path": "dependencies do not match",
         }.get(stale, rf"public render (build )?{stale} .*\b(does|do) not match")
         with pytest.raises(ValueError, match=mismatch):
             notice.main(**inputs)
