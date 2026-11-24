@@ -185,24 +185,28 @@ def history(gate, ledger, now, inputs):
     return gate.history(ledger, binding, now, inputs)
 
 
+def candidate_binding(row, caption_sha):
+    measures = row["scoreInputs"]
+    return {
+        **measures,
+        "opener": {
+            "mechanism": measures["mechanism"],
+            "family": measures["scenarioFamily"],
+            "sha256": measures["visibleOpenerSha256"],
+        },
+        "deal": row["id"],
+        "mediaSha256": row["video"]["sha256"],
+        "captionSha256": caption_sha,
+    }
+
+
 def select(gate, rows, captions, live):
     known, recent_captions, _, forbidden, chronology, _ = live
     latest, _ = gate.variety_windows(chronology)
     eligible = []
     for row in rows:
-        measures = row["scoreInputs"]
-        opener = {
-            "mechanism": measures["mechanism"],
-            "family": measures["scenarioFamily"],
-            "sha256": measures["visibleOpenerSha256"],
-        }
-        binding = {
-            **measures,
-            "opener": opener,
-            "deal": row["id"],
-            "mediaSha256": row["video"]["sha256"],
-            "captionSha256": captions[0],
-        }
+        binding = candidate_binding(row, captions[0])
+        opener = binding["opener"]
         reasons, variety = gate.check_history(
             known,
             recent_captions,
