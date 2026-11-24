@@ -453,7 +453,11 @@ jobs:
         if: ${{ !cancelled() && github.job == 'python-fast-run' && matrix.python == '3.13' && matrix.shard == 1 }}
         env:
           BALOOT_TEST_OIDC_POSTGRES_DSN: postgresql://postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/oidc_ci
+          BALOOT_TEST_OIDC_LEGACY_REF: 8424ad4302911f7d3d0a193640cae38368c460f1
         run: |
+          if ! git cat-file -e "${BALOOT_TEST_OIDC_LEGACY_REF}^{commit}"; then
+            git fetch --no-tags --depth=1 origin "$BALOOT_TEST_OIDC_LEGACY_REF"
+          fi
           python -m pip install -c requirements-docker.txt 'psycopg[binary,pool]'
           python -m pytest -q tests/oidc_postgres_integration.py
       - name: Run isolated Python shard

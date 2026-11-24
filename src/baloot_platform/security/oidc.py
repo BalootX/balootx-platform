@@ -62,6 +62,7 @@ class OidcProviderConfig:
     clock_skew_seconds: int = _DEFAULT_CLOCK_SKEW
     http_timeout_seconds: int = DEFAULT_OIDC_HTTP_TIMEOUT
     discovery_cache_seconds: int = _DEFAULT_DISCOVERY_TTL
+    trusted_additional_audiences: tuple[str, ...] = ()
 
     def transaction_binding(self) -> str:
         fields = (self.issuer, self.client_id, self.redirect_uri, self.authorization_endpoint, self.token_endpoint)
@@ -89,6 +90,7 @@ class _OidcProviderRow(BaseModel):
     clock_skew_seconds: int = Field(default=_DEFAULT_CLOCK_SKEW, ge=0, le=300)
     http_timeout_seconds: int = Field(default=DEFAULT_OIDC_HTTP_TIMEOUT, gt=0, le=60)
     discovery_cache_seconds: int = Field(default=_DEFAULT_DISCOVERY_TTL, gt=0, le=3600)
+    trusted_additional_audiences: list[str] = Field(default_factory=list)
     client_secret_env: str | None = Field(
         default=None, pattern=r"^BALOOT_OIDC_CLIENT_SECRET(?:_[A-Z0-9_]+)?$"
     )
@@ -105,6 +107,15 @@ class _OidcProviderRow(BaseModel):
     def validate_algorithms(cls, values: list[str]) -> list[str]:
         if len(values) != len(set(values)):
             raise ValueError("must contain unique algorithms")
+        return values
+
+    @field_validator("trusted_additional_audiences")
+    @classmethod
+    def validate_additional_audiences(cls, values: list[str], info: ValidationInfo) -> list[str]:
+        if any(not value.strip() or not value.isprintable() for value in values):
+            raise ValueError("must contain only non-blank, printable audience IDs")
+        if len(values) != len(set(values)) or info.data.get("client_id") in values:
+            raise ValueError("must contain unique audience IDs other than the client ID")
         return values
 
     @field_validator("scopes")
@@ -263,7 +274,8 @@ def _resolved_providers(revision: dict[str, Any]) -> dict[str, OidcProviderConfi
             client_secret=secret,
             allowed_algorithms=tuple(row.allowed_algorithms),
             scopes=tuple(row.scopes),
-            **row.model_dump(exclude={"client_secret_env", "allowed_algorithms", "scopes"}),
+            trusted_additional_audiences=tuple(row.trusted_additional_audiences),
+            **row.model_dump(exclude={"client_secret_env", "allowed_algorithms", "scopes", "trusted_additional_audiences"}),
         )
     logging.getLogger(__name__).info("Loaded OIDC provider profile revision %s", revision["revisionId"])
     return providers
@@ -333,7 +345,10 @@ class PkceTransaction:
     created_at: int
     expires_at: int
     return_to: str
-    provider_binding: str | None = None
+
+    @property
+    def provider_binding(self) -> str | None:
+        return self.transaction_id.partition(".")[2] or None
 
 
 class PkceTransactionStore:
@@ -352,11 +367,15 @@ class PkceTransactionStore:
     ) -> PkceTransaction:
         now = int(time.time())
         verifier = secrets.token_urlsafe(48)
+        transaction_id = secrets.token_urlsafe(18)
+        if provider_binding is not None:
+            # The previous reader passes all persisted keys to its constructor.
+            transaction_id = f"{transaction_id}.{provider_binding}"
         item = PkceTransaction(
-            transaction_id=secrets.token_urlsafe(18), provider_id=provider_id,
+            transaction_id=transaction_id, provider_id=provider_id,
             state=secrets.token_urlsafe(24), nonce=secrets.token_urlsafe(24),
             verifier=verifier, challenge=self._challenge(verifier), created_at=now,
-            expires_at=now + self.ttl_seconds, return_to=return_to, provider_binding=provider_binding,
+            expires_at=now + self.ttl_seconds, return_to=return_to,
         )
         if self.backend is not None:
             self.backend.save_oidc(item.state, asdict(item), item.expires_at)
@@ -447,9 +466,16 @@ class OidcCallbackService:
         if claims.get("iss") != provider.issuer:
             raise ValueError("OIDC issuer mismatch")
         aud = claims.get("aud")
-        audiences = {str(item) for item in aud} if isinstance(aud, list) else {str(aud)}
+        audience_values = aud if isinstance(aud, list) else [aud]
+        if any(not isinstance(item, str) or not item for item in audience_values):
+            raise ValueError("OIDC audience claim is invalid")
+        audiences = set(audience_values)
         if provider.client_id not in audiences:
             raise ValueError("OIDC audience mismatch")
+        if audiences - {provider.client_id, *provider.trusted_additional_audiences}:
+            raise ValueError("OIDC ID token includes an untrusted audience")
+        if ("azp" in claims or len(audiences) > 1) and claims.get("azp") != provider.client_id:
+            raise ValueError("OIDC authorized party mismatch")
         if not claims.get("sub"):
             raise ValueError("OIDC subject is missing")
         return claims

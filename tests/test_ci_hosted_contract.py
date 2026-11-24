@@ -268,6 +268,7 @@ def test_oidc_postgres_proof_uses_hosted_database_before_the_shard(root):
     proof = steps["Verify OIDC migration on PostgreSQL"]
     assert shard["services"]["postgres"]["image"].endswith("'postgres:17-alpine' || '' }}")
     assert "job.services.postgres.ports[5432]" in proof["env"]["BALOOT_TEST_OIDC_POSTGRES_DSN"]
+    assert re.fullmatch(r"[0-9a-f]{40}", proof["env"]["BALOOT_TEST_OIDC_LEGACY_REF"])
     assert "tests/oidc_postgres_integration.py" in proof["run"]
     assert "!cancelled()" in proof["if"]
     assert shard["steps"].index(proof) < shard["steps"].index(steps["Run isolated Python shard"])

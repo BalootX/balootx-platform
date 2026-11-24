@@ -34,26 +34,39 @@ Example request body
 }
 ```
 
-The keys in `providers` are the `providerId` values clients send. Each row declares which of `RS256`, `ES256` and `EdDSA` the provider may use to sign ID tokens, its OIDC scopes, tolerated clock skew, HTTP timeout, and Discovery cache lifetime. The API verifies the Discovery document's issuer exactly and uses its HTTPS `jwks_uri`. Each provider has its own client and key set. A changed signing-key URL takes effect on the next verification after the Discovery cache expires.
+The keys in `providers` are the `providerId` values clients send. Each row declares which of `RS256`, `ES256` and `EdDSA` the provider may use to sign ID tokens, its OIDC scopes, tolerated clock skew, HTTP timeout, and Discovery cache lifetime. The client ID must appear in the token audience. The optional `trusted_additional_audiences` list defaults to empty. Multiple audiences require the token's `azp` to equal the client ID. If the token supplies an `azp` with a single audience, it must also equal the client ID. The API verifies the Discovery document's issuer exactly and uses its HTTPS `jwks_uri`. Each provider has its own client and key set. A changed signing-key URL takes effect on the next verification after the Discovery cache expires.
 
 Use HTTPS URLs throughout. Redirect URIs may use HTTP on localhost or loopback. A confidential client references a deployment environment variable with the `BALOOT_OIDC_CLIENT_SECRET` prefix. A public client omits `client_secret_env`. A missing secret or a configured profile without a valid published revision stops HTTP startup. Leave the registry unconfigured with no legacy variables, or publish an empty `providers` object, to disable OIDC sign-in.
 
 For PostgreSQL, use an application role subject to row-level security. The API checks that RLS applies to its effective role on `security.external_identities` before enabling sign-in. Use a separate migration role to apply schema and data changes.
 
+The sign-in path needs schema usage and the following table privileges in addition to any grants for other features.
+
+| Tables | Privileges |
+| --- | --- |
+| `configuration.profile_revisions`, `configuration.invalidation_epochs` | `SELECT` |
+| `security.oidc_transactions`, `security.external_identities` | `SELECT`, `INSERT`, `UPDATE` |
+| `identity.subjects` | `SELECT`, `INSERT` |
+| `identity.sessions` | `INSERT` |
+
 ## Migrate the previous release
 
-1. Deploy the new release alongside the serving release. From the new release checkout, run `python scripts/migrate_postgres.py` against the PostgreSQL database. Keep the previous API serving sign-in throughout these steps.
-2. Before starting the new API, run the new release's `baloot-migrate-oidc` command with the legacy provider environment, `BALOOT_OIDC_PROVIDERS_PROFILE`, and the PostgreSQL migration connection in `BALOOT_DATABASE_URL`. Use the approved signing algorithms for that provider. The command retains the legacy provider key, or `default` if it was unset. It reads the authoritative issuer from Discovery and requires the original issuer to match byte for byte apart from a trailing slash. When the issuer changes, the same transaction publishes the audited profile and re-keys existing links. Both issuer keys resolve to the same account while old and new API instances overlap. Keep the returned revision ID.
+The previous API cannot complete a PostgreSQL OIDC callback under RLS. Plan a sign-in pause for the cutover. The previous API can continue to serve other routes.
+
+1. Deploy the new release alongside the serving release. Pause both OIDC routes at the ingress and let requests already executing finish before applying the migration. From the new release checkout, run `python scripts/migrate_postgres.py` against the PostgreSQL database.
+2. Before starting the new API, run the new release's `baloot-migrate-oidc` command with the legacy provider environment, `BALOOT_OIDC_PROVIDERS_PROFILE`, and the PostgreSQL migration connection in `BALOOT_DATABASE_URL`. Use the approved signing algorithms for that provider. The command retains the legacy provider key, or `default` if it was unset. It reads the authoritative issuer from Discovery and requires the original issuer to match byte for byte apart from a trailing slash. When the issuer changes, the same transaction publishes the audited profile and re-keys existing links. Keep the returned revision ID.
 
    ```sh
    baloot-migrate-oidc --version 1.0.0 --algorithm RS256 --actor operator-id --reason "Migrate legacy provider"
    ```
 
-3. Start the new HTTP API with the same profile ID and the referenced confidential client secret. Move traffic after it is ready, then drain the previous release. Keep the legacy environment variables until the rollback window closes. The new API logs one startup warning when it ignores those variables.
+3. Start the new HTTP API with the same profile ID and the referenced confidential client secret. Route both OIDC endpoints to it once it is ready. The new callback accepts unconsumed legacy state while the transaction and authorization code are still valid. Keep the migrated provider key and client metadata stable until those transactions expire. A consumed or expired transaction requires a fresh sign-in. Keep the legacy environment variables until the rollback window closes. The new API logs one startup warning when it ignores those variables.
 
-The migration warns when a legacy JWKS override is configured. The provider needs a valid Discovery document before migration. During overlap, both versions must have a working sign-in path. The transition mirrors link upserts. Direct link updates and deletes belong to the transition commands while aliases are active.
+The migration warns when a legacy JWKS override is configured. The provider needs a valid Discovery document before migration. The transition mirrors link upserts. Direct link updates and deletes belong to the transition commands while aliases are active.
 
-To roll back, restore the previous API with its legacy variables and move traffic back to it. After draining the new API, run `baloot-migrate-oidc --rollback REVISION_ID --actor operator-id --reason "Restore previous release"`. Use the original migration revision ID. The command restores the legacy issuer keys, including links created during rollout, and retires the active revision of the migrated profile. After closing the rollback window, run `baloot-migrate-oidc --finalize REVISION_ID --actor operator-id --reason "Close rollback window"` to remove the legacy aliases, then remove the old metadata variables. Repeating a command preserves the original audit record.
+To roll back, pause new OIDC begins and keep callbacks on the new API with its registry and database intact. Allow outstanding transactions to complete or expire, then close the callback route and wait for active callbacks to finish. Run `baloot-migrate-oidc --rollback REVISION_ID --actor operator-id --reason "Restore previous release"` with the original migration revision ID. The command restores the legacy issuer keys, including links created during rollout, and retires the active revision of the migrated profile. Restore the previous API for other routes and keep OIDC paused until an API with RLS-capable callbacks is ready. The previous reader can decode the new state format, but the previous callback still lacks write access under RLS.
+
+After accepting the new release, run `baloot-migrate-oidc --finalize REVISION_ID --actor operator-id --reason "Close rollback window"` to remove the legacy aliases, then remove the old metadata variables. Repeating a command preserves the original audit record.
 
 ## Configure MCP separately
 

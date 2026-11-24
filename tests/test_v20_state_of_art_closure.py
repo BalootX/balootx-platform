@@ -162,7 +162,11 @@ def test_v20_oidc_registry_drives_api_and_preserves_audit(
     monkeypatch.setattr(
         "baloot_platform.configuration.store.utc_now", lambda: "2026-01-01T00:00:00+00:00"
     )
-    beta = {**_oidc_row("beta"), "client_secret_env": "BALOOT_OIDC_CLIENT_SECRET_BETA"}
+    beta = {
+        **_oidc_row("beta"),
+        "client_secret_env": "BALOOT_OIDC_CLIENT_SECRET_BETA",
+        "trusted_additional_audiences": ["trusted-client"],
+    }
     payload = _oidc_profile({"alpha": _oidc_row("alpha"), "beta": beta})
     draft = oidc_configuration.create_profile(
         family=OIDC_PROVIDER_FAMILY, payload=payload, created_by="operator-1"
@@ -185,6 +189,9 @@ def test_v20_oidc_registry_drives_api_and_preserves_audit(
 
     monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
     monkeypatch.setenv("BALOOT_OIDC_CLIENT_SECRET_BETA", "synthetic-fixture")
+    providers = load_oidc_providers(oidc_configuration)
+    assert providers["alpha"].trusted_additional_audiences == ()
+    assert providers["beta"].trusted_additional_audiences == ("trusted-client",)
     monkeypatch.setenv("BALOOT_OIDC_ISSUER", "https://legacy.example")
     monkeypatch.setenv("BALOOT_OIDC_PROVIDER_ID", "legacy")
     container = build_container(writable_root=tmp_path / "data", database_url="")
@@ -293,6 +300,9 @@ def test_v20_oidc_registry_drives_api_and_preserves_audit(
         ("allowed_algorithms", []),
         ("allowed_algorithms", ["HS256"]),
         ("allowed_algorithms", ["EdDSA", "EdDSA"]),
+        ("trusted_additional_audiences", [" "]),
+        ("trusted_additional_audiences", ["peer", "peer"]),
+        ("trusted_additional_audiences", ["beta-client"]),
     ],
 )
 def test_v20_oidc_registry_rejects_rows_on_write(oidc_configuration, field, value):
@@ -399,6 +409,7 @@ def test_v20_oidc_callback_uses_real_signature_and_discovered_keys(monkeypatch, 
         "https://app.example/callback",
         allowed_algorithms=(algorithm,),
         client_secret="synthetic-client-fixture",
+        trusted_additional_audiences=("trusted-client",),
     )
     timestamp = 1_767_225_600
 
@@ -485,6 +496,19 @@ def test_v20_oidc_callback_uses_real_signature_and_discovered_keys(monkeypatch, 
         assert jwks_reads == []
         discovery_reads.clear()
         assert complete()["externalSubject"] == "external-1"
+        assert complete(azp=provider.client_id)["externalSubject"] == "external-1"
+        trusted_audiences = [provider.client_id, "trusted-client"]
+        assert complete(aud=trusted_audiences, azp=provider.client_id)["externalSubject"] == "external-1"
+        with pytest.raises(ValueError, match="untrusted audience"):
+            complete(aud=[provider.client_id, "other-client"], azp=provider.client_id)
+        with pytest.raises(ValueError, match="authorized party mismatch"):
+            complete(aud=trusted_audiences)
+        with pytest.raises(ValueError, match="authorized party mismatch"):
+            complete(aud=trusted_audiences, azp="trusted-client")
+        with pytest.raises(ValueError, match="authorized party mismatch"):
+            complete(azp="other-client")
+        with pytest.raises(ValueError, match="authorized party mismatch"):
+            complete(azp=None)
         assert complete(iat=timestamp + provider.clock_skew_seconds)["issuer"] == provider.issuer
         assert discovery_reads == [discovery_url]
         assert jwks_reads == [jwks_url]
