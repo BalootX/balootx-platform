@@ -87,6 +87,6 @@ test("a refused schedule shows and focuses the server's validation messages", as
   const error = control("draftError");
   expect(error.hidden).toBe(false);
   expect(error.textContent).toBe(`${message} · ${nextStep}`);
-  expect(error.focus).toHaveBeenCalledOnce();
+  expect(error.focus).toHaveBeenCalledTimes(1);
   expect(control("effectiveFrom").value).toBe("2026-11-01T01:30");
 });

@@ -20,7 +20,9 @@ function toast(t,bad=false){const e=$('toast');e.textContent=t;e.style.borderCol
 function headers(){const h={'content-type':'application/json','x-baloot-role':'admin'};if($('apiKey').value)h['x-api-key']=$('apiKey').value;if($('tenantId').value)h['x-baloot-subject-id']='ADMIN-'+$('tenantId').value;return h}
 async function api(path,options={}){const r=await fetch(path,{...options,headers:{...headers(),...(options.headers||{})}});let body={};try{body=await r.json()}catch{}if(!r.ok){
  const detail=body?.detail;
- const message=Array.isArray(detail)?detail.map(item=>item?.msg).filter(Boolean).join(' ? '):detail;
+ const message=Array.isArray(detail)
+   ? detail.map(item=>item?.msg).filter(msg=>typeof msg==='string'&&msg).join(' · ')
+   : typeof detail==='string'?detail:'';
  throw new Error(message||r.statusText);
 }return body}
 const short=h=>h?`${h.slice(0,13)}…`:'';
