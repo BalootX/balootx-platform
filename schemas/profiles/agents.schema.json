@@ -1,7 +1,238 @@
 {
+  "$defs": {
+    "agentRow": {
+      "additionalProperties": false,
+      "properties": {
+        "bid_samples": {
+          "type": "integer"
+        },
+        "buying_strength": {
+          "type": "number"
+        },
+        "deception_probability": {
+          "type": "number"
+        },
+        "display_name_ar": {
+          "type": "string"
+        },
+        "maximum_deception_regret": {
+          "type": "number"
+        },
+        "maximum_deception_win_drop": {
+          "type": "number"
+        },
+        "minimum_model_confidence": {
+          "type": "number"
+        },
+        "mistake_probability": {
+          "type": "number"
+        },
+        "model_weight": {
+          "type": "number"
+        },
+        "play_exact_allocation_limit": {
+          "type": "integer"
+        },
+        "play_exact_search_remaining": {
+          "type": "integer"
+        },
+        "play_maximum_sampling_attempts": {
+          "type": "integer"
+        },
+        "play_search_budget": {
+          "type": "integer"
+        },
+        "play_search_max_remaining": {
+          "type": "integer"
+        },
+        "play_search_mode": {
+          "type": "string"
+        },
+        "play_search_objective": {
+          "type": "string"
+        },
+        "play_search_samples": {
+          "type": "integer"
+        },
+        "risk_tolerance": {
+          "type": "number"
+        },
+        "signal_discipline": {
+          "type": "number"
+        },
+        "skill": {
+          "type": "number"
+        },
+        "use_production_model": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "bid_samples",
+        "buying_strength",
+        "deception_probability",
+        "display_name_ar",
+        "maximum_deception_regret",
+        "maximum_deception_win_drop",
+        "minimum_model_confidence",
+        "mistake_probability",
+        "model_weight",
+        "play_exact_allocation_limit",
+        "play_exact_search_remaining",
+        "play_maximum_sampling_attempts",
+        "play_search_budget",
+        "play_search_max_remaining",
+        "play_search_mode",
+        "play_search_objective",
+        "play_search_samples",
+        "risk_tolerance",
+        "signal_discipline",
+        "skill",
+        "use_production_model"
+      ],
+      "type": "object"
+    },
+    "legacyAgentRow": {
+      "additionalProperties": false,
+      "properties": {
+        "bid_samples": {
+          "type": "integer"
+        },
+        "buying_strength": {
+          "type": "number"
+        },
+        "deception_probability": {
+          "type": "number"
+        },
+        "display_name_ar": {
+          "type": "string"
+        },
+        "maximum_deception_regret": {
+          "type": "number"
+        },
+        "maximum_deception_win_drop": {
+          "type": "number"
+        },
+        "minimum_model_confidence": {
+          "type": "number"
+        },
+        "mistake_probability": {
+          "type": "number"
+        },
+        "model_weight": {
+          "type": "number"
+        },
+        "play_search_budget": {
+          "type": "integer"
+        },
+        "risk_tolerance": {
+          "type": "number"
+        },
+        "signal_discipline": {
+          "type": "number"
+        },
+        "skill": {
+          "type": "number"
+        },
+        "use_production_model": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "bid_samples",
+        "buying_strength",
+        "deception_probability",
+        "display_name_ar",
+        "maximum_deception_regret",
+        "maximum_deception_win_drop",
+        "minimum_model_confidence",
+        "mistake_probability",
+        "model_weight",
+        "play_search_budget",
+        "risk_tolerance",
+        "signal_discipline",
+        "skill",
+        "use_production_model"
+      ],
+      "type": "object"
+    }
+  },
   "$id": "https://baloot.local/schemas/profiles/agents.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
+  "else": {
+    "properties": {
+      "profiles": {
+        "additionalProperties": false,
+        "properties": {
+          "beginner": {
+            "$ref": "#/$defs/agentRow"
+          },
+          "deceptive": {
+            "$ref": "#/$defs/agentRow"
+          },
+          "expert": {
+            "$ref": "#/$defs/agentRow"
+          },
+          "expert_deterministic": {
+            "$ref": "#/$defs/agentRow"
+          },
+          "finalist_candidate": {
+            "$ref": "#/$defs/agentRow"
+          },
+          "foundry_balanced": {
+            "$ref": "#/$defs/agentRow"
+          },
+          "foundry_throughput": {
+            "$ref": "#/$defs/agentRow"
+          },
+          "regular": {
+            "$ref": "#/$defs/agentRow"
+          },
+          "solver_fast": {
+            "$ref": "#/$defs/agentRow"
+          },
+          "strong": {
+            "$ref": "#/$defs/agentRow"
+          }
+        },
+        "required": [
+          "beginner",
+          "deceptive",
+          "expert",
+          "expert_deterministic",
+          "finalist_candidate",
+          "foundry_balanced",
+          "foundry_throughput",
+          "regular",
+          "solver_fast",
+          "strong"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "if": {
+    "properties": {
+      "profile": {
+        "properties": {
+          "id": {
+            "const": "adaptive_agent_lineup_v1"
+          },
+          "version": {
+            "const": "1.0.0"
+          }
+        },
+        "required": [
+          "id",
+          "version"
+        ]
+      }
+    },
+    "required": [
+      "profile"
+    ]
+  },
   "properties": {
     "default_lineup": {
       "additionalProperties": false,
@@ -51,941 +282,6 @@
       "type": "object"
     },
     "profiles": {
-      "additionalProperties": false,
-      "properties": {
-        "beginner": {
-          "additionalProperties": false,
-          "properties": {
-            "bid_samples": {
-              "type": "integer"
-            },
-            "buying_strength": {
-              "type": "number"
-            },
-            "deception_probability": {
-              "type": "number"
-            },
-            "display_name_ar": {
-              "type": "string"
-            },
-            "maximum_deception_regret": {
-              "type": "number"
-            },
-            "maximum_deception_win_drop": {
-              "type": "number"
-            },
-            "minimum_model_confidence": {
-              "type": "number"
-            },
-            "mistake_probability": {
-              "type": "number"
-            },
-            "model_weight": {
-              "type": "number"
-            },
-            "play_exact_allocation_limit": {
-              "type": "integer"
-            },
-            "play_exact_search_remaining": {
-              "type": "integer"
-            },
-            "play_maximum_sampling_attempts": {
-              "type": "integer"
-            },
-            "play_search_budget": {
-              "type": "integer"
-            },
-            "play_search_max_remaining": {
-              "type": "integer"
-            },
-            "play_search_mode": {
-              "type": "string"
-            },
-            "play_search_objective": {
-              "type": "string"
-            },
-            "play_search_samples": {
-              "type": "integer"
-            },
-            "risk_tolerance": {
-              "type": "number"
-            },
-            "signal_discipline": {
-              "type": "number"
-            },
-            "skill": {
-              "type": "number"
-            },
-            "use_production_model": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "bid_samples",
-            "buying_strength",
-            "deception_probability",
-            "display_name_ar",
-            "maximum_deception_regret",
-            "maximum_deception_win_drop",
-            "minimum_model_confidence",
-            "mistake_probability",
-            "model_weight",
-            "play_exact_allocation_limit",
-            "play_exact_search_remaining",
-            "play_maximum_sampling_attempts",
-            "play_search_budget",
-            "play_search_max_remaining",
-            "play_search_mode",
-            "play_search_objective",
-            "play_search_samples",
-            "risk_tolerance",
-            "signal_discipline",
-            "skill",
-            "use_production_model"
-          ],
-          "type": "object"
-        },
-        "deceptive": {
-          "additionalProperties": false,
-          "properties": {
-            "bid_samples": {
-              "type": "integer"
-            },
-            "buying_strength": {
-              "type": "number"
-            },
-            "deception_probability": {
-              "type": "number"
-            },
-            "display_name_ar": {
-              "type": "string"
-            },
-            "maximum_deception_regret": {
-              "type": "number"
-            },
-            "maximum_deception_win_drop": {
-              "type": "number"
-            },
-            "minimum_model_confidence": {
-              "type": "number"
-            },
-            "mistake_probability": {
-              "type": "number"
-            },
-            "model_weight": {
-              "type": "number"
-            },
-            "play_exact_allocation_limit": {
-              "type": "integer"
-            },
-            "play_exact_search_remaining": {
-              "type": "integer"
-            },
-            "play_maximum_sampling_attempts": {
-              "type": "integer"
-            },
-            "play_search_budget": {
-              "type": "integer"
-            },
-            "play_search_max_remaining": {
-              "type": "integer"
-            },
-            "play_search_mode": {
-              "type": "string"
-            },
-            "play_search_objective": {
-              "type": "string"
-            },
-            "play_search_samples": {
-              "type": "integer"
-            },
-            "risk_tolerance": {
-              "type": "number"
-            },
-            "signal_discipline": {
-              "type": "number"
-            },
-            "skill": {
-              "type": "number"
-            },
-            "use_production_model": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "bid_samples",
-            "buying_strength",
-            "deception_probability",
-            "display_name_ar",
-            "maximum_deception_regret",
-            "maximum_deception_win_drop",
-            "minimum_model_confidence",
-            "mistake_probability",
-            "model_weight",
-            "play_exact_allocation_limit",
-            "play_exact_search_remaining",
-            "play_maximum_sampling_attempts",
-            "play_search_budget",
-            "play_search_max_remaining",
-            "play_search_mode",
-            "play_search_objective",
-            "play_search_samples",
-            "risk_tolerance",
-            "signal_discipline",
-            "skill",
-            "use_production_model"
-          ],
-          "type": "object"
-        },
-        "expert": {
-          "additionalProperties": false,
-          "properties": {
-            "bid_samples": {
-              "type": "integer"
-            },
-            "buying_strength": {
-              "type": "number"
-            },
-            "deception_probability": {
-              "type": "number"
-            },
-            "display_name_ar": {
-              "type": "string"
-            },
-            "maximum_deception_regret": {
-              "type": "number"
-            },
-            "maximum_deception_win_drop": {
-              "type": "number"
-            },
-            "minimum_model_confidence": {
-              "type": "number"
-            },
-            "mistake_probability": {
-              "type": "number"
-            },
-            "model_weight": {
-              "type": "number"
-            },
-            "play_exact_allocation_limit": {
-              "type": "integer"
-            },
-            "play_exact_search_remaining": {
-              "type": "integer"
-            },
-            "play_maximum_sampling_attempts": {
-              "type": "integer"
-            },
-            "play_search_budget": {
-              "type": "integer"
-            },
-            "play_search_max_remaining": {
-              "type": "integer"
-            },
-            "play_search_mode": {
-              "type": "string"
-            },
-            "play_search_objective": {
-              "type": "string"
-            },
-            "play_search_samples": {
-              "type": "integer"
-            },
-            "risk_tolerance": {
-              "type": "number"
-            },
-            "signal_discipline": {
-              "type": "number"
-            },
-            "skill": {
-              "type": "number"
-            },
-            "use_production_model": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "bid_samples",
-            "buying_strength",
-            "deception_probability",
-            "display_name_ar",
-            "maximum_deception_regret",
-            "maximum_deception_win_drop",
-            "minimum_model_confidence",
-            "mistake_probability",
-            "model_weight",
-            "play_exact_allocation_limit",
-            "play_exact_search_remaining",
-            "play_maximum_sampling_attempts",
-            "play_search_budget",
-            "play_search_max_remaining",
-            "play_search_mode",
-            "play_search_objective",
-            "play_search_samples",
-            "risk_tolerance",
-            "signal_discipline",
-            "skill",
-            "use_production_model"
-          ],
-          "type": "object"
-        },
-        "expert_deterministic": {
-          "additionalProperties": false,
-          "properties": {
-            "bid_samples": {
-              "type": "integer"
-            },
-            "buying_strength": {
-              "type": "number"
-            },
-            "deception_probability": {
-              "type": "number"
-            },
-            "display_name_ar": {
-              "type": "string"
-            },
-            "maximum_deception_regret": {
-              "type": "number"
-            },
-            "maximum_deception_win_drop": {
-              "type": "number"
-            },
-            "minimum_model_confidence": {
-              "type": "number"
-            },
-            "mistake_probability": {
-              "type": "number"
-            },
-            "model_weight": {
-              "type": "number"
-            },
-            "play_exact_allocation_limit": {
-              "type": "integer"
-            },
-            "play_exact_search_remaining": {
-              "type": "integer"
-            },
-            "play_maximum_sampling_attempts": {
-              "type": "integer"
-            },
-            "play_search_budget": {
-              "type": "integer"
-            },
-            "play_search_max_remaining": {
-              "type": "integer"
-            },
-            "play_search_mode": {
-              "type": "string"
-            },
-            "play_search_objective": {
-              "type": "string"
-            },
-            "play_search_samples": {
-              "type": "integer"
-            },
-            "risk_tolerance": {
-              "type": "number"
-            },
-            "signal_discipline": {
-              "type": "number"
-            },
-            "skill": {
-              "type": "number"
-            },
-            "use_production_model": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "bid_samples",
-            "buying_strength",
-            "deception_probability",
-            "display_name_ar",
-            "maximum_deception_regret",
-            "maximum_deception_win_drop",
-            "minimum_model_confidence",
-            "mistake_probability",
-            "model_weight",
-            "play_exact_allocation_limit",
-            "play_exact_search_remaining",
-            "play_maximum_sampling_attempts",
-            "play_search_budget",
-            "play_search_max_remaining",
-            "play_search_mode",
-            "play_search_objective",
-            "play_search_samples",
-            "risk_tolerance",
-            "signal_discipline",
-            "skill",
-            "use_production_model"
-          ],
-          "type": "object"
-        },
-        "finalist_candidate": {
-          "additionalProperties": false,
-          "properties": {
-            "bid_samples": {
-              "type": "integer"
-            },
-            "buying_strength": {
-              "type": "number"
-            },
-            "deception_probability": {
-              "type": "number"
-            },
-            "display_name_ar": {
-              "type": "string"
-            },
-            "maximum_deception_regret": {
-              "type": "number"
-            },
-            "maximum_deception_win_drop": {
-              "type": "number"
-            },
-            "minimum_model_confidence": {
-              "type": "number"
-            },
-            "mistake_probability": {
-              "type": "number"
-            },
-            "model_weight": {
-              "type": "number"
-            },
-            "play_exact_allocation_limit": {
-              "type": "integer"
-            },
-            "play_exact_search_remaining": {
-              "type": "integer"
-            },
-            "play_maximum_sampling_attempts": {
-              "type": "integer"
-            },
-            "play_search_budget": {
-              "type": "integer"
-            },
-            "play_search_max_remaining": {
-              "type": "integer"
-            },
-            "play_search_mode": {
-              "type": "string"
-            },
-            "play_search_objective": {
-              "type": "string"
-            },
-            "play_search_samples": {
-              "type": "integer"
-            },
-            "risk_tolerance": {
-              "type": "number"
-            },
-            "signal_discipline": {
-              "type": "number"
-            },
-            "skill": {
-              "type": "number"
-            },
-            "use_production_model": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "bid_samples",
-            "buying_strength",
-            "deception_probability",
-            "display_name_ar",
-            "maximum_deception_regret",
-            "maximum_deception_win_drop",
-            "minimum_model_confidence",
-            "mistake_probability",
-            "model_weight",
-            "play_exact_allocation_limit",
-            "play_exact_search_remaining",
-            "play_maximum_sampling_attempts",
-            "play_search_budget",
-            "play_search_max_remaining",
-            "play_search_mode",
-            "play_search_objective",
-            "play_search_samples",
-            "risk_tolerance",
-            "signal_discipline",
-            "skill",
-            "use_production_model"
-          ],
-          "type": "object"
-        },
-        "foundry_balanced": {
-          "additionalProperties": false,
-          "properties": {
-            "bid_samples": {
-              "type": "integer"
-            },
-            "buying_strength": {
-              "type": "number"
-            },
-            "deception_probability": {
-              "type": "number"
-            },
-            "display_name_ar": {
-              "type": "string"
-            },
-            "maximum_deception_regret": {
-              "type": "number"
-            },
-            "maximum_deception_win_drop": {
-              "type": "number"
-            },
-            "minimum_model_confidence": {
-              "type": "number"
-            },
-            "mistake_probability": {
-              "type": "number"
-            },
-            "model_weight": {
-              "type": "number"
-            },
-            "play_exact_allocation_limit": {
-              "type": "integer"
-            },
-            "play_exact_search_remaining": {
-              "type": "integer"
-            },
-            "play_maximum_sampling_attempts": {
-              "type": "integer"
-            },
-            "play_search_budget": {
-              "type": "integer"
-            },
-            "play_search_max_remaining": {
-              "type": "integer"
-            },
-            "play_search_mode": {
-              "type": "string"
-            },
-            "play_search_objective": {
-              "type": "string"
-            },
-            "play_search_samples": {
-              "type": "integer"
-            },
-            "risk_tolerance": {
-              "type": "number"
-            },
-            "signal_discipline": {
-              "type": "number"
-            },
-            "skill": {
-              "type": "number"
-            },
-            "use_production_model": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "bid_samples",
-            "buying_strength",
-            "deception_probability",
-            "display_name_ar",
-            "maximum_deception_regret",
-            "maximum_deception_win_drop",
-            "minimum_model_confidence",
-            "mistake_probability",
-            "model_weight",
-            "play_exact_allocation_limit",
-            "play_exact_search_remaining",
-            "play_maximum_sampling_attempts",
-            "play_search_budget",
-            "play_search_max_remaining",
-            "play_search_mode",
-            "play_search_objective",
-            "play_search_samples",
-            "risk_tolerance",
-            "signal_discipline",
-            "skill",
-            "use_production_model"
-          ],
-          "type": "object"
-        },
-        "foundry_throughput": {
-          "additionalProperties": false,
-          "properties": {
-            "bid_samples": {
-              "type": "integer"
-            },
-            "buying_strength": {
-              "type": "number"
-            },
-            "deception_probability": {
-              "type": "number"
-            },
-            "display_name_ar": {
-              "type": "string"
-            },
-            "maximum_deception_regret": {
-              "type": "number"
-            },
-            "maximum_deception_win_drop": {
-              "type": "number"
-            },
-            "minimum_model_confidence": {
-              "type": "number"
-            },
-            "mistake_probability": {
-              "type": "number"
-            },
-            "model_weight": {
-              "type": "number"
-            },
-            "play_exact_allocation_limit": {
-              "type": "integer"
-            },
-            "play_exact_search_remaining": {
-              "type": "integer"
-            },
-            "play_maximum_sampling_attempts": {
-              "type": "integer"
-            },
-            "play_search_budget": {
-              "type": "integer"
-            },
-            "play_search_max_remaining": {
-              "type": "integer"
-            },
-            "play_search_mode": {
-              "type": "string"
-            },
-            "play_search_objective": {
-              "type": "string"
-            },
-            "play_search_samples": {
-              "type": "integer"
-            },
-            "risk_tolerance": {
-              "type": "number"
-            },
-            "signal_discipline": {
-              "type": "number"
-            },
-            "skill": {
-              "type": "number"
-            },
-            "use_production_model": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "bid_samples",
-            "buying_strength",
-            "deception_probability",
-            "display_name_ar",
-            "maximum_deception_regret",
-            "maximum_deception_win_drop",
-            "minimum_model_confidence",
-            "mistake_probability",
-            "model_weight",
-            "play_exact_allocation_limit",
-            "play_exact_search_remaining",
-            "play_maximum_sampling_attempts",
-            "play_search_budget",
-            "play_search_max_remaining",
-            "play_search_mode",
-            "play_search_objective",
-            "play_search_samples",
-            "risk_tolerance",
-            "signal_discipline",
-            "skill",
-            "use_production_model"
-          ],
-          "type": "object"
-        },
-        "regular": {
-          "additionalProperties": false,
-          "properties": {
-            "bid_samples": {
-              "type": "integer"
-            },
-            "buying_strength": {
-              "type": "number"
-            },
-            "deception_probability": {
-              "type": "number"
-            },
-            "display_name_ar": {
-              "type": "string"
-            },
-            "maximum_deception_regret": {
-              "type": "number"
-            },
-            "maximum_deception_win_drop": {
-              "type": "number"
-            },
-            "minimum_model_confidence": {
-              "type": "number"
-            },
-            "mistake_probability": {
-              "type": "number"
-            },
-            "model_weight": {
-              "type": "number"
-            },
-            "play_exact_allocation_limit": {
-              "type": "integer"
-            },
-            "play_exact_search_remaining": {
-              "type": "integer"
-            },
-            "play_maximum_sampling_attempts": {
-              "type": "integer"
-            },
-            "play_search_budget": {
-              "type": "integer"
-            },
-            "play_search_max_remaining": {
-              "type": "integer"
-            },
-            "play_search_mode": {
-              "type": "string"
-            },
-            "play_search_objective": {
-              "type": "string"
-            },
-            "play_search_samples": {
-              "type": "integer"
-            },
-            "risk_tolerance": {
-              "type": "number"
-            },
-            "signal_discipline": {
-              "type": "number"
-            },
-            "skill": {
-              "type": "number"
-            },
-            "use_production_model": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "bid_samples",
-            "buying_strength",
-            "deception_probability",
-            "display_name_ar",
-            "maximum_deception_regret",
-            "maximum_deception_win_drop",
-            "minimum_model_confidence",
-            "mistake_probability",
-            "model_weight",
-            "play_exact_allocation_limit",
-            "play_exact_search_remaining",
-            "play_maximum_sampling_attempts",
-            "play_search_budget",
-            "play_search_max_remaining",
-            "play_search_mode",
-            "play_search_objective",
-            "play_search_samples",
-            "risk_tolerance",
-            "signal_discipline",
-            "skill",
-            "use_production_model"
-          ],
-          "type": "object"
-        },
-        "solver_fast": {
-          "additionalProperties": false,
-          "properties": {
-            "bid_samples": {
-              "type": "integer"
-            },
-            "buying_strength": {
-              "type": "number"
-            },
-            "deception_probability": {
-              "type": "number"
-            },
-            "display_name_ar": {
-              "type": "string"
-            },
-            "maximum_deception_regret": {
-              "type": "number"
-            },
-            "maximum_deception_win_drop": {
-              "type": "number"
-            },
-            "minimum_model_confidence": {
-              "type": "number"
-            },
-            "mistake_probability": {
-              "type": "number"
-            },
-            "model_weight": {
-              "type": "number"
-            },
-            "play_exact_allocation_limit": {
-              "type": "integer"
-            },
-            "play_exact_search_remaining": {
-              "type": "integer"
-            },
-            "play_maximum_sampling_attempts": {
-              "type": "integer"
-            },
-            "play_search_budget": {
-              "type": "integer"
-            },
-            "play_search_max_remaining": {
-              "type": "integer"
-            },
-            "play_search_mode": {
-              "type": "string"
-            },
-            "play_search_objective": {
-              "type": "string"
-            },
-            "play_search_samples": {
-              "type": "integer"
-            },
-            "risk_tolerance": {
-              "type": "number"
-            },
-            "signal_discipline": {
-              "type": "number"
-            },
-            "skill": {
-              "type": "number"
-            },
-            "use_production_model": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "bid_samples",
-            "buying_strength",
-            "deception_probability",
-            "display_name_ar",
-            "maximum_deception_regret",
-            "maximum_deception_win_drop",
-            "minimum_model_confidence",
-            "mistake_probability",
-            "model_weight",
-            "play_exact_allocation_limit",
-            "play_exact_search_remaining",
-            "play_maximum_sampling_attempts",
-            "play_search_budget",
-            "play_search_max_remaining",
-            "play_search_mode",
-            "play_search_objective",
-            "play_search_samples",
-            "risk_tolerance",
-            "signal_discipline",
-            "skill",
-            "use_production_model"
-          ],
-          "type": "object"
-        },
-        "strong": {
-          "additionalProperties": false,
-          "properties": {
-            "bid_samples": {
-              "type": "integer"
-            },
-            "buying_strength": {
-              "type": "number"
-            },
-            "deception_probability": {
-              "type": "number"
-            },
-            "display_name_ar": {
-              "type": "string"
-            },
-            "maximum_deception_regret": {
-              "type": "number"
-            },
-            "maximum_deception_win_drop": {
-              "type": "number"
-            },
-            "minimum_model_confidence": {
-              "type": "number"
-            },
-            "mistake_probability": {
-              "type": "number"
-            },
-            "model_weight": {
-              "type": "number"
-            },
-            "play_exact_allocation_limit": {
-              "type": "integer"
-            },
-            "play_exact_search_remaining": {
-              "type": "integer"
-            },
-            "play_maximum_sampling_attempts": {
-              "type": "integer"
-            },
-            "play_search_budget": {
-              "type": "integer"
-            },
-            "play_search_max_remaining": {
-              "type": "integer"
-            },
-            "play_search_mode": {
-              "type": "string"
-            },
-            "play_search_objective": {
-              "type": "string"
-            },
-            "play_search_samples": {
-              "type": "integer"
-            },
-            "risk_tolerance": {
-              "type": "number"
-            },
-            "signal_discipline": {
-              "type": "number"
-            },
-            "skill": {
-              "type": "number"
-            },
-            "use_production_model": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "bid_samples",
-            "buying_strength",
-            "deception_probability",
-            "display_name_ar",
-            "maximum_deception_regret",
-            "maximum_deception_win_drop",
-            "minimum_model_confidence",
-            "mistake_probability",
-            "model_weight",
-            "play_exact_allocation_limit",
-            "play_exact_search_remaining",
-            "play_maximum_sampling_attempts",
-            "play_search_budget",
-            "play_search_max_remaining",
-            "play_search_mode",
-            "play_search_objective",
-            "play_search_samples",
-            "risk_tolerance",
-            "signal_discipline",
-            "skill",
-            "use_production_model"
-          ],
-          "type": "object"
-        }
-      },
-      "required": [
-        "beginner",
-        "deceptive",
-        "expert",
-        "expert_deterministic",
-        "finalist_candidate",
-        "foundry_balanced",
-        "foundry_throughput",
-        "regular",
-        "solver_fast",
-        "strong"
-      ],
       "type": "object"
     },
     "schema_version": {
@@ -1000,5 +296,37 @@
     "profiles",
     "schema_version"
   ],
+  "then": {
+    "properties": {
+      "profiles": {
+        "additionalProperties": false,
+        "properties": {
+          "beginner": {
+            "$ref": "#/$defs/legacyAgentRow"
+          },
+          "deceptive": {
+            "$ref": "#/$defs/legacyAgentRow"
+          },
+          "expert": {
+            "$ref": "#/$defs/legacyAgentRow"
+          },
+          "regular": {
+            "$ref": "#/$defs/legacyAgentRow"
+          },
+          "strong": {
+            "$ref": "#/$defs/legacyAgentRow"
+          }
+        },
+        "required": [
+          "beginner",
+          "deceptive",
+          "expert",
+          "regular",
+          "strong"
+        ],
+        "type": "object"
+      }
+    }
+  },
   "type": "object"
 }
