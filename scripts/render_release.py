@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
+from baloot_platform.filesystem import staged_render_output
 from baloot_platform.video.audio_postprocess import finish_remotion_audio
 from baloot_platform.video.remotion_renderer import _process_exists, _terminate_process_tree
 from baloot_platform.video.render_bundle import RenderBundleV1
@@ -223,6 +224,24 @@ def _new_render_evidence_dir() -> Path:
     return destination
 
 
+def _render_to_output(
+    script: str,
+    *,
+    stage: str,
+    output: Path,
+    evidence_dir: Path,
+    environment: dict[str, str] | None = None,
+) -> None:
+    with staged_render_output(output) as rendered:
+        _run(
+            _node_command(script),
+            cwd=REMOTION,
+            stage=stage,
+            evidence_dir=evidence_dir,
+            environment={**(environment or {}), "BALOOTX_RENDER_OUTPUT": str(rendered)},
+        )
+
+
 def finish_release_audio(shard: str | None = None) -> None:
     exports = (
         (
@@ -270,15 +289,20 @@ def render_ci_shard(shard: str) -> None:
 
     if shard in ("flagship", "decision"):
         script = "render-flagship.mjs" if shard == "flagship" else "render-decision-clip.mjs"
-        run(shard, _node_command(script), cwd=REMOTION)
+        _render_to_output(
+            script, stage=shard, output=outputs / f"professional-video-{shard}",
+            evidence_dir=evidence_dir,
+        )
         finish_release_audio(shard)
         verify = "verify_professional_flagship" if shard == "flagship" else "verify_professional_decision_clip"
         run(verify, [sys.executable, "-P", f"scripts/{verify}.py"])
     elif shard == "companion":
         run("prototypes", _node_command("render-prototypes.mjs"), cwd=REMOTION)
-        run("collection", _node_command("render-flagship.mjs"), cwd=REMOTION,
-            environment={"BALOOTX_COLLECTION_ONLY": "1",
-                         "BALOOTX_RENDER_OUTPUT": str(outputs / "professional-video-collection")})
+        _render_to_output(
+            "render-flagship.mjs", stage="collection",
+            output=outputs / "professional-video-collection", evidence_dir=evidence_dir,
+            environment={"BALOOTX_COLLECTION_ONLY": "1"},
+        )
         run("verify-professional-prototypes", [sys.executable, "-P", "scripts/verify_professional_video_prototypes.py"])
     elif shard == "parity":
         run("render-plugin-parity", [sys.executable, "-P", "scripts/render_remotion_plugin_parity.py"],
@@ -332,12 +356,18 @@ def main(*, research_notice: bool = False) -> None:
             return
         generate()
         run("prototypes", _node_command("render-prototypes.mjs"), cwd=REMOTION)
-        run("flagship", _node_command("render-flagship.mjs"), cwd=REMOTION)
-        run("decision", _node_command("render-decision-clip.mjs"), cwd=REMOTION)
-        run(
-            "collection",
-            _node_command("render-flagship.mjs"),
-            cwd=REMOTION,
+        flagship_output = ROOT / "outputs/professional-video-flagship"
+        _render_to_output(
+            "render-flagship.mjs", stage="flagship", output=flagship_output,
+            evidence_dir=evidence_dir,
+        )
+        _render_to_output(
+            "render-decision-clip.mjs", stage="decision",
+            output=ROOT / "outputs/professional-video-decision", evidence_dir=evidence_dir,
+        )
+        _render_to_output(
+            "render-flagship.mjs", stage="collection", output=flagship_output,
+            evidence_dir=evidence_dir,
             environment={"BALOOTX_COLLECTION_ONLY": "1"},
         )
         finish_release_audio()
