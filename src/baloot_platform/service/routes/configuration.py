@@ -12,6 +12,14 @@ from baloot_platform.security import AuthorizationPolicy, Scope
 from .auth import require_identity
 
 
+class LocalSchedule(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    timeZone: str
+    effectiveFrom: str | None = None
+    effectiveUntil: str | None = None
+
+
 class ProfileCreateRequest(BaseModel):
     family: str
     payload: dict[str, Any]
@@ -21,6 +29,7 @@ class ProfileCreateRequest(BaseModel):
     environment: str | None = None
     effectiveFrom: str | None = None
     effectiveUntil: str | None = None
+    localSchedule: LocalSchedule | None = None
     rolloutPercentage: float = Field(100.0, gt=0, le=100)
     rolloutSeed: str = "default"
     supersedesRevisionId: str | None = None
@@ -52,6 +61,7 @@ class BundleCreateRequest(BaseModel):
     environment: str | None = None
     effectiveFrom: str | None = None
     effectiveUntil: str | None = None
+    localSchedule: LocalSchedule | None = None
     rolloutPercentage: float = Field(100.0, gt=0, le=100)
     rolloutSeed: str = "default"
     supersedesRevisionId: str | None = None
@@ -85,6 +95,7 @@ class ConfigurationBundleRevisionResponse(BaseModel):
     sequence: int = Field(ge=1)
     effectiveFrom: str | None
     effectiveUntil: str | None
+    localSchedule: LocalSchedule | None = None
     rolloutPercentage: float = Field(gt=0.0, le=100.0)
     rolloutSeed: str
     createdBy: str
@@ -191,6 +202,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                 family=body.family, payload=body.payload, created_by=identity.subject_id,
                 scope=body.scope, scope_key=body.scopeKey, tenant_id=body.tenantId,
                 environment=body.environment, effective_from=body.effectiveFrom, effective_until=body.effectiveUntil,
+                local_schedule=body.localSchedule.model_dump(exclude_none=True) if body.localSchedule is not None else None,
                 rollout_percentage=body.rolloutPercentage, rollout_seed=body.rolloutSeed,
                 supersedes_revision_id=body.supersedesRevisionId, publish=body.publish,
             )
@@ -281,7 +293,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
             raise HTTPException(404, "configuration profile revision not found")
         return service.store.events_with_verification("profile", revision_id)
 
-    @router.get("/bundles", response_model=ConfigurationBundleListResponse)
+    @router.get("/bundles", response_model=ConfigurationBundleListResponse, response_model_exclude_unset=True)
     def list_bundles(request: Request, bundleId: str | None = None, scope: str | None = None,
                      scopeKey: str | None = None, tenantId: str | None = None,
                      environment: str | None = None, status: str | None = None, limit: int = 200):
@@ -301,6 +313,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                 component_revisions=body.componentRevisions, created_by=identity.subject_id,
                 scope=body.scope, scope_key=body.scopeKey, tenant_id=body.tenantId,
                 environment=body.environment, effective_from=body.effectiveFrom, effective_until=body.effectiveUntil,
+                local_schedule=body.localSchedule.model_dump(exclude_none=True) if body.localSchedule is not None else None,
                 rollout_percentage=body.rolloutPercentage, rollout_seed=body.rolloutSeed,
                 supersedes_revision_id=body.supersedesRevisionId, publish=body.publish,
                 allow_draft_components=body.allowDraftComponents,
@@ -491,6 +504,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         methods=["GET"],
         name="v2_list_configuration_bundles",
         response_model=ConfigurationBundleListResponse,
+        response_model_exclude_unset=True,
     )
     aliases.add_api_route("/bundles", create_bundle, methods=["POST"], status_code=201, name="v2_create_configuration_bundle")
     aliases.add_api_route("/bundles/{revision_id}", get_bundle, methods=["GET"], name="v2_get_configuration_bundle")

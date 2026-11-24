@@ -11,7 +11,8 @@ from scripts import migrate_postgres
 
 
 MIGRATION_NAME = "025_configuration_store_contract.sql"
-LATEST_MIGRATION_NAME = "029_shared_run_game_access.sql"
+LATEST_MIGRATION_NAME = "030_configuration_local_schedule.sql"
+SHARED_RUN_ACCESS_MIGRATION_NAME = "029_shared_run_game_access.sql"
 FROZEN_PREDECESSOR_HASHES = {
     "011_configuration_registry_v19.sql": (
         "1e79c94b6244244afe0a2fd1f9ef421dcfadca6c32a48bd4c7f4b8fee97b9931"
@@ -72,10 +73,10 @@ def test_v25_authored_and_packaged_inventory_are_byte_identical(root: Path) -> N
         assert (authored / name).read_bytes() == (packaged / name).read_bytes()
 
 
-def test_latest_shared_run_access_migration_matches_store_bootstrap(
+def test_shared_run_access_migration_matches_store_bootstrap(
     root: Path,
 ) -> None:
-    sql = (root / "migrations" / LATEST_MIGRATION_NAME).read_text(encoding="utf-8")
+    sql = (root / "migrations" / SHARED_RUN_ACCESS_MIGRATION_NAME).read_text(encoding="utf-8")
     normalized = _normalized(sql)
 
     assert normalized.startswith("BEGIN;")
@@ -87,6 +88,21 @@ def test_latest_shared_run_access_migration_matches_store_bootstrap(
     assert "DROP " not in normalized
     assert "DELETE " not in normalized
     assert "TRUNCATE " not in normalized
+
+
+def test_local_schedule_migration_only_adds_nullable_immutable_metadata(root: Path) -> None:
+    sql = (root / "migrations" / LATEST_MIGRATION_NAME).read_text(encoding="utf-8")
+    normalized = _normalized(sql)
+    assert normalized.startswith("BEGIN;")
+    assert normalized.endswith("COMMIT;")
+    for table in ("PROFILE_REVISIONS", "BUNDLE_REVISIONS"):
+        assert _statement(normalized, f"ALTER TABLE CONFIGURATION.{table}") == (
+            f"ALTER TABLE CONFIGURATION.{table} ADD COLUMN IF NOT EXISTS LOCAL_SCHEDULE JSONB;"
+        )
+        assert f"BEFORE UPDATE OF LOCAL_SCHEDULE ON CONFIGURATION.{table}" in normalized
+    assert normalized.count("NEW.LOCAL_SCHEDULE IS DISTINCT FROM OLD.LOCAL_SCHEDULE") == 2
+    assert "UPDATE CONFIGURATION." not in normalized
+    assert "DELETE " not in normalized
 
 
 def test_v25_preserves_published_predecessor_migration_bytes(root: Path) -> None:

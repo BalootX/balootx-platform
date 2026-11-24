@@ -851,14 +851,14 @@ def test_current_migration_stage_freezes_complete_inventory_and_required_tail(
 ) -> None:
     snapshot_root, inventory = proof._stage_migrations(tmp_path)
 
-    assert len(inventory) == 28
+    assert len(inventory) == 29
     assert proof._migration_inventory(snapshot_root) == inventory
     assert {
         item["name"]: item["sha256"]
         for item in inventory
         if item["name"] in proof.REQUIRED_MIGRATION_HASHES
     } == proof.REQUIRED_MIGRATION_HASHES
-    assert inventory[-1]["name"] == "029_shared_run_game_access.sql"
+    assert inventory[-1]["name"] == "030_configuration_local_schedule.sql"
     assert (
         proof.REQUIRED_MIGRATION_HASHES["029_shared_run_game_access.sql"]
         == "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"
@@ -957,11 +957,11 @@ def test_current_migration_policy_contract_is_final_and_deterministic(
         ("security.websocket_tickets", "websocket_ticket_service_v20"),
     }
 
-    assert len(inventory) == 28
+    assert len(inventory) == 29
     assert first == second
     assert (
         first["sha256"]
-        == "2c0d7519af7b36a7f63bef34c25612c3f49ab0ab3710beeff397d891a907c983"
+        == "cf236a06ef77f760e049d22e8b3ee77612ae91a8ac04f23b39388d3cf276a1f3"
     )
     assert policies.isdisjoint(legacy_configuration_policies)
     assert configuration_v25_policies.issubset(policies)

@@ -74,6 +74,9 @@ REQUIRED_MIGRATION_HASHES = {
     "029_shared_run_game_access.sql": (
         "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"
     ),
+    "030_configuration_local_schedule.sql": (
+        "548aee7fc30c6a1ba88bf0fd99a868f19fb826e062cd7ee4de3c7cf5fa37a2c8"
+    ),
 }
 CONFIGURATION_V25_CONSTRAINTS = frozenset(
     {
@@ -3738,7 +3741,8 @@ def _configuration_event_chain_evidence(
 
 
 def _assert_configuration_immutability(
-    pool: Any, *, relation: str, revision_id: str, expected_message: str
+    pool: Any, *, relation: str, revision_id: str, expected_message: str,
+    assignment: str = "rollout_seed=rollout_seed || '-proof'",
 ) -> None:
     from baloot_platform.storage.request_context import contextual_connection
 
@@ -3748,7 +3752,7 @@ def _assert_configuration_immutability(
             with connection.transaction():
                 cursor = connection.execute(
                     f"UPDATE configuration.{relation} "
-                    "SET rollout_seed=rollout_seed || '-proof' "
+                    f"SET {assignment} "
                     "WHERE revision_id=%s",
                     (revision_id,),
                 )
@@ -3765,6 +3769,39 @@ def _assert_configuration_immutability(
             ) from exc
     if succeeded:
         raise ProofError("configuration immutable mutation unexpectedly succeeded")
+
+
+def _prove_configuration_schedule(store: Any, components: dict[str, str]) -> None:
+    local = {"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00:00"}
+    kwargs = {
+        "version": "1.0.0", "scope": "global", "tenant_id": None,
+        "status": "draft", "created_by": "LIVE-POSTGRES-CONFIGURATION-PROOF",
+        "local_schedule": local,
+    }
+    profile = store.create_profile(
+        family="rules", profile_id="schedule_proof",
+        payload={"profile": {"id": "schedule_proof", "version": "1.0.0"}},
+        **kwargs,
+    )
+    bundle = store.create_bundle(
+        bundle_id="schedule_proof", mode="full", component_revisions=components, **kwargs
+    )
+    for relation, revision, saved in (
+        ("profile_revisions", profile, store.get_profile(profile.revision_id)),
+        ("bundle_revisions", bundle, store.get_bundle(bundle.revision_id)),
+    ):
+        if (
+            saved is None
+            or saved != revision
+            or saved.local_schedule != local
+            or saved.effective_from != "2026-07-01T16:00:00+00:00"
+        ):
+            raise ProofError("PostgreSQL local schedule did not round-trip")
+        _assert_configuration_immutability(
+            store.pool, relation=relation, revision_id=revision.revision_id,
+            expected_message="local_schedule is immutable",
+            assignment="local_schedule=NULL",
+        )
 
 
 def _prove_research_scenario_v4_wiring(
@@ -4383,6 +4420,7 @@ def _prove_full_wiring(
                         "published configuration bundle revisions are immutable"
                     ),
                 )
+                _prove_configuration_schedule(container.configuration_store, component_revisions)
                 ortools_packaged = build_bundle(
                     ROOT,
                     bundle_path="configs/bundle_ortools_research_v4.yaml",
@@ -4461,6 +4499,7 @@ def _prove_full_wiring(
         "postgresResearchStore": True,
         "postgresConfigurationStore": True,
         "configurationServiceRlsContext": True,
+        "configurationLocalScheduleRoundTrip": True,
         "packagedBundleResolved": True,
         "activeBundleRevisionId": str(bundle["revisionId"]),
         "packagedBundleSha256": str(packaged.sha256),

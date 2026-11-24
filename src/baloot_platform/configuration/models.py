@@ -13,6 +13,18 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def parse_instant(value: str | None, field: str) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{field} must be a valid ISO date-time with an explicit UTC offset") from exc
+    raise ValueError(f"{field} requires an explicit UTC offset")
+
+
 def canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -83,6 +95,7 @@ class ProfileRevision:
     published_at: str | None = None
     supersedes_revision_id: str | None = None
     etag: int = 1
+    local_schedule: Mapping[str, str] | None = None
 
     def to_dict(self, *, include_payload: bool = True) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -112,6 +125,8 @@ class ProfileRevision:
         }
         if include_payload:
             result["payload"] = dict(self.payload)
+        if self.local_schedule is not None:
+            result["localSchedule"] = dict(self.local_schedule)
         return result
 
 
@@ -140,9 +155,10 @@ class BundleRevision:
     published_at: str | None = None
     supersedes_revision_id: str | None = None
     etag: int = 1
+    local_schedule: Mapping[str, str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "revisionId": self.revision_id,
             "bundleId": self.bundle_id,
             "version": self.version,
@@ -168,6 +184,9 @@ class BundleRevision:
             "supersedesRevisionId": self.supersedes_revision_id,
             "etag": self.etag,
         }
+        if self.local_schedule is not None:
+            result["localSchedule"] = dict(self.local_schedule)
+        return result
 
 
 @dataclass(frozen=True, slots=True)

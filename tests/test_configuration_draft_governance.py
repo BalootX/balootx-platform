@@ -445,6 +445,66 @@ def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
     )
     assert conflict.status_code == 409
 
+    endpoint = "/api/v1/configuration-registry/profiles"
+    payload["profile"]["version"] = "99.0.2"
+    create = {"family": "performance", "payload": payload, "publish": True}
+    invalid = client.post(
+        endpoint, headers=headers, json={**create, "effectiveFrom": "2026-07-01T12:00"}
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"].startswith("effectiveFrom requires")
+    local = {
+        "timeZone": "America/New_York",
+        "effectiveFrom": "2026-07-01T12:00:00",
+        "effectiveUntil": "2026-07-01T13:00:00",
+    }
+    missing_zone = client.post(
+        endpoint, headers=headers, json={**create, "localSchedule": {"effectiveFrom": local["effectiveFrom"]}}
+    )
+    assert missing_zone.status_code == 422
+    assert missing_zone.json()["detail"][0]["loc"] == ["body", "localSchedule", "timeZone"]
+    bad_zone = client.post(
+        endpoint, headers=headers,
+        json={**create, "localSchedule": {**local, "timeZone": "Mars/Olympus"}},
+    )
+    assert bad_zone.status_code == 422
+    assert bad_zone.json()["detail"].startswith("localSchedule.timeZone")
+    scheduled = client.post(endpoint, headers=headers, json={**create, "localSchedule": local})
+    assert scheduled.status_code == 201, scheduled.text
+    profile = scheduled.json()
+    assert profile["localSchedule"] == local
+    assert profile["effectiveFrom"] == "2026-07-01T16:00:00+00:00"
+    assert profile["effectiveUntil"] == "2026-07-01T17:00:00+00:00"
+    legacy_resolution = f"{endpoint}:resolve"
+    for at_time, expected in (
+        ("2026-07-01T16:00:00", 422),
+        ("2026-07-01T16:00:00Z", 200),
+        ("2026-07-01T17:00:00Z", 404),
+    ):
+        resolved = client.get(
+            legacy_resolution,
+            headers=headers,
+            params={"family": "performance", "profileId": profile["profileId"], "atTime": at_time},
+        )
+        assert resolved.status_code == expected, resolved.text
+        if expected == 200:
+            assert resolved.json()["revisionId"] == profile["revisionId"]
+
+    bundles = "/api/v2/configuration/bundles"
+    components = dict(service.resolve()["bundle"]["componentRevisions"])
+    bundle_response = client.post(
+        bundles,
+        headers=headers,
+        json={
+            "bundleId": "schedule-test", "version": "1.0.0",
+            "componentRevisions": components, "localSchedule": local,
+        },
+    )
+    assert bundle_response.status_code == 201, bundle_response.text
+    listed = client.get(bundles, headers=headers, params={"bundleId": "schedule-test"})
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["items"] == [bundle_response.json()]
+
 
 def test_foundry_rules_operator_flow_is_api_backed_and_coverage_gated(
     root: Path, tmp_path: Path

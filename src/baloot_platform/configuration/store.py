@@ -4,12 +4,14 @@ import json
 import sqlite3
 import threading
 from datetime import datetime, timezone
+from functools import cache
 from pathlib import Path
 from typing import Any, Mapping
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from baloot_platform.storage.request_context import contextual_connection
 
-from .models import BundleRevision, ProfileRevision, canonical, digest, utc_now
+from .models import BundleRevision, ProfileRevision, canonical, digest, parse_instant, utc_now
 
 
 _UNSET = object()
@@ -17,14 +19,14 @@ _UNSET = object()
 _POSTGRES_PROFILE_COLUMNS = """
 revision_id,family,profile_id,version,scope,scope_key,tenant_id,environment,
 status,payload,payload_sha256,sequence,effective_from,effective_until,
-rollout_percentage,rollout_seed,created_by,created_at,updated_at,published_by,
+local_schedule,rollout_percentage,rollout_seed,created_by,created_at,updated_at,published_by,
 published_at,supersedes_revision_id,etag
 """.replace("\n", "")
 
 _POSTGRES_BUNDLE_COLUMNS = """
 revision_id,bundle_id,version,mode,scope,scope_key,tenant_id,environment,
 status,components,content_sha256,sequence,effective_from,effective_until,
-rollout_percentage,rollout_seed,created_by,created_at,updated_at,published_by,
+local_schedule,rollout_percentage,rollout_seed,created_by,created_at,updated_at,published_by,
 published_at,supersedes_revision_id,etag
 """.replace("\n", "")
 
@@ -69,6 +71,90 @@ def _timestamp_text(value: Any) -> str:
 
 def _optional_timestamp_text(value: Any) -> str | None:
     return None if value is None else _timestamp_text(value)
+
+
+@cache
+def _iana_zones() -> frozenset[str]:
+    return frozenset(available_timezones() - {"localtime"})
+
+
+def _local_instant(value: str, zone: ZoneInfo, field: str) -> tuple[datetime, str]:
+    try:
+        wall_time = datetime.fromisoformat(value)
+        if wall_time.tzinfo is not None or "T" not in value:
+            raise ValueError
+        # Both folds round-trip during an overlap, and neither during a gap.
+        instants = set()
+        for fold in (0, 1):
+            instant = wall_time.replace(tzinfo=zone, fold=fold).astimezone(timezone.utc)
+            if instant.astimezone(zone).replace(tzinfo=None) == wall_time:
+                instants.add(instant)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{field} must be a valid local ISO date-time without an offset") from exc
+    if not instants:
+        raise ValueError(f"{field} does not exist in this time zone. Choose a different local time")
+    if len(instants) > 1:
+        raise ValueError(f"{field} is ambiguous in this time zone. Choose a different local time or use an explicit offset")
+    return instants.pop(), wall_time.isoformat()
+
+
+def _schedule(
+    effective_from: str | None,
+    effective_until: str | None,
+    local_schedule: Mapping[str, str] | None,
+) -> tuple[str | None, str | None, dict[str, str] | None]:
+    fields = ("effectiveFrom", "effectiveUntil")
+    normalized = None
+    if local_schedule is not None:
+        if not isinstance(local_schedule, Mapping) or set(local_schedule) - {"timeZone", *fields}:
+            raise ValueError("localSchedule accepts timeZone, effectiveFrom and effectiveUntil")
+        zone_name = local_schedule.get("timeZone")
+        try:
+            if not isinstance(zone_name, str) or zone_name not in _iana_zones():
+                raise ZoneInfoNotFoundError
+            zone = ZoneInfo(zone_name)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("localSchedule.timeZone requires a valid IANA time zone") from exc
+        normalized = {"timeZone": zone_name}
+        if all(local_schedule.get(field) is None for field in fields):
+            raise ValueError("localSchedule requires effectiveFrom or effectiveUntil")
+
+    instants = []
+    for field, value in zip(fields, (effective_from, effective_until), strict=True):
+        local_value = local_schedule.get(field) if local_schedule is not None else None
+        if local_value is None:
+            instant = parse_instant(value, field)
+        else:
+            if value is not None:
+                raise ValueError(f"{field} and localSchedule.{field} cannot both be specified")
+            assert normalized is not None
+            instant, normalized[field] = _local_instant(local_value, zone, f"localSchedule.{field}")
+        instants.append(instant)
+    start, end = instants
+    if start is not None and end is not None and end <= start:
+        raise ValueError("effectiveUntil must be later than effectiveFrom")
+    return (
+        start.isoformat() if start is not None else None,
+        end.isoformat() if end is not None else None,
+        normalized,
+    )
+
+
+def _require_same_schedule(
+    revision: ProfileRevision | BundleRevision,
+    schedule: tuple[str | None, str | None, dict[str, str] | None],
+) -> None:
+    for field, saved, requested in zip(
+        ("effectiveFrom", "effectiveUntil", "localSchedule"),
+        (revision.effective_from, revision.effective_until, revision.local_schedule),
+        schedule,
+        strict=True,
+    ):
+        if saved != requested:
+            raise ValueError(
+                f"{field} differs from existing revision {revision.revision_id}. "
+                "Create a revision with different content to change its schedule"
+            )
 
 
 def _row_mapping(row: Any) -> dict[str, Any]:
@@ -183,6 +269,7 @@ class SQLiteConfigurationStore:
                   sequence INTEGER NOT NULL,
                   effective_from TEXT,
                   effective_until TEXT,
+                  local_schedule TEXT,
                   rollout_percentage REAL NOT NULL DEFAULT 100,
                   rollout_seed TEXT NOT NULL DEFAULT 'default',
                   created_by TEXT NOT NULL,
@@ -224,6 +311,7 @@ class SQLiteConfigurationStore:
                   sequence INTEGER NOT NULL,
                   effective_from TEXT,
                   effective_until TEXT,
+                  local_schedule TEXT,
                   rollout_percentage REAL NOT NULL DEFAULT 100,
                   rollout_seed TEXT NOT NULL DEFAULT 'default',
                   created_by TEXT NOT NULL,
@@ -282,6 +370,7 @@ class SQLiteConfigurationStore:
                   ON configuration_events(aggregate_type,aggregate_id,sequence);
                 """
             )
+            conn.execute("BEGIN IMMEDIATE")
             head_columns = {
                 str(row[1])
                 for row in conn.execute(
@@ -299,6 +388,10 @@ class SQLiteConfigurationStore:
                     "ADD COLUMN updated_at TEXT NOT NULL "
                     "DEFAULT '1980-01-01T00:00:00+00:00'"
                 )
+            for table in ("configuration_profile_revisions", "configuration_bundle_revisions"):
+                if "local_schedule" not in {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN local_schedule TEXT")
+            conn.execute("COMMIT")
 
     @staticmethod
     def _profile(row: sqlite3.Row | None) -> ProfileRevision | None:
@@ -315,6 +408,7 @@ class SQLiteConfigurationStore:
             rollout_seed=value["rollout_seed"], created_by=value["created_by"], created_at=_timestamp_text(value["created_at"]),
             updated_at=_timestamp_text(value["updated_at"]), published_by=value["published_by"], published_at=_optional_timestamp_text(value["published_at"]),
             supersedes_revision_id=value["supersedes_revision_id"], etag=int(value["etag"]),
+            local_schedule=_loads(value["local_schedule"], None),
         )
 
     @staticmethod
@@ -332,6 +426,7 @@ class SQLiteConfigurationStore:
             rollout_seed=value["rollout_seed"], created_by=value["created_by"], created_at=_timestamp_text(value["created_at"]),
             updated_at=_timestamp_text(value["updated_at"]), published_by=value["published_by"], published_at=_optional_timestamp_text(value["published_at"]),
             supersedes_revision_id=value["supersedes_revision_id"], etag=int(value["etag"]),
+            local_schedule=_loads(value["local_schedule"], None),
         )
 
     @staticmethod
@@ -649,8 +744,11 @@ class SQLiteConfigurationStore:
                        tenant_id: str | None, payload: dict[str, Any], status: str,
                        created_by: str, scope_key: str = "*", environment: str | None = None,
                        effective_from: str | None = None, effective_until: str | None = None,
+                       local_schedule: Mapping[str, str] | None = None,
                        rollout_percentage: float = 100.0, rollout_seed: str = "default",
                        supersedes_revision_id: str | None = None) -> ProfileRevision:
+        schedule = _schedule(effective_from, effective_until, local_schedule)
+        start, end, local = schedule
         payload_hash = digest(payload)
         with self._lock, self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -662,8 +760,11 @@ class SQLiteConfigurationStore:
                 (family, scope, scope_key, tenant_id, environment, payload_hash),
             ).fetchone()
             if existing is not None:
+                result = self._profile(existing)
+                assert result is not None
+                _require_same_schedule(result, schedule)
                 conn.execute("COMMIT")
-                return self._profile(existing)  # type: ignore[return-value]
+                return result
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) FROM configuration_profile_revisions "
                 "WHERE family=? AND profile_id=? AND scope=? AND scope_key=? "
@@ -699,11 +800,11 @@ class SQLiteConfigurationStore:
             conn.execute(
                 """INSERT INTO configuration_profile_revisions(
                    revision_id,family,profile_id,version,scope,scope_key,tenant_id,environment,status,
-                   payload_json,payload_sha256,sequence,effective_from,effective_until,rollout_percentage,rollout_seed,
+                   payload_json,payload_sha256,sequence,effective_from,effective_until,local_schedule,rollout_percentage,rollout_seed,
                    created_by,created_at,updated_at,published_by,published_at,supersedes_revision_id,etag)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)""",
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)""",
                 (revision_id, family, profile_id, version, scope, scope_key, tenant_id, environment, status,
-                 canonical(payload), payload_hash, sequence, effective_from, effective_until,
+                 canonical(payload), payload_hash, sequence, start, end, canonical(local) if local is not None else None,
                  float(rollout_percentage), rollout_seed, created_by, now, now,
                  created_by if status == "published" else None, now if status == "published" else None,
                  supersedes_revision_id),
@@ -1011,10 +1112,13 @@ class SQLiteConfigurationStore:
                       tenant_id: str | None, component_revisions: dict[str, str], status: str,
                       created_by: str, scope_key: str = "*", environment: str | None = None,
                       effective_from: str | None = None, effective_until: str | None = None,
+                      local_schedule: Mapping[str, str] | None = None,
                       rollout_percentage: float = 100.0, rollout_seed: str = "default",
                        supersedes_revision_id: str | None = None,
                        force_new_revision: bool = False,
                        allowed_component_statuses: tuple[str, ...] = ("published",)) -> BundleRevision:
+        schedule = _schedule(effective_from, effective_until, local_schedule)
+        start, end, local = schedule
         content_hash = digest({"mode": mode, "components": component_revisions})
         with self._lock, self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -1031,8 +1135,11 @@ class SQLiteConfigurationStore:
                 (bundle_id, scope, scope_key, tenant_id, environment, content_hash),
             ).fetchone()
             if existing is not None and not force_new_revision:
+                result = self._bundle(existing)
+                assert result is not None
+                _require_same_schedule(result, schedule)
                 conn.execute("COMMIT")
-                return self._bundle(existing)  # type: ignore[return-value]
+                return result
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) FROM configuration_bundle_revisions "
                 "WHERE bundle_id=? AND scope=? AND scope_key=? "
@@ -1067,11 +1174,11 @@ class SQLiteConfigurationStore:
             conn.execute(
                 """INSERT INTO configuration_bundle_revisions(
                    revision_id,bundle_id,version,mode,scope,scope_key,tenant_id,environment,status,
-                   components_json,content_sha256,sequence,effective_from,effective_until,rollout_percentage,rollout_seed,
+                   components_json,content_sha256,sequence,effective_from,effective_until,local_schedule,rollout_percentage,rollout_seed,
                    created_by,created_at,updated_at,published_by,published_at,supersedes_revision_id,etag)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)""",
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)""",
                 (revision_id, bundle_id, version, mode, scope, scope_key, tenant_id, environment, status,
-                 canonical(component_revisions), content_hash, sequence, effective_from, effective_until,
+                 canonical(component_revisions), content_hash, sequence, start, end, canonical(local) if local is not None else None,
                  float(rollout_percentage), rollout_seed, created_by, now, now,
                  created_by if status == "published" else None, now if status == "published" else None,
                  supersedes_revision_id),
@@ -1309,6 +1416,7 @@ class PostgresConfigurationStore:
             created_by=d["created_by"], created_at=_timestamp_text(d["created_at"]), updated_at=_timestamp_text(d["updated_at"]),
             published_by=d.get("published_by"), published_at=_optional_timestamp_text(d.get("published_at")),
             supersedes_revision_id=d.get("supersedes_revision_id"), etag=int(d["etag"]),
+            local_schedule=_loads(d.get("local_schedule"), None),
         )
 
     @staticmethod
@@ -1327,6 +1435,7 @@ class PostgresConfigurationStore:
             created_by=d["created_by"], created_at=_timestamp_text(d["created_at"]), updated_at=_timestamp_text(d["updated_at"]),
             published_by=d.get("published_by"), published_at=_optional_timestamp_text(d.get("published_at")),
             supersedes_revision_id=d.get("supersedes_revision_id"), etag=int(d["etag"]),
+            local_schedule=_loads(d.get("local_schedule"), None),
         )
 
     @staticmethod
@@ -1676,6 +1785,8 @@ class PostgresConfigurationStore:
         )
 
     def create_profile(self, **kwargs: Any) -> ProfileRevision:
+        schedule = _schedule(kwargs.get("effective_from"), kwargs.get("effective_until"), kwargs.get("local_schedule"))
+        start, end, local = schedule
         family = str(kwargs["family"])
         profile_id = str(kwargs["profile_id"])
         scope = str(kwargs["scope"])
@@ -1703,6 +1814,7 @@ class PostgresConfigurationStore:
             if existing is not None:
                 result = self._profile(existing)
                 assert result is not None
+                _require_same_schedule(result, schedule)
                 return result
             self._lock_head(conn, "profile", logical_identity)
             maximum_row = conn.execute(
@@ -1749,10 +1861,10 @@ class PostgresConfigurationStore:
                 "INSERT INTO configuration.profile_revisions"
                 "(revision_id,family,profile_id,version,scope,scope_key,tenant_id,"
                 "environment,status,payload,payload_sha256,sequence,effective_from,"
-                "effective_until,rollout_percentage,rollout_seed,created_by,created_at,"
+                "effective_until,local_schedule,rollout_percentage,rollout_seed,created_by,created_at,"
                 "updated_at,published_by,published_at,supersedes_revision_id,etag) "
                 "VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,"
-                "%s::timestamptz,%s::timestamptz,%s,%s,%s,%s::timestamptz,"
+                "%s::timestamptz,%s::timestamptz,%s::jsonb,%s,%s,%s,%s::timestamptz,"
                 "%s::timestamptz,%s,%s::timestamptz,%s,1) "
                 f"RETURNING {_POSTGRES_PROFILE_COLUMNS}",
                 (
@@ -1768,8 +1880,9 @@ class PostgresConfigurationStore:
                     canonical(kwargs["payload"]),
                     payload_hash,
                     sequence,
-                    kwargs.get("effective_from"),
-                    kwargs.get("effective_until"),
+                    start,
+                    end,
+                    canonical(local) if local is not None else None,
                     float(kwargs.get("rollout_percentage", 100)),
                     kwargs.get("rollout_seed", "default"),
                     kwargs["created_by"],
@@ -2136,6 +2249,8 @@ class PostgresConfigurationStore:
             return changed
 
     def create_bundle(self, **kwargs: Any) -> BundleRevision:
+        schedule = _schedule(kwargs.get("effective_from"), kwargs.get("effective_until"), kwargs.get("local_schedule"))
+        start, end, local = schedule
         bundle_id = str(kwargs["bundle_id"])
         scope = str(kwargs["scope"])
         scope_key = str(kwargs.get("scope_key", "*"))
@@ -2173,6 +2288,7 @@ class PostgresConfigurationStore:
             ):
                 result = self._bundle(existing)
                 assert result is not None
+                _require_same_schedule(result, schedule)
                 return result
             self._lock_head(conn, "bundle", logical_identity)
             maximum_row = conn.execute(
@@ -2218,10 +2334,10 @@ class PostgresConfigurationStore:
                 "INSERT INTO configuration.bundle_revisions"
                 "(revision_id,bundle_id,version,mode,scope,scope_key,tenant_id,"
                 "environment,status,components,content_sha256,sequence,effective_from,"
-                "effective_until,rollout_percentage,rollout_seed,created_by,created_at,"
+                "effective_until,local_schedule,rollout_percentage,rollout_seed,created_by,created_at,"
                 "updated_at,published_by,published_at,supersedes_revision_id,etag) "
                 "VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,"
-                "%s::timestamptz,%s::timestamptz,%s,%s,%s,%s::timestamptz,"
+                "%s::timestamptz,%s::timestamptz,%s::jsonb,%s,%s,%s,%s::timestamptz,"
                 "%s::timestamptz,%s,%s::timestamptz,%s,1) "
                 f"RETURNING {_POSTGRES_BUNDLE_COLUMNS}",
                 (
@@ -2237,8 +2353,9 @@ class PostgresConfigurationStore:
                     canonical(kwargs["component_revisions"]),
                     content_hash,
                     sequence,
-                    kwargs.get("effective_from"),
-                    kwargs.get("effective_until"),
+                    start,
+                    end,
+                    canonical(local) if local is not None else None,
                     float(kwargs.get("rollout_percentage", 100)),
                     kwargs.get("rollout_seed", "default"),
                     kwargs["created_by"],

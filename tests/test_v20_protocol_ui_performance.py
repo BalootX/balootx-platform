@@ -33,6 +33,10 @@ def test_v20_configuration_studio_is_guided_and_scope_aware():
     text = (root / "src/baloot_platform/service/static/configuration/index.html").read_text(encoding="utf-8")
     for item in ("scopeKey", "environment", "effectiveFrom", "effectiveUntil", "rolloutPercentage", "user_experiment"):
         assert item in text
+    assert 'aria-describedby="timeZoneHelp"' in text
+    assert "timeZone: $('timeZone').value.trim()" in text
+    assert "localSchedule," in text
+    assert ".toISOString()" not in text
     assert "JSON يظهر فقط في الوضع المتقدم" in text
 
 

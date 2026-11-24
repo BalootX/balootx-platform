@@ -24,6 +24,7 @@ from .models import (
     ResolutionContext,
     RevisionStatus,
     digest,
+    parse_instant,
 )
 
 _SEMVER = re.compile(
@@ -40,13 +41,6 @@ _PRECEDENCE_KEYS = {
     "global_published",
     "file_bundle_fallback",
 }
-
-
-def _parse_time(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    result = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    return result if result.tzinfo else result.replace(tzinfo=timezone.utc)
 
 
 class VersionedConfigurationService:
@@ -222,6 +216,7 @@ class VersionedConfigurationService:
                 raise ValueError(f"{name} must be nonblank when provided")
             return normalized
 
+        instant = parse_instant(at_time, "atTime")
         return ResolutionContext(
             optional("tenant_id", tenant_id),
             optional("environment", environment),
@@ -230,7 +225,7 @@ class VersionedConfigurationService:
             optional("shared_game_id", shared_game_id),
             optional("video_profile_id", video_profile_id),
             optional("subject_id", subject_id),
-            optional("at_time", at_time),
+            instant.isoformat() if instant is not None else None,
         )
 
     def validate_profile(self, family: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -264,6 +259,7 @@ class VersionedConfigurationService:
         environment: str | None = None,
         effective_from: str | None = None,
         effective_until: str | None = None,
+        local_schedule: Mapping[str, str] | None = None,
         rollout_percentage: float = 100.0,
         rollout_seed: str = "default",
         supersedes_revision_id: str | None = None,
@@ -294,6 +290,7 @@ class VersionedConfigurationService:
             created_by=created_by,
             effective_from=effective_from,
             effective_until=effective_until,
+            local_schedule=local_schedule,
             rollout_percentage=percentage,
             rollout_seed=str(rollout_seed or "default"),
             supersedes_revision_id=supersedes_revision_id,
@@ -410,9 +407,9 @@ class VersionedConfigurationService:
 
     @staticmethod
     def _eligible(revision: Any, context: ResolutionContext) -> bool:
-        now = _parse_time(context.at_time) or datetime.now(timezone.utc)
-        start = _parse_time(revision.effective_from)
-        end = _parse_time(revision.effective_until)
+        now = parse_instant(context.at_time, "atTime") or datetime.now(timezone.utc)
+        start = parse_instant(revision.effective_from, f"{revision.revision_id}.effectiveFrom")
+        end = parse_instant(revision.effective_until, f"{revision.revision_id}.effectiveUntil")
         if start and now < start:
             return False
         if end and now >= end:
@@ -637,6 +634,7 @@ class VersionedConfigurationService:
         environment: str | None = None,
         effective_from: str | None = None,
         effective_until: str | None = None,
+        local_schedule: Mapping[str, str] | None = None,
         rollout_percentage: float = 100.0,
         rollout_seed: str = "default",
         supersedes_revision_id: str | None = None,
@@ -685,6 +683,7 @@ class VersionedConfigurationService:
             created_by=created_by,
             effective_from=effective_from,
             effective_until=effective_until,
+            local_schedule=local_schedule,
             rollout_percentage=float(rollout_percentage),
             rollout_seed=str(rollout_seed or "default"),
             supersedes_revision_id=supersedes_revision_id,

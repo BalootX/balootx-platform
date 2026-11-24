@@ -396,6 +396,17 @@
             ],
             "title": "Environment"
           },
+          "localSchedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocalSchedule"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "mode": {
             "default": "full",
             "title": "Mode",
@@ -1479,6 +1490,17 @@
             "minimum": 1.0,
             "title": "Etag",
             "type": "integer"
+          },
+          "localSchedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocalSchedule"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "mode": {
             "title": "Mode",
@@ -7092,6 +7114,42 @@
         "title": "LiveActionRequest",
         "type": "object"
       },
+      "LocalSchedule": {
+        "additionalProperties": false,
+        "properties": {
+          "effectiveFrom": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effectivefrom"
+          },
+          "effectiveUntil": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effectiveuntil"
+          },
+          "timeZone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timeZone"
+        ],
+        "title": "LocalSchedule",
+        "type": "object"
+      },
       "LoginRequest": {
         "properties": {
           "password": {
@@ -8346,6 +8404,17 @@
           "family": {
             "title": "Family",
             "type": "string"
+          },
+          "localSchedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocalSchedule"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "payload": {
             "additionalProperties": true,
