@@ -138,11 +138,6 @@ def test_hosted_ci_contract(root):
         predicate = "needs.plan.outputs.full == 'true'"
         if job in ci_scope.TEST_SETUP:
             predicate += " || needs.plan.outputs.tests != '[]'"
-        if job == "media-inputs":
-            predicate = (
-                f"!cancelled() && needs.plan.result == 'success' && {predicate} && "
-                "needs.python-wheelhouse.result == 'success' && needs.ffmpeg-packages.result == 'success'"
-            )
         assert jobs[job]["if"] == predicate
     gate_step = jobs["ci-gate"]["steps"][-1]
     assert gate_step["env"]["IS_DRAFT"] == "${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}"
@@ -261,6 +256,7 @@ def test_docker_constraint_job_resolves_the_shared_target(root):
     assert check["if"] == "needs.plan.outputs.docker_constraints == 'true'"
     assert jobs["plan"]["outputs"]["docker_constraints"] == "${{ steps.plan.outputs.docker_constraints }}"
     assert check["steps"][-1]["run"] == "docker build --progress=plain --target docker-constraints ."
+    assert "docker-constraints" not in jobs["media-inputs"]["needs"]
 
 
 def test_viewer_seat_proof_dispatch_uses_pinned_fixtures_and_skips_ci(root):

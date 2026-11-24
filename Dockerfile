@@ -27,7 +27,7 @@ print(*project["dependencies"], sep="\n")
 for extra in sys.argv[1].split(","):
     print(*project["optional-dependencies"][extra], sep="\n")
 PY
-python -m pip install --dry-run --ignore-installed --retries 0 -r /tmp/verifier-requirements.txt
+python -m pip install --dry-run --ignore-installed -r /tmp/verifier-requirements.txt
 SH
 
 FROM node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS remotion-build
