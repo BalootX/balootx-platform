@@ -230,7 +230,8 @@ def legacy_service_records(monkeypatch):
 
 
 def _grpc_probe(tmp_path, monkeypatch, probe, *, stub_factory=None):
-    grpc = pytest.importorskip("grpc")
+    import grpc
+
     from baloot_platform.generated import sakka_pb2_grpc
     from baloot_platform.service.grpc_service import serve
 

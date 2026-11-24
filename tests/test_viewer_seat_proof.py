@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 
 import pytest
 
@@ -92,7 +91,6 @@ def test_viewer_seat_proof_rejects_single_legal_card(proof_input):
         prove_fixture(raw, **{**options, "fixture_sha": hashlib.sha256(raw).hexdigest()})
 
 
-@pytest.mark.skipif(not os.environ.get("BALOOT_NATIVE_LIBRARY"), reason="native test library not configured")
 def test_node_only_native_receipt_matches_cp_sat_and_is_repeatable(proof_input):
     raw, options = proof_input
     reference = prove_fixture(raw, **options)
