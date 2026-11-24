@@ -1101,6 +1101,7 @@ function App() {
     return requested && foundrySectionIds.includes(requested) ? requested : 'overview';
   });
   const [profile, setProfile] = useState<FoundryProfile | null>(null);
+  const [readinessLoaded, setReadinessLoaded] = useState(false);
   const [researchBundles, setResearchBundles] = useState<ConfigBundle[]>([]);
   const researchRecipeController = useMemo(
     () => new ResearchRecipeController(researchRecipeApi),
@@ -1126,7 +1127,7 @@ function App() {
   }, [researchRecipeController]);
   const [retiringRecipeCodes, setRetiringRecipeCodes] = useState<Set<string>>(() => new Set());
   const [researchRuns, setResearchRuns] = useState<ResearchRun[]>([]);
-  const [researchStats, setResearchStats] = useState<ResearchStats | null>(null);
+  const [researchStats, setResearchStats] = useState<ResearchStats | null>();
   const researchStatsRevision = researchRuns.map(({runCode, status}) => `${runCode}:${status}`).join('|');
   const activeResearchRunCodes = researchRuns.filter((item) => ['queued', 'running'].includes(item.status))
     .map((item) => item.runCode).sort().join('|');
@@ -1242,6 +1243,7 @@ function App() {
     setRenderJob((current) => current
       ? renderPage.items.find((item) => item.jobId === current.jobId) || null
       : renderPage.items.find((item) => ['queued', 'running'].includes(item.status)) || null);
+    setReadinessLoaded(true);
   }, [view]);
 
   useEffect(() => researchRecipeController.subscribe(() => {
@@ -1293,7 +1295,10 @@ function App() {
   useEffect(() => { refresh().catch((error: Error) => setMessage(error.message)); }, [refresh]);
   useEffect(() => {
     if ((view !== 'overview' && view !== 'research') || !researchRuns.length) return;
-    api<ResearchStats>('/api/v2/research-stats').then(setResearchStats).catch((error:Error)=>setMessage(error.message));
+    api<ResearchStats>('/api/v2/research-stats').then(setResearchStats).catch((error: Error) => {
+      setResearchStats((current) => current ?? null);
+      setMessage(error.message);
+    });
   }, [view, researchStatsRevision]);
   useEffect(() => {
     if (view !== 'laffat') return;
@@ -1543,6 +1548,8 @@ function App() {
     && selected.spec.perspectiveProfileHash === profile.perspectiveProfileHash
     && selected.spec.selectionProfileHash === profile.selectionProfileHash);
   const evidenceCount = Math.max(candidatePage?.count || 0, catalogs.filter((item) => item.kind.includes('evidence') || item.kind.includes('proof')).length);
+  // The first research summary can still shift the readiness controls after refresh.
+  const readinessLoading = !readinessLoaded || (researchRuns.length > 0 && researchStats === undefined);
   const readiness = [
     {label: t("workflow.m_d40c6942d37e"), ready: Boolean(profile?.bundleHash), detail: t("workflow.m_406fd6baf625")},
     {label: t("workflow.m_c6ad13aaf02e"), ready: completedCampaigns.length > 0 || sakkas.length > 0, detail: t("workflow.m_0c5f3d3d663d")},
@@ -2230,7 +2237,7 @@ function App() {
         recipes={researchRecipes}
         runs={researchRuns}
         disagreements={semanticDisagreements}
-        stats={researchStats}
+        stats={researchStats ?? null}
         busy={busy}
         setBusy={setBusy}
         setMessage={setMessage}
@@ -2423,7 +2430,7 @@ function App() {
       {view === 'overview' && <>
       <section className="panel readiness-panel">
         <PanelTitle kicker={t("settings.m_4dd48409b984")} title={t("settings.m_77cbd53db867")} help={t("settings.m_e706bdf84419")} example={t("settings.m_565d95bfb57e")} openHelp={openHelp} setOpenHelp={setOpenHelp} />
-        <div className="readiness-grid">{readiness.map((item) => <button key={item.label} className={`readiness-item ${item.ready ? 'ready' : 'pending'}`} onClick={() => setDrawer({kind:'readiness', title:item.label, subtitle:item.ready ? t("settings.m_c2da5684d63b") : t("settings.m_8398aec9e029"), content:<p className="drawer-lead">{item.detail}</p>})}><i>{item.ready ? '✓' : '○'}</i><span><b>{item.label}</b><small>{item.detail}</small></span><span className="chevron">‹</span></button>)}</div>
+        <div className="readiness-grid" aria-busy={readinessLoading}>{readiness.map((item) => <button key={item.label} className={`readiness-item ${item.ready ? 'ready' : 'pending'}`} disabled={readinessLoading} onClick={() => setDrawer({kind:'readiness', title:item.label, subtitle:item.ready ? t("settings.m_c2da5684d63b") : t("settings.m_8398aec9e029"), content:<p className="drawer-lead">{item.detail}</p>})}><i>{item.ready ? '✓' : '○'}</i><span><b>{item.label}</b><small>{item.detail}</small></span><span className="chevron">‹</span></button>)}</div>
         <div className="publishing-lock"><span>🔒</span><div><b>{t("settings.m_2382f4a3fe95")}</b><small>{t("settings.m_12c8c831be2c")}</small></div><a href={renderJob?.status === 'completed' ? '#render-output' : '#video-workflow'}>{t("settings.m_94d1f1049135")}</a></div>
       </section>
       </>}

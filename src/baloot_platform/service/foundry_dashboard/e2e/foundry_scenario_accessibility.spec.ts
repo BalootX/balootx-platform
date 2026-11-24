@@ -259,10 +259,19 @@ async function setSelectorRanks(page: Page, id: string, ranks: string[]) {
   }
 }
 
+const readinessLabel = 'إعدادات منشورة ومجمّدة';
+
+function readinessTrigger(page: Page) {
+  return page.locator('.readiness-grid').getByRole('button').filter({
+    has: page.getByText(readinessLabel, {exact: true}),
+  });
+}
+
 async function openReadinessDrawer(page: Page) {
   await page.goto('/foundry?section=overview');
-  const trigger = page.locator('.readiness-item').first();
+  const trigger = readinessTrigger(page);
   await expect(trigger).toBeVisible();
+  await expect(trigger).toBeEnabled();
   await trigger.focus();
   await page.keyboard.press('Enter');
   const dialog = page.locator('dialog.drawer-layer');
@@ -312,11 +321,25 @@ test('distinct performance metrics follow the selected governed copy capability'
 
 test('@mobile touch opens and closes the drawer with a full-size control', async ({page}) => {
   expect(await page.evaluate(() => navigator.maxTouchPoints)).toBeGreaterThan(0);
-  await page.goto('/foundry?section=overview');
-  const trigger = page.locator('.readiness-item').first();
-  await expect(trigger).toBeVisible();
+  let releaseProfile!: () => void;
+  const profileGate = new Promise<void>((resolve) => { releaseProfile = resolve; });
+  await page.route('**/api/v2/foundry-profile', async (route) => {
+    await profileGate;
+    await route.continue();
+  });
+  const trigger = readinessTrigger(page);
+  try {
+    await page.goto('/foundry?section=overview');
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toBeDisabled();
+  } finally {
+    releaseProfile();
+  }
+  await expect(trigger).toBeEnabled();
   await trigger.tap();
   const dialog = page.locator('dialog.drawer-layer');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAccessibleName(readinessLabel);
   const close = dialog.locator('header button');
   const size = await close.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -342,9 +365,11 @@ test('@reduced-motion drawer keeps its state change without animation', async ({
 test('@zoom drawer remains operable and contained at 200 percent zoom', async ({page}) => {
   await page.goto('/foundry?section=overview');
   await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
-  const trigger = page.locator('.readiness-item').first();
+  const trigger = readinessTrigger(page);
+  await expect(trigger).toBeEnabled();
   await trigger.click();
   const dialog = page.locator('dialog.drawer-layer');
+  await expect(dialog).toBeVisible();
   const close = dialog.locator('header button');
   await expect(close).toBeVisible();
   const bounds = await dialog.locator('.drawer').evaluate((element) => {
