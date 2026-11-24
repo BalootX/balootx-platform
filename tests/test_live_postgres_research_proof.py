@@ -962,7 +962,7 @@ def test_current_migration_policy_contract_is_final_and_deterministic(
     assert first == second
     assert (
         first["sha256"]
-        == "2c0d7519af7b36a7f63bef34c25612c3f49ab0ab3710beeff397d891a907c983"
+        == "5b0ca8ab52a50d8638a00727fc94230b4397d5f525b9f4e1e1c2b1bbf87cca3c"
     )
     assert policies.isdisjoint(legacy_configuration_policies)
     assert configuration_v25_policies.issubset(policies)
