@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from scripts import build_nightly_shadow_day as shadow
 from scripts import nightly_candidates as nightly
 from scripts import pick_nightly_candidates as picker
 
@@ -496,3 +497,62 @@ def test_sealed_pool_binds_media_and_exact_run(tmp_path):
     (output / rows[0]["id"] / "candidate.mp4").write_bytes(b"tampered")
     with pytest.raises(picker.PlanError, match="POOL_HASH_MISMATCH"):
         picker.verified_pool(output)
+
+
+def test_shadow_checks_approved_names_and_notice(monkeypatch):
+    seed = "shadow-test"
+    names = nightly.notice.seeded_player_names(nightly.synthetic_identity(), seed)
+    monkeypatch.setattr(shadow.RenderBundleV1, "verify", lambda self: True)
+    bundle = {
+        "identity": {"gameSerial": seed, "players": names},
+        "localizations": {
+            "video.notice.sentence": nightly.notice.notice_profile(public=True)[
+                "localizations"
+            ]["video.notice.sentence"]
+        },
+        "presentation": {"majlis": {"research_notice": True}},
+    }
+    shadow.check_presentation(bundle)
+    with pytest.raises(nightly.Rejected, match="generic_or_unapproved_player_names"):
+        shadow.check_presentation(
+            {
+                **bundle,
+                "identity": {
+                    "gameSerial": seed,
+                    "players": {**names, "north": "Player 01"},
+                },
+            }
+        )
+    bundle["presentation"]["majlis"]["research_notice"] = False
+    with pytest.raises(picker.PlanError, match="INVALID_SHADOW_NOTICE"):
+        shadow.check_presentation(bundle)
+
+
+def test_shadow_rejects_missing_or_out_of_range_sound():
+    from baloot_platform.video.media_validation import RELEASE_TARGET_LUFS
+
+    media = {
+        "fullDecode": "passed",
+        "mediaProbe": {"audio": {"channels": 2}},
+        "loudness": {
+            "integratedLufs": RELEASE_TARGET_LUFS,
+            "targetLufs": RELEASE_TARGET_LUFS,
+            "truePeakDbtp": -2.0,
+        },
+    }
+    shadow.check_audio(media)
+    media["loudness"]["truePeakDbtp"] = -0.5
+    with pytest.raises(ValueError, match="governed audio loudness"):
+        shadow.check_audio(media)
+    media["mediaProbe"]["audio"]["channels"] = 0
+    with pytest.raises(picker.PlanError, match="SHADOW_AUDIO_MISSING"):
+        shadow.check_audio(media)
+
+
+def test_shadow_slots_require_one_ordered_utc_day():
+    slots = [{"slotUtc": f"2026-01-01T{hour:02}:00:00Z"} for hour in (9, 12, 15, 18)]
+    assert shadow.checked_slots({"slots": slots}) == [
+        entry["slotUtc"] for entry in slots
+    ]
+    with pytest.raises(picker.PlanError, match="INVALID_REFERENCE_SLOTS"):
+        shadow.checked_slots({"slots": [slots[0], slots[0], *slots[2:]]})
