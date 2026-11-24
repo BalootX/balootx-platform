@@ -79,10 +79,6 @@ def test_cp_sat_generation_rejects_an_expired_deadline_before_solver():
         )
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_unconstrained_single_candidate_is_seeded_and_fixed_for_verification(root):
     rules = build_bundle(root).rules
     spec = _spec(
@@ -134,10 +130,6 @@ def test_unconstrained_single_candidate_is_seeded_and_fixed_for_verification(roo
 
 
 @pytest.mark.real_clock
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_cp_sat_deadline_is_checked_between_compact_solver_calls(
     root,
     monkeypatch: pytest.MonkeyPatch,
@@ -200,7 +192,6 @@ def test_structural_domain_snapshot_round_trips_through_closed_core_parser(root)
 def test_legacy_constraint_benchmark_uses_rulebook_structural_authority(
     root, monkeypatch: pytest.MonkeyPatch
 ):
-    pytest.importorskip("ortools")
     from scripts.benchmark_constraint_deal_search import _benchmark_layout
 
     rules = build_bundle(root).rules
@@ -380,10 +371,6 @@ def test_tactical_bands_follow_a_governed_strength_table_change(root):
     assert heart_nine in changed_low and heart_queen in changed_high
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 @pytest.mark.parametrize("kind", ["only_winning_move", "small_card_big_gain"])
 def test_tactical_deal_balance_prevents_dominant_and_empty_high_card_hands(
     root,
@@ -442,10 +429,6 @@ def test_tactical_deal_balance_prevents_dominant_and_empty_high_card_hands(
     ) >= 1
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_contract_aware_balance_can_run_without_a_tactical_score_objective(root):
     bundle = build_bundle(root)
     spec = _spec(
@@ -493,10 +476,6 @@ def test_deal_layout_is_the_single_complete_slot_map_for_every_rotation(root):
             ) == list(range(32))
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_cp_sat_deck_is_deterministic_structural_and_engine_replayable(root, deterministic_work):
     bundle = build_bundle(root)
     generator = OrToolsCpSatDealGeneratorV1()
@@ -590,10 +569,6 @@ def test_cp_sat_deck_is_deterministic_structural_and_engine_replayable(root, det
     assert replay.seed_provenance["deckCommitment"] == candidate.deck_commitment
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_cp_sat_project_proxy_comes_from_authoritative_rule_patterns(root):
     bundle = build_bundle(root)
     spec = _spec(
@@ -634,10 +609,6 @@ def test_cp_sat_project_proxy_comes_from_authoritative_rule_patterns(root):
     assert any(hand_mask & pattern == pattern for pattern in patterns)
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_cp_sat_applies_required_and_forbidden_cards_to_final_hands(root):
     bundle = build_bundle(root)
     spec = _spec(
@@ -670,10 +641,6 @@ def test_cp_sat_applies_required_and_forbidden_cards_to_final_hands(root):
     assert Card.parse("SA").id not in north
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_cp_sat_no_good_cut_returns_distinct_stable_complete_assignments(root):
     bundle = build_bundle(root)
     spec = _spec(maximumSolutions=2)
@@ -701,10 +668,6 @@ def test_cp_sat_no_good_cut_returns_distinct_stable_complete_assignments(root):
         (True, "final_hand_allocation_v1"),
     ],
     ids=("complete-deck", "compact-allocation"),
-)
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
 )
 def test_cp_sat_generate_next_matches_batch_order_and_exact_cut_provenance(
     root,
@@ -784,10 +747,6 @@ def test_cp_sat_generate_next_matches_batch_order_and_exact_cut_provenance(
     ) is None
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_cp_sat_generate_next_rejects_foreign_or_unordered_candidates(root):
     bundle = build_bundle(root)
     spec = _spec(maximumSolutions=2)
@@ -863,10 +822,6 @@ def test_cp_sat_generate_next_rejects_foreign_or_unordered_candidates(root):
 
 
 @pytest.mark.real_clock
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_cp_sat_generate_next_honors_deadline_with_rejection_prefix(root):
     bundle = build_bundle(root)
     spec = _spec(maximumSolutions=2)
@@ -891,10 +846,6 @@ def test_cp_sat_generate_next_honors_deadline_with_rejection_prefix(root):
 
 
 @pytest.mark.real_clock
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_cp_sat_continuation_receipt_is_deterministic_and_fail_closed(
     root,
     monkeypatch,
@@ -988,10 +939,6 @@ def test_cp_sat_continuation_receipt_is_deterministic_and_fail_closed(
         )
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_cp_sat_tactical_structure_objective_is_deterministic_and_auditable(root):
     bundle = build_bundle(root)
     spec = _spec(
@@ -1018,10 +965,6 @@ def test_cp_sat_tactical_structure_objective_is_deterministic_and_auditable(root
     assert spec.to_dict()["tacticalObjectiveWeights"] == {"kabout_creation": 100}
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_compact_project_400_allocation_replays_and_preserves_solver_hands(root):
     bundle = build_bundle(root)
     spec = _spec(

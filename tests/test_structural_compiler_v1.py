@@ -81,10 +81,6 @@ def _runtime_annulling(rules: RuleBook, ranks: tuple[str, ...]) -> dict:
     return {"eligible": eligible, "dealerAdvances": advances}
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatStructuralCompilerV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_cp_sat_structural_plan_matches_reference_and_runtime(root):
     rules = build_bundle(root).rules
     reference = ReferenceStructuralInterpreterV1(rules.structural_domain)
@@ -135,10 +131,6 @@ def test_runtime_rejects_a_structural_ir_from_different_rules(root):
         BalootEngine(rules, structural_domain=foreign)
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatStructuralCompilerV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 @pytest.mark.parametrize(
     "path,value",
     [
@@ -224,10 +216,6 @@ def test_structural_targets_reject_raw_or_forged_parallel_authorities(root):
         )
 
 
-@pytest.mark.skipif(
-    not OrToolsCpSatStructuralCompilerV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 def test_automatic_cut_and_every_dealer_buyer_layout_have_three_target_parity(root):
     rules = build_bundle(root).rules
     domain = rules.structural_domain

@@ -14,17 +14,13 @@ from baloot_platform.core.auction_ir import AuctionDomainIRV1
 from baloot_platform.core.bidding_machine import BiddingMachine
 from baloot_platform.core.engine import BalootEngine
 from baloot_platform.core.enums import Contract, Seat, Suit
-from baloot_platform.native.accelerator import NativeAccelerator, NativeUnavailable
+from baloot_platform.native.accelerator import NativeAccelerator
 
 
 def _native_backend(rules) -> NativeExactSearchBackendV3:
-    try:
-        native = NativeAccelerator(rules)
-    except (NativeUnavailable, OSError):
-        pytest.skip("native V3 library is not built in this test lane")
-    if not native.supports_compact_rollout:
-        pytest.skip("native library does not expose compact rollout ABI V3")
-    return NativeExactSearchBackendV3(native)
+    backend = NativeExactSearchBackendV3(NativeAccelerator(rules))
+    assert backend.supports_compact_rollout, "native library does not expose compact rollout ABI V3"
+    return backend
 
 
 def _playing_state(rules, *, seed: int = 73021):

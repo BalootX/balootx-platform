@@ -107,7 +107,11 @@ COPY schemas ./schemas
 COPY generated ./generated
 COPY release/saudi-baloot-official-source-verification-20260831.json release/saudi-baloot-official-source-verification-20260831-v2.json /app/release/
 COPY proto ./proto
+COPY scripts ./scripts
+COPY assets/fonts ./assets/fonts
+COPY examples ./examples
 COPY tests ./tests
+ENV BALOOT_NATIVE_LIBRARY=/tmp/native/libbaloot_native.so
 RUN --mount=type=cache,target=/root/.cache/pip wheel_path="$(echo /app/dist/baloot_platform-*.whl)" && python -m pip install --no-cache-dir "${wheel_path}[${VERIFIER_EXTRAS}]" && PYTHONPATH=src pytest -q && ctest --test-dir /tmp/native --output-on-failure
 
 FROM python-base AS verifier
