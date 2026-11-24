@@ -27,6 +27,40 @@ def test_solver_work_default_selects_imports(tmp_path, source, expected):
     assert solver_test_module(module) is expected
 
 
+def test_renderer_receipts_and_image_parity_run_without_loading_the_solver(root, tmp_path, capsys):
+    probe = """
+import json
+import sys
+from time import perf_counter
+
+import pytest
+
+class CollectionEnd:
+    def pytest_collection_finish(self, session):
+        self.finished = perf_counter()
+
+collection = CollectionEnd()
+started = perf_counter()
+exit_code = pytest.main(sys.argv[1:], plugins=[collection])
+if exit_code:
+    raise SystemExit(exit_code)
+assert "ortools" not in sys.modules, "renderer receipts or image parity imported OR-Tools"
+print(json.dumps({
+    "setup_and_collection_seconds": collection.finished - started,
+    "execution_and_cleanup_seconds": perf_counter() - collection.finished,
+}))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", probe, "--basetemp", str(tmp_path / "pytest"),
+         "tests/test_research_notice.py", "tests/test_remotion_image_parity.py"],
+        cwd=root, env=lane.isolated_environment(str(tmp_path / "runtime")),
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    with capsys.disabled():
+        print("Renderer receipt and parity timings:", result.stdout.splitlines()[-1])
+
+
 @pytest.mark.parametrize("elapsed,expected", [(0, 600), (500, 340), (839, 1), (840, None)])
 def test_solver_file_budget_never_resets(monkeypatch, elapsed, expected):
     import deterministic_work as work
