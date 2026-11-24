@@ -1,5 +1,5 @@
 import time
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.core.bots import BotProfile, HeuristicBot
 from baloot_platform.core.engine import BalootEngine

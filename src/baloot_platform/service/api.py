@@ -34,6 +34,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
+from starlette._utils import get_route_path
 from pydantic import (
     BaseModel,
     Field,
@@ -108,6 +109,15 @@ from baloot_platform.service.routes import (
 )
 from baloot_platform.service.container import PlatformContainer, build_container
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER
+from baloot_platform.security import Scope
+from baloot_platform.service.authorization import (
+    DEFAULT_TENANT,
+    PUBLIC_HTTP_BOOTSTRAP,
+    credentials,
+    http_scope,
+    public_http,
+    tenant_job_http,
+)
 from baloot_platform.service.client_identity import (
     initialize_service_subject_ownership,
     service_subject_ownership,
@@ -235,7 +245,14 @@ def _project_decision_for_request(
     request: Request,
 ) -> dict[str, Any]:
     access, subject_id = _shared_decision_access(decision, request)
-    return project_shared_decision(decision, access, subject_id=subject_id)
+    value = project_shared_decision(decision, access, subject_id=subject_id)
+    scopes = AUTHORIZATION_POLICY.effective_scopes(
+        role=getattr(request.state, "role", "anonymous"),
+        claims=getattr(request.state, "access_claims", None),
+    )
+    if Scope.CONFIG_ADMIN not in scopes:
+        value.pop("videoRecords", None)
+    return value
 
 
 def _require_private_decision_access(
@@ -517,10 +534,16 @@ def _trusted_authorized(request: Request) -> bool:
     Production deployments are deny-by-default. Local development and tests may
     opt in explicitly or rely on the loopback-only development default.
     """
+    scopes = AUTHORIZATION_POLICY.effective_scopes(
+        role=getattr(request.state, "role", "anonymous"),
+        claims=getattr(request.state, "access_claims", None),
+    )
+    if Scope.HIDDEN_READ not in scopes:
+        return False
     configured = os.environ.get("BALOOT_TRUSTED_API_KEY", "")
     supplied = request.headers.get("x-baloot-trusted-key", "")
     if configured:
-        return bool(supplied) and hmac.compare_digest(configured, supplied)
+        return bool(supplied) and hmac.compare_digest(configured.encode(), supplied.encode())
     if _truthy("BALOOT_ALLOW_TRUSTED_CONTEXT"):
         return True
     environment = os.environ.get("BALOOT_ENV", "development").strip().lower()
@@ -700,38 +723,38 @@ async def platform_security(request: Request, call_next):
         )
         response.headers["retry-after"] = str(retry_after)
         return response
-    token = request_token(request)
-    identity, identity_session = IDENTITY.resolve(token)
-    access_claims = None
-    if identity is None and token and token.count(".") == 2:
-        try:
-            access_claims = ACCESS_TOKENS.verify(token)
-        except (ValueError, KeyError, TypeError):
-            access_claims = None
+    auth = credentials(request.headers, request_token(request), IDENTITY, ACCESS_TOKENS)
+    identity, identity_session = auth.identity, auth.session
+    access_claims = auth.claims
     request.state.identity = identity
     request.state.identity_session = identity_session
     request.state.access_claims = access_claims
     api_key = os.environ.get("BALOOT_API_KEY")
-    supplied_key = request.headers.get("x-api-key", "")
-    api_key_valid = (
-        bool(api_key)
-        and bool(supplied_key)
-        and hmac.compare_digest(api_key, supplied_key)
-    )
+    api_key_valid = auth.api_key_valid
     request.state.api_key_valid = api_key_valid
+    request.state.tenant_id = auth.tenant_id
+    request.state.role = auth.role
     session_valid = (
         identity is not None and identity_session is not None
     ) or access_claims is not None
-    auth_bootstrap = request.url.path.startswith("/api/v1/auth/")
-    if (
-        api_key
-        and request.method not in {"GET", "HEAD", "OPTIONS"}
-        and not (api_key_valid or session_valid or auth_bootstrap)
-    ):
-        return JSONResponse(
-            {"detail": "authentication required", "requestId": request_id},
-            status_code=401,
-        )
+    path = get_route_path(request.scope)
+    auth_bootstrap = request.method == "POST" and path in PUBLIC_HTTP_BOOTSTRAP
+    if not public_http(request.method, path):
+        if not auth.authenticated:
+            return JSONResponse(
+                {"detail": "authentication required", "requestId": request_id},
+                status_code=401,
+            )
+        try:
+            AUTHORIZATION_POLICY.require(
+                role=auth.role, required=http_scope(request.method, path), claims=access_claims,
+            )
+            if auth.tenant_id != DEFAULT_TENANT and not tenant_job_http(request.method, path):
+                raise PermissionError("the request is outside the tenant scope")
+        except PermissionError as exc:
+            return JSONResponse(
+                {"detail": str(exc), "requestId": request_id}, status_code=403,
+            )
     enforce_csrf = _truthy("BALOOT_ENFORCE_SESSION_CSRF") or (
         os.environ.get("BALOOT_ENV", "development").lower() == "production"
         and bool(IDENTITY_PROFILE.get("csrf", {}).get("enabled_in_production", True))
@@ -756,21 +779,11 @@ async def platform_security(request: Request, call_next):
         getattr(access_claims, "subject_id", "")
         or (identity.subject_id if identity else "")
     )
-    tenant = str(
-        getattr(access_claims, "tenant_id", "")
-        or request.headers.get("x-baloot-tenant-id", "")
-    )
-    role = str(
-        getattr(access_claims, "role", "")
-        or request.headers.get(
-            "x-baloot-role", "player" if claims_subject else "anonymous"
-        )
-    )
     context_token = CURRENT_DATABASE_IDENTITY.set(
         DatabaseIdentityContext(
             subject_id=claims_subject,
-            tenant_id=tenant,
-            role=role,
+            tenant_id=auth.tenant_id if auth.authenticated else "",
+            role=auth.role,
             request_id=request_id,
             session_id=str(
                 getattr(access_claims, "session_id", "")
@@ -7560,7 +7573,7 @@ def get_video_job(job_id: str, request: Request):
                 "Link": '</api/v2/research-results>; rel="successor-version"',
             },
         )
-    if not job_id.startswith("RUN-"):
+    if not job_id.startswith("RUN-") or request.state.tenant_id != DEFAULT_TENANT:
         raise HTTPException(404, "job not found")
     _require_trusted(request)
     run = RESEARCH.get_run(job_id)

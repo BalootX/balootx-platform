@@ -147,7 +147,6 @@ def test_guest_can_upgrade_in_place_without_losing_identity():
 _SERVICE_KEY = "synthetic-service-key"
 # The SHA-256 subject IDs used by the pre-upgrade server for these fixtures.
 _LEGACY_SERVICE = "SVC-FC90545E2119AD22B93F"
-_LEGACY_KEYLESS_ONE = "SVC-F04BE659D2BE04575D83"
 _BOARDS = "/api/v1/sakka/boards"
 _ROOMS = "/api/v1/sakka/rooms"
 _RUNS = "/api/v1/sakka/runs"
@@ -172,7 +171,7 @@ def legacy_service_records(monkeypatch):
         return board, code, run.json()["run"]
 
 
-def _grpc_probe(tmp_path, monkeypatch, probe):
+def _grpc_probe(tmp_path, monkeypatch, probe, *, stub_type=None):
     import grpc
 
     from baloot_platform.generated import sakka_pb2_grpc
@@ -193,7 +192,7 @@ def _grpc_probe(tmp_path, monkeypatch, probe):
 
             async def after_start():
                 async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
-                    await probe(grpc, sakka_pb2_grpc.SakkaPlatformStub(channel))
+                    await probe(grpc, (stub_type or sakka_pb2_grpc.SakkaPlatformStub)(channel))
 
             monkeypatch.setattr(server, "add_insecure_port", lambda _address: port)
             monkeypatch.setattr(server, "wait_for_termination", after_start)
@@ -283,37 +282,122 @@ def test_service_ownership_leaves_other_subjects_and_explicit_callers_separate(l
         assert SAKKA.store.get_board(other_id) == before
 
 
-def test_keyless_grpc_keeps_caller_ownership_separate(tmp_path, monkeypatch):
-    from baloot_platform.generated import sakka_pb2
-    from baloot_platform.service.api import SAKKA
+def test_grpc_requires_a_real_credential_without_configured_service_key(tmp_path, monkeypatch):
     from baloot_platform.core.enums import Seat
+    from baloot_platform.generated import sakka_pb2
+    from baloot_platform.service.api import SAKKA, IDENTITY
 
     monkeypatch.delenv("BALOOT_API_KEY", raising=False)
-    old_board = SAKKA.create_board_from_new_game(
-        created_by=_LEGACY_KEYLESS_ONE, seed=6040, dealer=Seat.EAST, visibility="private",
+    owner = IDENTITY.create_guest("Board owner")
+    viewer = IDENTITY.create_guest("Board viewer")
+    board = SAKKA.create_board_from_new_game(
+        created_by=owner["identity"]["subjectId"], seed=6040, dealer=Seat.EAST,
+        visibility="private",
     )
 
     async def probe(grpc, stub):
-        one = (("x-api-key", "keyless-one"),)
-        two = (("x-api-key", "keyless-two"),)
-        identifier = sakka_pb2.Identifier(value=old_board.board_id)
-        legacy = await stub.GetBoard(identifier, metadata=one, timeout=5)
-        assert json.loads(legacy.canonical_json)["boardId"] == old_board.board_id
+        identifier = sakka_pb2.Identifier(value=board.board_id)
+        for metadata in ((), (("x-api-key", "synthetic-unconfigured"),)):
+            with pytest.raises(grpc.aio.AioRpcError) as rejected:
+                await stub.GetBoard(identifier, metadata=metadata, timeout=5)
+            assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED
+        owner_metadata = (("authorization", f"Bearer {owner['session']['token']}"),)
+        result = await stub.GetBoard(identifier, metadata=owner_metadata, timeout=5)
+        assert json.loads(result.canonical_json)["boardId"] == board.board_id
+        viewer_metadata = (("authorization", f"Bearer {viewer['session']['token']}"),)
         with pytest.raises(grpc.aio.AioRpcError) as rejected:
-            await stub.GetBoard(identifier, metadata=two, timeout=5)
-        assert rejected.value.code() == grpc.StatusCode.NOT_FOUND
-
-        payload = sakka_pb2.JsonPayload(canonical_json=b'{"visibility":"private","seed":6041}')
-        created = await stub.CreateBoard(payload, metadata=one, timeout=5)
-        board = json.loads(created.canonical_json)
-        identifier = sakka_pb2.Identifier(value=board["boardId"])
-        assert board["createdBy"].startswith("SVC-KL-")
-        assert (await stub.GetBoard(identifier, metadata=one, timeout=5)).canonical_json
-        with pytest.raises(grpc.aio.AioRpcError) as rejected:
-            await stub.GetBoard(identifier, metadata=two, timeout=5)
+            await stub.GetBoard(identifier, metadata=viewer_metadata, timeout=5)
         assert rejected.value.code() == grpc.StatusCode.NOT_FOUND
 
     _grpc_probe(tmp_path, monkeypatch, probe)
+
+
+def test_operator_jobs_and_media_require_role_and_tenant_over_http_and_grpc(tmp_path, monkeypatch):
+    from fastapi.staticfiles import StaticFiles
+
+    from baloot_platform.generated import platform_pb2, platform_pb2_grpc
+    from baloot_platform.learning.store import LearningStore
+    from baloot_platform.security import Scope
+    from baloot_platform.service import api
+    from baloot_platform.storage.jobs import JobStore
+
+    jobs = JobStore(tmp_path / "jobs.sqlite3")
+    jobs.create("job-home", {"seed": 7})
+    jobs.create("job-other", {"seed": 11}, tenant_id="tenant-other")
+    monkeypatch.setattr(api, "STORE", jobs)
+    videos = LearningStore(tmp_path / "learning.sqlite3")
+    video = videos.put_video_record({
+        "ownerKind": "challenge", "ownerId": "demo", "episodeHash": "fixture",
+        "rendererId": "fixture", "manifest": {}, "timeline": {"segments": []},
+    })
+    video_id = video["videoId"]
+    monkeypatch.setattr(api, "LEARNING_STORE", videos)
+    outputs = next(route for route in app.routes if route.name == "outputs")
+    (tmp_path / "demo.mp4").write_bytes(b"Synthetic media")
+    monkeypatch.setattr(outputs, "app", StaticFiles(directory=tmp_path))
+
+    def bearer(role, scope, tenant=None):
+        token = api.ACCESS_TOKENS.issue(
+            subject_id="fixture-subject", role=role, scopes=[scope], tenant_id=tenant,
+        )
+        return {"authorization": f"Bearer {token}"}
+
+    admin = bearer("admin", Scope.CONFIG_ADMIN)
+    other = bearer("admin", Scope.CONFIG_ADMIN, "tenant-other")
+    unscoped_admin = bearer("admin", Scope.READ)
+    player = {**bearer("player", Scope.READ), "x-baloot-role": "admin"}
+    referee = bearer("referee", Scope.HIDDEN_READ)
+    denied_roles = (unscoped_admin, player, referee)
+    job_path = "/api/v1/jobs"
+    with TestClient(app) as client:
+        assert client.get("/healthz").status_code == 200
+        assert client.get("/api/v1/auth/me").json()["identity"] is None
+        for path in (
+            f"{job_path}/job-home", "/api/v1/video-jobs/job-home",
+            "/api/v1/video-jobs/job-home/events", f"/api/v1/videos/{video_id}",
+            f"/api/v1/videos/{video_id}/timeline", f"/api/v1/videos/{video_id}/audit-map",
+            "/outputs/demo.mp4",
+        ):
+            assert client.get(path).status_code == 401
+            for headers in denied_roles:
+                assert client.get(path, headers=headers).status_code == 403
+            assert client.get(path, headers=admin).status_code == 200
+        assert client.get(f"{job_path}/job-home", headers=other).status_code == 404
+        assert client.get(f"{job_path}/job-other", headers=admin).status_code == 404
+        assert client.get(f"{job_path}/job-other", headers=other).status_code == 200
+        assert client.get(f"/api/v1/videos/{video_id}", headers=other).status_code == 403
+        assert client.get("/outputs/demo.mp4", headers=other).status_code == 403
+        ranged = client.get("/outputs/demo.mp4", headers={**admin, "range": "bytes=0-3"})
+        assert ranged.status_code == 206 and ranged.content == b"Synt"
+
+    async def probe(grpc, stub):
+        async def call(method, request, headers):
+            return await method(request, metadata=tuple(headers.items()), timeout=5)
+
+        async def rejected(method, request, headers, status):
+            with pytest.raises(grpc.aio.AioRpcError) as error:
+                await call(method, request, headers)
+            assert error.value.code() == status
+
+        home_job = platform_pb2.JobRef(job_id="job-home")
+        other_job = platform_pb2.JobRef(job_id="job-other")
+        video_ref = platform_pb2.VideoRecordRef(video_id=video_id)
+        assert (await call(stub.HealthCheck, platform_pb2.Empty(), {})).status == "ok"
+        for method, request in (
+            (stub.GetJob, home_job), (stub.GetVideoRecord, video_ref),
+            (stub.GetVideoTimeline, video_ref), (stub.GetVideoAuditMap, video_ref),
+        ):
+            await rejected(method, request, {}, grpc.StatusCode.UNAUTHENTICATED)
+            for headers in denied_roles:
+                await rejected(method, request, headers, grpc.StatusCode.PERMISSION_DENIED)
+            assert (await call(method, request, admin)).canonical_json
+
+        await rejected(stub.GetJob, home_job, other, grpc.StatusCode.NOT_FOUND)
+        await rejected(stub.GetJob, other_job, admin, grpc.StatusCode.NOT_FOUND)
+        assert (await call(stub.GetJob, other_job, other)).job.job_id == "job-other"
+        await rejected(stub.GetVideoRecord, video_ref, other, grpc.StatusCode.PERMISSION_DENIED)
+
+    _grpc_probe(tmp_path, monkeypatch, probe, stub_type=platform_pb2_grpc.BalootPlatformStub)
 
 
 def test_service_ownership_keeps_legacy_live_seat_and_event_chain(monkeypatch):

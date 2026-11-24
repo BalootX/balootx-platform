@@ -95,7 +95,7 @@ def test_api_lesson_document_preserves_trace_shape_and_rejects_corrupt_tags(root
 
 def test_tag_query_api_transports_repeated_values_and_catalog_validation(monkeypatch):
     from types import SimpleNamespace
-    from fastapi.testclient import TestClient
+    from service_test_client import OperatorClient as TestClient
     from baloot_platform.service import api
     calls = []
     def page(**filters):

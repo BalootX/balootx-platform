@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from baloot_platform.identity import Identity, IdentityService
+from baloot_platform.service.authorization import claims_identity
 from baloot_platform.service.client_identity import service_client_identity
 
 COOKIE_NAME = "baloot_session"
@@ -48,11 +49,8 @@ def current_identity(request: Request, service: IdentityService) -> tuple[Identi
         return identity, session
     claims = getattr(request.state, "access_claims", None)
     if claims is not None:
-        role = str(getattr(claims, "role", "player"))
-        synthetic = Identity(
-            str(claims.subject_id), role,
-            request.headers.get("x-baloot-subject-name", str(claims.subject_id))[:40],
-            None, role in {"service", "admin", "referee"}, None,
+        synthetic = claims_identity(
+            claims, request.headers.get("x-baloot-subject-name", claims.subject_id),
         )
         return synthetic, {
             "session_id": getattr(claims, "session_id", None),

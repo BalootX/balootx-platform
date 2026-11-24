@@ -7,6 +7,7 @@ No Baloot rules are duplicated in this adapter.
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 import hmac
 import json
 import os
@@ -18,12 +19,18 @@ from baloot_platform.audit import build_video_audit_map
 from baloot_platform.analysis.search_errors import SearchTimeBudgetExceeded
 from baloot_platform.config import data_root, platform_root
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER, owns_subject
+from baloot_platform.security import Scope
+from baloot_platform.service.authorization import (
+    DEFAULT_TENANT, PUBLIC_RPC, Credentials, claims_identity, credentials, rpc_scope,
+    tenant_job_rpc,
+)
 from baloot_platform.service.client_identity import (
     initialize_service_subject_ownership,
     service_client_identity,
     service_subject_ownership,
 )
 from baloot_platform.version import __version__
+from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
 
 ROOT = platform_root()
 
@@ -61,7 +68,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
     from baloot_platform.core.enums import Seat, Suit
     from baloot_platform.core.serialization import continue_trusted_context, replay_trusted_context
     from baloot_platform.service.api import (
-        ADJUDICATION, AUDIT, AUTHORIZATION_POLICY, CONFIGURATION, CONFIGURATION_PROFILE, DIFFICULTY, EXECUTOR, EXPLANATIONS, IDENTITY,
+        ACCESS_TOKENS, ADJUDICATION, AUDIT, AUTHORIZATION_POLICY, CONFIGURATION, CONFIGURATION_PROFILE, DIFFICULTY, EXECUTOR, EXPLANATIONS, IDENTITY,
         HITL, HITL_PROFILE, HITL_REVIEW_RENDERER, LEARNING, LEARNING_STORE, LIVE, OUTPUTS, PERFORMANCE, PERFORMANCE_PROFILE, CAPABILITY_MATRIX, CERTIFICATION_PROFILE, BENCHMARK_PROFILE, OPERATIONS_PROFILE, REGISTRY, RENDER_BATCHES, RESEARCH, REVIEWS, SAKKA, STORE,
         HistoricalReplayRenderRequest, LegacyVideoCompatibilityError, VideoJobRequest,
         _accepted_actions_for_challenge, _accepted_actions_for_decision,
@@ -89,25 +96,17 @@ async def serve() -> None:  # pragma: no cover - optional runtime
     def _metadata(context) -> dict[str, str]:
         return {str(item.key).lower(): str(item.value) for item in context.invocation_metadata()}
 
-    async def _require_api(context) -> None:
-        configured_key = os.environ.get("BALOOT_API_KEY")
-        if configured_key and not hmac.compare_digest(
-            configured_key.encode("utf-8"), _metadata(context).get("x-api-key", "").encode("utf-8"),
-        ):
-            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "authentication required")
+    authenticated_rpc: ContextVar[Credentials] = ContextVar("authenticated_rpc")
 
     async def _identity(context):
         metadata = _metadata(context)
-        authorization = metadata.get("authorization", "")
-        token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else None
-        identity, _session = IDENTITY.resolve(token)
-        if identity is not None:
-            return identity
-        await _require_api(context)
-        # gRPC gives each RPC a separate Context, inherited by the handler.
-        SERVICE_SUBJECT_OWNER.set(service_subject_ownership(
-            metadata, configured_key=os.environ.get("BALOOT_API_KEY"), keyless=True,
-        ))
+        auth = authenticated_rpc.get()
+        if auth.identity is not None:
+            return auth.identity
+        if auth.claims is not None:
+            return claims_identity(
+                auth.claims, metadata.get("x-baloot-subject-name", auth.claims.subject_id),
+            )
         return service_client_identity(metadata, "gRPC Client")
 
     async def _require_private_decision(context, decision_id: str) -> dict[str, Any]:
@@ -160,15 +159,23 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         return value
 
     async def _require_trusted(context) -> None:
+        auth = authenticated_rpc.get()
+        if Scope.HIDDEN_READ not in AUTHORIZATION_POLICY.effective_scopes(
+            role=auth.role, claims=auth.claims,
+        ):
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "trusted hidden-information access is not enabled")
         configured = os.environ.get("BALOOT_TRUSTED_API_KEY", "")
         supplied = _metadata(context).get("x-baloot-trusted-key", "")
         if configured:
-            if supplied != configured:
+            if not hmac.compare_digest(configured.encode(), supplied.encode()):
                 await context.abort(grpc.StatusCode.PERMISSION_DENIED, "trusted hidden-information access is not enabled")
             return
         if os.environ.get("BALOOT_ALLOW_TRUSTED_CONTEXT", "false").lower() in {"1", "true", "yes"}:
             return
-        if os.environ.get("BALOOT_ENV", "development").lower() in {"development", "test"}:
+        if (
+            os.environ.get("BALOOT_ENV", "development").lower() in {"development", "test"}
+            and context.peer().startswith(("ipv4:127.0.0.1:", "ipv6:[::1]:"))
+        ):
             return
         await context.abort(grpc.StatusCode.PERMISSION_DENIED, "trusted hidden-information access is not enabled")
 
@@ -200,7 +207,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return platform_pb2.Health(status="ok", version=__import__("baloot_platform.version", fromlist=["__version__"]).__version__, bundle_sha256=bundle.sha256)
 
         async def CreateGame(self, request, context):
-            await _require_api(context)
             try:
                 game = manager.create(
                     seed=request.seed,
@@ -219,7 +225,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.NOT_FOUND, "game not found")
 
         async def SubmitBid(self, request, context):
-            await _require_api(context)
             try:
                 game = manager.bid(
                     request.game_id,
@@ -235,7 +240,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def PlayCard(self, request, context):
-            await _require_api(context)
             try:
                 card: Any = request.card.id if request.card.code == "" else request.card.code
                 game = manager.play(
@@ -306,7 +310,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
         async def CreateVideo(self, request, context):
-            await _require_api(context)
             await _require_trusted(context)
             try:
                 payload = json.loads(request.canonical_json)
@@ -337,9 +340,11 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def GetJob(self, request, context):
+            tenant = authenticated_rpc.get().tenant_id
             job = STORE.get(request.job_id)
             if job is None:
-                await _require_api(context)
+                if tenant != DEFAULT_TENANT or not request.job_id.startswith("RUN-"):
+                    await context.abort(grpc.StatusCode.NOT_FOUND, "job not found")
                 await _require_trusted(context)
                 run = RESEARCH.get_run(request.job_id)
                 if run is None or not _legacy_video_run_is_v4(run):
@@ -351,7 +356,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def CreateRenderBatch(self, request, context):
-            await _require_api(context)
             await _require_trusted(context)
             try:
                 items = validate_render_batch_request_payload(request.canonical_json)
@@ -368,7 +372,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def GetRenderBatch(self, request, context):
-            await _require_api(context)
             await _require_trusted(context)
             job = RENDER_BATCHES.get(request.job_id)
             if job is None:
@@ -381,7 +384,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def CancelRenderBatch(self, request, context):
-            await _require_api(context)
             await _require_trusted(context)
             job = RENDER_BATCHES.get(request.job_id)
             if job is None:
@@ -418,7 +420,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def ReopenGame(self, request, context):
-            await _require_api(context)
             await _require_private_game(context, request.identifier)
             try:
                 value = LEARNING.reopen_game(request.identifier, branch=bool(request.branch))
@@ -433,7 +434,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def ForkDecision(self, request, context):
-            await _require_api(context)
             await _require_private_decision(context, request.decision_id)
             try:
                 action = json.loads(request.action_json) if request.action_json else None
@@ -528,7 +528,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def RecordDecisionAttempt(self, request, context):
-            await _require_api(context)
             await _require_private_decision(context, request.decision_id)
             try:
                 chosen = json.loads(request.chosen_action_json)
@@ -567,7 +566,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def RecordChallengeAttempt(self, request, context):
-            await _require_api(context)
             challenge = LEARNING_STORE.get_challenge(request.challenge_id)
             if challenge is None:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "challenge not found")
@@ -644,7 +642,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def RenderGameReplay(self, request, context):
-            await _require_api(context)
             if not request.identifier:
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "identifier is required")
             game = await _require_private_game(context, request.identifier)
@@ -1456,7 +1453,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result({"items": [item.to_dict(include_payload=False) for item in values]})
 
         async def CreateProfile(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await _identity(context)
             try:
                 value = CONFIGURATION.create_profile(
                     family=request.family, payload=_payload(request.canonical_json), created_by=identity.subject_id,
@@ -1470,7 +1467,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.ABORTED, str(exc))
 
         async def PublishProfile(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.publish_profile(
                     request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id,
@@ -1483,7 +1480,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def RejectProfile(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.reject_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
@@ -1494,7 +1491,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def RetireProfile(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.retire_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
@@ -1533,7 +1530,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result({"items": [item.to_dict() for item in values]})
 
         async def CreateBundle(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.create_bundle(
                     bundle_id=request.bundle_id, version=request.version, mode=request.mode or "full",
@@ -1548,7 +1545,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.ABORTED, str(exc))
 
         async def PublishBundle(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.publish_bundle(
                     request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id,
@@ -1561,7 +1558,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def RejectBundle(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.reject_bundle(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
@@ -1572,7 +1569,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def RetireBundle(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.retire_bundle(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
@@ -1608,7 +1605,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
 
         async def RollbackBundle(self, request, context):
-            await _require_api(context)
             identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.rollback_bundle(
@@ -1632,7 +1628,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result(PERFORMANCE_PROFILE)
 
         async def RunPerformanceQuick(self, request, context):
-            await _require_api(context)
             await _identity(context)
             values = [
                 PERFORMANCE.measure("configuration_resolve_p95_ms", CONFIGURATION.resolve, iterations=50, warmup=5),
@@ -1649,7 +1644,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result({"profile": CERTIFICATION_PROFILE, "automaticRuleActivation": False})
 
         async def VerifyCertificationCandidate(self, request, context):
-            await _require_api(context); await _identity(context)
+            await _identity(context)
             try:
                 return self._result(verify_certification_candidate(_payload(request.canonical_json).get("candidate", _payload(request.canonical_json))))
             except (ValueError, TypeError) as exc:
@@ -1660,7 +1655,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result({"profile": BENCHMARK_PROFILE, "automaticPromotion": False})
 
         async def EvaluateIntelligenceBenchmark(self, request, context):
-            await _require_api(context); await _identity(context)
+            await _identity(context)
             value = _payload(request.canonical_json)
             try:
                 result = IntelligenceBenchmarkV18(BENCHMARK_PROFILE).evaluate(str(value.get("modelId") or value.get("model_id") or "candidate"), list(value.get("examples") or []))
@@ -1672,6 +1667,55 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             await _identity(context)
             return self._result({"profile": OPERATIONS_PROFILE, "automaticProductionChange": False})
 
+
+    class AuthorizationInterceptor(grpc.aio.ServerInterceptor):
+        async def intercept_service(self, continuation, handler_call_details):
+            handler = await continuation(handler_call_details)
+            method = handler_call_details.method
+            if handler is None or method in PUBLIC_RPC:
+                return handler
+            if handler.unary_unary is None:
+                return None
+
+            async def invoke(request, context):
+                metadata = _metadata(context)
+                authorization = metadata.get("authorization", "")
+                token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else None
+                auth = credentials(metadata, token, IDENTITY, ACCESS_TOKENS)
+                if not auth.authenticated:
+                    await context.abort(grpc.StatusCode.UNAUTHENTICATED, "authentication required")
+                try:
+                    AUTHORIZATION_POLICY.require(
+                        role=auth.role, required=rpc_scope(method), claims=auth.claims,
+                    )
+                    if auth.tenant_id != DEFAULT_TENANT and not tenant_job_rpc(method):
+                        raise PermissionError("the request is outside the tenant scope")
+                except PermissionError as exc:
+                    await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
+                auth_token = authenticated_rpc.set(auth)
+                ownership_token = SERVICE_SUBJECT_OWNER.set(
+                    service_subject_ownership(metadata, configured_key=os.environ.get("BALOOT_API_KEY"))
+                    if auth.api_key_valid and auth.identity is None and auth.claims is None else None
+                )
+                try:
+                    identity = await _identity(context)
+                    database_token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(
+                        subject_id=identity.subject_id, tenant_id=auth.tenant_id, role=auth.role,
+                        session_id=str((auth.session or {}).get("session_id") or
+                                       (auth.claims.session_id if auth.claims else "") or ""),
+                    ))
+                    try:
+                        return await handler.unary_unary(request, context)
+                    finally:
+                        CURRENT_DATABASE_IDENTITY.reset(database_token)
+                finally:
+                    SERVICE_SUBJECT_OWNER.reset(ownership_token)
+                    authenticated_rpc.reset(auth_token)
+
+            return grpc.unary_unary_rpc_method_handler(
+                invoke, request_deserializer=handler.request_deserializer,
+                response_serializer=handler.response_serializer,
+            )
 
     class TimeCensoredInterceptor(grpc.aio.ServerInterceptor):
         async def intercept_service(self, continuation, handler_call_details):
@@ -1694,7 +1738,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 response_serializer=handler.response_serializer,
             )
 
-    server = grpc.aio.server(interceptors=[TimeCensoredInterceptor()], options=[
+    server = grpc.aio.server(interceptors=[AuthorizationInterceptor(), TimeCensoredInterceptor()], options=[
         ("grpc.max_receive_message_length", 2 * 1024 * 1024),
         ("grpc.max_send_message_length", 8 * 1024 * 1024),
     ])

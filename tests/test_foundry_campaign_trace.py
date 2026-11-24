@@ -406,7 +406,7 @@ def test_batch_executor_is_ordered_deterministic_and_rejects_partial_completion(
 
 
 def test_typed_campaign_api_creates_claims_and_commits_exact_shards(tmp_path, monkeypatch):
-    from fastapi.testclient import TestClient
+    from service_test_client import OperatorClient as TestClient
     from baloot_platform.service import api
 
     store = SQLiteCampaignControlStore(tmp_path / "api-campaigns.sqlite3", maximum_attempts=3)

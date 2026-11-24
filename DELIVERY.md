@@ -50,6 +50,12 @@ BalootX QA owns tests at every layer, the end-to-end journey catalogue, coverage
 
 A Due is the latest finish. Start Ready work at once and ship as soon as its checks pass. Every hold names its blocker and what clears it.
 
+## Service credentials
+
+[The service authorization policy](src/baloot_platform/service/authorization.py) defines public HTTP and gRPC entry points. Protected requests use a Baloot session, a scoped Baloot access token, or the configured service API key. Give the Foundry operator UI a same-origin authenticated gateway for its API, event, and media requests. Keep the service credential on the gateway.
+
+Durable job reads are restricted to operators in the job's tenant. Signed token claims select the tenant. Installation-wide render outputs and video records are available to default-tenant operators. The trusted-context setting or key adds a separate requirement for operations that use complete hands.
+
 ## Merge
 
 - The `main` merge queue is the only path to trunk and uses squash merges only. Workers push their own short-lived branches without rewriting history and open PRs under the project's App identity. Merge, split or close an open PR within two days of its first push. The ruleset requires zero human approvals.

@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .request_context import CURRENT_DATABASE_IDENTITY
+
 
 class JobStore:
     """Durable SQLite job queue for local and single-node deployments.
@@ -253,8 +255,14 @@ class JobStore:
         return bool(row and (row["cancel_requested"] or row["status"] == "cancelled"))
 
     def get(self, job_id: str) -> dict[str, Any] | None:
+        tenant = CURRENT_DATABASE_IDENTITY.get().tenant_id
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if tenant:
+                row = conn.execute(
+                    "SELECT * FROM jobs WHERE id=? AND tenant_id=?", (job_id, tenant),
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
         if row is None:
             return None
         return {
@@ -286,6 +294,10 @@ class JobStore:
         size = max(1, min(500, int(limit)))
         clauses: list[str] = []
         values: list[Any] = []
+        tenant = CURRENT_DATABASE_IDENTITY.get().tenant_id
+        if tenant:
+            clauses.append("tenant_id=?")
+            values.append(tenant)
         if kinds:
             placeholders = ",".join("?" for _ in kinds)
             clauses.append(f"kind IN ({placeholders})")

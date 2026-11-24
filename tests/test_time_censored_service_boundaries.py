@@ -15,7 +15,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 from pydantic import BaseModel
 
 from baloot_platform.analysis.search import SearchTimeBudgetExceeded
