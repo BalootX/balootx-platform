@@ -12,6 +12,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: python-dateutil
+        versions: [">=4,<5"] # Revisit with #131.
+      - dependency-name: protobuf
+        versions: [">=7,<8"] # Revisit with #132.
     groups:
       python:
         patterns: ["*"]
