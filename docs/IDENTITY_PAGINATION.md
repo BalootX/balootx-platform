@@ -1,11 +1,22 @@
 # Identity list pagination
 
-`GET /api/v1/friends`, `GET /api/v1/friends/requests`, and `GET /api/v1/users:search` return `items` and `nextCursor`. To fetch the next page, send the returned `nextCursor` as the `cursor` query parameter. Stop when `nextCursor` is `null`. Use the same identity and endpoint for friend lists and keep the same `query` for user search. A cursor is opaque and can be reused with a different page size.
+`GET /api/v2/friends`, `GET /api/v2/friends/requests`, and `GET /api/v1/users:search` return `items` and `nextCursor`. Pass `nextCursor` as the `cursor` query parameter to fetch the next page. Stop when it is `null`. Reuse the same identity and endpoint for friend lists and the same query for user search. A cursor is opaque and can be used with a different page size.
 
-Omit `limit` to use the default in the [identity pagination configuration](../configs/identity/pagination_v1.yaml). A positive `limit` above the configured maximum is capped. Invalid limits or cursors return HTTP 422. Each page reads current data. Changes to a user's sort fields or search visibility between requests can affect which results appear on later pages.
+Omit `limit` to use the default in the [identity pagination configuration](../configs/identity/pagination_v1.yaml). Positive limits above the configured maximum are capped. Invalid limits, cursors and short search queries return HTTP 422. Search requires a signed-in account or service identity, treats wildcards as literal input, and pages only through the configured maximum result set. Each page reads current data.
 
-Friends are ordered by subject ID. Incoming pending requests are newest first, with request ID as the timestamp tie-breaker. User search keeps its kind and display-name ordering and adds subject ID as the final tie-breaker.
+## Release note
 
-The Python SDK exposes `friends`, `friend_requests`, and `search_users` with optional `cursor` and `limit` keywords. The TypeScript SDK exposes `friends`, `friendRequests`, and `searchUsers` with the same options. See the [OpenAPI contract](../api/openapi.json) for direct HTTP clients.
+Existing `GET /api/v1/friends` and `GET /api/v1/friends/requests` continue to return the complete list. The v1 friends list retains display-name order. The v2 friends list sorts by immutable subject ID so renames and guest upgrades cannot move a page boundary and both database engines can use the friendship indexes. Pending requests are newest first, with request ID breaking timestamp ties. User search sorts by immutable subject ID and remembers only that ID in its continuation.
 
-For PostgreSQL, apply the [pagination index migration](../migrations/031_identity_list_pagination.sql) before serving pages. SQLite creates the indexes when its identity store opens. The hosted [integration check](../tests/test_v8_identity_sakka.py) records first-page and continuation query plans before and after the indexes on both engines. Substring matching in user search remains a filter on the ordered index scan.
+The Python SDK adds `friends_page`, `friend_requests`, and `search_users` with optional `cursor` and `limit` keywords. The TypeScript SDK adds `friendsPage`, `friendRequests`, and `searchUsers` with the same options. Existing `friends()` methods keep using v1. The Foundry client and direct HTTP callers use the [OpenAPI contract](../api/openapi.json).
+
+## Migration notes
+
+Apply the [PostgreSQL index migration](../migrations/031_identity_list_pagination.sql) before serving v2 pages. The transactional index build can briefly block identity writes, so schedule it for a deployment window. SQLite creates the indexes when the identity store opens. The hosted [integration check](../tests/test_v8_identity_sakka.py) prints first-page and continuation query plans on both engines, including a baseline taken before the new indexes. User search uses the existing subject primary-key index for the bounded result set.
+
+After rolling back the service, reverse the PostgreSQL indexes if needed:
+
+```sql
+DROP INDEX IF EXISTS identity.idx_identity_friendships_high_low;
+DROP INDEX IF EXISTS identity.idx_identity_pending_requests;
+```

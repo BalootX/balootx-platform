@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -10,6 +9,8 @@ from typing import Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from baloot_platform.storage.cursors import decode_cursor_payload, encode_cursor_payload
+
 CURSOR_MAX_LENGTH = 2048
 
 
@@ -18,6 +19,8 @@ class IdentityPaginationConfig(BaseModel):
 
     default_page_size: int = Field(gt=0, strict=True)
     maximum_page_size: int = Field(gt=0, strict=True)
+    minimum_search_query_length: int = Field(gt=0, strict=True)
+    maximum_search_results: int = Field(gt=0, strict=True)
 
     @model_validator(mode="after")
     def validate_page_sizes(self) -> Self:
@@ -43,8 +46,7 @@ def cursor_scope(operation: str, value: str) -> str:
 
 
 def encode_cursor(scope: str, anchor: tuple[str, ...]) -> str:
-    raw = json.dumps([scope, *anchor], separators=(",", ":"), ensure_ascii=False).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    return encode_cursor_payload({"scope": scope, "anchor": list(anchor)})
 
 
 def decode_cursor(
@@ -53,13 +55,12 @@ def decode_cursor(
     if value is None:
         return ()
     try:
-        if not value or len(value) > CURSOR_MAX_LENGTH:
+        payload = decode_cursor_payload(value, maximum_length=CURSOR_MAX_LENGTH)
+        if not isinstance(payload, dict) or payload.get("scope") != scope:
             raise ValueError
-        raw = base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
-        payload = json.loads(raw.decode())
-        if not isinstance(payload, list) or len(payload) != len(keys) + 1 or payload[0] != scope:
+        if not isinstance(parts := payload.get("anchor"), list) or len(parts) != len(keys):
             raise ValueError
-        anchor = tuple(payload[1:])
+        anchor = tuple(parts)
         if any(not isinstance(part, str) or "\0" in part for part in anchor):
             raise ValueError
         if "created_at" in keys:

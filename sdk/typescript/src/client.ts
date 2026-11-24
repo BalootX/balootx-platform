@@ -93,11 +93,12 @@ export class BalootClient {
   async register(username:string,password:string,displayName?:string){const value=await this.post('/api/v1/auth/register',{username,password,displayName:displayName??null});if(value.accessToken)this.accessToken=value.accessToken;return value}
   async login(username:string,password:string){const value=await this.post('/api/v1/auth/login',{username,password});if(value.accessToken)this.accessToken=value.accessToken;return value}
   async logout(){await this.request('/api/v1/auth/logout',{method:'POST'});this.accessToken=undefined}
-  friends(options:IdentityPageOptions={}):Promise<IdentityPage>{
-    return this.identityPage('/api/v1/friends',options);
+  friends(){return this.request('/api/v1/friends')}
+  friendsPage(options:IdentityPageOptions={}):Promise<IdentityPage>{
+    return this.identityPage('/api/v2/friends',options);
   }
   friendRequests(options:IdentityPageOptions={}):Promise<IdentityPage>{
-    return this.identityPage('/api/v1/friends/requests',options);
+    return this.identityPage('/api/v2/friends/requests',options);
   }
   searchUsers(query:string,options:IdentityPageOptions={}):Promise<IdentityPage>{
     return this.identityPage('/api/v1/users:search',options,new URLSearchParams({query}));

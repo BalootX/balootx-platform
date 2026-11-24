@@ -109,6 +109,29 @@ jobs:
       - *checkout
       - run: docker build --progress=plain --target docker-constraints .
 
+  identity-postgres:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - *checkout
+      - *py313
+      - run: python -m pip install -c requirements-docker.txt '.[dev,postgres]'
+      - name: Verify paging and migration replay against PostgreSQL
+        env:
+          BALOOT_IDENTITY_TEST_POSTGRES: dbname=postgres host=${{ runner.temp }}/identity-pg
+        run: |
+          pg_bin="$(pg_config --bindir)"
+          pg_data="$RUNNER_TEMP/identity-pg-data"
+          pg_socket="$RUNNER_TEMP/identity-pg"
+          mkdir "$pg_socket"
+          "$pg_bin/initdb" -D "$pg_data" --locale=en_US.UTF-8 --encoding=UTF8 --auth=trust
+          "$pg_bin/pg_ctl" -D "$pg_data" -l "$RUNNER_TEMP/identity-pg.log" \
+            -o "-c listen_addresses='' -k $pg_socket" -w start
+          trap '"$pg_bin/pg_ctl" -D "$pg_data" -m immediate -w stop' EXIT
+          python -m pytest -s tests/test_v8_identity_sakka.py -k identity_pagination_large_lists_and_plans
+
   foundry:
     needs: [plan, python-wheelhouse]
     if: >-
@@ -411,21 +434,6 @@ jobs:
           python -P scripts/sync_package_resources.py
           python -P scripts/generate_openapi.py
           git diff --exit-code -- api/openapi.json
-      - name: Verify identity pagination against PostgreSQL
-        if: matrix.shard == 1 && matrix.python == '3.13' && github.job == 'python-fast-run'
-        env:
-          BALOOT_IDENTITY_TEST_POSTGRES: dbname=postgres host=${{ runner.temp }}/identity-pg
-        run: |
-          pg_bin="$(pg_config --bindir)"
-          pg_data="$RUNNER_TEMP/identity-pg-data"
-          pg_socket="$RUNNER_TEMP/identity-pg"
-          mkdir "$pg_socket"
-          "$pg_bin/initdb" -D "$pg_data" --no-locale --encoding=UTF8 --auth=trust
-          "$pg_bin/pg_ctl" -D "$pg_data" -l "$RUNNER_TEMP/identity-pg.log" \
-            -o "-c listen_addresses='' -k $pg_socket" -w start
-          trap '"$pg_bin/pg_ctl" -D "$pg_data" -m immediate -w stop' EXIT
-          python -m pip install 'psycopg[binary,pool]>=3.2'
-          python -m pytest -s tests/test_v8_identity_sakka.py -k identity_pagination_large_lists_and_plans
       - name: Run isolated Python shard
         if: '!cancelled()'
         env:
@@ -763,7 +771,7 @@ jobs:
 
   ci-gate:
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}
-    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
+    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, identity-postgres, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
     if: ${{ always() && !inputs.viewer-seat-proof }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

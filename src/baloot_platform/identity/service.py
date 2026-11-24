@@ -5,8 +5,9 @@ import hmac
 import re
 import secrets
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from typing import Any
 
 from .models import Identity, utc_now
@@ -185,10 +186,12 @@ class IdentityService:
             next_cursor = encode_cursor(scope, tuple(items[-1][key] for key in keys))
         return {"items": items, "nextCursor": next_cursor}
 
-    def search(self, query: str, *, limit: int, cursor: str | None = None) -> dict[str, Any]:
+    def search(
+        self, query: str, *, limit: int, maximum_results: int, cursor: str | None = None
+    ) -> dict[str, Any]:
         page = self._page(
-            self.store.search_subjects, query.strip(), operation="search",
-            keys=("kind", "display_name", "subject_id"), limit=limit, cursor=cursor,
+            partial(self.store.search_subjects, maximum_results=maximum_results), query,
+            operation="search", keys=("subject_id",), limit=limit, cursor=cursor,
         )
         page["items"] = [self._identity(row).to_dict() for row in page["items"]]
         return page
@@ -211,7 +214,13 @@ class IdentityService:
         )
         return {"requestId": request_id, "status": "accepted" if accept else "declined"}
 
-    def friends(self, subject_id: str, *, limit: int, cursor: str | None = None) -> dict[str, Any]:
+    def friends(self, subject_id: str) -> list[dict[str, Any]]:
+        return [self._identity(row).to_dict() for row in self.store.list_friends(subject_id)]
+
+    def requests(self, subject_id: str) -> list[dict[str, Any]]:
+        return self.store.list_friend_requests(subject_id)
+
+    def friend_page(self, subject_id: str, *, limit: int, cursor: str | None = None) -> dict[str, Any]:
         page = self._page(
             self.store.list_friends, subject_id, operation="friends",
             keys=("subject_id",), limit=limit, cursor=cursor,
@@ -219,17 +228,11 @@ class IdentityService:
         page["items"] = [self._identity(row).to_dict() for row in page["items"]]
         return page
 
-    def requests(self, subject_id: str, *, limit: int, cursor: str | None = None) -> dict[str, Any]:
+    def request_page(self, subject_id: str, *, limit: int, cursor: str | None = None) -> dict[str, Any]:
         return self._page(
             self.store.list_friend_requests, subject_id, operation="requests",
             keys=("created_at", "request_id"), limit=limit, cursor=cursor,
         )
 
-    def friend_ids(self, subject_id: str, *, limit: int) -> Iterator[str]:
-        cursor = None
-        while True:
-            page = self.friends(subject_id, limit=limit, cursor=cursor)
-            yield from (item["subjectId"] for item in page["items"])
-            cursor = page["nextCursor"]
-            if cursor is None:
-                return
+    def friend_ids(self, subject_id: str) -> list[str]:
+        return self.store.friend_ids(subject_id)

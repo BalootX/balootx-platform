@@ -145,11 +145,14 @@ class BalootClient:
         response = self.client.post("/api/v1/auth/logout")
         response.raise_for_status()
 
-    def friends(self, *, cursor: str | None = None, limit: int | None = None) -> IdentityPage:
-        return self._identity_page("/api/v1/friends", cursor=cursor, limit=limit)
+    def friends(self) -> dict[str, Any]:
+        return self._get("/api/v1/friends")
+
+    def friends_page(self, *, cursor: str | None = None, limit: int | None = None) -> IdentityPage:
+        return self._identity_page("/api/v2/friends", cursor=cursor, limit=limit)
 
     def friend_requests(self, *, cursor: str | None = None, limit: int | None = None) -> IdentityPage:
-        return self._identity_page("/api/v1/friends/requests", cursor=cursor, limit=limit)
+        return self._identity_page("/api/v2/friends/requests", cursor=cursor, limit=limit)
 
     def search_users(self, query: str, *, cursor: str | None = None, limit: int | None = None) -> IdentityPage:
         return self._identity_page("/api/v1/users:search", query=query, cursor=cursor, limit=limit)

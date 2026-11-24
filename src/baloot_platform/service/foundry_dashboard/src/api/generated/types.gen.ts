@@ -16487,70 +16487,30 @@ export type FoundryCopyApiV1FoundryCopyGetResponses = {
 export type FriendsApiV1FriendsGetData = {
     body?: never;
     path?: never;
-    query?: {
-        /**
-         * Limit
-         */
-        limit?: number | null;
-        /**
-         * Cursor
-         */
-        cursor?: string | null;
-    };
+    query?: never;
     url: '/api/v1/friends';
 };
-
-export type FriendsApiV1FriendsGetErrors = {
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type FriendsApiV1FriendsGetError = FriendsApiV1FriendsGetErrors[keyof FriendsApiV1FriendsGetErrors];
 
 export type FriendsApiV1FriendsGetResponses = {
     /**
      * Successful Response
      */
-    200: IdentityPage;
+    200: unknown;
 };
-
-export type FriendsApiV1FriendsGetResponse = FriendsApiV1FriendsGetResponses[keyof FriendsApiV1FriendsGetResponses];
 
 export type FriendRequestsApiV1FriendsRequestsGetData = {
     body?: never;
     path?: never;
-    query?: {
-        /**
-         * Limit
-         */
-        limit?: number | null;
-        /**
-         * Cursor
-         */
-        cursor?: string | null;
-    };
+    query?: never;
     url: '/api/v1/friends/requests';
 };
-
-export type FriendRequestsApiV1FriendsRequestsGetErrors = {
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type FriendRequestsApiV1FriendsRequestsGetError = FriendRequestsApiV1FriendsRequestsGetErrors[keyof FriendRequestsApiV1FriendsRequestsGetErrors];
 
 export type FriendRequestsApiV1FriendsRequestsGetResponses = {
     /**
      * Successful Response
      */
-    200: IdentityPage;
+    200: unknown;
 };
-
-export type FriendRequestsApiV1FriendsRequestsGetResponse = FriendRequestsApiV1FriendsRequestsGetResponses[keyof FriendRequestsApiV1FriendsRequestsGetResponses];
 
 export type CreateFriendRequestApiV1FriendsRequestsPostData = {
     body: FriendRequestBody;
@@ -22253,6 +22213,74 @@ export type GetFoundryRuntimeProfileApiV2FoundryProfileGetResponses = {
 };
 
 export type GetFoundryRuntimeProfileApiV2FoundryProfileGetResponse = GetFoundryRuntimeProfileApiV2FoundryProfileGetResponses[keyof GetFoundryRuntimeProfileApiV2FoundryProfileGetResponses];
+
+export type FriendsPageApiV2FriendsGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number | null;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+    };
+    url: '/api/v2/friends';
+};
+
+export type FriendsPageApiV2FriendsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type FriendsPageApiV2FriendsGetError = FriendsPageApiV2FriendsGetErrors[keyof FriendsPageApiV2FriendsGetErrors];
+
+export type FriendsPageApiV2FriendsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: IdentityPage;
+};
+
+export type FriendsPageApiV2FriendsGetResponse = FriendsPageApiV2FriendsGetResponses[keyof FriendsPageApiV2FriendsGetResponses];
+
+export type FriendRequestsPageApiV2FriendsRequestsGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number | null;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+    };
+    url: '/api/v2/friends/requests';
+};
+
+export type FriendRequestsPageApiV2FriendsRequestsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type FriendRequestsPageApiV2FriendsRequestsGetError = FriendRequestsPageApiV2FriendsRequestsGetErrors[keyof FriendRequestsPageApiV2FriendsRequestsGetErrors];
+
+export type FriendRequestsPageApiV2FriendsRequestsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: IdentityPage;
+};
+
+export type FriendRequestsPageApiV2FriendsRequestsGetResponse = FriendRequestsPageApiV2FriendsRequestsGetResponses[keyof FriendRequestsPageApiV2FriendsRequestsGetResponses];
 
 export type ListLaffatApiV2LaffatGetData = {
     body?: never;

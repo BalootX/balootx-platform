@@ -18,6 +18,8 @@ The required **ci-gate** check compares the producer results to the plan and fai
 
 The `docker-constraints` job dry-runs pip with the Python base image, exact constraints and extras shared by the Docker test and verifier stages. It runs when its Docker, dependency or CI inputs change on a PR, when CI cannot resolve the diff, and on main and merge groups.
 
+The full profile includes `identity-postgres`, which applies and replays the migrations in an isolated PostgreSQL instance using the driver versions in [the Docker constraints](requirements-docker.txt). It verifies paging and query plans with a non-C collation. The [identity migration notes](docs/IDENTITY_PAGINATION.md#migration-notes) cover deployment and reversal.
+
 The main ruleset's CodeQL rule evaluates each PR at admission and blocks new high or critical alerts on lines the PR changes. The main-push scan surfaces alerts that arise only in the combined commit.
 
 The concurrency key uses the PR number to keep same-named branches from different forks in separate groups. A new run supersedes only the same PR's older run. Each push, merge-group and manual CI run has its own group and cannot cancel another run.

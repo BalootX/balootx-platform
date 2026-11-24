@@ -1327,9 +1327,7 @@ def _build_container(
             "http://127.0.0.1:8080",
         ),
         difficulty_calibrator=difficulty,
-        friend_ids=lambda subject_id: identity.friend_ids(
-            subject_id, limit=identity_pagination.default_page_size
-        ),
+        friend_ids=identity.friend_ids,
         challenge_copy=bundle.component("video")["challenge_copy"],
         research_presentation_resolver=frozen_research_presentation,
     )

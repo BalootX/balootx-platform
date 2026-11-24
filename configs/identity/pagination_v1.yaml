@@ -1,2 +1,4 @@
 default_page_size: 20
 maximum_page_size: 100
+minimum_search_query_length: 3
+maximum_search_results: 100

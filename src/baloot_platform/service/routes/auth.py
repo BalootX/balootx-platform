@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
@@ -103,6 +104,7 @@ def apply_session_cookie(response: Response, request: Request, result: dict[str,
 
 def build_auth_router(service: IdentityService, *, pagination: IdentityPaginationConfig) -> APIRouter:
     router = APIRouter(prefix="/api/v1", tags=["identity"])
+    paged_router = APIRouter(prefix="/api/v2", tags=["identity"])
 
     def page(fetch: Callable[..., dict[str, Any]], value: str, limit: int | None, cursor: str | None):
         page_size = min(limit, pagination.maximum_page_size) if limit is not None else pagination.default_page_size
@@ -175,26 +177,44 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
         request: Request, query: str, limit: int | None = Query(default=None, ge=1),
         cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
     ):
-        require_identity(request, service)
-        if "\0" in query:
-            raise HTTPException(422, [{"loc": ["query", "query"], "msg": "invalid search query", "type": "value_error"}])
-        return page(service.search, query, limit, cursor)
+        identity, _ = require_identity(request, service)
+        if identity.is_guest:
+            raise HTTPException(403, "sign in to search for users")
+        query = query.strip()
+        minimum = pagination.minimum_search_query_length
+        if "\0" in query or len(query) < minimum or not query.strip("%_"):
+            raise HTTPException(422, [{
+                "loc": ["query", "query"],
+                "msg": f"search query must contain at least {minimum} characters, with no nulls and at least one non-wildcard character",
+                "type": "value_error",
+            }])
+        return page(partial(service.search, maximum_results=pagination.maximum_search_results), query, limit, cursor)
 
-    @router.get("/friends", response_model=IdentityPage)
-    def friends(
+    @router.get("/friends")
+    def friends(request: Request):
+        identity, _ = require_identity(request, service)
+        return {"items": service.friends(identity.subject_id)}
+
+    @router.get("/friends/requests")
+    def friend_requests(request: Request):
+        identity, _ = require_identity(request, service)
+        return {"items": service.requests(identity.subject_id)}
+
+    @paged_router.get("/friends", response_model=IdentityPage)
+    def friends_page(
         request: Request, limit: int | None = Query(default=None, ge=1),
         cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
     ):
         identity, _ = require_identity(request, service)
-        return page(service.friends, identity.subject_id, limit, cursor)
+        return page(service.friend_page, identity.subject_id, limit, cursor)
 
-    @router.get("/friends/requests", response_model=IdentityPage)
-    def friend_requests(
+    @paged_router.get("/friends/requests", response_model=IdentityPage)
+    def friend_requests_page(
         request: Request, limit: int | None = Query(default=None, ge=1),
         cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
     ):
         identity, _ = require_identity(request, service)
-        return page(service.requests, identity.subject_id, limit, cursor)
+        return page(service.request_page, identity.subject_id, limit, cursor)
 
     @router.post("/friends/requests", status_code=201)
     def create_friend_request(body: FriendRequestBody, request: Request):
@@ -214,4 +234,7 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
         except KeyError as exc:
             raise HTTPException(404, "friend request not found") from exc
 
-    return router
+    routes = APIRouter()
+    routes.include_router(router)
+    routes.include_router(paged_router)
+    return routes

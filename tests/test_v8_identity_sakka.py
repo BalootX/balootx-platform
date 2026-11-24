@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from contextlib import closing
 from pathlib import Path
 
@@ -44,17 +45,16 @@ def test_optional_identity_guest_local_and_friends(tmp_path: Path):
 
     request = service.request_friend(first["identity"]["subjectId"], second["identity"]["subjectId"])
     service.respond_friend(request["requestId"], second["identity"]["subjectId"], accept=True)
-    friends = service.friends(first["identity"]["subjectId"], limit=1)
-    assert [item["subjectId"] for item in friends["items"]] == [second["identity"]["subjectId"]]
-    assert friends["nextCursor"] is None
+    friends = service.friends(first["identity"]["subjectId"])
+    assert [item["subjectId"] for item in friends] == [second["identity"]["subjectId"]]
 
 
 @given(st.text(alphabet=st.characters(codec="utf-8", exclude_characters="\x00"), max_size=40))
-def test_identity_cursor_round_trips_and_rejects_another_scope(display_name: str):
+def test_identity_cursor_round_trips_and_rejects_another_scope(subject_id: str):
     scope = cursor_scope("search", "sample")
-    anchor = ("local", display_name, "SUB-EXAMPLE")
+    anchor = (subject_id,)
     cursor = encode_cursor(scope, anchor)
-    keys = ("kind", "display_name", "subject_id")
+    keys = ("subject_id",)
     assert decode_cursor(cursor, scope, keys=keys) == anchor
     with pytest.raises(InvalidIdentityCursor):
         decode_cursor(cursor, cursor_scope("search", "different"), keys=keys)
@@ -63,7 +63,8 @@ def test_identity_cursor_round_trips_and_rejects_another_scope(display_name: str
 def test_identity_pagination_configuration_is_validated(root):
     assert IdentityPaginationConfig.load(root).maximum_page_size > 0
     with pytest.raises(ValueError, match="must not exceed"):
-        IdentityPaginationConfig(default_page_size=2, maximum_page_size=1)
+        IdentityPaginationConfig(default_page_size=2, maximum_page_size=1,
+                                 minimum_search_query_length=3, maximum_search_results=64)
 
 
 def test_python_sdk_forwards_identity_pagination_options():
@@ -78,12 +79,14 @@ def test_python_sdk_forwards_identity_pagination_options():
     with BalootClient() as client:
         client.client.close()
         client.client = httpx.Client(base_url="https://example.com", transport=httpx.MockTransport(response))
-        assert client.friends()["nextCursor"] is None
+        assert client.friends()["items"] == []
+        assert client.friends_page()["nextCursor"] is None
         client.friend_requests(cursor="encoded-_", limit=5)
         client.search_users("Fixture + sample", cursor="encoded-_", limit=7)
     assert observed == [
         ("/api/v1/friends", {}),
-        ("/api/v1/friends/requests", {"cursor": "encoded-_", "limit": "5"}),
+        ("/api/v2/friends", {}),
+        ("/api/v2/friends/requests", {"cursor": "encoded-_", "limit": "5"}),
         ("/api/v1/users:search", {"query": "Fixture + sample", "cursor": "encoded-_", "limit": "7"}),
     ]
 
@@ -95,13 +98,9 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
     if postgres:
         store = PostgresIdentityStore(dsn)
         connect = store.pool.connection
-        dialect = store._postgres_page_sql
     else:
         store = SQLiteIdentityStore(database)
         connect = store._connect
-
-        def dialect(sql):
-            return sql
 
     owner, legacy = "SUB-0120-OWNER", "SUB-0120-LEGACY"
     candidates = [f"SUB-{index:04}" for index in range(256)]
@@ -109,12 +108,22 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
     started = "2026-01-01T00:00:00+00:00"
     newer = "2026-01-02T00:00:00+00:00"
     request_keys = [(newer if index % 2 else started, f"REQ-{index:04}") for index in range(len(candidates))]
+    migration = "031_identity_list_pagination.sql"
+
+    def migrate(source_root):
+        from scripts.migrate_postgres import main
+
+        with monkeypatch.context() as patch:
+            patch.setenv("BALOOT_DATABASE_URL", dsn)
+            patch.setenv("BALOOT_ROOT", str(source_root))
+            main()
+
     indexes = {
-        "search_subjects": "idx_identity_active_search",
         "list_friends": "idx_identity_friendships_high_low",
         "list_friend_requests": "idx_identity_pending_requests",
     }
-    subject_rows = [(subject, "local" if index % 2 else "guest", None, "Page Fixture", started, None)
+    subject_rows = [(subject, "local" if index % 2 else "guest", None,
+                     "Page Fixture A" if index % 2 else "Page Fixture Z", started, None)
                     for index, subject in enumerate(candidates)]
     subject_rows.extend((subject, "local", None, "Background Fixture", started, None) for subject in unrelated)
     subject_rows.extend([
@@ -122,6 +131,8 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
         (legacy, "service", None, "Legacy Fixture", started, None),
         ("SUB-DISABLED", "local", None, "Page Fixture", started, started),
         ("SUB-USERNAME", "local", "page fixture", "Username Fixture", started, None),
+        ("SUB-LITERAL", "local", None, "Literal %_! token", started, None),
+        ("SUB-SIMILAR", "local", None, "Literal AB! token", started, None),
     ])
     friendships = [(*sorted((owner if index % 2 else legacy, subject)), started)
                    for index, subject in enumerate(candidates)]
@@ -135,43 +146,64 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
     requests.append(("REQ-DECLINED", candidates[0], owner, "declined", newer))
 
     try:
+        if postgres:
+            baseline_root = tmp_path / "previous"
+            baseline_migrations = baseline_root / "migrations"
+            baseline_migrations.mkdir(parents=True)
+            for path in (root / "migrations").glob("*.sql"):
+                if path.name != migration:
+                    shutil.copyfile(path, baseline_migrations / path.name)
+            migrate(baseline_root)
+
+        p = store.placeholder
         with connect() as conn, closing(conn.cursor()) as cursor:
             if postgres:
-                cursor.execute((root / "migrations/005_identity_sakka.sql").read_text(encoding="utf-8"))
+                assert cursor.execute("SHOW lc_collate").fetchone()[0].lower().startswith("en_us")
             else:
                 for index in indexes.values():
                     cursor.execute(f"DROP INDEX {index}")
-            cursor.executemany(dialect("""INSERT INTO identity_subjects_v8
-                (subject_id,kind,username,display_name,created_at,disabled_at) VALUES(?,?,?,?,?,?)"""), subject_rows)
-            cursor.executemany(dialect("""INSERT INTO identity_friendships_v8
-                (subject_low,subject_high,created_at) VALUES(?,?,?)"""), friendships)
-            cursor.executemany(dialect("""INSERT INTO identity_friend_requests_v8
-                (request_id,sender_id,recipient_id,status,created_at) VALUES(?,?,?,?,?)"""), requests)
+            cursor.executemany(
+                f"""INSERT INTO {store.subjects}
+                    (subject_id,kind,username,display_name,created_at,disabled_at)
+                    VALUES({p},{p},{p},{p},{p},{p})""", subject_rows,
+            )
+            cursor.executemany(
+                f"INSERT INTO {store.friendships} (subject_low,subject_high,created_at) VALUES({p},{p},{p})",
+                friendships,
+            )
+            cursor.executemany(
+                f"""INSERT INTO {store.requests}
+                    (request_id,sender_id,recipient_id,status,created_at) VALUES({p},{p},{p},{p},{p})""",
+                requests,
+            )
             cursor.execute("ANALYZE")
 
         operations = (
-            (store.search_subjects, "Page Fixture", ("local", "Page Fixture", candidates[119])),
-            (store.list_friends, owner, (candidates[119],)),
-            (store.list_friend_requests, owner, (newer, request_keys[119][1])),
+            (store.search_subjects, "Fixture", (candidates[39],), {"maximum_results": 64}),
+            (store.list_friends, owner, (candidates[119],), {}),
+            (store.list_friend_requests, owner, (newer, request_keys[119][1]), {}),
         )
+        search_index = "subjects_pkey" if postgres else "sqlite_autoindex_identity_subjects_v8_1"
 
         def plans(stage):
             with connect() as conn, monkeypatch.context() as patch:
                 prefix = "EXPLAIN (ANALYZE, BUFFERS) " if postgres else "EXPLAIN QUERY PLAN "
 
                 def explain(sql, params):
-                    rows = conn.execute(prefix + dialect(sql), params).fetchall()
+                    rows = conn.execute(prefix + sql, params).fetchall()
                     nonlocal plan
                     plan = "\n".join(row[0 if postgres else 3] for row in rows)
                     return []
 
                 plan = ""
                 patch.setattr(store, "_read_page_rows", explain)
-                for fetch, value, after in operations:
+                for fetch, value, after, options in operations:
                     for anchor in ((), after):
-                        fetch(value, limit=14, after=anchor)
+                        fetch(value, limit=14, after=anchor, **options)
                         print(f"{stage} {fetch.__name__} {'continuation' if anchor else 'first'}\n{plan}")
-                        if stage == "indexed":
+                        if fetch == store.search_subjects:
+                            assert search_index in plan, plan
+                        elif stage == "indexed":
                             assert indexes[fetch.__name__] in plan, plan
                         else:
                             assert indexes[fetch.__name__] not in plan, plan
@@ -180,8 +212,9 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
         try:
             plans("baseline")
             if postgres:
+                migrate(root)
+                migrate(root)
                 with connect() as conn:
-                    conn.execute((root / "migrations/031_identity_list_pagination.sql").read_text(encoding="utf-8"))
                     conn.execute("ANALYZE")
             else:
                 SQLiteIdentityStore(database)
@@ -190,13 +223,20 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
             plans("indexed")
 
             service = IdentityService(store)
-            auth = {"fixture-owner": owner, "fixture-other": "SUB-USERNAME"}
+            auth = {
+                "fixture-owner": Identity(owner, "service", "Synthetic"),
+                "fixture-other": Identity("SUB-USERNAME", "local", "Synthetic"),
+                "fixture-guest": Identity(candidates[0], "guest", "Synthetic"),
+            }
             monkeypatch.setattr(service, "resolve", lambda token: (
-                (Identity(auth[token], "service", "Synthetic"), {}) if token in auth else (None, None)
+                (auth[token], {}) if token in auth else (None, None)
             ))
             app = FastAPI()
             app.include_router(build_auth_router(
-                service, pagination=IdentityPaginationConfig(default_page_size=13, maximum_page_size=21),
+                service, pagination=IdentityPaginationConfig(
+                    default_page_size=13, maximum_page_size=21,
+                    minimum_search_query_length=3, maximum_search_results=64,
+                ),
             ))
 
             with TestClient(app) as client:
@@ -223,30 +263,59 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                         payload = response.json()
                         assert 0 < len(payload["items"]) <= 17
 
-                assert client.get("/api/v1/friends").status_code == 401
+                search_path = "/api/v1/users:search"
+                friends_path = "/api/v2/friends"
+                requests_path = "/api/v2/friends/requests"
+                assert client.get(friends_path).status_code == 401
+                assert client.get(search_path, params={"query": "Page Fixture"}).status_code == 401
+
+                client.headers["Authorization"] = "Bearer fixture-guest"
+                assert client.get(friends_path).status_code == 200
+                assert client.get(search_path, params={"query": "Page Fixture"}).status_code == 403
+
                 client.headers["Authorization"] = "Bearer fixture-owner"
-                friends, friend_cursor = collect("/api/v1/friends", "subjectId")
+                friends, friend_cursor = collect(friends_path, "subjectId")
                 assert friends == candidates
-                assert list(service.friend_ids(owner, limit=13)) == friends
-                pending, request_cursor = collect("/api/v1/friends/requests", "request_id")
+                assert sorted(service.friend_ids(owner)) == friends
+                legacy_friends = client.get("/api/v1/friends").json()
+                assert set(legacy_friends) == {"items"}
+                assert sorted(row["subjectId"] for row in legacy_friends["items"]) == candidates
+                names = [row["displayName"] for row in legacy_friends["items"]]
+                assert names == sorted(names)
+
+                pending, request_cursor = collect(requests_path, "request_id")
                 assert pending == [key for _, key in sorted(request_keys, reverse=True)]
-                request_item = client.get("/api/v1/friends/requests", params={"limit": 1}).json()["items"][0]
+                request_item = client.get(requests_path, params={"limit": 1}).json()["items"][0]
                 assert ("responded_at" in request_item) == (not postgres)
-                users, search_cursor = collect("/api/v1/users:search", "subjectId", query="Page Fixture")
-                assert users == candidates[1::2] + ["SUB-USERNAME"] + candidates[::2]
-                assert client.get("/api/v1/users:search", params={"query": "Absent"}).json() == {
+                assert len(client.get("/api/v1/friends/requests").json()["items"]) == len(request_keys)
+
+                users, search_cursor = collect(search_path, "subjectId", query="Page Fixture")
+                assert users == candidates[:64]
+                literal = client.get(search_path, params={"query": "Literal %_!"}).json()
+                assert [row["subjectId"] for row in literal["items"]] == ["SUB-LITERAL"]
+                assert client.get(search_path, params={"query": "Absent"}).json() == {
                     "items": [], "nextCursor": None,
                 }
-                assert client.get("/api/v1/users:search", params={"query": "Changed", "cursor": search_cursor}).status_code == 422
-                assert client.get("/api/v1/friends", params={"limit": 0}).status_code == 422
+                outside_cap = encode_cursor(cursor_scope("search", "Page Fixture"), (candidates[100],))
+                assert client.get(search_path, params={"query": "Page Fixture", "cursor": outside_cap}).json() == {
+                    "items": [], "nextCursor": None,
+                }
+                for invalid in ("", "  ", "%", "_", "%__%", "ab"):
+                    rejection = client.get(search_path, params={"query": invalid})
+                    assert rejection.status_code == 422
+                    assert "at least 3 characters" in rejection.json()["detail"][0]["msg"]
+                assert client.get(search_path, params={"query": "Changed", "cursor": search_cursor}).status_code == 422
+                assert client.get(friends_path, params={"limit": 0}).status_code == 422
                 for bad in ("", "@invalid", request_cursor, "A" * 2_049):
-                    assert client.get("/api/v1/friends", params={"cursor": bad}).status_code == 422
+                    assert client.get(friends_path, params={"cursor": bad}).status_code == 422
+
                 client.headers["Authorization"] = "Bearer fixture-other"
-                assert client.get("/api/v1/friends", params={"cursor": friend_cursor}).status_code == 422
-                assert client.get("/api/v1/friends").json() == {"items": [], "nextCursor": None}
+                assert client.get(search_path, params={"query": "Page Fixture"}).status_code == 200
+                assert client.get(friends_path, params={"cursor": friend_cursor}).status_code == 422
+                assert client.get(friends_path).json() == {"items": [], "nextCursor": None}
 
                 service.respond_friend(pending[12], owner, accept=False)
-                assert service.requests(owner, limit=17, cursor=request_cursor)["items"][0]["request_id"] == pending[13]
+                assert service.request_page(owner, limit=17, cursor=request_cursor)["items"][0]["request_id"] == pending[13]
         finally:
             SERVICE_SUBJECT_OWNER.reset(token)
     finally:
