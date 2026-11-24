@@ -6,7 +6,9 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
+
+from jsonschema import ValidationError
 
 from baloot_platform.analysis.bidding import BidChoice, analyze_bid, legal_bid_choices
 from baloot_platform.analysis.belief_v7 import BeliefPolicy
@@ -557,6 +559,39 @@ def validate_primary_bid_decision_score_trace_v1(
     return evidence
 
 
+_PLAY_SEARCH_MODES = ("disabled", "paired_information_set")
+
+
+def _agent_profile_error(
+    source: str | Path | None, fields: Sequence[str | int], action: str
+) -> ValueError:
+    if source is None:
+        return ValueError(f"{fields[-1]}: {action}")
+    pointer = "".join(
+        "/" + str(field).replace("~", "~0").replace("/", "~1") for field in fields
+    )
+    return ValueError(f"invalid profile {source}: {pointer or '<root>'}: {action}")
+
+
+def agent_profile_schema_error(source: Path, issue: ValidationError) -> ValueError:
+    fields = list(issue.absolute_path)
+    action = issue.message
+    if issue.validator == "required":
+        fields.append(
+            next(field for field in issue.validator_value if field not in issue.instance)
+        )
+        action = "add this required field"
+    elif issue.validator == "additionalProperties":
+        unknown = issue.instance.keys() - issue.schema.get("properties", {})
+        fields.append(min(unknown, key=str))
+        action = "remove this unknown field"
+    elif issue.validator == "type":
+        action = f"use a value of type {issue.validator_value!r}"
+    elif issue.validator == "const":
+        action = f"set this field to {issue.validator_value!r}"
+    return _agent_profile_error(source, fields, action)
+
+
 @dataclass(frozen=True, slots=True)
 class AgentProfile:
     id: str
@@ -583,7 +618,9 @@ class AgentProfile:
     maximum_deception_win_drop: float
 
     @classmethod
-    def from_mapping(cls, identifier: str, value: Mapping[str, Any]) -> "AgentProfile":
+    def from_mapping(
+        cls, identifier: str, value: Mapping[str, Any], *, source: str | Path | None = None
+    ) -> "AgentProfile":
         def bounded(name: str, default: float) -> float:
             return max(0.0, min(1.0, float(value.get(name, default))))
 
@@ -601,16 +638,20 @@ class AgentProfile:
                 ),
             )
         ).strip()
-        if search_mode not in {"disabled", "paired_information_set"}:
-            raise ValueError(
-                f"unsupported play search mode {search_mode}"
+        if search_mode not in _PLAY_SEARCH_MODES:
+            raise _agent_profile_error(
+                source,
+                ("profiles", identifier, "play_search_mode"),
+                "use one of " + ", ".join(map(repr, _PLAY_SEARCH_MODES)),
             )
         search_objective = str(
             value.get("play_search_objective", "match_point_margin")
         ).strip()
         if search_objective not in ANALYSIS_OBJECTIVES:
-            raise ValueError(
-                f"unsupported play search objective {search_objective}"
+            raise _agent_profile_error(
+                source,
+                ("profiles", identifier, "play_search_objective"),
+                "use one of " + ", ".join(map(repr, sorted(ANALYSIS_OBJECTIVES))),
             )
         return cls(
             id=identifier,
@@ -704,10 +745,19 @@ class AgentProfile:
 
 
 class AgentProfileRegistry:
-    def __init__(self, profiles: Mapping[str, AgentProfile], *, default_profile: str, default_lineup: Mapping[str, str]):
+    def __init__(
+        self,
+        profiles: Mapping[str, AgentProfile],
+        *,
+        default_profile: str,
+        default_lineup: Mapping[str, str],
+        source: str | Path | None = None,
+    ):
         self._profiles = dict(profiles)
         if default_profile not in self._profiles:
-            raise ValueError(f"unknown default agent profile {default_profile}")
+            raise _agent_profile_error(
+                source, ("default_profile",), "use a key declared under profiles"
+            )
         self.default_profile = default_profile
         self.default_lineup = dict(default_lineup)
 
@@ -727,19 +777,15 @@ class AgentProfileRegistry:
     ) -> "AgentProfileRegistry":
         if not isinstance(data, dict) or not isinstance(data.get("profiles"), dict):
             raise ValueError("agent profile file must define a profiles mapping")
-        profiles: dict[str, AgentProfile] = {}
-        for identifier, value in data["profiles"].items():
-            key = str(identifier)
-            try:
-                profiles[key] = AgentProfile.from_mapping(key, value)
-            except ValueError as exc:
-                if source is None:
-                    raise
-                raise ValueError(f"invalid profile {source}: profiles.{key}: {exc}") from exc
+        profiles = {
+            str(identifier): AgentProfile.from_mapping(str(identifier), value, source=source)
+            for identifier, value in data["profiles"].items()
+        }
         return cls(
             profiles,
             default_profile=str(data.get("default_profile", "strong")),
             default_lineup=data.get("default_lineup", {}),
+            source=source,
         )
 
     @classmethod
@@ -747,12 +793,11 @@ class AgentProfileRegistry:
         cls,
         root: str | Path | None = None,
     ) -> "AgentProfileRegistry":
-        from baloot_platform.config import build_bundle
+        from baloot_platform.config import build_bundle, platform_root
 
-        component = build_bundle(
-            Path(root) if root is not None else None
-        ).components["agents"]
-        return cls.from_mapping(component.data, source=component.path)
+        resolved_root = platform_root(root)
+        component = build_bundle(resolved_root).components["agents"]
+        return cls.from_mapping(component.data, source=resolved_root / component.path)
 
     def get(self, identifier: str | None = None) -> AgentProfile:
         key = identifier or self.default_profile

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
+from baloot_platform import config
 from baloot_platform.agents.profiles import (
     AdaptivePlayStrategy,
     AgentProfile,
@@ -16,7 +17,6 @@ from baloot_platform.agents.profiles import (
 from baloot_platform.agents.qualification import (
     validate_finalist_analysis_compatibility,
 )
-from baloot_platform import config
 from baloot_platform.config import _validate_research_agent_bindings, build_bundle
 from baloot_platform.core.engine import BalootEngine
 from baloot_platform.core.enums import Contract, Seat
@@ -48,15 +48,16 @@ def test_standalone_agent_profile_loads_from_working_directory(
 
 
 @pytest.mark.parametrize(
-    ("patch", "removed", "error"),
+    ("patch", "removed", "pointer", "action"),
     [
-        ({}, ("skill",), "'skill' is a required property"),
-        ({"skil": 0.75}, (), "'skil' was unexpected"),
-        ({"skill": "0.75"}, (), "is not of type 'number'"),
+        ({}, ("skill",), "/profiles/strong/skill", "add this required field"),
+        ({"skil": 0.75}, (), "/profiles/strong/skil", "remove this unknown field"),
+        ({"skil/~": 0.75}, (), "/profiles/strong/skil~1~0", "remove this unknown field"),
+        ({"skill": "0.75"}, (), "/profiles/strong/skill", "use a value of type 'number'"),
     ],
 )
 def test_standalone_agent_profile_rejects_malformed_row(
-    standalone_agent_profile, patch, removed, error
+    standalone_agent_profile, patch, removed, pointer, action
 ):
     path, data = standalone_agent_profile
     row = data["profiles"]["strong"]
@@ -68,19 +69,18 @@ def test_standalone_agent_profile_rejects_malformed_row(
     with pytest.raises(ValueError) as caught:
         AgentProfileRegistry.from_yaml(path)
 
-    assert f"{path}: profiles.strong:" in str(caught.value)
-    assert error in str(caught.value)
+    assert str(caught.value) == f"invalid profile {path}: {pointer}: {action}"
 
 
 @pytest.mark.parametrize(
-    ("mode", "error"),
+    ("mode", "action"),
     [
-        (None, "'play_search_mode' is a required property"),
-        ("invalid", "unsupported play search mode invalid"),
+        (None, "add this required field"),
+        ("invalid", "use one of 'disabled', 'paired_information_set'"),
     ],
 )
 def test_bundled_agent_profile_rejects_invalid_search_tuning(
-    root, monkeypatch, mode, error
+    root, monkeypatch, mode, action
 ):
     load_yaml = config._load_yaml
     source = root / "configs/agents/default.yaml"
@@ -99,10 +99,9 @@ def test_bundled_agent_profile_rejects_invalid_search_tuning(
     with pytest.raises(ValueError) as caught:
         AgentProfileRegistry.from_bundle(root)
 
-    assert "configs/agents/default.yaml: profiles.strong:" in str(
-        caught.value
-    ).replace("\\", "/")
-    assert error in str(caught.value)
+    assert str(caught.value) == (
+        f"invalid profile {source}: /profiles/strong/play_search_mode: {action}"
+    )
 
 
 def test_active_agent_profile_is_v2_and_snapshot_round_trips(root: Path):
