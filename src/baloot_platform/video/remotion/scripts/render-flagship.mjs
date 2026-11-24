@@ -1,4 +1,3 @@
-import {mkdir} from "node:fs/promises";
 import {availableParallelism, cpus} from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -6,8 +5,8 @@ import {setTimeout as delay} from "node:timers/promises";
 import {bundle} from "@remotion/bundler";
 import {openBrowser, renderMedia, renderStill, selectComposition} from "@remotion/renderer";
 import {bt709FfmpegOverride} from "./ffmpeg-profile.mjs";
-import {writeFileWithRetry} from "./fs-safe.mjs";
 import {cgroupCpuLimit, governedH264Options, hostSafeConcurrency, readValidatedRenderBundle} from "./render-options.mjs";
+import {createRenderOutput, writeRenderEvidence} from "./render-output.mjs";
 
 const rendererRoot = process.cwd();
 const repositoryRoot = path.resolve(rendererRoot, "../../../..");
@@ -63,7 +62,7 @@ const timestamp = frames => {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 };
 
-await mkdir(outputDir, {recursive: true});
+await createRenderOutput(outputDir, outputBase);
 const revealScene = bundleData.scenes.find((scene) => scene.stage === "reveal");
 const analysisLayer = revealScene?.layers.find((layer) => layer.id === "analysis");
 const showJustification = bundleData.presentation?.presentation?.show_justification_text !== false;
@@ -72,12 +71,11 @@ const captionText = showJustification
   : "";
 if (showJustification && !captionText) throw new Error("Missing governed reveal localization");
 const captionStart = segment("reveal").startFrame;
-await writeFileWithRetry(
+await writeRenderEvidence(
   path.join(outputDir, `${outputBase}.ar.vtt`),
   showJustification
     ? `WEBVTT\n\n${timestamp(captionStart)} --> ${timestamp(captionStart + 240)}\n${captionText}\n`
     : "WEBVTT\n\n",
-  "utf8",
 );
 const serveUrl = await bundle({
   entryPoint: path.join(rendererRoot, "src/index.ts"),
@@ -191,10 +189,9 @@ if (playbackEvidence) {
     }
     items.push({...checkpoint, renderedDom});
   }
-  await writeFileWithRetry(
+  await writeRenderEvidence(
     path.join(outputDir, "playback-evidence.json"),
     `${JSON.stringify({schemaVersion: 1, items}, null, 2)}\n`,
-    "utf8",
   );
 }
 if (!stillsOnly) {
