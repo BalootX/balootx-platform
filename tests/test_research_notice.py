@@ -503,8 +503,8 @@ def test_render_kickoff_usage_writes_json(capsys, argv, code, status):
 
 @pytest.mark.parametrize(("case", "reason"), [
     ("head", "does not match the pinned source"), ("tree", "does not match the pinned source"),
-    ("subdirectory", "does not match the pinned source"), ("dirty", "requires clean"),
-    ("untracked", "requires clean"), ("shallow", "requires a complete Git history"),
+    ("subdirectory", "does not match the pinned source"), ("dirty", "requires a clean checkout"),
+    ("untracked", "requires a clean checkout"), ("shallow", "requires a complete Git history"),
     ("build", "requires a passed video-worker build"), ("build-source", "build source does not match"),
     ("policy", "excludedPaths"), ("remote", "git ls-remote"),
     ("ids", "requires full source commit and tree IDs"), ("unexpected", "unexpected render kickoff error"),

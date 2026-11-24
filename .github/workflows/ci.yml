@@ -666,27 +666,27 @@ jobs:
           worker_checkout=$(mktemp -d "$RUNNER_TEMP/video-worker-checkout.XXXXXX")
           cp -a "$GITHUB_WORKSPACE/." "$worker_checkout/"
           sudo chown -R 10001 "$worker_checkout"
-          docker run --rm --network none --read-only --workdir /checkout \
+          docker run --rm --network none --read-only --workdir /checkout -i \
             --mount "type=bind,source=$worker_checkout,target=/checkout,readonly" \
             balootx-video-worker-parity sh -ec '
               test "$(id -u)" -eq 10001
-              exec python -B -c "
+              exec python -B - "$@"
+            ' worker "$source_head" "$source_tree" <<'PY'
           from pathlib import Path
           import sys
           from scripts.render_kickoff import load_policy, verify_checkout
 
           source_head, source_tree = sys.argv[1:]
-          timeout = load_policy()[\"gitTimeoutSeconds\"][\"local\"]
+          timeout = load_policy()["gitTimeoutSeconds"]["local"]
           verify_checkout(Path.cwd(), source_head, source_tree, timeout=timeout)
           try:
               verify_checkout(Path.cwd(), source_tree, source_tree, timeout=timeout)
           except ValueError as exc:
-              if \"does not match the pinned source\" not in str(exc):
+              if "does not match the pinned source" not in str(exc):
                   raise
           else:
-              raise SystemExit(\"video worker accepted the wrong source commit\")
-          " "$@"
-            ' worker "$source_head" "$source_tree"
+              raise SystemExit("video worker accepted the wrong source commit")
+          PY
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.video-worker-build-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: *video-worker-build-cache
