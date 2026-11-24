@@ -397,7 +397,8 @@
             "title": "Environment"
           },
           "localSchedule": {
-            "$ref": "#/components/schemas/LocalSchedule"
+            "$ref": "#/components/schemas/LocalSchedule",
+            "title": "Localschedule"
           },
           "mode": {
             "default": "full",
@@ -1484,7 +1485,8 @@
             "type": "integer"
           },
           "localSchedule": {
-            "$ref": "#/components/schemas/StoredLocalSchedule"
+            "$ref": "#/components/schemas/StoredLocalSchedule",
+            "title": "Localschedule"
           },
           "mode": {
             "title": "Mode",
@@ -8390,7 +8392,8 @@
             "type": "string"
           },
           "localSchedule": {
-            "$ref": "#/components/schemas/LocalSchedule"
+            "$ref": "#/components/schemas/LocalSchedule",
+            "title": "Localschedule"
           },
           "payload": {
             "additionalProperties": true,

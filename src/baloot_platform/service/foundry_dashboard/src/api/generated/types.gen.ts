@@ -254,6 +254,9 @@ export type BundleCreateRequest = {
      * Environment
      */
     environment?: string | null;
+    /**
+     * Localschedule
+     */
     localSchedule?: LocalSchedule;
     /**
      * Mode
@@ -865,6 +868,9 @@ export type ConfigurationBundleRevisionResponse = {
      * Etag
      */
     etag: number;
+    /**
+     * Localschedule
+     */
     localSchedule?: StoredLocalSchedule;
     /**
      * Mode
@@ -4693,6 +4699,9 @@ export type ProfileCreateRequest = {
      * Family
      */
     family: string;
+    /**
+     * Localschedule
+     */
     localSchedule?: LocalSchedule;
     /**
      * Payload
