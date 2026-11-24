@@ -38,7 +38,7 @@ The keys in `providers` are the `providerId` values clients send. Each row decla
 
 Use HTTPS URLs throughout. Redirect URIs may use HTTP on localhost or loopback. A confidential client references a deployment environment variable with the `BALOOT_OIDC_CLIENT_SECRET` prefix. A public client omits `client_secret_env`. A missing secret or a configured profile without a valid published revision stops HTTP startup. Leave the registry unconfigured with no legacy variables, or publish an empty `providers` object, to disable OIDC sign-in.
 
-For PostgreSQL, use an application role subject to row-level security. The API checks that RLS applies to its effective role on `security.external_identities` before enabling sign-in. Use a separate migration role to apply schema and data changes.
+For PostgreSQL, use an application login subject to row-level security. The API checks the identity policy and the effective role before enabling sign-in. Use a schema owner for the schema migrations and a separate RLS-subject login for the issuer migration command.
 
 Signed-out clients can send JSON POSTs to the OIDC begin and callback routes without a session or API key. Clients presenting a valid session must follow the API's session CSRF policy. An API key or a verified access token follows the same rules as on other routes. A successful callback returns a session token in its response body. It does not set a browser cookie.
 
@@ -52,6 +52,18 @@ The sign-in path needs schema usage and the following table privileges in additi
 | `security.oidc_transactions`, `security.external_identities` | `SELECT`, `INSERT`, `UPDATE` |
 | `identity.subjects` | `SELECT`, `INSERT` |
 | `identity.sessions` | `SELECT`, `INSERT`, `UPDATE` |
+
+The issuer migration login needs usage on the `configuration` and `security` schemas and these table privileges.
+
+| Tables | Privileges |
+| --- | --- |
+| `configuration.profile_revisions`, `configuration.aggregate_heads`, `configuration.invalidation_epochs`, `security.oidc_issuer_transitions` | `SELECT`, `INSERT`, `UPDATE` |
+| `configuration.events` | `SELECT`, `INSERT` |
+| `security.external_identities` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` |
+
+Reserve `UPDATE` on `security.oidc_issuer_transitions` for the issuer migration login. The identity policy uses this grant to distinguish it from the HTTP application login.
+
+For SQLite, stop the previous process before opening the databases with the new release. Keep the identity and security databases and their SQLite journals together on a local filesystem. Preserve the existing provider key and copy its issuer byte for byte, including any trailing slash. Issuer changes for linked providers require the PostgreSQL procedure below. For an unchanged issuer, keep the same databases and the previous release's provider configuration for rollback.
 
 ## Migrate the previous release
 

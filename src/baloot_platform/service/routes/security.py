@@ -10,7 +10,7 @@ from baloot_platform.security import (
     AuthorizationPolicy, PasskeyChallengeService, ROLE_SCOPES, Scope,
     SignedAccessTokenService, WebSocketTicketService,
 )
-from baloot_platform.security.state_v20 import complete_oidc_sign_in
+from baloot_platform.security.state_v20 import SQLiteOidcIssuerChange, complete_oidc_sign_in
 
 from .auth import require_identity
 
@@ -137,9 +137,12 @@ def build_security_router(
             raise HTTPException(400, str(exc)) from exc
         claims = dict(result["claims"])
         display = str(claims.get("name") or claims.get("preferred_username") or claims.get("email") or "مستخدم البلوت")[:40]
-        session = complete_oidc_sign_in(
-            security_state, identities, result, display_name=display, user_agent=request.headers.get("user-agent"),
-        )
+        try:
+            session = complete_oidc_sign_in(
+                security_state, identities, result, display_name=display, user_agent=request.headers.get("user-agent"),
+            )
+        except SQLiteOidcIssuerChange as exc:
+            raise HTTPException(503, "OIDC provider configuration is unavailable") from exc
         return {**session, "returnTo": result["returnTo"], "providerId": result["providerId"]}
 
     @router.post("/passkeys:begin")

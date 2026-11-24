@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
 OIDC_PROVIDER_FAMILY = "oidc_providers"
 OIDC_PROFILE_ENV = "BALOOT_OIDC_PROVIDERS_PROFILE"
+LEGACY_DEFAULT_PROVIDER_ID = "default"
 DEFAULT_OIDC_HTTP_TIMEOUT = 15
 _DEFAULT_SCOPES = ("openid", "profile", "email")
 _DEFAULT_CLOCK_SKEW = 30
@@ -321,6 +322,14 @@ class HttpOidcRuntime:
                 require_rls = getattr(self.security_state, "require_oidc_rls", None)
                 if providers and require_rls is not None:
                     require_rls()
+                require_issuers = getattr(self.security_state, "require_oidc_issuers", None)
+                if providers and require_issuers is not None:
+                    legacy_id = os.environ.get("BALOOT_OIDC_PROVIDER_ID", LEGACY_DEFAULT_PROVIDER_ID)
+                    legacy_issuer = os.environ.get("BALOOT_OIDC_ISSUER")
+                    issuers = {key: provider.issuer for key, provider in providers.items()}
+                    if legacy_id in issuers and legacy_issuer and issuers[legacy_id] != legacy_issuer:
+                        raise ValueError(f"SQLite OIDC provider {legacy_id!r} requires its original issuer")
+                    require_issuers(issuers)
                 self._callback = OidcCallbackService(providers, self.transactions, http_client=self.client)
                 self._revision_id = revision["revisionId"]
             return self._callback

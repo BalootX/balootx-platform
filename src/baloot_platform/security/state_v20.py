@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS security_external_identities_v20(
 """
 
 
+class SQLiteOidcIssuerChange(ValueError):
+    """An existing SQLite provider cannot switch issuers."""
+
+
 def complete_oidc_sign_in(state, identities, verified, *, display_name, user_agent):
     key = verified["providerId"], verified["issuer"], verified["externalSubject"]
     with state.external_identity_transaction(identities.store, key) as connection:
@@ -65,8 +69,27 @@ class SQLiteSecurityStateStore:
             )
             conn.execute(_SQLITE_OIDC_LINKS)
 
-    def external_identity_transaction(self, identity_store, _key):
-        return identity_store.write_transaction(security_path=self.path)
+    @contextmanager
+    def external_identity_transaction(self, identity_store, key):
+        with identity_store.write_transaction(security_path=self.path) as conn:
+            self._check_oidc_issuer(conn, "oidc_security", key[0], key[1])
+            yield conn
+
+    @staticmethod
+    def _check_oidc_issuer(conn, schema, provider_id, issuer):
+        different = conn.execute(
+            f"SELECT 1 FROM {schema}.security_external_identities_v20 WHERE provider_id=? AND issuer<? "
+            f"UNION ALL SELECT 1 FROM {schema}.security_external_identities_v20 WHERE provider_id=? AND issuer>? "
+            "LIMIT 1",
+            (provider_id, issuer, provider_id, issuer),
+        ).fetchone()
+        if different:
+            raise SQLiteOidcIssuerChange(f"SQLite OIDC provider {provider_id!r} requires its original issuer")
+
+    def require_oidc_issuers(self, issuers: dict[str, str]) -> None:
+        with closing(self._connect()) as conn:
+            for provider_id, issuer in issuers.items():
+                self._check_oidc_issuer(conn, "main", provider_id, issuer)
 
     @contextmanager
     def _link_connection(self, connection):
@@ -171,12 +194,14 @@ class PostgresSecurityStateStore:
     def require_oidc_rls(self) -> None:
         with contextual_connection(self.pool) as conn:
             active = conn.execute(
-                "SELECT row_security_active('security.external_identities') AND EXISTS ("
+                "SELECT row_security_active('security.external_identities') "
+                "AND NOT has_table_privilege(session_user, 'security.oidc_issuer_transitions', 'UPDATE') "
+                "AND EXISTS ("
                 "SELECT 1 FROM pg_policies WHERE schemaname='security' AND tablename='external_identities' "
-                "AND policyname='external_identity_authority_v32')"
+                "AND policyname='external_identity_authority_v33')"
             ).fetchone()
         if not active or not active[0]:
-            raise RuntimeError("OIDC requires the identity policy and a PostgreSQL role subject to row-level security")
+            raise RuntimeError("OIDC requires the identity policy and an application login subject to row-level security")
 
     def save_oidc(self,state,payload,expires_at):
         with contextual_connection(self.pool) as conn: conn.execute("INSERT INTO security.oidc_transactions(state,payload_json,expires_at) VALUES(%s,%s::jsonb,to_timestamp(%s)) ON CONFLICT(state) DO UPDATE SET payload_json=excluded.payload_json,expires_at=excluded.expires_at,consumed_at=NULL",(state,json.dumps(payload,ensure_ascii=False),expires_at))

@@ -277,6 +277,7 @@ def test_oidc_postgres_proof_uses_hosted_database_before_the_shard(root):
     assert "python -m scripts.run_required_pytest" in proof["run"]
     assert "tests/oidc_postgres_integration.py::test_oidc_issuer_transition_on_postgres" in proof["run"]
     assert "tests/oidc_postgres_integration.py::test_sqlite_oidc_storage_survives_release_roundtrip" in proof["run"]
+    assert "tests/oidc_postgres_integration.py::test_sqlite_oidc_recovers_across_super_journal_commit" in proof["run"]
     assert "!cancelled()" in proof["if"]
     assert shard["steps"].index(proof) < shard["steps"].index(steps["Run isolated Python shard"])
     assert "python-fast-run" in jobs["ci-gate"]["needs"]

@@ -851,14 +851,14 @@ def test_current_migration_stage_freezes_complete_inventory_and_required_tail(
 ) -> None:
     snapshot_root, inventory = proof._stage_migrations(tmp_path)
 
-    assert len(inventory) == 31
+    assert len(inventory) == 32
     assert proof._migration_inventory(snapshot_root) == inventory
     assert {
         item["name"]: item["sha256"]
         for item in inventory
         if item["name"] in proof.REQUIRED_MIGRATION_HASHES
     } == proof.REQUIRED_MIGRATION_HASHES
-    assert inventory[-1]["name"] == "032_oidc_identity_authority.sql"
+    assert inventory[-1]["name"] == "033_oidc_database_roles.sql"
     assert (
         proof.REQUIRED_MIGRATION_HASHES["029_shared_run_game_access.sql"]
         == "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"
@@ -953,7 +953,7 @@ def test_current_migration_policy_contract_is_final_and_deterministic(
         ("live.rooms", "live_room_read_v20"),
         ("live.rooms", "live_room_write_v20"),
         ("security.external_identities", "external_identity_owner_v20"),
-        ("security.external_identities", "external_identity_authority_v32"),
+        ("security.external_identities", "external_identity_authority_v33"),
         ("security.passkey_credentials", "passkey_owner_v20"),
         ("security.websocket_tickets", "websocket_ticket_service_v20"),
     }
@@ -962,11 +962,11 @@ def test_current_migration_policy_contract_is_final_and_deterministic(
         ("configuration.profile_revisions", "oidc_registry_access_v31"),
         ("configuration.events", "oidc_registry_audit_v31"),
     }
-    assert len(inventory) == 31
+    assert len(inventory) == 32
     assert first == second
     assert (
         first["sha256"]
-        == "2ff9355fa7ed457ada3d645f2d47f2538a0928cbf0a54da91384da7c1a718cd0"
+        == "a5af1f70594f3a1d919ebabd7bb579ed46b391ac618c3011b9bc62feaa6f6eea"
     )
     assert policies.isdisjoint(legacy_configuration_policies)
     assert configuration_v25_policies.issubset(policies)

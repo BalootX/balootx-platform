@@ -16,9 +16,13 @@ from baloot_platform.storage.request_context import (
     apply_postgres_identity_context,
 )
 
-from .oidc import DEFAULT_OIDC_HTTP_TIMEOUT, OIDC_PROFILE_ENV, OIDC_PROVIDER_FAMILY, discover_oidc_issuer
-
-LEGACY_DEFAULT_PROVIDER_ID = "default"
+from .oidc import (
+    DEFAULT_OIDC_HTTP_TIMEOUT,
+    LEGACY_DEFAULT_PROVIDER_ID,
+    OIDC_PROFILE_ENV,
+    OIDC_PROVIDER_FAMILY,
+    discover_oidc_issuer,
+)
 
 
 def legacy_oidc_profile(
@@ -254,6 +258,13 @@ def main() -> None:
         identity_token = CURRENT_DATABASE_IDENTITY.set(context)
         try:
             with psycopg.connect(dsn, row_factory=dict_row) as conn:
+                access = conn.execute(
+                    "SELECT row_security_active('security.external_identities') "
+                    "AND row_security_active('configuration.profile_revisions') "
+                    "AND has_table_privilege(session_user, 'security.oidc_issuer_transitions', 'UPDATE') AS allowed"
+                ).fetchone()
+                if not access["allowed"]:
+                    raise RuntimeError("OIDC issuer migration requires a dedicated login subject to row-level security")
                 apply_postgres_identity_context(conn, context)
                 store = PostgresConfigurationStore(dsn, transaction_connection=conn)
                 configuration = VersionedConfigurationService(store, root=root, profile=control_plane)

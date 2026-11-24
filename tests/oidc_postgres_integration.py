@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, closing, contextmanager
 from copy import deepcopy
 from datetime import datetime
 from io import BytesIO
@@ -44,9 +44,20 @@ def _previous_middleware(root, ref, api, identities):
 
 
 def test_sqlite_oidc_storage_survives_release_roundtrip(root, tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from baloot_platform.config import build_bundle
+    from baloot_platform.configuration import SQLiteConfigurationStore, VersionedConfigurationService
     from baloot_platform.identity import IdentityService
     from baloot_platform.identity.store import SQLiteIdentityStore
-    from baloot_platform.security.state_v20 import SQLiteSecurityStateStore, complete_oidc_sign_in
+    from baloot_platform.security.oidc import http_oidc_runtime
+    from baloot_platform.security.state_v20 import (
+        SQLiteOidcIssuerChange,
+        SQLiteSecurityStateStore,
+        complete_oidc_sign_in,
+    )
+    from baloot_platform.service.routes.security import build_security_router
 
     ref = os.environ.get("BALOOT_TEST_OIDC_LEGACY_REF", "")
     assert re.fullmatch(r"[0-9a-f]{40}", ref)
@@ -89,8 +100,145 @@ def test_sqlite_oidc_storage_survives_release_roundtrip(root, tmp_path, monkeypa
     assert current_login("upgraded") == upgraded
     assert len({existing, upgraded, downgraded}) == 3
 
+    identities = SQLiteIdentityStore(identity_path)
+    state = SQLiteSecurityStateStore(security_path)
+    configuration_store = SQLiteConfigurationStore(tmp_path / "configuration.sqlite3")
+    configuration = VersionedConfigurationService(
+        configuration_store, root=root, profile=build_bundle(root).component("configuration"),
+    )
+    payload = {
+        "schema_version": 1,
+        "profile": {"id": "signin", "version": "1.0.0"},
+        "change_reason": "Configure fixture provider",
+        "providers": {provider: {
+            "issuer": issuer,
+            "authorization_endpoint": issuer + "/authorize",
+            "token_endpoint": issuer + "/token",
+            "client_id": "fixture-client",
+            "redirect_uri": "https://app.example/callback",
+            "allowed_algorithms": ["EdDSA"],
+        }},
+    }
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
+    monkeypatch.setenv("BALOOT_OIDC_ISSUER", issuer)
+    monkeypatch.delenv("BALOOT_OIDC_PROVIDER_ID", raising=False)
+    configuration.create_profile(family="oidc_providers", payload=payload, created_by="fixture", publish=True)
+    with http_oidc_runtime(configuration, state) as runtime:
+        assert runtime.current().providers[provider].issuer == issuer
+        app = FastAPI()
+        app.state.oidc = runtime
+        app.include_router(build_security_router(IdentityService(identities), None, None, None, None, state))
+        with closing(identities._connect()) as conn:
+            before = conn.execute("SELECT count(*) FROM identity_sessions_v8").fetchone()[0]
+        payload["profile"]["version"] = "1.0.1"
+        payload["providers"][provider]["issuer"] = issuer + "/"
+        configuration.create_profile(family="oidc_providers", payload=payload, created_by="fixture", publish=True)
+        with pytest.raises(ValueError, match="requires its original issuer"):
+            runtime.current()
+        monkeypatch.delenv("BALOOT_OIDC_ISSUER")
+        with pytest.raises(SQLiteOidcIssuerChange, match="requires its original issuer"):
+            runtime.current()
+        with TestClient(app) as client:
+            assert client.post("/api/v1/security/oidc:begin", json={"providerId": provider}).status_code == 503
+            assert client.post(
+                "/api/v1/security/oidc:callback",
+                json={"providerId": provider, "state": "fixture-state", "code": "fixture-code"},
+            ).status_code == 503
+        with closing(state._connect()) as conn:
+            assert conn.execute("SELECT count(*) FROM security_oidc_transactions_v20").fetchone()[0] == 0
+        with pytest.raises(SQLiteOidcIssuerChange, match="requires its original issuer"):
+            complete_oidc_sign_in(
+                state, IdentityService(identities),
+                {"providerId": provider, "issuer": issuer + "/", "externalSubject": "existing", "claims": {}},
+                display_name="Fixture", user_agent=None,
+            )
+        with closing(identities._connect()) as conn:
+            assert conn.execute("SELECT count(*) FROM identity_sessions_v8").fetchone()[0] == before
+            assert conn.execute("SELECT count(*) FROM identity_subjects_v8").fetchone()[0] == 3
+        assert state.get_external_identity(provider, issuer, "existing")["local_subject_id"] == existing
+        assert state.get_external_identity(provider, issuer + "/", "existing") is None
+    with pytest.raises(SQLiteOidcIssuerChange, match="requires its original issuer"):
+        with http_oidc_runtime(configuration, state):
+            pytest.fail("SQLite must refuse startup with the incompatible issuer")
+    configuration_store.close()
 
-def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog):
+
+def _sqlite_oidc_login(directory, subject):
+    from pathlib import Path
+
+    from baloot_platform.identity import IdentityService, SQLiteIdentityStore
+    from baloot_platform.security.state_v20 import SQLiteSecurityStateStore, complete_oidc_sign_in
+
+    directory = Path(directory)
+    store = SQLiteSecurityStateStore(directory / "security.sqlite3")
+    identities = IdentityService(SQLiteIdentityStore(directory / "identity.sqlite3"))
+    return complete_oidc_sign_in(
+        store, identities,
+        {"providerId": "default", "issuer": "https://signin.example", "externalSubject": subject, "claims": {}},
+        display_name="Fixture", user_agent=None,
+    )
+
+
+def test_sqlite_oidc_recovers_across_super_journal_commit(root, tmp_path, monkeypatch):
+    from baloot_platform.identity import SQLiteIdentityStore
+    from baloot_platform.security.state_v20 import SQLiteSecurityStateStore
+
+    ref = os.environ.get("BALOOT_TEST_OIDC_LEGACY_REF", "")
+    assert re.fullmatch(r"[0-9a-f]{40}", ref)
+    old_state = _previous_module(root, monkeypatch, ref, "baloot_platform.security.state_v20")
+    old_identity = _previous_module(root, monkeypatch, ref, "baloot_platform.identity.store")
+    interrupt = tmp_path / "interrupt.so"
+    subprocess.run(
+        ["cc", "-shared", "-fPIC", "-o", str(interrupt),
+         str(root / "tests/fixtures/sqlite_super_journal_interrupt.c"), "-ldl"],
+        check=True, timeout=30,
+    )
+    for phase, exit_code, committed in (("before", 81, False), ("after", 82, True)):
+        for reader, identity_store, security_store in (
+            ("current", SQLiteIdentityStore, SQLiteSecurityStateStore),
+            ("previous", old_identity.SQLiteIdentityStore, old_state.SQLiteSecurityStateStore),
+        ):
+            directory = tmp_path / f"{phase}-{reader}"
+            existing = _sqlite_oidc_login(directory, "existing")["identity"]["subjectId"]
+            child = subprocess.run(
+                [sys.executable, "-B", "-c",
+                 "import runpy, sys; runpy.run_path(sys.argv[1])['_sqlite_oidc_login'](sys.argv[2], 'interrupted')",
+                 __file__, str(directory)],
+                cwd=root, timeout=30,
+                env={**os.environ, "LD_PRELOAD": str(interrupt), "BALOOT_TEST_SQLITE_COMMIT_INTERRUPTION": phase},
+            )
+            assert child.returncode == exit_code, f"child did not stop at the {phase} commit boundary"
+            assert (directory / "identity.sqlite3-journal").is_file()
+            assert (directory / "security.sqlite3-journal").is_file()
+            assert bool(list(directory.glob("identity.sqlite3-mj*"))) is not committed
+
+            links = security_store(directory / "security.sqlite3")
+            identities = identity_store(directory / "identity.sqlite3")
+            owner = links.get_external_identity("default", "https://signin.example", "interrupted")
+            assert (owner is not None) is committed
+            subject_ids = {existing}
+            if owner is not None:
+                subject_ids.add(owner["local_subject_id"])
+            with closing(identities._connect()) as conn:
+                assert [row[0] for row in conn.execute("PRAGMA integrity_check")] == ["ok"]
+                assert list(conn.execute("PRAGMA foreign_key_check")) == []
+                assert {row[0] for row in conn.execute("SELECT subject_id FROM identity_subjects_v8")} == subject_ids
+                assert list(map(tuple, conn.execute(
+                    "SELECT subject_id, count(*) FROM identity_sessions_v8 GROUP BY subject_id ORDER BY subject_id"
+                ))) == [(subject, 1) for subject in sorted(subject_ids)]
+            with closing(links._connect()) as conn:
+                assert [row[0] for row in conn.execute("PRAGMA integrity_check")] == ["ok"]
+                assert {row[0] for row in conn.execute(
+                    "SELECT local_subject_id FROM security_external_identities_v20"
+                )} == subject_ids
+            gc.collect()
+            retried = _sqlite_oidc_login(directory, "interrupted")["identity"]["subjectId"]
+            assert retried != existing
+            if owner is not None:
+                assert retried == owner["local_subject_id"]
+
+
+def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog, capsys):
     import httpx
     import jwt
     import psycopg
@@ -110,6 +258,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
     from baloot_platform.security.oidc_migration import (
         finalize_legacy_oidc,
         legacy_oidc_profile,
+        main as oidc_migration_command,
         migrate_legacy_oidc,
         rollback_legacy_oidc,
     )
@@ -142,6 +291,14 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
         conn.execute("GRANT SELECT, INSERT ON identity.subjects TO oidc_ci_app")
         conn.execute("GRANT SELECT, INSERT, UPDATE ON identity.sessions TO oidc_ci_app")
         conn.execute("GRANT SELECT, INSERT, UPDATE ON security.oidc_transactions, security.external_identities TO oidc_ci_app")
+        conn.execute("CREATE ROLE oidc_ci_migrator LOGIN NOSUPERUSER NOBYPASSRLS")
+        conn.execute("GRANT USAGE ON SCHEMA configuration, security TO oidc_ci_migrator")
+        conn.execute(
+            "GRANT SELECT, INSERT, UPDATE ON configuration.profile_revisions, configuration.aggregate_heads,"
+            " configuration.invalidation_epochs, security.oidc_issuer_transitions TO oidc_ci_migrator"
+        )
+        conn.execute("GRANT SELECT, INSERT ON configuration.events TO oidc_ci_migrator")
+        conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON security.external_identities TO oidc_ci_migrator")
         # The assembled application also bootstraps its unrelated Research store.
         database, = conn.execute("SELECT current_database()").fetchone()
         conn.execute(sql.SQL("GRANT CREATE ON DATABASE {} TO oidc_ci_app").format(sql.Identifier(database)))
@@ -151,8 +308,23 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
         ).fetchall():
             conn.execute(sql.SQL("ALTER TABLE research.{} OWNER TO oidc_ci_app").format(sql.Identifier(relation)))
     app_dsn = make_conninfo(dsn, user="oidc_ci_app")
-    with psycopg.connect(app_dsn) as conn:
-        assert conn.execute("SELECT current_user, session_user").fetchone() == ("oidc_ci_app", "oidc_ci_app")
+    migration_dsn = make_conninfo(dsn, user="oidc_ci_migrator")
+    for login_dsn, login, can_migrate in (
+        (app_dsn, "oidc_ci_app", False), (migration_dsn, "oidc_ci_migrator", True),
+    ):
+        with psycopg.connect(login_dsn) as conn:
+            assert conn.execute(
+                "SELECT current_user, session_user, "
+                "row_security_active('security.external_identities'), "
+                "row_security_active('configuration.profile_revisions'), "
+                "has_table_privilege('security.oidc_issuer_transitions', 'UPDATE'), "
+                "has_table_privilege('security.external_identities', 'DELETE'), "
+                "has_function_privilege('security.mirror_oidc_issuer_link()', 'EXECUTE')"
+            ).fetchone() == (login, login, True, True, can_migrate, can_migrate, False)
+    with psycopg.connect(migration_dsn) as conn:
+        assert not conn.execute(
+            "SELECT has_table_privilege('identity.sessions', 'INSERT')"
+        ).fetchone()[0]
     legacy = "https://signin.example/"
     canonical = "https://signin.example"
     service_key = "synthetic-oidc-api-key"
@@ -228,22 +400,34 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
     profile = build_bundle(root).component("configuration")
 
     @contextmanager
-    def operator_connection():
-        token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(
+    def migration_connection():
+        context = DatabaseIdentityContext(
             subject_id="operator-1", role="service", configuration_admin=True, oidc_identity_authority="migration",
-        ))
+        )
+        token = CURRENT_DATABASE_IDENTITY.set(context)
         try:
-            with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            with psycopg.connect(migration_dsn, row_factory=dict_row) as conn:
+                apply_postgres_identity_context(conn, context)
                 yield conn
         finally:
             CURRENT_DATABASE_IDENTITY.reset(token)
 
     def bind(conn):
-        apply_postgres_identity_context(conn)
         return VersionedConfigurationService(
-            PostgresConfigurationStore(dsn, transaction_connection=conn),
+            PostgresConfigurationStore(migration_dsn, transaction_connection=conn),
             root=root, profile=profile,
         )
+
+    def command(*arguments, reason="Migrate fixture links", login_dsn=migration_dsn):
+        with monkeypatch.context() as invocation:
+            invocation.setenv("BALOOT_DATABASE_URL", login_dsn)
+            invocation.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
+            invocation.setattr(sys, "argv", [
+                "baloot-migrate-oidc", "--actor", "operator-1", "--reason", reason, *arguments,
+            ])
+            capsys.readouterr()
+            oidc_migration_command()
+            return json.loads(capsys.readouterr().out)
 
     def link(conn, issuer, subject):
         conn.execute(
@@ -276,7 +460,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
         return client.post("/api/v1/security/oidc:callback", headers=headers, json=transaction)
 
     def linked_owner(issuer, subject):
-        with operator_connection() as conn:
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
             item = lookup(conn, issuer, subject)
             return item["local_subject_id"] if item else None
 
@@ -334,7 +518,10 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
         legacy_existing = begin(previous_client, code="old-existing", subject="existing", headers=legacy_headers)
         legacy_new = begin(previous_client, code="old-new", subject="old-callback", headers=legacy_headers)
 
-        with operator_connection() as conn:
+        with psycopg.connect(dsn) as conn:
+            link(conn, canonical, "collision")
+            link(conn, legacy, "existing")
+        with migration_connection() as conn:
             configuration = bind(conn)
             with pytest.raises(ValueError, match="migration was not found"):
                 rollback_legacy_oidc(
@@ -355,24 +542,23 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
                 migrate_legacy_oidc(
                     conn, configuration, payload=already_published, legacy_issuer=legacy, actor="operator-1",
                 )
-            link(conn, canonical, "collision")
             with pytest.raises(ValueError, match="discovered issuer already has identity links"):
                 migrate_legacy_oidc(
                     conn, configuration, payload=payload, legacy_issuer=legacy, actor="operator-1",
                 )
+        with psycopg.connect(dsn) as conn:
             conn.execute("DELETE FROM security.external_identities WHERE external_subject='collision'")
-            link(conn, legacy, "existing")
-            migration = migrate_legacy_oidc(
-                conn, configuration, payload=payload, legacy_issuer=legacy, actor="operator-1"
-            )
-            assert migration["links"] == 1
+        migration = command("--version", "1.0.0", "--algorithm", "EdDSA")
+        assert migration["status"] == "applied" and migration["links"] == 1
         revision_id = migration["revisionId"]
-        with operator_connection() as conn:
+        for refused_dsn in (app_dsn, dsn):
+            with pytest.raises(SystemExit, match="requires a dedicated login"):
+                command("--rollback", revision_id, login_dsn=refused_dsn)
+        assert command(
+            "--version", "1.0.0", "--algorithm", "EdDSA", reason="Repeat the existing command",
+        ) == {"status": "already-applied", "revisionId": revision_id}
+        with migration_connection() as conn:
             configuration = bind(conn)
-            different_reason = {**payload, "change_reason": "Repeat the existing command"}
-            assert migrate_legacy_oidc(
-                conn, configuration, payload=different_reason, legacy_issuer=legacy, actor="operator-1"
-            )["status"] == "already-applied"
             assert configuration.store.get_profile(revision_id).payload["change_reason"] == payload["change_reason"]
             changed = deepcopy(payload)
             changed["providers"]["default"]["client_id"] = "different-fixture-client"
@@ -388,11 +574,14 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
             }
         store = PostgresSecurityStateStore(app_dsn)
         bypassing_store = PostgresSecurityStateStore(dsn)
+        migration_store = PostgresSecurityStateStore(migration_dsn)
         stack.callback(store.close)
         stack.callback(bypassing_store.close)
+        stack.callback(migration_store.close)
         store.require_oidc_rls()
-        with pytest.raises(RuntimeError, match="subject to row-level security"):
-            bypassing_store.require_oidc_rls()
+        for invalid_store in (bypassing_store, migration_store):
+            with pytest.raises(RuntimeError, match="subject to row-level security"):
+                invalid_store.require_oidc_rls()
         with psycopg.connect(app_dsn) as conn:
             assert conn.execute("SELECT count(*) FROM security.external_identities").fetchone() == (0,)
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -482,7 +671,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
 
         drain = begin(current_client, code="drain", subject="existing")
         expired = begin(current_client, code="expire", subject="existing")
-        with operator_connection() as conn:
+        with migration_connection() as conn:
             assert lookup(conn, legacy, "new-callback")["local_subject_id"] == new_subject
             newer = deepcopy(payload)
             newer["profile"]["version"] = "1.0.1"
@@ -495,16 +684,12 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
         assert response.status_code == 400 and "OIDC state" in response.json()["detail"]
         assert expired["code"] in outstanding_codes
 
-        with operator_connection() as conn:
+        assert command("--rollback", revision_id, reason="Return to the previous release")["links"] == 3
+        assert command(
+            "--rollback", revision_id, reason="Return to the previous release",
+        )["status"] == "already-rolled-back"
+        with migration_connection() as conn:
             configuration = bind(conn)
-            assert rollback_legacy_oidc(
-                conn, configuration, profile_id="signin", revision_id=revision_id,
-                actor="operator-1", reason="Return to the previous release",
-            )["links"] == 3
-            assert rollback_legacy_oidc(
-                conn, configuration, profile_id="signin", revision_id=revision_id,
-                actor="operator-1", reason="Return to the previous release",
-            )["status"] == "already-rolled-back"
             assert configuration.store.get_profile(newer_revision["revisionId"]).status == "retired"
             with pytest.raises(ValueError, match="was rolled back"):
                 finalize_legacy_oidc(
@@ -521,7 +706,6 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
             audit = configuration.store.events_with_verification("profile", revision_id)
             assert audit["verification"]["valid"]
             assert audit["items"][-1]["eventType"] == "oidc_issuer_rolled_back"
-        payload["profile"]["version"] = "1.0.2"
         assert current_client.post("/api/v1/security/oidc:begin", json={"providerId": "default"}).status_code == 404
         assert callback(current_client, drain).json()["detail"] == "OIDC provider is not configured"
         assert_registry_boundary(revision_id)
@@ -533,22 +717,13 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
             callback(previous_client, previous_existing, headers=legacy_headers)
         assert previous_existing["code"] not in outstanding_codes
         assert linked_owner(legacy, "existing") == "local-existing"
-        with operator_connection() as conn:
-            configuration = bind(conn)
-            repeated = migrate_legacy_oidc(
-                conn, configuration, payload=payload, legacy_issuer=legacy, actor="operator-1"
-            )
-            revision_id = repeated["revisionId"]
-            for expected in ("finalized", "already-finalized"):
-                assert finalize_legacy_oidc(
-                    conn, configuration, profile_id="signin", revision_id=revision_id,
-                    actor="operator-1", reason="Close rollback window",
-                )["status"] == expected
-            with pytest.raises(ValueError, match="rollback window has closed"):
-                rollback_legacy_oidc(
-                    conn, configuration, profile_id="signin", revision_id=revision_id,
-                    actor="operator-1", reason="Repeat rollback",
-                )
+        repeated = command("--version", "1.0.2", "--algorithm", "EdDSA")
+        revision_id = repeated["revisionId"]
+        for expected in ("finalized", "already-finalized"):
+            assert command("--finalize", revision_id, reason="Close rollback window")["status"] == expected
+        with pytest.raises(SystemExit, match="rollback window has closed"):
+            command("--rollback", revision_id, reason="Repeat rollback")
+        with migration_connection() as conn:
             assert lookup(conn, legacy, "existing") is None
             assert lookup(conn, canonical, "existing")["local_subject_id"] == "local-existing"
 
@@ -564,13 +739,13 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog)
         assert complete(current_client, begin(current_client, code="race-retry", subject="same-account")) == owner
         assert linked_owner(canonical, "same-account") == owner
         assert_owner_cannot_change("same-account", ValueError)
-        with operator_connection() as conn:
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
             assert conn.execute(
                 "SELECT count(*) AS n FROM identity.sessions WHERE subject_id=%s", (owner,),
             ).fetchone()["n"] == 3
 
         def counts():
-            with operator_connection() as conn:
+            with psycopg.connect(dsn, row_factory=dict_row) as conn:
                 return conn.execute(
                     "SELECT (SELECT count(*) FROM identity.subjects) AS subjects, "
                     "(SELECT count(*) FROM identity.sessions) AS sessions"
