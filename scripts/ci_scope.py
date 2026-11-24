@@ -22,6 +22,11 @@ FULL = {
 }
 SCOPED = {
     "sdks": "sdk", "foundry": "foundry", "remotion-checks": "remotion", "remotion-image-parity": "video_worker",
+    "docker-constraints": "docker_constraints",
+}
+DOCKER_CONSTRAINT_INPUTS = {
+    "Dockerfile", ".dockerignore", "Dockerfile.dockerignore", "pyproject.toml", "requirements-docker.txt",
+    ".github/workflows/ci.yml", "scripts/ci_scope.py",
 }
 TEST_SETUP = {"ffmpeg-packages", "native-build"}
 FOUNDRY = "src/baloot_platform/service/foundry_dashboard/src/"
@@ -118,16 +123,19 @@ def scoped_plan(paths: set[str]) -> dict | None:
             return None
     # Foundry UI is the scoped change class included in the worker's COPY src.
     return {
-        "full": False, "sdk": sdk, "foundry": foundry, "remotion": False, "video_worker": foundry, "tests": sorted(tests),
+        "full": False, "sdk": sdk, "foundry": foundry, "remotion": False, "video_worker": foundry,
+        "docker_constraints": False, "tests": sorted(tests),
     }
 
 
 def current_plan(event: str = "", base: str = "", head: str = "") -> dict:
-    """Only pull requests can narrow work. Pushes and merge groups always run the full profile."""
+    """Only pull requests can narrow work. A known diff scopes Docker constraint resolution independently."""
     full = {"full": True, **dict.fromkeys(SCOPED.values(), True), "tests": []}
     if event == "pull_request":
         try:
-            return scoped_plan(changed_paths(base, head)) or full
+            paths = changed_paths(base, head)
+            resolve_docker = not paths or bool(paths & DOCKER_CONSTRAINT_INPUTS)
+            return {**(scoped_plan(paths) or full), "docker_constraints": resolve_docker}
         except (OSError, ValueError, subprocess.SubprocessError, KeyError, TypeError):
             print("CI scope could not be established; running the full profile.", file=sys.stderr)
     return full
@@ -157,7 +165,10 @@ def validate_results(event: str, results: dict) -> None:
     }
     if not full and event != "pull_request":
         raise ValueError("full CI plan is required for this event")
-    if full and (tests or any(selection[key] != "true" for key in SCOPED.values())):
+    full_keys = set(SCOPED.values())
+    if event == "pull_request":
+        full_keys.remove("docker_constraints")
+    if full and (tests or any(selection[key] != "true" for key in full_keys)):
         raise ValueError("full CI plan must select all full producers")
     actual = {job: details["result"] for job, details in results.items()}
     if actual != expected:
