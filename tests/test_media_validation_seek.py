@@ -5,20 +5,16 @@ from types import SimpleNamespace
 from PIL import Image
 import pytest
 
-from baloot_platform.video import media_validation
+from baloot_platform.video import media_probe, media_validation
 from scripts import generate_media_probe
 
 
 def test_video_reexports_the_shared_media_boundary():
-    from baloot_platform.video import media_probe as shared_media
-
     for name in ("run_media_command", "probe_media", "validate_media_probe"):
-        assert getattr(media_validation, name) is getattr(shared_media, name)
+        assert getattr(media_validation, name) is getattr(media_probe, name)
 
 
 def test_media_probe_refuses_renamed_measurement_mp4(monkeypatch):
-    from baloot_platform.video import media_probe
-
     def fake_probe(command, **kwargs):
         assert "format_tags=comment" in command[command.index("-show_entries") + 1]
         return SimpleNamespace(stdout=json.dumps({
@@ -32,7 +28,10 @@ def test_media_probe_refuses_renamed_measurement_mp4(monkeypatch):
 
 
 @pytest.mark.parametrize("ci", [None, "false", "true"])
-def test_ci_media_threads_cap_each_decoder_filters_and_encoder(monkeypatch, ci):
+def test_configured_media_threads_cap_each_decoder_filters_and_encoder(tmp_path, monkeypatch, ci):
+    profile = tmp_path / "ffmpeg-runtime.json"
+    profile.write_text(json.dumps({"threads": 3}), encoding="utf-8")
+    monkeypatch.setattr(media_probe, "_FFMPEG_RUNTIME_PATH", profile)
     if ci is None:
         monkeypatch.delenv("CI", raising=False)
     else:
@@ -42,24 +41,36 @@ def test_ci_media_threads_cap_each_decoder_filters_and_encoder(monkeypatch, ci):
     command = ["ffmpeg", "-i", "video.mp4", "-i", "audio.wav", "-c:v", "copy", "finished.mp4"]
     media_validation.run_media_command(command)
     expected = [
-        "ffmpeg", "-filter_threads", "4", "-filter_complex_threads", "4",
-        "-threads", "4", "-i", "video.mp4", "-threads", "4", "-i", "audio.wav",
-        "-c:v", "copy", "-threads", "4", "finished.mp4",
+        "ffmpeg", "-filter_threads", "3", "-filter_complex_threads", "3",
+        "-threads", "3", "-i", "video.mp4", "-threads", "3", "-i", "audio.wav",
+        "-c:v", "copy", "-threads", "3", "finished.mp4",
     ]
-    assert commands == [expected if ci == "true" else command]
+    assert commands == [expected]
     assert command == ["ffmpeg", "-i", "video.mp4", "-i", "audio.wav", "-c:v", "copy", "finished.mp4"]
 
 
-def test_ci_frame_count_decoder_is_capped_without_changing_version_commands(monkeypatch):
-    monkeypatch.setenv("CI", "true")
+def test_frame_count_decoder_is_capped_without_changing_version_commands(monkeypatch):
+    monkeypatch.delenv("CI", raising=False)
+    threads = str(json.loads(media_probe._FFMPEG_RUNTIME_PATH.read_bytes())["threads"])
     commands = []
     monkeypatch.setattr(media_validation.subprocess, "run", lambda command, **kwargs: commands.append(command))
     media_validation.run_media_command(["ffprobe", "-count_frames", "video.mp4"])
     media_validation.run_media_command(["ffmpeg", "-version"])
     assert commands == [
-        ["ffprobe", "-threads", "4", "-count_frames", "video.mp4"],
+        ["ffprobe", "-threads", threads, "-count_frames", "video.mp4"],
         ["ffmpeg", "-version"],
     ]
+
+
+@pytest.mark.parametrize("profile", [{}, {"threads": 0}, {"threads": True}, {"threads": 1.5}])
+def test_invalid_ffmpeg_thread_cap_fails_before_starting_media_tool(tmp_path, monkeypatch, profile):
+    config = tmp_path / "ffmpeg-runtime.json"
+    config.write_text(json.dumps(profile), encoding="utf-8")
+    monkeypatch.setattr(media_probe, "_FFMPEG_RUNTIME_PATH", config)
+    monkeypatch.setattr(media_probe.subprocess, "run", lambda *args, **kwargs: pytest.fail("started FFmpeg"))
+
+    with pytest.raises(ValueError, match=r"ffmpeg-runtime\.json: threads must be a positive"):
+        media_probe.run_media_command(["ffmpeg", "-i", "video.mp4", "output.mp4"])
 
 
 def test_playback_checkpoint_seeks_to_exact_frame_time(tmp_path, monkeypatch):
