@@ -20,6 +20,8 @@ const cases = [
   {name: "viewer-dealer-east-buyer", observer: "west", buyer: "south", dealer: "west", contract: "ashkal", pause: 27},
   {name: "east-dealer-and-buyer", observer: "north", buyer: "west", dealer: "west", contract: "sun", pause: 27},
   {name: "west-buyer", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26},
+  // The viewer's own lane carries the tilted purchase card above the play prompt.
+  {name: "viewer-buyer", observer: "south", buyer: "south", dealer: "east", contract: "sun", pause: 26},
   {name: "uncalibrated-west-contact", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26, reject: true},
 ];
 
