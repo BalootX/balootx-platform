@@ -474,6 +474,8 @@ test('@zoom shows exact official and optional rule authority with an accessible 
   await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
   await expect(page.locator('html')).toHaveAttribute('dir','rtl');
   const bundle = page.locator('#research-bundle-select');
+  // The app enables the selector after loading bundles with its session cookie.
+  await expect(bundle).toBeEnabled();
   const published = await page.evaluate(async () => {
     const response = await fetch('/api/v1/configuration-registry/bundles?status=published&limit=100');
     if (!response.ok) throw new Error(`bundle_list_failed:${response.status}`);
