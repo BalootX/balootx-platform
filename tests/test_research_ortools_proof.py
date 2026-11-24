@@ -6,8 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("ortools")
-
 from ortools.sat.python import cp_model
 
 from baloot_platform.research.ortools_proof import (
