@@ -6,7 +6,7 @@
 - Main branch: `main`
 - Board (private): [BalootX](https://github.com/orgs/BalootX/projects/1)
 - Release plan: [milestones page](https://github.com/BalootX/balootx-platform/milestones)
-- Leads: BalootX Master, BalootX Delivery, BalootX Design
+- Leads: BalootX Master, BalootX Delivery, BalootX QA, BalootX Design
 - UI project: yes
 - Other repos: none
 - Environments used: [CI](DELIVERY.md#ci)
