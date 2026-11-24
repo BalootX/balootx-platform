@@ -43,6 +43,7 @@ def test_card_parser_round_trips_wire_forms(card, padding):
     assert Card.parse(card.id) == card
     assert Card.parse(f"{padding}{card.code.lower()}{padding}") == card
     assert Card.parse({"id": str(card.id)}) == card
+    assert Card.parse({"id": float(card.id)}) == card
     assert Card.parse({"suit": card.suit.name, "rank": card.rank.name}) == card
 
 
@@ -61,11 +62,45 @@ def test_card_parser_rejects_missing_or_unknown_fields(value):
         Card.parse(value)
 
 
-@pytest.mark.xfail(strict=True, raises=OverflowError, reason="https://github.com/BalootX/balootx-platform/issues/113")
 @pytest.mark.parametrize("number", ["1e999", "-1e999"])
 def test_card_parser_rejects_json_number_overflow(number):
     with pytest.raises(ValueError, match="invalid card"):
         Card.parse(json.loads(f'{{"id": {number}}}'))
+
+
+@given(st.integers(min_value=309, max_value=9999), st.sampled_from(["", "-"]))
+def test_card_parser_rejects_json_exponent_overflow(exponent, sign):
+    with pytest.raises(ValueError, match="invalid card"):
+        Card.parse(json.loads(f'{{"id": {sign}1e{exponent}}}'))
+
+
+@given(st.sampled_from([float("inf"), float("-inf"), float("nan")]))
+def test_card_parser_rejects_nonfinite_ids(card_id):
+    for value in (card_id, {"id": card_id}):
+        with pytest.raises(ValueError, match="invalid card"):
+            Card.parse(value)
+
+
+@given(st.integers(min_value=309, max_value=5000))
+@example(5000)
+def test_card_parser_rejects_oversized_integers(exponent):
+    for card_id in (10**exponent, -(10**exponent)):
+        for value in (card_id, {"id": card_id}):
+            with pytest.raises(ValueError, match="invalid card"):
+                Card.parse(value)
+
+
+@given(st.sampled_from(FULL_DECK), st.sampled_from([0.25, 0.5, 0.75]))
+def test_card_parser_rejects_fractional_ids(card, fraction):
+    with pytest.raises(ValueError, match="invalid card"):
+        Card.parse({"id": card.id + fraction})
+
+
+@pytest.mark.parametrize("card_id", [False, True])
+def test_card_parser_rejects_boolean_ids(card_id):
+    for value in (card_id, {"id": card_id}):
+        with pytest.raises(ValueError, match="invalid card"):
+            Card.parse(value)
 
 
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
