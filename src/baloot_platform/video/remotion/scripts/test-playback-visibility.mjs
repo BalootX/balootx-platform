@@ -1,30 +1,31 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import ts from "typescript";
+import {playbackMotionTiming, trickCollectionProgress} from "./playback-timing.mjs";
 
 const source = readFileSync(new URL("../src/playback-state.ts", import.meta.url), "utf8");
 const {outputText} = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.ESNext}});
-const {collectionOpacity, derivePlaybackState, playbackMotionTiming} = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
+const {collectionOpacity, derivePlaybackState} = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
 assert.equal(collectionOpacity(0), 1);
 assert.equal(collectionOpacity(0.72), 1);
 assert.ok(collectionOpacity(0.86) > 0 && collectionOpacity(0.86) < 1);
 assert.equal(collectionOpacity(1), 0);
 assert.equal(collectionOpacity(1.1), 0);
-assert.deepEqual(playbackMotionTiming(600 / 13, 0, 0, 4), {
+assert.deepEqual(playbackMotionTiming(600 / 13, {flight_steps: 0, collection_steps: 0}), {
   flightFrames: 0, collectionFrames: 0, collectionStart: 600 / 13 - 2,
 });
-for (const steps of [[-1, 22, 4], [21, -1, 4], [21, 22, -1], [NaN, 22, 4]]) {
-  assert.throws(() => playbackMotionTiming(600 / 13, ...steps), /nonnegative integer durations/);
+for (const motion of [{flight_steps: -1}, {collection_steps: -1}, {transition_steps: -1}, {flight_steps: NaN}]) {
+  assert.throws(() => playbackMotionTiming(600 / 13, motion), /nonnegative integer durations/);
 }
-for (const steps of [[21, 22, 4], [2, 2, 4]]) {
+for (const motion of [{}, {flight_steps: 2, collection_steps: 2}]) {
   for (let remaining = 1; remaining < 32; remaining += 1) {
     const interval = 600 / remaining;
-    const timing = playbackMotionTiming(interval, ...steps);
+    const timing = playbackMotionTiming(interval, motion);
     assert.ok(timing.flightFrames <= timing.collectionStart);
     for (let count = 1; count <= remaining; count += 1) {
       const age = Math.ceil(count * interval) - 1 - (count - 1) * interval;
-      const progress = Math.min(1, Math.max(0, (age - timing.collectionStart) / timing.collectionFrames));
-      assert.equal(collectionOpacity(progress), 0, `${steps}: ${remaining} plays, boundary ${count}`);
+      const progress = trickCollectionProgress(age, timing);
+      assert.equal(collectionOpacity(progress), 0, `${JSON.stringify(motion)}: ${remaining} plays, boundary ${count}`);
     }
   }
 }

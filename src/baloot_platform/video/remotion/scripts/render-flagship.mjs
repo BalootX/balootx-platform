@@ -7,6 +7,7 @@ import {bundle} from "@remotion/bundler";
 import {openBrowser, renderMedia, renderStill, selectComposition} from "@remotion/renderer";
 import {bt709FfmpegOverride} from "./ffmpeg-profile.mjs";
 import {writeFileWithRetry} from "./fs-safe.mjs";
+import {trickCollectionSampleFrameRange} from "./playback-timing.mjs";
 import {cgroupCpuLimit, governedH264Options, hostSafeConcurrency, readValidatedRenderBundle} from "./render-options.mjs";
 
 const rendererRoot = process.cwd();
@@ -22,6 +23,7 @@ const batchRender = process.env.BALOOTX_BATCH_RENDER === "1";
 const playbackEvidence = process.env.BALOOTX_PLAYBACK_EVIDENCE === "1";
 const chromiumOptions = process.platform === "linux" ? {enableMultiProcessOnLinux: true} : undefined;
 const bundleData = readValidatedRenderBundle(inputPath);
+const collectionFrameRange = collectionOnly ? trickCollectionSampleFrameRange(bundleData) : undefined;
 const mediaRenderOptions = governedH264Options(bundleData.render);
 const sampleHostCpu = async () => {
   let previous = cpus();
@@ -206,10 +208,7 @@ if (!stillsOnly) {
   process.stderr.write(`Remotion concurrency ${mediaRenderOptions.concurrency}/${bundleData.render.concurrency} on ${logicalCpus} CPUs (sustained busy ${Math.round(sustainedBusy * 100)}%)\n`);
 }
 if (collectionOnly) {
-  if (!replaySegment) throw new Error("trick collection sample requires a play-decision replay segment");
   const samplePath = path.join(outputDir, "trick-collection-sample.mp4");
-  // In the synthetic CI replay, frame 398 precedes the first collection and frame 423 starts the next play.
-  const sampleOffsets = process.env.BALOOTX_CI_SHORT_COLLECTION_SAMPLE === "true" ? [398, 423] : [362, 432];
   await renderMedia({
     composition,
     serveUrl,
@@ -219,7 +218,7 @@ if (collectionOnly) {
     colorSpace: "bt709",
     ffmpegOverride: bt709FfmpegOverride,
     disallowParallelEncoding: true,
-    frameRange: sampleOffsets.map(offset => replaySegment.startFrame + offset),
+    frameRange: collectionFrameRange,
     overwrite: true,
     chromiumOptions,
     puppeteerInstance: browser,
