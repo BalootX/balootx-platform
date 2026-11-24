@@ -8783,7 +8783,7 @@ def _execute_local_foundry_batch_fleet(campaign_hash: str) -> None:
             [sys.executable, "-m", "baloot_platform.service.foundry_simulation_fleet"],
             cwd=ROOT,
             env=environment,
-            capture_output=True,
+            stdout=subprocess.PIPE,
             text=True,
             timeout=timeout_seconds + 60,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
