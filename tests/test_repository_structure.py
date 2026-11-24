@@ -11,10 +11,43 @@ from zipfile import ZipFile
 
 import yaml
 import pytest
+from packaging.version import Version
 
 from baloot_platform.version import __version__
 
 
+FOUNDRY_NPM = "service/foundry_dashboard"
+REMOTION_NPM = "video/remotion"
+
+
+@pytest.mark.parametrize(
+    ("package_dir", "dependency", "first_patched"),
+    [
+        (FOUNDRY_NPM, "js-yaml", "4.3.2"),  # GHSA-2883-xcg3-v3hh
+        (FOUNDRY_NPM, "@vitest/mocker", "4.1.12"),  # GHSA-qxg6-89mg-rqv8
+        (FOUNDRY_NPM, "playwright", "1.55.1"),  # GHSA-7mvr-c777-76hp
+        (FOUNDRY_NPM, "source-map-js", "1.2.2"),  # GHSA-68fv-2mgg-jv7q
+        (FOUNDRY_NPM, "vite", "8.2.4"),  # GHSA-587h-7wmj-h5pm
+        (FOUNDRY_NPM, "vitest", "4.1.11"),  # GHSA-82fw-gwwq-j7x9
+        (REMOTION_NPM, "fast-uri", "3.1.9"),  # GHSA-w74x-v6f9-j3xg
+        (REMOTION_NPM, "postcss-selector-parser", "7.1.6"),  # GHSA-rj75-hqrm-r3gf
+        (REMOTION_NPM, "source-map-js", "1.2.2"),  # GHSA-68fv-2mgg-jv7q
+        (REMOTION_NPM, "zod", "4.6.6"),  # GHSA-mrhx-c7xc-m3w5
+    ],
+)
+def test_npm_lockfiles_keep_security_fixes(root, package_dir, dependency, first_patched):
+    lockfile = root / "src/baloot_platform" / package_dir / "package-lock.json"
+    packages = json.loads(lockfile.read_bytes())["packages"]
+    package_path = f"node_modules/{dependency}"
+    versions = {
+        Version(entry["version"])
+        for path, entry in packages.items()
+        if path == package_path or path.endswith(f"/{package_path}")
+    }
+    vulnerable = sorted(version for version in versions if version < Version(first_patched))
+    assert not vulnerable, (
+        f"{dependency} needs at least {first_patched}: {vulnerable}"
+    )
 
 
 def test_runtime_and_build_directories_are_not_tracked(root: Path) -> None:

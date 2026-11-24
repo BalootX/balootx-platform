@@ -201,14 +201,8 @@ def batch(tmp_path, monkeypatch, rules):
     monkeypatch.setattr(nightly.RuleBook, "load", lambda path: rules)
     monkeypatch.setattr(nightly.notice, "notice_profile", lambda **kwargs: {})
     monkeypatch.setattr(
-        nightly.notice,
-        "RemotionProfessionalRenderer",
-        lambda *args, **kwargs: SimpleNamespace(renderer_root=None),
-    )
-    monkeypatch.setattr(
         nightly.UnifiedScenarioProofServiceV1, "from_repository", lambda path: None
     )
-    monkeypatch.setattr(nightly, "check_renderer_runtime", lambda *args: None)
     monkeypatch.setattr(nightly, "media_tool", lambda *args: None)
     monkeypatch.setattr(
         nightly.viewer,
@@ -224,7 +218,14 @@ def batch(tmp_path, monkeypatch, rules):
         ],
     )
 
-    def run():
+    def run(*, renderer_root=None):
+        monkeypatch.setattr(
+            nightly.notice,
+            "RemotionProfessionalRenderer",
+            lambda *args, **kwargs: SimpleNamespace(renderer_root=renderer_root),
+        )
+        if renderer_root is None:
+            monkeypatch.setattr(nightly, "check_renderer_runtime", lambda *args: None)
         code = nightly.generate(
             output,
             run_id=1,
@@ -347,7 +348,10 @@ def test_nightly_identity_rejects_generic_labels():
         )
 
 
-def test_nightly_rejects_stale_renderer_runtime(tmp_path, monkeypatch):
+@pytest.mark.parametrize("version", ["1.0.0", "2.0.0"], ids=["stale", "matching"])
+def test_nightly_checks_renderer_runtime_before_search(
+    batch, tmp_path, monkeypatch, version
+):
     monkeypatch.setattr(nightly, "REMOTION", tmp_path)
     package = tmp_path / "node_modules" / "renderer"
     package.mkdir(parents=True)
@@ -358,14 +362,32 @@ def test_nightly_rejects_stale_renderer_runtime(tmp_path, monkeypatch):
                 "lockfileVersion": 3,
                 "packages": {"node_modules/renderer": {"version": "2.0.0"}},
             }
-        )
+        ),
+        encoding="utf-8",
     )
-    manifest = package / "package.json"
-    manifest.write_text('{"version":"1.0.0"}')
-    with pytest.raises(nightly.Rejected, match="stale_render_runtime"):
-        nightly.check_renderer_runtime(tmp_path)
-    manifest.write_text('{"version":"2.0.0"}')
-    nightly.check_renderer_runtime(tmp_path)
+    (package / "package.json").write_text(
+        json.dumps({"version": version}), encoding="utf-8"
+    )
+    calls = []
+
+    def search(_output, index, *_args):
+        calls.append("search")
+        index["qualified"].append("synthetic")
+
+    monkeypatch.setattr(nightly, "media_tool", lambda *_: calls.append("media"))
+    monkeypatch.setattr(nightly, "search", search)
+
+    code, index = batch(renderer_root=tmp_path)
+
+    if version == "1.0.0":
+        assert code == 1
+        assert index["stage"] == "setup"
+        assert index["reason"] == "stale_render_runtime"
+        assert calls == []
+    else:
+        assert code == 0
+        assert index["qualified"] == ["synthetic"]
+        assert calls == ["media", "media", "search"]
 
 
 def test_early_caption_selection_excludes_recent_unapproved_and_retired():
