@@ -126,5 +126,5 @@ def test_configured_sanitized_binary_passes_without_preload() -> None:
         timeout=30,
         check=True,
     )
-    assert "tests passed" in probe.stdout
+    assert "native v1/v2 transitions, v3 exact and DD search passed" in probe.stdout.splitlines()
     assert "AddressSanitizer:DEADLYSIGNAL" not in probe.stderr
