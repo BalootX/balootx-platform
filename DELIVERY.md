@@ -9,7 +9,7 @@ Follows engineering standard v1.26.
 | Event or lane | Checks |
 | --- | --- |
 | Ready pull request | Preflight, dependency review and Python version smoke. [The CI selector](scripts/ci_scope.py) adds affected Python, SDK, Foundry and worker checks. Unrecognized paths or an unresolved diff select the full profile. |
-| Main push and merge group | Full profile with the Python wheelhouse, native build and sanitizers, fast, backend and heavy Python shards with exact coverage verification, SDK and Foundry checks, Remotion and video-worker parity, media rendering and release smoke. The merge group verifies its event head before running the profile. |
+| Main push and merge group | Full profile with the Python wheelhouse, native build and sanitizers, Windows-only pytest nodes, fast, backend and heavy Python shards with exact coverage verification, SDK and Foundry checks, Remotion and video-worker parity, media rendering and release smoke. The merge group verifies its event head before running the profile. |
 | Manual dispatch | Full diagnostics under `CI diagnostic result`, or the dedicated viewer-seat proof cohort when selected. |
 | [Nightly at 00:17 UTC or manual trigger](.github/workflows/nightly-candidates.yml) | Generates and proves synthetic deals on GitHub-hosted runners. A successful run seals at least 14 fully checked clips across at least three mechanisms and retains the pool for three days. The [viewer-seat proof cohort](.github/workflows/viewer-seat-proof.yml) also runs and retains one receipt per pinned fixture for 30 days. Run live variety and caption checks on a server runner. |
 | Media verification | The full profile builds the governed inputs, renders shards, checks repeatability and playback parity, decodes the sample media, and generates media and supply-chain evidence. |
@@ -17,6 +17,8 @@ Follows engineering standard v1.26.
 The required **ci-gate** check compares the producer results to the plan and fails on missing, failed, cancelled or unexpectedly skipped work. See [the current limits in the workflow](.github/workflows/ci.yml) and the [historical timing samples](ci/TIMINGS.md).
 
 The `docker-constraints` job dry-runs pip with the Python base image, exact constraints and extras shared by the Docker test and verifier stages. It runs when its Docker, dependency or CI inputs change on a PR, when CI cannot resolve the diff, and on main and merge groups.
+
+The address-sanitizer job requires both verifier pytest nodes to pass against its own build. The Windows job uses a [CPU fixture](ci/windows-ci-local-cpu.json) for its four-vCPU checkout and runs the inherited-limit test through the capped launcher. Both jobs require passing phase receipts for every selected node.
 
 The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples.
 
