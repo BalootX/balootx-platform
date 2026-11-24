@@ -121,6 +121,9 @@ test('intelligent quality controls preserve per-decision settings in the recipe'
   await expect(page.getByRole('button', {name: 'احسب التكلفة والوقت', exact: true})).toBeEnabled();
   await quality.locator('select[name="playing-quality-visibility"]').selectOption('actor_information_set');
   await quality.locator('input[name="playing-quality-mode"][value="exact"]').check();
+  const exactBudget = bid.getByRole('combobox', {name: 'ميزانية الإثبات', exact: true});
+  await expect(exactBudget).toHaveValue('offline_heavyweight_v1');
+  await exactBudget.selectOption('actor_information_set_exact_v1');
   const exactPayload = JSON.parse(await preview.locator('pre').innerText());
   expect(exactPayload.playingQuality.mode).toBe('exact');
   expect(exactPayload.playingQuality.visibility).toBe('actor_information_set');

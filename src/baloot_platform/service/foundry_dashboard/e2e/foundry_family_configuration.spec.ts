@@ -37,30 +37,29 @@ async function openNativeSettings(page: Page) {
   await page.getByPlaceholder('أدخل مفتاح الإدارة وقت الحفظ').fill(process.env.BALOOT_OPERATOR_E2E_API_KEY!);
 }
 
-async function createDraft(page: Page, version: string): Promise<string> {
+async function createDraft(page: Page, scopeKey: string): Promise<string> {
   const headers = {'x-api-key': process.env.BALOOT_OPERATOR_E2E_API_KEY!, 'x-baloot-role': 'admin'};
   const profiles = '/api/v1/configuration-registry/profiles';
   const drafts = await page.request.get(profiles, {
     headers, params: {family: 'challenge', status: 'draft'},
   });
-  await expect(drafts).toBeOK();
+  expect(drafts.ok(), `Seed draft list returned ${drafts.status()}`).toBe(true);
   const seeds = (await drafts.json()).items.filter((item: {createdBy: string}) => item.createdBy === 'OPERATOR-E2E');
   expect(seeds).toHaveLength(1);
   const source = await page.request.get(`${profiles}/${seeds[0].revisionId}`, {headers});
-  await expect(source).toBeOK();
+  expect(source.ok(), `Seed draft returned ${source.status()}`).toBe(true);
   const {payload} = await source.json();
-  payload.profile.version = version;
   const response = await page.request.post('/api/v2/configuration/profiles', {
-    headers, data: {family: 'challenge', payload, publish: false},
+    headers, data: {family: 'challenge', scope: 'room', scopeKey, payload, publish: false},
   });
-  await expect(response).toBeOK();
+  expect(response.status(), response.ok() ? undefined : await response.text()).toBe(201);
   return (await response.json()).revisionId;
 }
 
 test('private family template edits save and reload through typed UI without JSON', async ({page}, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', error=>errors.push(error.message));
-  const revisionId = await createDraft(page, '99.0.1');
+  const revisionId = await createDraft(page, 'foundry-e2e-family-template');
   await openNativeSettings(page);
   const revisions = page.locator('.revision-picker select');
   await revisions.selectOption(revisionId);
@@ -103,10 +102,10 @@ test('private family template edits save and reload through typed UI without JSO
   await page.screenshot({path:testInfo.outputPath('typed-family-controls.png')});
 });
 
-for (const [mode, version] of [['desktop', '99.0.2'], ['@mobile', '99.0.3']]) test(`delayed payoff controls enable save reload validate and remove ${mode}`, async ({page}, testInfo) => {
+for (const mode of ['desktop', '@mobile']) test(`delayed payoff controls enable save reload validate and remove ${mode}`, async ({page}, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', error=>errors.push(error.message));
-  const revisionId = await createDraft(page, version);
+  const revisionId = await createDraft(page, `foundry-e2e-delayed-payoff-${testInfo.project.name}`);
   await openNativeSettings(page);
   const revisions = page.locator('.revision-picker select');
   await revisions.selectOption(revisionId);
