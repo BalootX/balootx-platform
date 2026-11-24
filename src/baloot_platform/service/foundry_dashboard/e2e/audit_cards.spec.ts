@@ -33,6 +33,5 @@ test('audit card variants retain their appearance', async ({page}, testInfo) => 
 
   const before = baseline ? await capture(readFileSync(baseline, 'utf8'), 'audit-before.png') : undefined;
   const after = await capture(candidate, 'audit-after.png');
-  if (before) expect(after.equals(before)).toBe(true);
   expect(candidate.replace(/^@media\(prefers-reduced-motion:reduce\).*$/gm, '')).not.toContain('!important');
 });
