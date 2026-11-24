@@ -510,7 +510,14 @@ def test_shadow_checks_approved_names_and_notice(monkeypatch):
                 "localizations"
             ]["video.notice.sentence"]
         },
-        "presentation": {"majlis": {"research_notice": True}},
+        "presentation": {
+            "majlis": {"research_notice": True, "theme": "red"},
+            "presentation": {
+                "show_justification": False,
+                "show_justification_text": False,
+            },
+        },
+        "audioCues": [],
     }
     shadow.check_presentation(bundle)
     with pytest.raises(nightly.Rejected, match="generic_or_unapproved_player_names"):
@@ -556,3 +563,94 @@ def test_shadow_slots_require_one_ordered_utc_day():
     ]
     with pytest.raises(picker.PlanError, match="INVALID_REFERENCE_SLOTS"):
         shadow.checked_slots({"slots": [slots[0], slots[0], *slots[2:]]})
+
+
+def test_shadow_combination_proof_checks_prior_fallback_and_never_post(monkeypatch):
+    from datetime import UTC, datetime
+
+    def record(gate, route, post_id):
+        return {
+            "deal": route.binding["deal"],
+            "mechanism": route.mechanism,
+            "captionSha256": route.binding["captionSha256"],
+            "postedAtUtc": route.binding["slotUtc"],
+        }
+
+    def check_history(known, used, latest, forbidden, binding, chronology):
+        reasons = []
+        if binding["opener"]["mechanism"] == latest[-1]["mechanism"]:
+            reasons.append("CONSECUTIVE_MECHANISM")
+        if any(row["deal"] == binding["deal"] for row in known):
+            reasons.append("LIFETIME_DEAL_REPEAT")
+        return reasons, 15
+
+    monkeypatch.setattr(shadow, "simulated_post", record)
+    gate = SimpleNamespace(
+        variety_windows=lambda chronology: ([x[2] for x in chronology], []),
+        check_history=check_history,
+        check_score=lambda *args: [],
+    )
+    stamp = datetime(2026, 1, 1, tzinfo=UTC)
+    past = {"deal": "past", "mechanism": "A"}
+    live = ([past], set(), [past], [], [(stamp, stamp, past)], [])
+    picks = [
+        {"id": "first", "mechanism": "B", "captionSha256": "one"},
+        {"id": "second", "mechanism": "C", "captionSha256": "two"},
+    ]
+    reserves = [{"id": "reserve", "mechanism": "C"}]
+    candidates = {
+        item["id"]: {
+            "id": item["id"],
+            "scoreInputs": {
+                "mechanism": item["mechanism"],
+                "scenarioFamily": item["id"],
+                "visibleOpenerSha256": "opener",
+                "dealHash": "deal",
+                "exactStateId": "state",
+            },
+            "video": {"sha256": "media"},
+            "scorecard": {"parts": {"S": 10, "D": 20}},
+        }
+        for item in picks + reserves
+    }
+    slots = ["2026-01-01T09:00:00Z", "2026-01-01T12:00:00Z"]
+    combo, clips = shadow.combination_checks(
+        gate, live, [], candidates, {"one", "two"}, slots, picks, reserves
+    )
+    branches = combo["allCandidateChecksByReachablePriorPostingCombination"]
+    fallback = next(
+        row
+        for row in branches
+        if row["priorSlotPostings"] == [{"slotUtc": slots[0], "clipId": "reserve"}]
+    )
+    assert fallback["candidates"]["second"]["captionCheck"] == "PASS"
+    assert fallback["candidates"]["second"]["policyCCheck"] == "HOLD"
+    assert clips["reserve"]["eligibleInSlotCombination"] == "PASS"
+    with pytest.raises(picker.PlanError, match="SHADOW_CLIP_IN_CANONICAL_LEDGER"):
+        shadow.combination_checks(
+            gate,
+            live,
+            [{"artifactSha256": "media"}],
+            candidates,
+            {"one", "two"},
+            slots,
+            picks,
+            reserves,
+        )
+
+
+def test_shadow_viewer_requires_complete_exact_receipt_at_ninety_percent():
+    proof = {
+        "status": "exact_complete",
+        "coverageComplete": True,
+        "scenarioSha256": "fixture",
+        "sourceCommit": "source",
+        "rulesSha256": "rules",
+        "R": 0.90,
+    }
+    binding = dict(fixture_sha="fixture", source="source", rules_sha="rules")
+    shadow.check_viewer(proof, **binding)
+    with pytest.raises(picker.PlanError, match="SHADOW_VIEWER_PROOF_MISMATCH"):
+        shadow.check_viewer({**proof, "R": 0.8999}, **binding)
+    with pytest.raises(picker.PlanError, match="SHADOW_VIEWER_PROOF_MISMATCH"):
+        shadow.check_viewer({**proof, "scenarioSha256": "another fixture"}, **binding)
