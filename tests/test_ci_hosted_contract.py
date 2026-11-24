@@ -251,6 +251,16 @@ def test_render_image_inputs_are_pinned(root):
     assert requirements and all(re.fullmatch(r"[\w.-]+==[\w.+!-]+", line) for line in requirements)
 
 
+def test_docker_constraint_job_resolves_the_shared_target(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    check = jobs["docker-constraints"]
+    assert check["needs"] == "plan"
+    assert check["if"] == "needs.plan.outputs.docker_constraints == 'true'"
+    assert jobs["plan"]["outputs"]["docker_constraints"] == "${{ steps.plan.outputs.docker_constraints }}"
+    assert check["steps"][-1]["run"] == "docker build --progress=plain --target docker-constraints ."
+    assert "docker-constraints" not in jobs["media-inputs"]["needs"]
+
+
 def test_viewer_seat_proof_dispatch_and_nightly_use_the_same_pinned_cohort(root):
     import hashlib
 
@@ -387,6 +397,15 @@ def test_gate_rejects_unproven_full_producers(event):
         with pytest.raises(ValueError):
             ci_scope.validate_results(event, results)
         plan[key] = "true"
+    plan["docker_constraints"] = "false"
+    results["docker-constraints"]["result"] = "skipped"
+    if event == "pull_request":
+        ci_scope.validate_results(event, results)
+    else:
+        with pytest.raises(ValueError, match="full CI plan must select all full producers"):
+            ci_scope.validate_results(event, results)
+    plan["docker_constraints"] = "true"
+    results["docker-constraints"]["result"] = "success"
     results.pop("python-heavy")
     with pytest.raises(ValueError):
         ci_scope.validate_results(event, results)
@@ -421,12 +440,12 @@ def test_gate_requires_exact_scoped_producers(root, paths, producers):
 
 
 @pytest.mark.parametrize("path", [
-    ".github/workflows/ci.yml", "ci/TIMINGS.md", "scripts/ci_scope.py", "pyproject.toml",
+    "ci/TIMINGS.md",
     "sdk/go/go.mod", "sdk/typescript/package.json", ci_scope.FOUNDRY + "../package-lock.json",
     "tests/conftest.py", "tests/test_ci_hosted_contract.py", "tests/test_core.py",
     "tests/test_research_ortools_unified_executor.py", "tests/test_unmeasured.py",
     "docs/architecture/authority-map.json", "src/baloot_platform/core/rules.py",
-    "Dockerfile", ".dockerignore", "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py",
+    "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py",
     "src/baloot_platform/video/remotion/package.json", "src/baloot_platform/video/remotion/package-lock.json",
     "LICENSE", "THIRD-PARTY-NOTICES", "native/CMakeLists.txt", "configs/runtime/docker_v1.yaml",
     "schemas/version.schema.json", "generated/openapi.json", "proto/baloot.proto", "migrations/001_initial.sql",
@@ -434,6 +453,15 @@ def test_gate_requires_exact_scoped_producers(root, paths, producers):
 ])
 def test_unknown_shared_and_ci_paths_force_the_full_profile(monkeypatch, path):
     monkeypatch.setattr(ci_scope, "changed_paths", lambda *_: {"README.md", path})
+    assert ci_scope.current_plan("pull_request") == ci_scope.current_plan() | {"docker_constraints": False}
+
+
+@pytest.mark.parametrize("path", [
+    "Dockerfile", ".dockerignore", "Dockerfile.dockerignore", "pyproject.toml", "requirements-docker.txt",
+    ".github/workflows/ci.yml", "scripts/ci_scope.py",
+])
+def test_docker_constraint_inputs_select_the_resolver(monkeypatch, path):
+    monkeypatch.setattr(ci_scope, "changed_paths", lambda *_: {path})
     assert ci_scope.current_plan("pull_request") == ci_scope.current_plan()
 
 
@@ -441,7 +469,7 @@ def test_plan_falls_back_for_documentation_anchor(root, monkeypatch):
     profile = yaml.safe_load((root / "configs/adjudication/research_events_v1.yaml").read_bytes())
     path = profile["events"]["out_of_turn"]["documentation"].split("#")[0]
     monkeypatch.setattr(ci_scope, "changed_paths", lambda *_: {path})
-    assert ci_scope.current_plan("pull_request") == ci_scope.current_plan()
+    assert ci_scope.current_plan("pull_request") == ci_scope.current_plan() | {"docker_constraints": False}
 
 
 def test_plan_falls_back_for_cross_test_path(root, monkeypatch):
@@ -449,7 +477,7 @@ def test_plan_falls_back_for_cross_test_path(root, monkeypatch):
     match = re.search(rb'"(tests/[^"]+\.py)::test_preference_miss_does_not_reject', acceptance)
     assert match
     monkeypatch.setattr(ci_scope, "changed_paths", lambda *_: {match[1].decode()})
-    assert ci_scope.current_plan("pull_request") == ci_scope.current_plan()
+    assert ci_scope.current_plan("pull_request") == ci_scope.current_plan() | {"docker_constraints": False}
 
 
 @pytest.mark.parametrize(("path", "consumer", "reference"), [
@@ -465,7 +493,7 @@ def test_repository_reference_forces_full(path, consumer, reference, tmp_path, m
     subprocess.run(["git", "-C", str(tmp_path), "add", "--", consumer], check=True, timeout=10)
     monkeypatch.setattr(ci_scope, "ROOT", tmp_path)
     monkeypatch.setattr(ci_scope, "changed_paths", lambda *_: {path})
-    assert ci_scope.current_plan("pull_request") == ci_scope.current_plan()
+    assert ci_scope.current_plan("pull_request") == ci_scope.current_plan() | {"docker_constraints": False}
 
 
 def test_reference_scan_error_forces_full(monkeypatch):

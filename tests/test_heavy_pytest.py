@@ -291,9 +291,12 @@ def test_full_workflow_requires_coverage_for_all_matrices(root):
     assert jobs["python-backend-run"]["strategy"]["matrix"] == {"shard": [1, 2, 3, 4], "python": versions}
     assert jobs["python-fast-run"]["strategy"]["matrix"] == {"python": versions, "shard": [1, 2, 3]}
     assert jobs["python-heavy"]["strategy"]["matrix"] == {"python": ["3.13"], "shard": [1, 2]}
+    # Keep the hosted 20-job cap enforced by test_one_run_never_holds_more_than_twenty_hosted_jobs.
+    assert jobs["python-backend-run"]["strategy"]["max-parallel"] == 7
     for name in ("python-backend-run", "python-fast-run", "python-heavy"):
         assert jobs[name]["strategy"]["fail-fast"] is False
-        assert "max-parallel" not in jobs[name]["strategy"]
+        if name != "python-backend-run":
+            assert "max-parallel" not in jobs[name]["strategy"]
         assert any("--workers 4" in step.get("run", "") for step in jobs[name]["steps"])
     assert jobs["python-coverage"]["needs"] == ["plan", "python-fast-run", "python-backend-run", "python-heavy"]
     base_step = jobs["python-fast-run"]["steps"][1]

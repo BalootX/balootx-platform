@@ -11,6 +11,24 @@ RUN sources=/etc/apt/sources.list.d/debian.sources \
     && test "$(grep -Fc "/$snapshot/" "$sources")" -eq 2
 COPY requirements-docker.txt /opt/baloot-build/requirements-docker.txt
 ENV PIP_CONSTRAINT=/opt/baloot-build/requirements-docker.txt PIP_ONLY_BINARY=:all:
+ARG VERIFIER_EXTRAS=dev,grpc-dev,postgres,s3,redis,security,optimization
+
+FROM python-base AS docker-constraints
+COPY pyproject.toml ./
+RUN <<'SH'
+set -eu
+python - "$VERIFIER_EXTRAS" >/tmp/verifier-requirements.txt <<'PY'
+import sys
+import tomllib
+
+with open("pyproject.toml", "rb") as stream:
+    project = tomllib.load(stream)["project"]
+print(*project["dependencies"], sep="\n")
+for extra in sys.argv[1].split(","):
+    print(*project["optional-dependencies"][extra], sep="\n")
+PY
+python -m pip install --dry-run --ignore-installed -r /tmp/verifier-requirements.txt
+SH
 
 FROM node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS remotion-build
 WORKDIR /remotion
@@ -90,7 +108,7 @@ COPY generated ./generated
 COPY release/saudi-baloot-official-source-verification-20260831.json release/saudi-baloot-official-source-verification-20260831-v2.json /app/release/
 COPY proto ./proto
 COPY tests ./tests
-RUN --mount=type=cache,target=/root/.cache/pip wheel_path="$(echo /app/dist/baloot_platform-*.whl)" && python -m pip install --no-cache-dir "${wheel_path}[dev,grpc-dev,postgres,s3,redis,security,optimization]" && PYTHONPATH=src pytest -q && ctest --test-dir /tmp/native --output-on-failure
+RUN --mount=type=cache,target=/root/.cache/pip wheel_path="$(echo /app/dist/baloot_platform-*.whl)" && python -m pip install --no-cache-dir "${wheel_path}[${VERIFIER_EXTRAS}]" && PYTHONPATH=src pytest -q && ctest --test-dir /tmp/native --output-on-failure
 
 FROM python-base AS verifier
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
@@ -102,7 +120,7 @@ COPY --from=remotion-build /usr/local/bin/node /usr/local/bin/node
 COPY --from=remotion-build /remotion/node_modules ./src/baloot_platform/video/remotion/node_modules
 COPY --from=remotion-build /remotion/.lock-sha256 ./src/baloot_platform/video/remotion/.lock-sha256
 COPY --from=foundry-build /foundry/node_modules ./src/baloot_platform/service/foundry_dashboard/node_modules
-RUN --mount=type=cache,target=/root/.cache/pip wheel_path="$(echo /tmp/baloot_platform-*.whl)" && python -m pip install --no-cache-dir "${wheel_path}[dev,grpc-dev,postgres,s3,redis,security,optimization]" && rm -f /tmp/*.whl
+RUN --mount=type=cache,target=/root/.cache/pip wheel_path="$(echo /tmp/baloot_platform-*.whl)" && python -m pip install --no-cache-dir "${wheel_path}[${VERIFIER_EXTRAS}]" && rm -f /tmp/*.whl
 COPY . .
 ENV BALOOT_ROOT=/app BALOOT_NATIVE_LIBRARY=/usr/local/lib/libbaloot_native.so LD_LIBRARY_PATH=/usr/local/lib BALOOT_VERIFIER_TEST_TIMEOUT_SECONDS=1800 SOURCE_DATE_EPOCH=315532800
 ENV PATH=/app/src/baloot_platform/video/remotion/node_modules/.bin:$PATH

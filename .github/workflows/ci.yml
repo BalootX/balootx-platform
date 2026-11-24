@@ -42,6 +42,7 @@ jobs:
       foundry: ${{ steps.plan.outputs.foundry }}
       remotion: ${{ steps.plan.outputs.remotion }}
       video_worker: ${{ steps.plan.outputs.video_worker }}
+      docker_constraints: ${{ steps.plan.outputs.docker_constraints }}
       tests: ${{ steps.plan.outputs.tests }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -98,6 +99,15 @@ jobs:
           python -m pip install '.[dev,grpc,security]'
           python -m compileall -q src scripts sdk/python
           python -m pytest -q tests/test_mcp_builtin.py
+
+  docker-constraints:
+    needs: plan
+    if: needs.plan.outputs.docker_constraints == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - *checkout
+      - run: docker build --progress=plain --target docker-constraints .
 
   foundry:
     needs: [plan, python-wheelhouse]
@@ -489,6 +499,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
+      max-parallel: 7
       matrix:
         python: *full-python
         shard: [1, 2, 3, 4]
@@ -737,7 +748,7 @@ jobs:
 
   ci-gate:
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}
-    needs: [plan, preflight, dependency-review, python-version-smoke, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
+    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
     if: ${{ always() && !inputs.viewer-seat-proof }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -357,12 +357,15 @@ def test_verifier_delivery_uses_current_version_and_retries_apt() -> None:
         "id=balootx-foundry-npm,target=/root/.npm,sharing=locked"
     ) == 1
     assert "--mount=type=cache,target=/root/.npm" not in dockerfile
-    assert "security,optimization]" in dockerfile
+    extras = next(line for line in dockerfile.splitlines() if line.startswith("ARG VERIFIER_EXTRAS="))
+    assert {"grpc-dev", "security", "optimization"} <= set(extras.split("=", 1)[1].split(","))
     assert "FROM remotion-build AS foundry-build" in dockerfile
     build_stage = dockerfile.split("FROM python-base AS build", 1)[1].split(
         "FROM python-base AS runtime", 1
     )[0]
     verifier_stage = dockerfile.split("FROM python-base AS verifier", 1)[1]
+    test_stage = dockerfile.split("FROM build AS test", 1)[1].split("FROM python-base AS verifier", 1)[0]
+    assert all('"${wheel_path}[${VERIFIER_EXTRAS}]"' in stage for stage in (test_stage, verifier_stage))
     assert " cmake ninja-build git ffmpeg " in build_stage
     assert (
         "apt-get install -y --no-install-recommends git"
