@@ -106,6 +106,8 @@ def test_hosted_ci_contract(root):
     jobs = workflow["jobs"]
     main_push = "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
     for name, job in jobs.items():
+        if name == "viewer-seat-proof":
+            continue  # Checked with the nightly caller and shared workflow below.
         assert job["runs-on"] == "ubuntu-24.04"
         assert job["timeout-minutes"] > 0
         for step in job["steps"]:
@@ -152,7 +154,7 @@ def test_hosted_ci_contract(root):
     assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof }}"
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
-        "media-inputs", "media-render", "media-release-smoke", "viewer-seat-proof", "remotion-image-parity",
+        "media-inputs", "media-render", "media-release-smoke", "remotion-image-parity",
     ):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)
@@ -259,7 +261,7 @@ def test_docker_constraint_job_resolves_the_shared_target(root):
     assert "docker-constraints" not in jobs["media-inputs"]["needs"]
 
 
-def test_viewer_seat_proof_dispatch_uses_pinned_fixtures_and_skips_ci(root):
+def test_viewer_seat_proof_dispatch_and_nightly_use_the_same_pinned_cohort(root):
     import hashlib
 
     workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
@@ -267,18 +269,47 @@ def test_viewer_seat_proof_dispatch_uses_pinned_fixtures_and_skips_ci(root):
     assert option["type"] == "boolean" and option["default"] is False
     jobs = workflow["jobs"]
     assert jobs["preflight"]["if"] == "${{ !inputs.viewer-seat-proof }}"
-    proof = jobs["viewer-seat-proof"]
-    assert proof["if"] == "${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof }}"
-    assert "needs" not in proof
+    workflow_call = {"uses": "./.github/workflows/viewer-seat-proof.yml"}
+    assert jobs["viewer-seat-proof"] == {
+        **workflow_call,
+        "if": "${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof }}",
+    }
     assert {name for name, job in jobs.items() if "needs" not in job} == {
         "plan", "preflight", "dependency-review", "viewer-seat-proof",
     }
+    nightly = yaml.safe_load((root / ".github/workflows/nightly-candidates.yml").read_bytes())
+    assert nightly["jobs"]["viewer-seat-proof"] == workflow_call
+    shared = yaml.safe_load((root / workflow_call["uses"]).read_bytes())
+    assert shared[True] == {"workflow_call": None}
+    assert shared["permissions"] == {"contents": "read"}
+    assert set(shared["jobs"]) == {"proof"}
+    proof = shared["jobs"]["proof"]
+    assert not {"if", "needs", "permissions", "continue-on-error"} & proof.keys()
+    assert proof["runs-on"] == "ubuntu-24.04" and proof["timeout-minutes"] == 15
+    assert proof["strategy"]["fail-fast"] is False
+    assert set(proof["strategy"]["matrix"]) == {"include"}
     cohort = proof["strategy"]["matrix"]["include"]
+    assert len(cohort) == 3
     assert {row["clip"] for row in cohort} == {"16-05", "19-03", "18-03"}
     for row in cohort:
         path = root / f"examples/research-scenario-v4-single-winner-202611{row['clip']}.json"
         assert hashlib.sha256(path.read_bytes()).hexdigest() == row["sha256"]
-    assert "steps.proof.outcome != 'skipped'" in proof["steps"][-1]["if"]
+    assert proof["steps"][0]["with"] == {"persist-credentials": False}
+    for step in proof["steps"]:
+        if "uses" in step:
+            assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", step["uses"])
+        assert "continue-on-error" not in step
+    run, upload = proof["steps"][-2:]
+    assert "python -P scripts/viewer_seat_proof.py" in run["run"]
+    assert run["env"]["FIXTURE_SHA256"] == "${{ matrix.sha256 }}"
+    assert '--fixture-sha256 "$FIXTURE_SHA256"' in run["run"]
+    assert upload["if"] == "${{ !cancelled() && steps.proof.outcome != 'skipped' }}"
+    assert upload["with"] == {
+        "name": "viewer-seat-${{ matrix.clip }}",
+        "path": "viewer-seat-${{ matrix.clip }}.json",
+        "if-no-files-found": "error",
+        "retention-days": 30,
+    }
 
 
 def test_nightly_candidates_serializes_runs_and_retains_failure_evidence(root):
@@ -323,7 +354,7 @@ def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):
     download = next(step for step in media_steps if step.get("name") == "Download verified FFmpeg packages")
     install = next(step for step in media_steps if step.get("name") == "Install pinned FFmpeg")
     for name, job in jobs.items():
-        steps = job["steps"]
+        steps = job.get("steps", [])
         expected = int(name in consumers)
         assert sum(step is download for step in steps) == expected, name
         assert sum(step is install for step in steps) == expected, name
@@ -596,7 +627,6 @@ def test_one_run_never_holds_more_than_twenty_hosted_jobs(root):
     full = jobs.keys() - {"python-affected", "viewer-seat-proof"}
     assert peak(0, frozenset(), sorted(full), True) <= 20
     assert peak(0, frozenset(), sorted(full - {"dependency-review", "python-version-smoke"}), False) <= 20
-    assert peak(0, frozenset(), ["viewer-seat-proof"], False) <= 20
 
 
 def test_dependabot_groups_weekly_version_minor_and_patch_updates(root):

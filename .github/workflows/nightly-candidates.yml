@@ -152,3 +152,6 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 3
+
+  viewer-seat-proof:
+    uses: ./.github/workflows/viewer-seat-proof.yml

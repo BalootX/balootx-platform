@@ -217,7 +217,7 @@ def test_workflows_use_node24_artifact_upload_action(root: Path) -> None:
     workflows = (root / ".github/workflows").glob("*.yml")
     sources = [path.read_text(encoding="utf-8") for path in workflows]
     uploads = [step["uses"] for source in sources
-               for job in yaml.safe_load(source)["jobs"].values() for step in job["steps"]
+               for job in yaml.safe_load(source)["jobs"].values() for step in job.get("steps", ())
                if step.get("uses", "").startswith("actions/upload-artifact")]
     approved = {"actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"}  # Node 24, v7.0.2
     assert uploads and set(uploads) <= approved
@@ -237,7 +237,7 @@ def test_upload_action_check_rejects_unapproved_sha_and_tags(tmp_path: Path) -> 
 def test_workflows_pin_artifact_downloads(root: Path) -> None:
     downloads = [step["uses"] for path in (root / ".github/workflows").glob("*.yml")
                  for job in yaml.safe_load(path.read_text())["jobs"].values()
-                 for step in job["steps"] if step.get("uses", "").startswith("actions/download-artifact@")]
+                 for step in job.get("steps", ()) if step.get("uses", "").startswith("actions/download-artifact@")]
     assert downloads and set(downloads) == {
         "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333"  # Node 24, v8.0.2
     }

@@ -744,44 +744,7 @@ jobs:
 
   viewer-seat-proof:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - clip: '16-05'
-            sha256: a2e1a514eecab50d5d5caa434297292a41fff016f297217b2095582257d04a5d
-          - clip: '19-03'
-            sha256: a9ee58ac29ccd1e98f3cbc1403ec5db53c65fc51c707928f37e0e986bdc8c9a3
-          - clip: '18-03'
-            sha256: dd07b0f7101c043fbcbf1b987d2991cce68c3d40cf5820c29c21753eafce4b38
-    steps:
-      - *checkout
-      - *py313
-      - run: python -m pip install .
-      - name: Build the native exact solver
-        run: |
-          cmake -S native -B build/native-release -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/native-release --target baloot_native
-      - name: Prove the viewer-seat deal cohort
-        id: proof
-        env:
-          CLIP: ${{ matrix.clip }}
-          FIXTURE_SHA256: ${{ matrix.sha256 }}
-          PYTHONUTF8: '1'
-        run: |
-          python -P scripts/viewer_seat_proof.py \
-            --fixture "examples/research-scenario-v4-single-winner-202611${CLIP}.json" \
-            --fixture-sha256 "$FIXTURE_SHA256" --out "viewer-seat-${CLIP}.json" \
-            --backend native --native-library build/native-release/libbaloot_native.so
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ !cancelled() && steps.proof.outcome != 'skipped' }}
-        with:
-          name: viewer-seat-${{ matrix.clip }}
-          path: viewer-seat-${{ matrix.clip }}.json
-          if-no-files-found: error
-          retention-days: 30
+    uses: ./.github/workflows/viewer-seat-proof.yml
 
   ci-gate:
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}
