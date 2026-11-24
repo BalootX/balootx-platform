@@ -1306,34 +1306,103 @@ def test_api_documentation_is_offline_and_searchable(root):
             assert "BalootX API Reference" in response.text
 
 
+_NPM_VERSION_NUMBER = r"(?:0|[1-9][0-9]*)"
+_NPM_PRERELEASE_ID = rf"(?:{_NPM_VERSION_NUMBER}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+_EXACT_NPM_VERSION = re.compile(
+    rf"{_NPM_VERSION_NUMBER}\.{_NPM_VERSION_NUMBER}\.{_NPM_VERSION_NUMBER}"
+    rf"(?:-{_NPM_PRERELEASE_ID}(?:\.{_NPM_PRERELEASE_ID})*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+)
+
+
+def _assert_dashboard_npm_pins(manifest, lock):
+    assert lock["lockfileVersion"] == 3
+    packages = lock["packages"]
+    for section in ("dependencies", "devDependencies"):
+        pins = manifest[section]
+        assert pins == packages[""][section], f"lockfile root differs for {section}"
+        for name, spec in pins.items():
+            locked = packages[f"node_modules/{name}"]
+            version = spec
+            if spec.startswith("npm:"):
+                target, _, version = spec.removeprefix("npm:").rpartition("@")
+                assert target and locked.get("name") == target, (
+                    f"wrong alias target for {name}"
+                )
+            else:
+                assert locked.get("name", name) == name, f"wrong package for {name}"
+            assert _EXACT_NPM_VERSION.fullmatch(version), (
+                f"{name} needs an exact version"
+            )
+            assert locked["version"] == version, f"locked version differs for {name}"
+
+    for name, version in manifest["overrides"].items():
+        assert _EXACT_NPM_VERSION.fullmatch(version), f"{name} needs an exact override"
+        package_path = f"node_modules/{name}"
+        locked_versions = {
+            entry["version"]
+            for path, entry in packages.items()
+            if path == package_path or path.endswith(f"/{package_path}")
+        }
+        assert locked_versions == {version}, (
+            f"locked versions differ for override {name}"
+        )
+
+
+@pytest.mark.parametrize(
+    ("spec", "root_spec", "locked_version", "locked_name", "error"),
+    [
+        ("2.3.5", "2.3.5", "2.3.5", "tool", None),
+        ("*", "*", "2.3.5", "tool", "needs an exact version"),
+        ("^2.3.5", "^2.3.5", "2.3.5", "tool", "needs an exact version"),
+        ("2.3.5", "2.3.4", "2.3.5", "tool", "lockfile root differs"),
+        ("2.3.5", "2.3.5", "2.3.4", "tool", "locked version differs"),
+        (
+            "npm:@scope/tool@2.3.5",
+            "npm:@scope/tool@2.3.5",
+            "2.3.5",
+            "@scope/tool",
+            None,
+        ),
+        (
+            "npm:other@~2.3.5",
+            "npm:other@~2.3.5",
+            "2.3.5",
+            "other",
+            "needs an exact version",
+        ),
+        ("npm:other@2.3.5", "npm:other@2.3.5", "2.3.5", "tool", "wrong alias target"),
+    ],
+)
+def test_dashboard_npm_pin_checks(spec, root_spec, locked_version, locked_name, error):
+    manifest = {"dependencies": {"tool": spec}, "devDependencies": {}, "overrides": {}}
+    lock = {
+        "lockfileVersion": 3,
+        "packages": {
+            "": {"dependencies": {"tool": root_spec}, "devDependencies": {}},
+            "node_modules/tool": {"name": locked_name, "version": locked_version},
+        },
+    }
+    if error is None:
+        _assert_dashboard_npm_pins(manifest, lock)
+    else:
+        with pytest.raises(AssertionError, match=error):
+            _assert_dashboard_npm_pins(manifest, lock)
+
+
 def test_dashboard_build_and_wheel_inputs_are_exactly_pinned(root):
-    package = (
-        root
-        / "src"
-        / "baloot_platform"
-        / "service"
-        / "foundry_dashboard"
-        / "package.json"
-    ).read_text(encoding="utf-8")
-    lock = (
-        root
-        / "src"
-        / "baloot_platform"
-        / "service"
-        / "foundry_dashboard"
-        / "package-lock.json"
-    ).read_text(encoding="utf-8")
+    dashboard = root / "src" / "baloot_platform" / "service" / "foundry_dashboard"
+    package = (dashboard / "package.json").read_text(encoding="utf-8")
+    manifest = json.loads(package)
+    lock = json.loads((dashboard / "package-lock.json").read_text(encoding="utf-8"))
     pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
-    assert '"react": "19.3.1"' in package
-    assert '"@tanstack/react-table": "9.3.1"' in package
-    assert '"vite": "8.3.8"' in package
-    assert '"@typescript/native": "npm:typescript@7.0.2"' in package
-    assert '"typescript": "npm:@typescript/typescript6@6.0.2"' in package
-    assert '"@babel/parser": "8.1.2"' in package
-    assert '"@hey-api/openapi-ts": "0.99.0"' in package
-    assert '"vitest": "5.1.0"' in package
-    assert '"js-yaml": "4.3.2"' in package
-    assert '"nanoid": "3.3.18"' in package
+    assert {"react", "@tanstack/react-table"} <= manifest["dependencies"].keys()
+    dev = manifest["devDependencies"]
+    assert {"vite", "@babel/parser", "@hey-api/openapi-ts", "vitest"} <= dev.keys()
+    assert dev["@typescript/native"].startswith("npm:typescript@")
+    assert dev["typescript"].startswith("npm:@typescript/typescript6@")
+    assert {"js-yaml", "nanoid"} <= manifest["overrides"].keys()
+    _assert_dashboard_npm_pins(manifest, lock)
     assert (
         '"generate:api": "openapi-ts --file openapi-ts.config.mjs --no-log-file"'
         in package
@@ -1344,11 +1413,6 @@ def test_dashboard_build_and_wheel_inputs_are_exactly_pinned(root):
         in package
     )
     assert '"openapi-fetch"' not in package
-    assert '"lockfileVersion": 3' in lock
-    locked_packages = json.loads(lock)["packages"]
-    assert locked_packages["node_modules/@typescript/native"]["name"] == "typescript"
-    assert locked_packages["node_modules/typescript"]["name"] == "@typescript/typescript6"
-    assert locked_packages["node_modules/nanoid"]["version"] == "3.3.18"
     assert '"static/foundry/*.html"' in pyproject
     assert '"static/foundry/assets/*.css"' in pyproject
     assert '"static/foundry/assets/*.js"' in pyproject
