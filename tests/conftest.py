@@ -20,6 +20,21 @@ import yaml
 
 from baloot_platform.core.rules import RuleBook
 
+# The minimal CI preflight does not install the dev extra or run property tests.
+try:
+    from hypothesis import settings
+except ModuleNotFoundError as exc:
+    if exc.name != "hypothesis":
+        raise
+else:
+    settings.register_profile(
+        "balootx", max_examples=20, derandomize=True, deadline=None
+    )
+    settings.register_profile(
+        "nightly", parent=settings.get_profile("balootx"), max_examples=500
+    )
+    settings.load_profile("balootx")
+
 _WORK_FILE_STARTED = pytest.StashKey[float]()
 
 

@@ -1,12 +1,14 @@
 import json
 import os
-from datetime import UTC, datetime, timedelta
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta, timezone
 from fractions import Fraction
 from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from hypothesis import given, strategies as st
 
 from baloot_platform.research import slot_sequencer as sequencer
 
@@ -134,9 +136,221 @@ def cli(monkeypatch, tmp_path):
     return inventory, output, argv
 
 
+@given(st.permutations(tuple(range(8))))
+def test_full_buffer_is_ranked_independently_of_input_order(order):
+    slots = list(map(datetime.fromisoformat, SLOTS))
+    inventory = [
+        route(slot, mechanism, f"{i}-{j}")
+        for i, slot in enumerate(SLOTS)
+        for j, mechanism in enumerate(MECHANISMS)
+    ]
+
+    def rank(candidate, prior):
+        if prior and prior[-1].mechanism == candidate.mechanism:
+            return None
+        return (-candidate.base,)
+
+    plan = sequencer.choose_slots([inventory[i] for i in order], slots, rank)
+    assert [(primary.slot, fallback.slot) for primary, fallback in plan] == [
+        (slot, slot) for slot in slots
+    ]
+    assert plan == [
+        (inventory[2 * i + i % 2], inventory[2 * i + 1 - i % 2])
+        for i in range(len(slots))
+    ]
+
+
+def test_repeated_clip_at_separate_slots_counts_once_in_buffer_coverage():
+    first, second = (route(slot, MECHANISMS[0], "shared-state") for slot in SLOTS[:2])
+    second = replace(second, packet=Path("packet-shared-state-second-slot"))
+    assert sequencer.coverage_by_day([first, second], []) == [
+        {
+            "releasedDay": first.released_day,
+            "releasedClips": 1,
+            "distinctMechanisms": 1,
+            "candidateSlots": 2,
+            "primarySlots": 0,
+            "fallbackSlots": 0,
+        }
+    ]
+
+
+def test_released_buffer_rejects_the_same_bound_packet_twice(tmp_path):
+    packet = tmp_path / "0900-test"
+    packet.mkdir()
+    opener = {
+        "mechanism": MECHANISMS[0],
+        "family": "synthetic-family",
+        "sha256": "opener",
+    }
+    receipt = {"path": "synthetic-proof", "sha256": "proof"}
+    binding = {
+        "packetId": packet.name,
+        "dealNumber": "test",
+        "slotUtc": SLOTS[0],
+        "account": "synthetic-user",
+        "canonicalLedgerReadOnly": "ledger.json",
+        "platforms": ["TikTok"],
+        "authorizedPlatforms": ["TikTok"],
+        "exactStateId": "state",
+        "deal": "deal",
+        "dealHash": "deal-digest",
+        "mediaSha256": "media",
+        "captionSha256": "caption",
+        "opener": opener,
+        "familyEvidence": {"selectedAction": "card"},
+    }
+    clip = {
+        "clipId": "test",
+        "slots": [{"packetId": packet.name, "slotUtc": SLOTS[0]}],
+        **{
+            key: binding[key]
+            for key in ("exactStateId", "deal", "dealHash", "captionSha256")
+        },
+        "mechanism": opener["mechanism"],
+        "family": opener["family"],
+        "visibleOpenerSha256": opener["sha256"],
+        "mp4Sha256": binding["mediaSha256"],
+        "R": {"receipt": receipt},
+        "unroundedScore": {"baseExact": 75},
+    }
+    evidence = {
+        "files": {
+            name: name for name in ("releaseRequests", "candidateIndex", "a2Index")
+        },
+        "packets": {packet.name: "binding"},
+    }
+    pinned = {
+        "releaseRequests": {"clips": [clip]},
+        "candidateIndex": {
+            "ranking": [
+                {
+                    "shortId": "test",
+                    "fixtureSha256": "fixture",
+                    "B": {"difficultyPrior": 50},
+                }
+            ]
+        },
+        "a2Index": {"receipts": [{"id": "test", "receiptSha256": "proof"}]},
+        "binding": binding,
+    }
+    gate = SimpleNamespace(
+        LEDGER=Path("ledger.json"),
+        MECHANISMS=MECHANISMS,
+        utc=datetime.fromisoformat,
+        unique=lambda rows, key, value: next(row for row in rows if row[key] == value),
+        opener_hash=lambda opener: opener["sha256"],
+        bound_asset=lambda *args: {"caption": "caption"},
+        sha_text=lambda caption: caption,
+        check_caption=lambda *args: [],
+        check_viewer=lambda *args: {},
+        score_components=lambda *args: (Fraction(25), 25, Fraction(75)),
+    )
+    inputs = SimpleNamespace(
+        pinned=lambda pin, **kwargs: {} if pin == receipt else pinned[pin]
+    )
+    item = {"status": "RELEASED", "releasedDay": "2030-01-02", "packet": str(packet)}
+    buffer = {"schemaVersion": 1, "routes": [item]}
+    args = (gate, inputs, buffer, evidence, {}, {}, binding["account"])
+    assert len(sequencer.released_routes(*args)) == 1
+    buffer["routes"].append(dict(item))
+    with pytest.raises(sequencer.PlanError, match="^INVALID_RELEASED_ROUTE$"):
+        sequencer.released_routes(*args)
+
+
+@pytest.mark.parametrize(
+    "indices", [(0, 0, 2, 3), (1, 0, 2, 3)], ids=["duplicate", "unsorted"]
+)
+def test_cli_rejects_non_increasing_slots(cli, capsys, indices):
+    _, output, argv = cli
+    argv[argv.index("--slots") + 1 :] = [SLOTS[i] for i in indices]
+    assert sequencer.main(argv) == 1
+    assert json.loads(capsys.readouterr().out)["reason"] == "INVALID_DAILY_SLOTS"
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("count", [3, 5])
+def test_cli_requires_exactly_four_slots(cli, capsys, count):
+    _, output, argv = cli
+    argv[argv.index("--slots") + 1 :] = [*SLOTS, "2030-01-02T21:00:00Z"][:count]
+    assert sequencer.main(argv) == 1
+    assert json.loads(capsys.readouterr().out)["reason"] == "INVALID_ARGUMENTS"
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("offset_us", [-1, 0, 1], ids=["before", "exact", "after"])
+def test_only_the_exact_slot_route_enters_the_plan(cli, capsys, offset_us):
+    inventory, output, argv = cli
+    fallback = inventory[1]
+    slot = fallback.slot + timedelta(microseconds=offset_us)
+    inventory[1] = replace(
+        fallback, slot=slot, binding={**fallback.binding, "slotUtc": slot.isoformat()}
+    )
+    assert sequencer.main(argv) == int(offset_us != 0)
+    report = json.loads(capsys.readouterr().out)
+    if offset_us:
+        assert report["reason"] == "SLOT_NO_DIFFERENT_MECHANISM_FALLBACK"
+        assert report["slotUtc"] == SLOTS[0]
+        assert not output.exists()
+    else:
+        assert report["plannedSlots"] == 4
+        assert (
+            json.loads(output.read_bytes())["slots"][0]["fallback"]["slot"]
+            == slot.isoformat()
+        )
+
+
+@pytest.mark.parametrize(
+    ("wall_start", "step_seconds", "utc_start", "accepted"),
+    [
+        ("2032-02-29T12:00:00", 3 * 3600, "2032-02-29T09:00:00Z", True),
+        ("2032-02-29T00:00:00", 1, "2032-02-28T21:00:00Z", True),
+        ("2032-02-29T23:59:58", 1, "2032-02-29T20:59:58Z", True),
+        ("2032-02-29T02:59:58", 1, "2032-02-28T23:59:58Z", False),
+    ],
+    ids=[
+        "four-fixed-times",
+        "local-leap-day",
+        "cross-local-midnight",
+        "cross-utc-midnight",
+    ],
+)
+def test_fixed_utc_plus_three_slots_use_the_utc_day(
+    cli, capsys, wall_start, step_seconds, utc_start, accepted
+):
+    inventory, output, argv = cli
+    local = datetime.fromisoformat(wall_start).replace(
+        tzinfo=timezone(timedelta(hours=3))
+    )
+    slots = [
+        (local + timedelta(seconds=i * step_seconds)).astimezone(UTC) for i in range(4)
+    ]
+    slot_args = [slot.isoformat().replace("+00:00", "Z") for slot in slots]
+    assert slot_args[0] == utc_start
+    argv[argv.index("--slots") + 1 :] = slot_args
+    for i, candidate in enumerate(inventory):
+        inventory[i] = replace(
+            candidate,
+            slot=slots[i // 2],
+            binding={**candidate.binding, "slotUtc": slot_args[i // 2]},
+        )
+
+    assert sequencer.main(argv) == int(not accepted)
+    report = json.loads(capsys.readouterr().out)
+    if accepted:
+        assert report["dayUtc"] == utc_start[:10]
+        assert [
+            row["slotUtc"] for row in json.loads(output.read_bytes())["slots"]
+        ] == slot_args
+    else:
+        assert report["reason"] == "INVALID_DAILY_SLOTS"
+        assert not output.exists()
+
+
 @pytest.mark.parametrize(
     ("remove", "reason", "failed_slot"),
     [
+        (list(range(8)), "INSUFFICIENT_DISTINCT_MECHANISMS", None),
         ([1, 3, 5, 7], "INSUFFICIENT_DISTINCT_MECHANISMS", None),
         ([1], "SLOT_NO_DIFFERENT_MECHANISM_FALLBACK", SLOTS[0]),
     ],
@@ -148,7 +362,11 @@ def test_daily_hard_fail(cli, capsys, remove, reason, failed_slot):
     report = json.loads(capsys.readouterr().out)
     assert report["reason"] == reason
     assert report.get("slotUtc") == failed_slot
-    assert report["coverageByReleasedDay"][0]["primarySlots"] == 0
+    coverage = report["coverageByReleasedDay"]
+    if inventory:
+        assert coverage[0]["primarySlots"] == 0
+    else:
+        assert coverage == []
     assert not output.exists()
 
 

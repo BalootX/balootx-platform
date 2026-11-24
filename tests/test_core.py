@@ -1,4 +1,7 @@
+import json
+
 import pytest
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from baloot_platform.core.auction_ir import AuctionDomainIRV1
 from baloot_platform.core.bidding_machine import BiddingMachine
@@ -33,6 +36,59 @@ def test_card_deck_identity():
         assert Card.parse(expected) == card
     # Preserve legacy constructor behavior outside canonical integer identities.
     assert Card(1.0).code == Card(True).code == Card(1).code
+
+
+@given(st.sampled_from(FULL_DECK), st.sampled_from(["", " ", "\t", "\n"]))
+def test_card_parser_round_trips_wire_forms(card, padding):
+    assert Card.parse(card.id) == card
+    assert Card.parse(f"{padding}{card.code.lower()}{padding}") == card
+    assert Card.parse({"id": str(card.id)}) == card
+    assert Card.parse({"suit": card.suit.name, "rank": card.rank.name}) == card
+
+
+@given(st.one_of(st.integers(max_value=-1), st.integers(min_value=len(FULL_DECK))))
+@example(-1)
+@example(len(FULL_DECK))
+def test_card_parser_rejects_ids_outside_the_deck(card_id):
+    for value in (card_id, {"id": card_id}):
+        with pytest.raises(ValueError, match="invalid card"):
+            Card.parse(value)
+
+
+@pytest.mark.parametrize("value", ["", "H", "X10", "H11", {}, {"suit": "hearts"}])
+def test_card_parser_rejects_missing_or_unknown_fields(value):
+    with pytest.raises(ValueError, match="invalid card"):
+        Card.parse(value)
+
+
+@pytest.mark.xfail(strict=True, raises=OverflowError, reason="https://github.com/BalootX/balootx-platform/issues/113")
+@pytest.mark.parametrize("number", ["1e999", "-1e999"])
+def test_card_parser_rejects_json_number_overflow(number):
+    with pytest.raises(ValueError, match="invalid card"):
+        Card.parse(json.loads(f'{{"id": {number}}}'))
+
+
+@settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(st.permutations(tuple(card.id for card in FULL_DECK)))
+def test_structural_deck_admission_preserves_order_and_rejects_duplicates(rules, deck):
+    # Validation leaves the shared domain unchanged between generated examples.
+    domain = rules.structural_domain
+    assert domain.validate_deck_order(deck) == tuple(deck)
+    with pytest.raises(ValueError, match="every governed card exactly once"):
+        domain.validate_deck_order([deck[1], *deck[1:]])
+    with pytest.raises(ValueError, match="every governed card exactly once"):
+        domain.validate_deck_order(deck[:-1])
+
+
+def test_structural_cut_position_at_deck_bounds(rules):
+    domain = rules.structural_domain
+    for position in (1, domain.card_count - 1):
+        assert domain.validate_cut_position(position) == position
+    for position in (0, domain.card_count):
+        with pytest.raises(ValueError, match="cut position must be between"):
+            domain.validate_cut_position(position)
+    with pytest.raises(TypeError, match="must be integers"):
+        domain.validate_cut_position(True)
 
 
 def test_shuffle_reproducible_and_committed():
