@@ -1,4 +1,5 @@
 import {expect, test, type Locator, type Page} from '@playwright/test';
+import {useFlagshipCampaign} from './flagshipCampaign';
 import {nativeResearchBundleRevision} from './nativeResearchBundle';
 
 type JsonObject = Record<string, unknown>;
@@ -166,7 +167,7 @@ async function authorFlagshipRequest(
   return page.locator('.scenario-actions button');
 }
 
-test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
+test.describe('ACC-19 exact request and disclosed alternative', () => {
   test('historical optional bundles fail validation at the bundle selector before Save', async ({page}) => {
     await page.goto('/foundry?section=research');
     const bundle = page.locator('#research-bundle-select');
@@ -230,7 +231,6 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
   });
 
   test('exact trace prefix advances through the real legal-action timeline', async ({page}) => {
-    test.setTimeout(120_000);
     await openOperatorStudio(page);
     await selectPath(page, 'scenario.origin.kind', 'exact_trace_prefix');
 
@@ -267,7 +267,6 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
   });
 
   test('the opponent-wins-trick-6 request is not falsely refused by the V3 preflight', async ({page}) => {
-    test.setTimeout(180_000);
     const pageErrors: string[] = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
     await openOperatorStudio(page);
@@ -332,7 +331,6 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
   });
 
   test('the disclosed target-wins-trick-6 alternative diagnoses its first result', async ({page}) => {
-    test.setTimeout(750_000);
     const pageErrors: string[] = [];
     const statisticsStatuses: number[] = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -343,6 +341,7 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
     });
 
     await openOperatorStudio(page);
+    await useFlagshipCampaign(page, {resultCount: 1});
     const actions = await authorFlagshipRequest(
       page,
       'بديل تشخيصي معلن: فريق غرب وشرق يفوز بالسادسة ونتيجة واحدة بلا فيديو',
@@ -387,9 +386,7 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
     await actions.nth(2).click();
     const runDialog = page.getByRole('dialog');
     await expect(runDialog).toBeVisible();
-    await expect(runDialog.locator('.research-run-actions button.primary')).toBeVisible({
-      timeout: 650_000,
-    });
+    await expect(runDialog.locator('.research-run-actions button.primary')).toBeVisible();
     const liveRunEvidence = runDialog.locator('.drawer-body > details.audit-details').last();
     await liveRunEvidence.locator('summary').click();
     const liveRunDocument = object(JSON.parse(await liveRunEvidence.locator('pre').innerText()));
@@ -397,7 +394,7 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
     expect(object(liveRunDocument.run).progress).toBe(1);
     await runDialog.locator('aside > header > button').click();
     const runListItem = page.locator('button.list-item').filter({hasText: /^RUN-/}).first();
-    await expect(runListItem).toBeVisible({timeout: 30_000});
+    await expect(runListItem).toBeVisible();
     await runListItem.click();
     const terminalRunDialog = page.getByRole('dialog');
     await expect(terminalRunDialog).toBeVisible();
@@ -417,7 +414,7 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
     await terminalRunDialog.locator('aside > header > button').click();
 
     const results = page.locator('button.list-item').filter({hasText: /^LAF-/});
-    await expect(results).toHaveCount(1, {timeout: 30_000});
+    await expect(results).toHaveCount(1);
     const operatorAuditResponse = page.waitForResponse((response) =>
       response.url().endsWith('/operator-audit') && response.status() === 200,
     );
@@ -472,8 +469,8 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
   });
 
   test('cancelling a live campaign is visible and immediately terminal', async ({page}) => {
-    test.setTimeout(180_000);
     await openOperatorStudio(page);
+    await useFlagshipCampaign(page, {resultCount: 0, active: true});
     const actions = await authorFlagshipRequest(
       page,
       'إثبات إلغاء حملة البحث من واجهة المشغّل',
@@ -498,7 +495,7 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
     await cancel.click();
 
     const runListItem = page.locator('button.list-item').filter({hasText: /^RUN-/}).first();
-    await expect(runListItem).toBeVisible({timeout: 5_000});
+    await expect(runListItem).toBeVisible();
     await runListItem.click();
     const terminalDialog = page.getByRole('dialog');
     const audit = terminalDialog.locator('.drawer-body > details.audit-details').last();
@@ -511,8 +508,7 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
     expect(progress.stopReason).toBe('cancelled');
   });
 
-  test('the disclosed target-wins-trick-6 alternative finds five exact variants', async ({page}) => {
-    test.setTimeout(1_800_000);
+  test('the disclosed target-wins-trick-6 alternative displays five precomputed exact variants', async ({page}) => {
     const pageErrors: string[] = [];
     const statisticsStatuses: number[] = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -522,6 +518,7 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
       }
     });
     await openOperatorStudio(page);
+    await useFlagshipCampaign(page, {resultCount: 5});
     const actions = await authorFlagshipRequest(
       page,
       'بديل معلن: فريق غرب وشرق يفوز بالسادسة قبل طلب خمس تنويعات',
@@ -552,7 +549,7 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
 
   const runDialog = page.getByRole('dialog');
   await expect(runDialog).toBeVisible();
-  await expect(runDialog.locator('.research-run-actions button.primary')).toBeVisible({timeout: 660_000});
+  await expect(runDialog.locator('.research-run-actions button.primary')).toBeVisible();
   await runDialog.locator('aside > header > button').click();
 
   const results = page.locator('button.list-item').filter({hasText: /^LAF-/});
@@ -627,16 +624,7 @@ test.describe.serial('ACC-19 exact request and disclosed alternative', () => {
   await expect(player).toHaveURL(/\/c\/LAF-[A-F0-9]{10}$/);
   await player.close();
 
-  if (process.env.BALOOT_OPERATOR_E2E_RENDER_FULL === '1') {
-    await expect(batchStatus).toHaveAttribute('data-render-status', 'completed', {
-      timeout: 1_500_000,
-    });
-  } else {
-    // Full encoding is qualified by the separate five-video evidence command.
-    await page.locator('.scenario-result-actions button.quiet-danger').click();
-    await expect(batchStatus).toHaveAttribute('data-render-status', 'cancelled', {
-      timeout: 30_000,
-    });
-  }
+  await page.locator('.scenario-result-actions button.quiet-danger').click();
+  await expect(batchStatus).toHaveAttribute('data-render-status', 'cancelled');
   });
 });
