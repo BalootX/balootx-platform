@@ -332,6 +332,8 @@ jobs:
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
+    env:
+      SANITIZER_BUILD_DIR: build/sanitizer
     strategy:
       fail-fast: false
       matrix:
@@ -342,23 +344,68 @@ jobs:
             extra: -fno-sanitize-recover=all
     steps:
       - *checkout
+      - *py313
       - env:
           SANITIZER: ${{ matrix.sanitizer }}
           EXTRA: ${{ matrix.extra }}
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: |
           asan='detect_leaks=1:halt_on_error=1:abort_on_error=1:disable_coredump=1'
-          cmake -S native -B build/sanitizer -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+          cmake -S native -B "$SANITIZER_BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
             "-DCMAKE_CXX_FLAGS=-fsanitize=$SANITIZER -fno-omit-frame-pointer $EXTRA" \
             "-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=$SANITIZER" \
             "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=$SANITIZER" \
             "-DBALOOT_ASAN_OPTIONS=$asan"
-          cmake --build build/sanitizer
+          cmake --build "$SANITIZER_BUILD_DIR"
           env -u LD_PRELOAD -u ASAN_OPTIONS timeout 180s \
-            ctest --test-dir build/sanitizer --output-on-failure --timeout 150
-          if [[ "$SANITIZER" == address ]]; then
-            env -u LD_PRELOAD ASAN_OPTIONS="$asan" timeout 150s build/sanitizer/baloot_native_tests
-          fi
+            ctest --test-dir "$SANITIZER_BUILD_DIR" --output-on-failure --timeout 150
+      - name: Run ASan verifier pytest nodes
+        if: matrix.sanitizer == 'address'
+        run: |
+          python -m pip install '.[dev]'
+          BALOOT_ASAN_BUILD_DIR="$SANITIZER_BUILD_DIR" python -m scripts.run_required_pytest \
+            tests/test_v20_asan_verifier_portability.py::test_generated_asan_ctest_invokes_sanitized_binary_without_preload \
+            tests/test_v20_asan_verifier_portability.py::test_configured_sanitized_binary_passes_without_preload
+
+  python-windows:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - *checkout
+      - *py313
+      - run: python -m pip install '.[dev,grpc,security]'
+      - name: Configure CPU fixture for the hosted checkout
+        id: cpu-fixture
+        shell: powershell
+        run: Copy-Item -LiteralPath ci/windows-ci-local-cpu.json -Destination configs/runtime/local_cpu.json
+      - name: Run Windows-only pytest nodes
+        shell: powershell
+        env:
+          WINDOWS_PYTEST_NODES: |
+            tests/test_combined_finalist_policy_pilot.py::test_taskkill_failure_still_kills_and_waits_for_the_owned_root[timeout]
+            tests/test_combined_finalist_policy_pilot.py::test_taskkill_failure_still_kills_and_waits_for_the_owned_root[nonzero]
+            tests/test_combined_finalist_policy_pilot.py::test_atomic_checkpoint_retries_while_a_real_reader_denies_delete
+            tests/test_combined_finalist_policy_pilot.py::test_exhausted_checkpoint_retry_removes_the_owned_temporary_file
+            tests/test_local_cpu_launcher.py::test_launcher_restores_missing_add_type_temp_directory
+            tests/test_local_cpu_launcher.py::test_direct_python_runtime_enforces_cap_once_and_fails_closed[False]
+            tests/test_local_cpu_launcher.py::test_direct_python_runtime_enforces_cap_once_and_fails_closed[True]
+            tests/test_local_cpu_launcher.py::test_verified_inherited_cpu_ceiling_skips_nested_launcher
+            tests/test_local_cpu_launcher.py::test_local_cpu_cap_rejects_invalid_config_and_is_inherited
+            tests/test_v18_hitl_governance.py::test_media_command_uses_extended_executable_with_short_argv_zero
+            tests/test_verifier_preflight.py::test_archive_node_checks_use_a_bounded_runtime_path
+        run: |
+          $nodes = @(($env:WINDOWS_PYTEST_NODES -split '\r?\n').Where({ $_ }))
+          python -m scripts.run_required_pytest @nodes
+      - name: Verify inherited Windows CPU limits through the capped launcher
+        if: '!cancelled() && steps.cpu-fixture.outcome == ''success'''
+        shell: powershell
+        env:
+          CAPPED_PYTEST_NODE: tests/test_local_cpu_launcher.py::test_current_capped_process_has_verified_inherited_limits
+        run: |
+          & ./scripts/run_local_capped.ps1 -Executable (Get-Command python).Source `
+            -CommandArguments @('-m', 'scripts.run_required_pytest', $env:CAPPED_PYTEST_NODE)
 
   python-fast-run:
     needs: [plan, python-wheelhouse, native-build, ffmpeg-packages]
@@ -459,7 +506,7 @@ jobs:
             git fetch --no-tags --depth=1 origin "$BALOOT_TEST_OIDC_LEGACY_REF"
           fi
           python -m pip install -c requirements-docker.txt 'psycopg[binary,pool]'
-          python -m pytest -q tests/oidc_postgres_integration.py
+          python -m scripts.run_required_pytest tests/oidc_postgres_integration.py::test_oidc_issuer_transition_on_postgres
       - name: Run isolated Python shard
         if: '!cancelled()'
         env:
@@ -542,7 +589,7 @@ jobs:
 
   python-backend-run:
     # Let the short producers clear capacity before the widest matrix starts.
-    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages, preflight, sdks, foundry, remotion-checks, native-sanitizers]
+    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages, preflight, sdks, foundry, remotion-checks, native-sanitizers, python-windows]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -797,7 +844,7 @@ jobs:
 
   ci-gate:
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}
-    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
+    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-windows, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
     if: ${{ always() && !inputs.viewer-seat-proof }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

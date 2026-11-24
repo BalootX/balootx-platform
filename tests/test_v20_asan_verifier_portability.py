@@ -68,11 +68,21 @@ def test_preflight_lane_timeout_is_bounded_and_configurable(
     assert verifier.PREFLIGHT_TIMEOUT_SECONDS == 211
 
 
+def _asan_artifact(filename: str, skip_reason: str) -> Path:
+    configured = os.environ.get("BALOOT_ASAN_BUILD_DIR")
+    build = Path(configured) if configured else ROOT / "build" / "native-asan"
+    artifact = build / filename
+    if artifact.is_file():
+        return artifact
+    if configured:
+        pytest.fail(f"configured ASan build is missing {filename}")
+    pytest.skip(skip_reason)
+
+
 def test_generated_asan_ctest_invokes_sanitized_binary_without_preload() -> None:
-    build = ROOT / "build" / "native-asan"
-    ctest_file = build / "CTestTestfile.cmake"
-    if not ctest_file.is_file():
-        pytest.skip("release verifier configures build/native-asan before the complete test lane")
+    ctest_file = _asan_artifact(
+        "CTestTestfile.cmake", "release verifier configures build/native-asan before the complete test lane"
+    )
 
     generated = ctest_file.read_text(encoding="utf-8", errors="replace")
     assert "cmake" in generated
@@ -85,7 +95,7 @@ def test_generated_asan_ctest_invokes_sanitized_binary_without_preload() -> None
     env.pop("LD_PRELOAD", None)
     env.pop("ASAN_OPTIONS", None)
     probe = subprocess.run(
-        ["ctest", "--test-dir", str(build), "-N", "-V"],
+        ["ctest", "--test-dir", str(ctest_file.parent), "-N", "-V"],
         cwd=ROOT,
         env=env,
         text=True,
@@ -98,10 +108,9 @@ def test_generated_asan_ctest_invokes_sanitized_binary_without_preload() -> None
 
 
 def test_configured_sanitized_binary_passes_without_preload() -> None:
-    build = ROOT / "build" / "native-asan"
-    executable = build / "baloot_native_tests"
-    if not executable.is_file():
-        pytest.skip("release verifier configures build/native-asan before this test")
+    executable = _asan_artifact(
+        "baloot_native_tests", "release verifier configures build/native-asan before this test"
+    )
 
     env = os.environ.copy()
     env.pop("LD_PRELOAD", None)
@@ -117,5 +126,5 @@ def test_configured_sanitized_binary_passes_without_preload() -> None:
         timeout=30,
         check=True,
     )
-    assert "tests passed" in probe.stdout
+    assert "native v1/v2 transitions, v3 exact and DD search passed" in probe.stdout.splitlines()
     assert "AddressSanitizer:DEADLYSIGNAL" not in probe.stderr
