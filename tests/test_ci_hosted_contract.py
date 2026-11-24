@@ -213,7 +213,10 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     checkout, restore, build, check, save = parity["steps"]
     assert checkout["with"]["persist-credentials"] is False
     assert restore["with"] == save["with"]
-    assert all(path in restore["with"]["key"] for path in ("Dockerfile", ".dockerignore", "pyproject.toml", "remotion/package*.json"))
+    assert all(path in restore["with"]["key"] for path in (
+        "Dockerfile", "ci/Dockerfile.buildkit", ".dockerignore", "pyproject.toml",
+        "requirements-docker.txt", "remotion/package*.json",
+    ))
     assert "--target video-worker --load" in build["run"] and "--push" not in build["run"]
     assert build["env"]["MAIN_PUSH"] == "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}"
     assert "elif [[ \"$MAIN_PUSH\" == 'true' ]]; then\n  cache_args+=(--cache-to " in build["run"]
@@ -228,6 +231,22 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert '"3.13"' in jobs["python-wheelhouse"]["strategy"]["matrix"]["python"]
     assert "sha256sum package-lock.json > .lock-sha256" in dockerfile
     assert "COPY --from=remotion-runtime /remotion/.lock-sha256 /opt/baloot-remotion/.lock-sha256" in dockerfile
+
+
+def test_render_image_inputs_are_pinned(root):
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    stages = set()
+    for instruction in (line for line in dockerfile.splitlines() if line.startswith("FROM ")):
+        source, *alias = instruction.split()[1:]
+        assert source in stages or re.fullmatch(r".+@sha256:[0-9a-f]{64}", source), source
+        if alias:
+            stages.add(alias[-1])
+    buildkit = (root / "ci/Dockerfile.buildkit").read_text(encoding="utf-8").strip()
+    assert re.fullmatch(r"FROM moby/buildkit:[^@\s]+@sha256:[0-9a-f]{64}", buildkit)
+    assert "PIP_CONSTRAINT=/opt/baloot-build/requirements-docker.txt" in dockerfile
+    pins = (root / "requirements-docker.txt").read_text(encoding="utf-8").splitlines()
+    requirements = [line for line in pins if line and not line.startswith("#")]
+    assert requirements and all(re.fullmatch(r"[\w.-]+==[\w.+!-]+", line) for line in requirements)
 
 
 def test_viewer_seat_proof_dispatch_uses_pinned_fixtures_and_skips_ci(root):

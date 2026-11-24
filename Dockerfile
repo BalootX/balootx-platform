@@ -2,6 +2,15 @@ FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf107
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && printf '%s\n' 'Acquire::Retries "5";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' > /etc/apt/apt.conf.d/80-balootx-retries
+# The digest-pinned Debian base records the archive timestamp used to build it.
+RUN sources=/etc/apt/sources.list.d/debian.sources \
+    && snapshot="$(sed -nE 's|^# http://snapshot\.debian\.org/archive/debian/([0-9]{8}T[0-9]{6}Z)$|\1|p' "$sources")" \
+    && test -n "$snapshot" \
+    && sed -Ei "s|^URIs: http://deb\.debian\.org/(debian(-security)?)$|URIs: https://snapshot.debian.org/archive/\1/$snapshot/\nCheck-Valid-Until: no|" "$sources" \
+    && test "$(grep -c '^URIs:' "$sources")" -eq 2 \
+    && test "$(grep -Fc "/$snapshot/" "$sources")" -eq 2
+COPY requirements-docker.txt /opt/baloot-build/requirements-docker.txt
+ENV PIP_CONSTRAINT=/opt/baloot-build/requirements-docker.txt PIP_ONLY_BINARY=:all:
 
 FROM node:26-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS remotion-build
 WORKDIR /remotion
@@ -22,7 +31,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked apt-get update && ap
 COPY pyproject.toml LICENSE THIRD-PARTY-NOTICES ./
 COPY src ./src
 COPY native ./native
-RUN --mount=type=cache,target=/root/.cache/pip python -m pip install --upgrade pip build && python -m build --wheel
+RUN --mount=type=cache,target=/root/.cache/pip python -m pip install build setuptools wheel && python -m build --no-isolation --wheel
 RUN cmake -S native -B /tmp/native -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build /tmp/native && ctest --test-dir /tmp/native --output-on-failure
 
 FROM python-base AS runtime
@@ -52,7 +61,7 @@ USER 10001
 
 FROM production-runtime AS video-worker
 USER root
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked apt-get update && apt-get install -y --no-install-recommends libnss3 libdbus-1-3 libatk1.0-0 libgbm1 libasound2 libxrandr2 libxkbcommon0 libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked apt-get update && apt-get install -y --no-install-recommends libnss3 libdbus-1-3 libatk1.0-0 libgbm1 libasound2t64 libxrandr2 libxkbcommon0 libxfixes3 libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 && rm -rf /var/lib/apt/lists/*
 COPY --from=remotion-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=remotion-runtime /remotion/node_modules /opt/baloot-remotion/node_modules
 COPY --from=remotion-runtime /remotion/.lock-sha256 /opt/baloot-remotion/.lock-sha256
