@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -22,6 +23,7 @@ from baloot_platform.security.oidc import (
     OidcProviderProfile,
     validate_oidc_provider_profile,
 )
+from baloot_platform.version import PROFILE_VERSION_PATTERN
 
 from .models import (
     ConfigScope,
@@ -31,9 +33,37 @@ from .models import (
     digest,
 )
 
-_SEMVER = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
-)
+_SEMVER = re.compile(PROFILE_VERSION_PATTERN)
+
+
+@dataclass(frozen=True)
+class ProfileFamily:
+    validate: Callable[[dict[str, Any]], Any]
+    schema: Callable[[], dict[str, Any]]
+    requires_config_admin: bool = False
+    in_bundle: bool = True
+
+
+_PROFILE_FAMILIES = {
+    OIDC_PROVIDER_FAMILY: ProfileFamily(
+        validate_oidc_provider_profile,
+        OidcProviderProfile.model_json_schema,
+        requires_config_admin=True,
+        in_bundle=False,
+    )
+}
+_BUNDLE_FAMILIES = set(PROFILE_FAMILIES) | {
+    family for family, definition in _PROFILE_FAMILIES.items() if definition.in_bundle
+}
+
+
+def profile_families_require_admin(*families: str) -> bool:
+    return any(
+        (definition := _PROFILE_FAMILIES.get(family)) is not None
+        and definition.requires_config_admin
+        for family in families
+    )
+
 _PRECEDENCE_KEYS = {
     "request_override",
     "shared_game_published",
@@ -241,16 +271,18 @@ class VersionedConfigurationService:
     def validate_profile(self, family: str, payload: dict[str, Any]) -> dict[str, Any]:
         if len(str(payload).encode("utf-8")) > self.maximum_payload_bytes:
             raise ValueError("configuration profile payload exceeds maximum size")
-        if family == OIDC_PROVIDER_FAMILY:
-            return validate_oidc_provider_profile(payload).model_dump(mode="json", exclude_none=True)
+        definition = _PROFILE_FAMILIES.get(family)
+        if definition is not None:
+            return definition.validate(payload).model_dump(mode="json", exclude_none=True)
         return validate_profile_payload(family, payload, root=self.root)
 
     def profile_schema(self, family: str) -> dict[str, Any]:
         """Return the same closed schema used by row validation."""
 
         family = str(family)
-        if family == OIDC_PROVIDER_FAMILY:
-            return OidcProviderProfile.model_json_schema()
+        definition = _PROFILE_FAMILIES.get(family)
+        if definition is not None:
+            return definition.schema()
         if family not in PROFILE_FAMILIES:
             raise ValueError(f"unknown profile family: {family}")
         candidate = self.root / "schemas" / "profiles" / f"{family}.schema.json"
@@ -510,7 +542,7 @@ class VersionedConfigurationService:
         self,
         *,
         family: str,
-        profile_id: str | None = None,
+        profile_id: str,
         tenant_id: str | None = None,
         environment: str | None = None,
         room_id: str | None = None,
@@ -521,8 +553,6 @@ class VersionedConfigurationService:
         at_time: str | None = None,
         revision_id: str | None = None,
     ) -> dict[str, Any]:
-        if profile_id is None and not revision_id:
-            raise ValueError("configuration profile resolution requires a profile or revision ID")
         context = self._resolution_context(
             tenant_id=tenant_id,
             environment=environment,
@@ -550,7 +580,7 @@ class VersionedConfigurationService:
             if (
                 revision is None
                 or revision.family != family
-                or (profile_id is not None and revision.profile_id != profile_id)
+                or revision.profile_id != profile_id
             ):
                 raise KeyError(revision_id)
             if revision.status != RevisionStatus.PUBLISHED.value:
@@ -658,8 +688,8 @@ class VersionedConfigurationService:
     ) -> dict[str, Any]:
         if not _SEMVER.match(str(version)):
             raise ValueError("configuration bundle version must be semantic")
-        missing = set(PROFILE_FAMILIES) - set(component_revisions)
-        extra = set(component_revisions) - set(PROFILE_FAMILIES)
+        missing = _BUNDLE_FAMILIES - set(component_revisions)
+        extra = set(component_revisions) - _BUNDLE_FAMILIES
         if missing or extra:
             raise ValueError(
                 f"configuration bundle components mismatch: missing={sorted(missing)} extra={sorted(extra)}"

@@ -202,16 +202,12 @@ from baloot_platform.sakka.signing import HmacBoardSigner
 from baloot_platform.security import (
     AesGcmPayloadCipher,
     AuthorizationPolicy,
-    OidcCallbackService,
-    OidcProviderConfig,
     PasskeyChallengeService,
-    PkceTransactionStore,
     PostgresSecurityStateStore,
     SQLiteSecurityStateStore,
     SignedAccessTokenService,
     WebSocketTicketService,
 )
-from baloot_platform.security.oidc import load_oidc_providers
 from baloot_platform.service.game import GameManager
 from baloot_platform.storage.game_store import SQLiteGameStore
 from baloot_platform.storage.jobs import JobStore
@@ -330,9 +326,6 @@ class PlatformContainer:
     authorization_policy: AuthorizationPolicy
     access_tokens: SignedAccessTokenService
     security_state: Any
-    oidc_transactions: PkceTransactionStore
-    oidc_providers: dict[str, OidcProviderConfig]
-    oidc_callback: OidcCallbackService
     passkeys: PasskeyChallengeService
     websocket_tickets: WebSocketTicketService
     identity_profile: dict[str, Any]
@@ -384,7 +377,6 @@ class PlatformContainer:
                 self.hitl_store,
                 self.configuration_store,
                 self.security_state,
-                self.oidc_callback,
                 self.live_broker,
                 self.canonical_history,
                 self.campaign_control,
@@ -481,7 +473,6 @@ def _build_container(
     configuration = VersionedConfigurationService(
         configuration_store, root=resolved_root, profile=configuration_profile
     )
-    oidc_providers = load_oidc_providers(configuration)
     resolved_configuration = _bootstrap_packaged_configuration(configuration)
     bundle = profile_bundle_from_resolved(
         resolved_configuration,
@@ -698,13 +689,6 @@ def _build_container(
         PostgresSecurityStateStore(dsn)
         if dsn
         else SQLiteSecurityStateStore(runtime / "security-v20.sqlite3"),
-    )
-    oidc_transactions = PkceTransactionStore(
-        ttl_seconds=int(os.environ.get("BALOOT_OIDC_TRANSACTION_TTL", "600")),
-        backend=security_state,
-    )
-    oidc_callback = _own(
-        owned_resources, OidcCallbackService(oidc_providers, oidc_transactions)
     )
     passkeys = PasskeyChallengeService(
         rp_id=os.environ.get("BALOOT_WEBAUTHN_RP_ID", "localhost"),
@@ -1609,9 +1593,6 @@ def _build_container(
         authorization_policy,
         access_tokens,
         security_state,
-        oidc_transactions,
-        oidc_providers,
-        oidc_callback,
         passkeys,
         websocket_tickets,
         identity_profile,

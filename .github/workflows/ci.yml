@@ -345,6 +345,19 @@ jobs:
       matrix:
         python: *full-python
         shard: [1, 2, 3]
+    services:
+      postgres:
+        image: ${{ matrix.python == '3.13' && matrix.shard == 1 && 'postgres:17-alpine' || '' }}
+        env:
+          POSTGRES_DB: oidc_ci
+          POSTGRES_PASSWORD: oidc-ci-fixture
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U postgres -d oidc_ci"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
     steps: &python-shard
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -422,6 +435,13 @@ jobs:
             python-heavy) python -P scripts/run_heavy_pytest.py run --workers 4 --shard "$SHARD" --output "$RUNNER_TEMP/python-receipts" ;;
             *) exit 1 ;;
           esac
+      - name: Verify OIDC migration on PostgreSQL
+        if: github.job == 'python-fast-run' && matrix.python == '3.13' && matrix.shard == 1
+        env:
+          BALOOT_TEST_OIDC_POSTGRES_DSN: postgresql://postgres:oidc-ci-fixture@127.0.0.1:${{ job.services.postgres.ports[5432] }}/oidc_ci
+        run: |
+          python -m pip install -c requirements-docker.txt 'psycopg[binary,pool]'
+          python -m pytest -q tests/test_configuration_postgres_migration_v25.py::test_oidc_issuer_transition_on_postgres
       - name: Record final fast shard status
         if: '!cancelled() && github.job == ''python-fast-run'''
         env:

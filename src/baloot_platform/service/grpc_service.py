@@ -60,7 +60,8 @@ async def serve() -> None:  # pragma: no cover - optional runtime
     from baloot_platform.core.cards import Card
     from baloot_platform.core.enums import Seat, Suit
     from baloot_platform.core.serialization import continue_trusted_context, replay_trusted_context
-    from baloot_platform.security.oidc import OIDC_PROVIDER_FAMILY
+    from baloot_platform.configuration.service import profile_families_require_admin
+    from baloot_platform.security import Scope
     from baloot_platform.service.api import (
         ADJUDICATION, AUDIT, AUTHORIZATION_POLICY, CONFIGURATION, CONFIGURATION_PROFILE, DIFFICULTY, EXECUTOR, EXPLANATIONS, IDENTITY,
         HITL, HITL_PROFILE, HITL_REVIEW_RENDERER, LEARNING, LEARNING_STORE, LIVE, OUTPUTS, PERFORMANCE, PERFORMANCE_PROFILE, CAPABILITY_MATRIX, CERTIFICATION_PROFILE, BENCHMARK_PROFILE, OPERATIONS_PROFILE, REGISTRY, RENDER_BATCHES, RESEARCH, REVIEWS, SAKKA, STORE,
@@ -81,6 +82,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
     from baloot_platform.benchmark import IntelligenceBenchmarkV18
     from baloot_platform.certification import verify_certification_candidate
     from baloot_platform.storage.game_store import SQLiteGameStore
+    from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
 
     initialize_service_subject_ownership()
     runtime = Path(os.environ.get("BALOOT_RUNTIME", data_root() / "runtime")).expanduser().resolve()
@@ -1440,18 +1442,24 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return value or None
 
         @staticmethod
-        async def _require_oidc_admin(context, *families: str | None) -> None:
-            if OIDC_PROVIDER_FAMILY in families:
+        async def _require_profile_admin(context, *families: str) -> None:
+            if profile_families_require_admin(*families):
                 if not os.environ.get("BALOOT_API_KEY"):
-                    await context.abort(grpc.StatusCode.PERMISSION_DENIED, "OIDC profiles require a configured API key")
+                    await context.abort(grpc.StatusCode.PERMISSION_DENIED, "restricted profiles require a configured API key")
                 await _require_api(context)
+                role = _metadata(context).get("x-baloot-role", "service").lower()
+                try:
+                    AUTHORIZATION_POLICY.require(role=role, required=Scope.CONFIG_ADMIN)
+                except PermissionError as exc:
+                    await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
+                CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(role=role))
 
         async def _profile_write_identity(self, context, revision_id: str):
             await _require_api(context)
             current = CONFIGURATION.store.get_profile(revision_id)
             if current is None:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
-            await self._require_oidc_admin(context, current.family)
+            await self._require_profile_admin(context, current.family)
             return await _identity(context)
 
         async def GetCapabilities(self, request, context):
@@ -1472,7 +1480,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result({"items": [item.to_dict(include_payload=False) for item in values]})
 
         async def CreateProfile(self, request, context):
-            await self._require_oidc_admin(context, request.family)
+            await self._require_profile_admin(context, request.family)
             await _require_api(context); identity = await _identity(context)
             try:
                 value = CONFIGURATION.create_profile(
@@ -1523,7 +1531,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
 
         async def ResolveProfile(self, request, context):
             await _identity(context)
-            await self._require_oidc_admin(context, request.family)
+            await self._require_profile_admin(context, request.family)
             try:
                 return self._result(CONFIGURATION.resolve_profile(
                     family=request.family, profile_id=request.profile_id,
@@ -1537,7 +1545,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             left = CONFIGURATION.store.get_profile(request.left); right = CONFIGURATION.store.get_profile(request.right)
             if left is None or right is None:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
-            await self._require_oidc_admin(context, left.family, right.family)
+            await self._require_profile_admin(context, left.family, right.family)
             return self._result({
                 "left": left.to_dict(include_payload=False), "right": right.to_dict(include_payload=False),
                 "changes": CONFIGURATION.compare_payloads(dict(left.payload), dict(right.payload)),

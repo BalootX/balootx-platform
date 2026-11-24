@@ -7,8 +7,9 @@ import os
 import secrets
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Iterator, Literal
 from urllib.parse import urlencode, urlsplit
 
 import httpx
@@ -21,6 +22,7 @@ from pydantic import (
     ValidationInfo,
     field_validator,
 )
+from baloot_platform.version import PROFILE_VERSION_PATTERN
 
 if TYPE_CHECKING:
     import jwt
@@ -28,7 +30,7 @@ if TYPE_CHECKING:
     from baloot_platform.configuration import VersionedConfigurationService
 
 OIDC_PROVIDER_FAMILY = "oidc_providers"
-_REGISTRY_REVISION_ENV = "BALOOT_OIDC_PROVIDERS_REVISION"
+OIDC_PROFILE_ENV = "BALOOT_OIDC_PROVIDERS_PROFILE"
 _LEGACY_PROVIDER_FIELDS = (
     "PROVIDER_ID",
     "ISSUER",
@@ -119,11 +121,31 @@ def _validate_oidc_url(value: str, *, allow_loopback: bool = False) -> None:
         raise ValueError("must be an absolute HTTPS URL without user info or a fragment")
 
 
+def discover_oidc_issuer(client: httpx.Client, issuer: str) -> tuple[str, str]:
+    _validate_oidc_url(issuer)
+    if "?" in issuer:
+        raise ValueError("OIDC issuer must not contain a query")
+    discovery_url = issuer.rstrip("/") + "/.well-known/openid-configuration"
+    try:
+        response = client.get(discovery_url, follow_redirects=False)
+        response.raise_for_status()
+        metadata = response.json()
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError):
+        raise ValueError("OIDC issuer discovery failed") from None
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("issuer"), str):
+        raise ValueError("OIDC discovery requires an issuer")
+    jwks_uri = metadata.get("jwks_uri")
+    if not isinstance(jwks_uri, str):
+        raise ValueError("OIDC discovery requires a jwks_uri")
+    _validate_oidc_url(jwks_uri)
+    return metadata["issuer"], jwks_uri
+
+
 class _RegistryIdentity(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
     id: str = Field(min_length=1)
-    version: str = Field(min_length=1)
+    version: str = Field(pattern=PROFILE_VERSION_PATTERN)
 
 
 class OidcProviderProfile(BaseModel):
@@ -152,29 +174,29 @@ def validate_oidc_provider_profile(payload: dict[str, Any]) -> OidcProviderProfi
                 if len(location) > 2 and error["type"] != "extra_forbidden":
                     label += f" {location[2]}"
             else:
-                label = "OIDC provider profile"
+                label = "OIDC registry"
                 if location and error["type"] != "extra_forbidden":
-                    label += f" {location[0]}"
+                    label += " " + ".".join(map(str, location))
             problems.append(f"{label}: {error['msg']}")
         raise ValueError("; ".join(problems)) from None
 
 
 def load_oidc_providers(configuration: VersionedConfigurationService) -> dict[str, OidcProviderConfig]:
-    revision_id = os.environ.get(_REGISTRY_REVISION_ENV)
+    profile_id = os.environ.get(OIDC_PROFILE_ENV)
     has_legacy_metadata = any(
         f"BALOOT_OIDC_{name}" in os.environ for name in _LEGACY_PROVIDER_FIELDS
     )
-    if revision_id is None:
+    if profile_id is None:
         if has_legacy_metadata:
-            raise ValueError(f"migrate legacy OIDC provider settings to {_REGISTRY_REVISION_ENV}")
+            raise ValueError(f"migrate legacy OIDC provider settings to {OIDC_PROFILE_ENV}")
         return {}
     try:
         revision = configuration.resolve_profile(
-            family=OIDC_PROVIDER_FAMILY, revision_id=revision_id
+            family=OIDC_PROVIDER_FAMILY, profile_id=profile_id
         )
-    except (KeyError, PermissionError, ValueError):
+    except KeyError:
         raise ValueError(
-            f"{_REGISTRY_REVISION_ENV} must name a published OIDC provider profile revision"
+            f"{OIDC_PROFILE_ENV} has no active published OIDC provider profile"
         ) from None
     if (
         revision["scope"] != "global"
@@ -184,7 +206,7 @@ def load_oidc_providers(configuration: VersionedConfigurationService) -> dict[st
         or revision["rolloutPercentage"] != 100.0
     ):
         raise ValueError(
-            f"{_REGISTRY_REVISION_ENV} requires a global provider profile without rollout conditions"
+            f"{OIDC_PROFILE_ENV} requires a global provider profile without rollout conditions"
         )
     if has_legacy_metadata:
         logging.getLogger(__name__).warning(
@@ -207,7 +229,27 @@ def load_oidc_providers(configuration: VersionedConfigurationService) -> dict[st
             allowed_algorithms=tuple(row.allowed_algorithms),
             **row.model_dump(exclude={"client_secret_env", "allowed_algorithms"}),
         )
+    logging.getLogger(__name__).info("Loaded OIDC provider profile revision %s", revision["revisionId"])
     return providers
+
+
+@contextmanager
+def http_oidc_runtime(
+    configuration: VersionedConfigurationService, security_state: Any
+) -> Iterator[OidcCallbackService | None]:
+    providers = load_oidc_providers(configuration)
+    if not providers:
+        yield None
+        return
+    transactions = PkceTransactionStore(
+        ttl_seconds=int(os.environ.get("BALOOT_OIDC_TRANSACTION_TTL", "600")),
+        backend=security_state,
+    )
+    callback = OidcCallbackService(providers, transactions)
+    try:
+        yield callback
+    finally:
+        callback.close()
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,19 +330,10 @@ class OidcCallbackService:
             cached = self._jwks_clients.get(provider.provider_id)
             if cached is not None:
                 return cached
-            discovery_url = provider.issuer.rstrip("/") + "/.well-known/openid-configuration"
-            try:
-                response = self._client.get(discovery_url, follow_redirects=False)
-                response.raise_for_status()
-                metadata = response.json()
-            except (httpx.HTTPError, httpx.InvalidURL, ValueError):
-                raise ValueError("OIDC issuer discovery failed") from None
-            if not isinstance(metadata, dict) or metadata.get("issuer") != provider.issuer:
+            issuer, jwks_uri = discover_oidc_issuer(self._client, provider.issuer)
+            if issuer != provider.issuer:
                 raise ValueError("OIDC discovery issuer mismatch")
-            jwks_uri = metadata.get("jwks_uri")
-            if not isinstance(jwks_uri, str):
-                raise ValueError("OIDC discovery requires a jwks_uri")
-            _validate_oidc_url(jwks_uri)
+            # PyJWT 2.15.1 rejects redirects when fetching the discovered key set.
             client = PyJWKClient(jwks_uri, timeout=15)
             self._jwks_clients[provider.provider_id] = client
             return client

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -1272,6 +1273,17 @@ class SQLiteConfigurationStore:
         return None
 
 
+class _TransactionConnection:
+    def __init__(self, connection: Any):
+        self._connection = connection
+
+    def connection(self):
+        return nullcontext(self._connection)
+
+    def close(self) -> None:
+        pass
+
+
 class PostgresConfigurationStore:
     """PostgreSQL V20 control-plane store.
 
@@ -1280,7 +1292,10 @@ class PostgresConfigurationStore:
     than `MAX(sequence)+1`, making concurrent publishers safe.
     """
 
-    def __init__(self, dsn: str):
+    def __init__(self, dsn: str, *, transaction_connection: Any = None):
+        if transaction_connection is not None:
+            self.pool = _TransactionConnection(transaction_connection)
+            return
         try:
             from psycopg.rows import dict_row
             from psycopg_pool import ConnectionPool

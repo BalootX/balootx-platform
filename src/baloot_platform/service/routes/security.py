@@ -8,8 +8,7 @@ from pydantic import BaseModel, Field
 
 from baloot_platform.identity import IdentityService
 from baloot_platform.security import (
-    AuthorizationPolicy, OidcCallbackService, OidcProviderConfig,
-    PasskeyChallengeService, PkceTransactionStore, ROLE_SCOPES, Scope,
+    AuthorizationPolicy, PasskeyChallengeService, ROLE_SCOPES, Scope,
     SignedAccessTokenService, WebSocketTicketService,
 )
 
@@ -58,9 +57,6 @@ def build_security_router(
     identities: IdentityService,
     tokens: SignedAccessTokenService,
     policy: AuthorizationPolicy,
-    oidc_transactions: PkceTransactionStore,
-    oidc_providers: dict[str, OidcProviderConfig],
-    oidc_callback: OidcCallbackService,
     passkeys: PasskeyChallengeService,
     websocket_tickets: WebSocketTicketService,
     security_state: Any,
@@ -68,10 +64,11 @@ def build_security_router(
     router = APIRouter(prefix="/api/v1/security", tags=["security"])
 
     @router.get("/capabilities")
-    def capabilities():
+    def capabilities(request: Request):
+        oidc = getattr(request.app.state, "oidc", None)
         return {
             "optionalSignIn": True, "localGuest": True, "localAccount": True,
-            "oidcProviders": sorted(oidc_providers), "oidcCallback": True,
+            "oidcProviders": sorted(oidc.providers) if oidc else [], "oidcCallback": True,
             "passkeys": True, "websocketTickets": True,
             "roles": {key: sorted(value.value for value in values) for key, values in ROLE_SCOPES.items()},
         }
@@ -98,11 +95,12 @@ def build_security_router(
         return {"accessToken": access_token, "tokenType": "Bearer", "expiresIn": body.lifetimeSeconds, "role": role}
 
     @router.post("/oidc:begin")
-    def oidc_begin(body: OidcBeginRequest):
-        provider = oidc_providers.get(body.providerId)
+    def oidc_begin(body: OidcBeginRequest, request: Request):
+        oidc = getattr(request.app.state, "oidc", None)
+        provider = oidc.providers.get(body.providerId) if oidc else None
         if provider is None:
             raise HTTPException(404, "OIDC provider is not configured")
-        transaction = oidc_transactions.create(provider.provider_id, return_to=body.returnTo)
+        transaction = oidc.transactions.create(provider.provider_id, return_to=body.returnTo)
         return {
             "authorizationUrl": provider.authorization_url(
                 state=transaction.state, nonce=transaction.nonce, code_challenge=transaction.challenge,
@@ -113,8 +111,11 @@ def build_security_router(
 
     @router.post("/oidc:callback")
     def oidc_complete(body: OidcCallbackRequest, request: Request):
+        oidc = getattr(request.app.state, "oidc", None)
+        if oidc is None:
+            raise HTTPException(400, "OIDC provider is not configured")
         try:
-            result = oidc_callback.complete(provider_id=body.providerId, state=body.state, code=body.code)
+            result = oidc.complete(provider_id=body.providerId, state=body.state, code=body.code)
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(400, str(exc)) from exc
         existing = security_state.get_external_identity(result["providerId"], result["issuer"], result["externalSubject"])

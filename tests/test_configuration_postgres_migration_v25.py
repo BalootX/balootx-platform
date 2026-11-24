@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import sys
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from scripts import migrate_postgres
 
 
 MIGRATION_NAME = "025_configuration_store_contract.sql"
-LATEST_MIGRATION_NAME = "029_shared_run_game_access.sql"
+LATEST_MIGRATION_NAME = "030_oidc_issuer_transition.sql"
 FROZEN_PREDECESSOR_HASHES = {
     "011_configuration_registry_v19.sql": (
         "1e79c94b6244244afe0a2fd1f9ef421dcfadca6c32a48bd4c7f4b8fee97b9931"
@@ -75,7 +78,7 @@ def test_v25_authored_and_packaged_inventory_are_byte_identical(root: Path) -> N
 def test_latest_shared_run_access_migration_matches_store_bootstrap(
     root: Path,
 ) -> None:
-    sql = (root / "migrations" / LATEST_MIGRATION_NAME).read_text(encoding="utf-8")
+    sql = (root / "migrations" / "029_shared_run_game_access.sql").read_text(encoding="utf-8")
     normalized = _normalized(sql)
 
     assert normalized.startswith("BEGIN;")
@@ -126,6 +129,148 @@ def test_full_history_bootstrap_order_is_exactly_repeatable(
     assert executed == expected_sql + expected_sql
     assert any(path.name == MIGRATION_NAME for path in expected_paths)
     assert expected_paths[-1].name == LATEST_MIGRATION_NAME
+
+
+@pytest.mark.skipif(
+    not os.environ.get("BALOOT_TEST_OIDC_POSTGRES_DSN"),
+    reason="the hosted OIDC PostgreSQL step supplies a disposable database",
+)
+def test_oidc_issuer_transition_on_postgres(root, monkeypatch):
+    import httpx
+    import psycopg
+    from psycopg.rows import dict_row
+
+    from baloot_platform.config import build_bundle
+    from baloot_platform.configuration import PostgresConfigurationStore, VersionedConfigurationService
+    from baloot_platform.security.oidc_migration import (
+        finalize_legacy_oidc,
+        legacy_oidc_profile,
+        migrate_legacy_oidc,
+        rollback_legacy_oidc,
+    )
+    from baloot_platform.storage.request_context import (
+        CURRENT_DATABASE_IDENTITY,
+        DatabaseIdentityContext,
+        apply_postgres_identity_context,
+    )
+
+    dsn = os.environ["BALOOT_TEST_OIDC_POSTGRES_DSN"]
+    monkeypatch.setenv("BALOOT_DATABASE_URL", dsn)
+    monkeypatch.setenv("BALOOT_ROOT", str(root))
+    migrate_postgres.main()
+    legacy = "https://signin.example/"
+    canonical = "https://signin.example"
+    for field, value in {
+        "ISSUER": legacy,
+        "AUTHORIZATION_ENDPOINT": canonical + "/authorize",
+        "TOKEN_ENDPOINT": canonical + "/token",
+        "CLIENT_ID": "fixture-client",
+        "REDIRECT_URI": "https://app.example/callback",
+        "CLIENT_SECRET": "synthetic-client-fixture",
+    }.items():
+        monkeypatch.setenv(f"BALOOT_OIDC_{field}", value)
+    monkeypatch.delenv("BALOOT_OIDC_PROVIDER_ID", raising=False)
+
+    def discovery(request):
+        assert str(request.url) == canonical + "/.well-known/openid-configuration"
+        return httpx.Response(200, json={"issuer": canonical, "jwks_uri": canonical + "/keys"})
+
+    with httpx.Client(transport=httpx.MockTransport(discovery)) as client:
+        source, payload = legacy_oidc_profile(
+            client, profile_id="signin", version="1.0.0",
+            reason="Migrate fixture links", algorithms=["RS256"],
+        )
+    assert source == legacy
+    assert payload["providers"]["default"]["issuer"] == canonical
+    assert payload["providers"]["default"]["client_secret_env"] == "BALOOT_OIDC_CLIENT_SECRET"
+    assert "synthetic-client-fixture" not in str(payload)
+
+    def bind(conn):
+        apply_postgres_identity_context(conn)
+        return VersionedConfigurationService(
+            PostgresConfigurationStore(dsn, transaction_connection=conn),
+            root=root, profile=build_bundle(root).component("configuration"),
+        )
+
+    def link(conn, issuer, subject):
+        conn.execute(
+            "INSERT INTO security.external_identities "
+            "(provider_id, issuer, external_subject, local_subject_id, claims_json, linked_at) "
+            "VALUES ('default', %s, %s, %s, '{}'::jsonb, '2026-01-01T00:00:00Z') "
+            "ON CONFLICT (provider_id, issuer, external_subject) DO UPDATE "
+            "SET local_subject_id=excluded.local_subject_id, claims_json=excluded.claims_json",
+            (issuer, subject, f"local-{subject}"),
+        )
+
+    def lookup(conn, issuer, subject):
+        return conn.execute(
+            "SELECT local_subject_id, issuer_alias FROM security.external_identities "
+            "WHERE provider_id='default' AND issuer=%s AND external_subject=%s",
+            (issuer, subject),
+        ).fetchone()
+
+    token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id="operator-1", role="service"))
+    try:
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            link(conn, legacy, "existing")
+            migration = migrate_legacy_oidc(
+                conn, bind(conn), payload=payload, legacy_issuer=legacy, actor="operator-1"
+            )
+            assert migration["links"] == 1
+        revision_id = migration["revisionId"]
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            assert migrate_legacy_oidc(
+                conn, bind(conn), payload=payload, legacy_issuer=legacy, actor="operator-1"
+            )["status"] == "already-applied"
+            assert lookup(conn, legacy, "existing") == {
+                "local_subject_id": "local-existing", "issuer_alias": True,
+            }
+            assert lookup(conn, canonical, "existing") == {
+                "local_subject_id": "local-existing", "issuer_alias": False,
+            }
+            link(conn, legacy, "old-callback")
+            link(conn, canonical, "new-callback")
+            assert lookup(conn, canonical, "old-callback")["local_subject_id"] == "local-old-callback"
+            assert lookup(conn, legacy, "new-callback")["local_subject_id"] == "local-new-callback"
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            configuration = bind(conn)
+            assert rollback_legacy_oidc(
+                conn, configuration, profile_id="signin", revision_id=revision_id,
+                actor="operator-1", reason="Return to the previous release",
+            )["links"] == 3
+            assert rollback_legacy_oidc(
+                conn, configuration, profile_id="signin", revision_id=revision_id,
+                actor="operator-1", reason="Return to the previous release",
+            )["status"] == "already-rolled-back"
+            for subject in ("existing", "old-callback", "new-callback"):
+                assert lookup(conn, canonical, subject) is None
+                assert lookup(conn, legacy, subject) == {
+                    "local_subject_id": f"local-{subject}", "issuer_alias": False,
+                }
+            audit = configuration.store.events_with_verification("profile", revision_id)
+            assert audit["verification"]["valid"]
+            assert audit["items"][-1]["eventType"] == "oidc_issuer_rolled_back"
+        payload["profile"]["version"] = "1.0.1"
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            configuration = bind(conn)
+            repeated = migrate_legacy_oidc(
+                conn, configuration, payload=payload, legacy_issuer=legacy, actor="operator-1"
+            )
+            revision_id = repeated["revisionId"]
+            for expected in ("finalized", "already-finalized"):
+                assert finalize_legacy_oidc(
+                    conn, configuration, profile_id="signin", revision_id=revision_id,
+                    actor="operator-1", reason="Close rollback window",
+                )["status"] == expected
+            with pytest.raises(ValueError, match="rollback window has closed"):
+                rollback_legacy_oidc(
+                    conn, configuration, profile_id="signin", revision_id=revision_id,
+                    actor="operator-1", reason="Repeat rollback",
+                )
+            assert lookup(conn, legacy, "existing") is None
+            assert lookup(conn, canonical, "existing")["local_subject_id"] == "local-existing"
+    finally:
+        CURRENT_DATABASE_IDENTITY.reset(token)
 
 
 def test_v25_is_forward_only_and_schema_idempotent_by_construction(root: Path) -> None:

@@ -74,6 +74,9 @@ REQUIRED_MIGRATION_HASHES = {
     "029_shared_run_game_access.sql": (
         "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"
     ),
+    "030_oidc_issuer_transition.sql": (
+        "5cba5166395de08d74ec5ba4dcd78eaee11756ac06f9a58acb14f7481e1ffa5e"
+    ),
 }
 CONFIGURATION_V25_CONSTRAINTS = frozenset(
     {

@@ -145,6 +145,63 @@ def test_guest_can_upgrade_in_place_without_losing_identity():
 
 
 _SERVICE_KEY = "synthetic-service-key"
+_CONFIG_READ_ROLES = ("guest", "player", "expert", "referee")
+
+
+def _oidc_test_payload(profile_id: str, version: str = "1.0.0") -> dict:
+    return {
+        "schema_version": 1,
+        "profile": {"id": profile_id, "version": version},
+        "change_reason": "Exercise registry authorization",
+        "providers": {},
+    }
+
+
+def test_http_oidc_profile_lifecycle_requires_config_admin(monkeypatch):
+    monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
+    monkeypatch.setenv("BALOOT_RATE_LIMIT_PER_MINUTE", "0")
+    prefix = "/api/v1/configuration-registry"
+
+    with TestClient(app) as client:
+        def check(method, path, role, *, body=None, status=200):
+            for denied in _CONFIG_READ_ROLES:
+                response = client.request(method, prefix + path, json=body, headers={
+                    "x-api-key": _SERVICE_KEY, "x-baloot-role": denied,
+                })
+                assert response.status_code == 403, response.text
+            response = client.request(method, prefix + path, json=body, headers={
+                "x-api-key": "wrong-fixture-key", "x-baloot-role": role,
+            })
+            assert response.status_code == 401, response.text
+            response = client.request(method, prefix + path, json=body, headers={
+                "x-api-key": _SERVICE_KEY, "x-baloot-role": role,
+            })
+            assert response.status_code == status, response.text
+            return response.json()
+
+        for role in ("admin", "service"):
+            profile_id = f"http-oidc-{role}"
+            draft = check("POST", "/profiles", role, status=201, body={
+                "family": "oidc_providers", "payload": _oidc_test_payload(profile_id),
+            })
+            path = f"/profiles/{draft['revisionId']}"
+            updated = check("PATCH", path, role, body={
+                "payload": _oidc_test_payload(profile_id, "1.0.1"), "expectedEtag": draft["etag"],
+            })
+            published = check("POST", path + ":publish", role, body={"expectedEtag": updated["etag"]})
+            assert check("GET", f"/profiles:resolve?family=oidc_providers&profileId={profile_id}", role)["status"] == "published"
+            revision_id = published["revisionId"]
+            check("GET", f"/profiles:compare?left={revision_id}&right={revision_id}", role)
+            rejected = check("POST", "/profiles", role, status=201, body={
+                "family": "oidc_providers", "payload": _oidc_test_payload(profile_id, "1.0.2"),
+            })
+            check("POST", f"/profiles/{rejected['revisionId']}:reject", role, body={
+                "expectedEtag": rejected["etag"], "reason": "Reject draft",
+            })
+            check("POST", path + ":retire", role, body={
+                "expectedEtag": published["etag"], "reason": "Retire revision",
+            })
+
 # The SHA-256 subject IDs used by the pre-upgrade server for these fixtures.
 _LEGACY_SERVICE = "SVC-FC90545E2119AD22B93F"
 _LEGACY_KEYLESS_ONE = "SVC-F04BE659D2BE04575D83"
@@ -209,8 +266,7 @@ def _grpc_probe(tmp_path, monkeypatch, probe, *, stub_factory=None):
     asyncio.run(run())
 
 
-def test_grpc_oidc_profile_creation_requires_configured_api_key(tmp_path, monkeypatch):
-    pytest.importorskip("grpc")
+def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch):
     from baloot_platform.generated import configuration_pb2, configuration_pb2_grpc
 
     monkeypatch.delenv("BALOOT_API_KEY", raising=False)
@@ -220,6 +276,45 @@ def test_grpc_oidc_profile_creation_requires_configured_api_key(tmp_path, monkey
         with pytest.raises(grpc.aio.AioRpcError) as error:
             await stub.CreateProfile(request)
         assert error.value.code() == grpc.StatusCode.PERMISSION_DENIED
+        monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
+
+        async def check(rpc, request, role):
+            for denied in _CONFIG_READ_ROLES:
+                with pytest.raises(grpc.aio.AioRpcError) as error:
+                    await rpc(request, metadata=(("x-api-key", _SERVICE_KEY), ("x-baloot-role", denied)))
+                assert error.value.code() == grpc.StatusCode.PERMISSION_DENIED
+            for invalid in ((), (("x-api-key", "wrong-fixture-key"),)):
+                with pytest.raises(grpc.aio.AioRpcError) as error:
+                    await rpc(request, metadata=(*invalid, ("x-baloot-role", role)))
+                assert error.value.code() == grpc.StatusCode.UNAUTHENTICATED
+            result = await rpc(request, metadata=(("x-api-key", _SERVICE_KEY), ("x-baloot-role", role)))
+            return json.loads(result.canonical_json)
+
+        for role in ("admin", "service"):
+            profile_id = f"grpc-oidc-{role}"
+            for version in ("1.0.0", "1.0.1"):
+                request = configuration_pb2.ProfileDraft(
+                    family="oidc_providers",
+                    canonical_json=json.dumps(_oidc_test_payload(profile_id, version)).encode(),
+                )
+                draft = await check(stub.CreateProfile, request, role)
+                if version == "1.0.0":
+                    published = await check(stub.PublishProfile, configuration_pb2.Identifier(
+                        value=draft["revisionId"], expected_etag=draft["etag"],
+                    ), role)
+                else:
+                    await check(stub.RejectProfile, configuration_pb2.TransitionRequest(
+                        value=draft["revisionId"], expected_etag=draft["etag"], reason="Reject draft",
+                    ), role)
+            await check(stub.ResolveProfile, configuration_pb2.ProfileResolution(
+                family="oidc_providers", profile_id=profile_id,
+            ), role)
+            await check(stub.CompareProfiles, configuration_pb2.ProfileCompare(
+                left=published["revisionId"], right=published["revisionId"],
+            ), role)
+            await check(stub.RetireProfile, configuration_pb2.TransitionRequest(
+                value=published["revisionId"], expected_etag=published["etag"], reason="Retire revision",
+            ), role)
 
     _grpc_probe(
         tmp_path,

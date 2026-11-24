@@ -47,6 +47,7 @@ from pydantic import (
 from pydantic.json_schema import SkipJsonSchema
 
 from baloot_platform.config import build_bundle, profile_bundle_from_resolved
+from baloot_platform.security.oidc import http_oidc_runtime
 from baloot_platform.guide import build_engine_guide
 from baloot_platform.analysis.belief_v7 import (
     BeliefPolicy,
@@ -301,9 +302,6 @@ LIVE = CONTAINER.live
 AUTHORIZATION_POLICY = CONTAINER.authorization_policy
 ACCESS_TOKENS = CONTAINER.access_tokens
 SECURITY_STATE = CONTAINER.security_state
-OIDC_TRANSACTIONS = CONTAINER.oidc_transactions
-OIDC_PROVIDERS = CONTAINER.oidc_providers
-OIDC_CALLBACK = CONTAINER.oidc_callback
 PASSKEYS = CONTAINER.passkeys
 WEBSOCKET_TICKETS = CONTAINER.websocket_tickets
 HITL = CONTAINER.hitl
@@ -328,19 +326,22 @@ _METRICS: dict[tuple[str, str, int], int] = defaultdict(int)
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     initialize_service_subject_ownership()
-    # In-process recovery is deliberately local-only. Distributed deployments
-    # use separately supervised, leased workers so multiple API replicas cannot
-    # execute the same persisted job concurrently.
-    if not DATABASE_URL:
-        _recover_local_foundry_work()
-    yield
-    # Test clients and short-lived workers must not leak executor threads.
-    if os.environ.get("BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT", "false").lower() in {
-        "1",
-        "true",
-        "yes",
-    }:
-        CONTAINER.shutdown()
+    try:
+        with http_oidc_runtime(CONFIGURATION, SECURITY_STATE) as oidc:
+            _app.state.oidc = oidc
+            # Distributed deployments recover work through separately leased workers.
+            if not DATABASE_URL:
+                _recover_local_foundry_work()
+            yield
+    finally:
+        _app.state.oidc = None
+        # Test clients and short-lived workers must not leak executor threads.
+        if os.environ.get("BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+        }:
+            CONTAINER.shutdown()
 
 
 app = FastAPI(
@@ -496,9 +497,6 @@ app.include_router(
         IDENTITY,
         ACCESS_TOKENS,
         AUTHORIZATION_POLICY,
-        OIDC_TRANSACTIONS,
-        OIDC_PROVIDERS,
-        OIDC_CALLBACK,
         PASSKEYS,
         WEBSOCKET_TICKETS,
         SECURITY_STATE,
@@ -762,8 +760,10 @@ async def platform_security(request: Request, call_next):
     )
     role = str(
         getattr(access_claims, "role", "")
-        or request.headers.get(
-            "x-baloot-role", "player" if claims_subject else "anonymous"
+        or (
+            request.headers.get("x-baloot-role", "service")
+            if api_key_valid
+            else ("player" if claims_subject else "anonymous")
         )
     )
     context_token = CURRENT_DATABASE_IDENTITY.set(

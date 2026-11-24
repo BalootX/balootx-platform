@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from baloot_platform.identity.ownership import ownership_ids
-from baloot_platform.storage.request_context import contextual_connection
+from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, contextual_connection
 
 
 class SQLiteSecurityStateStore:
@@ -146,8 +147,24 @@ class PostgresSecurityStateStore:
         with contextual_connection(self.pool) as conn: rows=conn.execute("SELECT credential_id,subject_id,public_key_cose,sign_count,transports_json,extract(epoch from created_at)::bigint,extract(epoch from last_used_at)::bigint,label FROM security.passkey_credentials WHERE subject_id IN (%s,%s) ORDER BY created_at",ownership_ids(subject_id)).fetchall()
         return [{"credential_id":r[0],"subject_id":r[1],"public_key_cose":bytes(r[2]),"sign_count":int(r[3]),"transports":tuple(r[4]),"created_at":int(r[5]),"last_used_at":int(r[6]) if r[6] is not None else None,"label":r[7]} for r in rows]
     def get_external_identity(self,provider_id,issuer,external_subject):
-        with contextual_connection(self.pool) as conn: row=conn.execute("SELECT local_subject_id,claims_json,linked_at FROM security.external_identities WHERE provider_id=%s AND issuer=%s AND external_subject=%s",(provider_id,issuer,external_subject)).fetchone()
+        context = replace(CURRENT_DATABASE_IDENTITY.get(), role="oidc_link")
+        with contextual_connection(self.pool, context) as conn:
+            row = conn.execute(
+                "SELECT local_subject_id,claims_json,linked_at FROM security.external_identities "
+                "WHERE provider_id=%s AND issuer=%s AND external_subject=%s",
+                (provider_id, issuer, external_subject),
+            ).fetchone()
         return {"local_subject_id":row[0],"claims":dict(row[1]),"linked_at":str(row[2])} if row else None
     def link_external_identity(self,*,provider_id,issuer,external_subject,local_subject_id,claims,linked_at):
-        with contextual_connection(self.pool) as conn: conn.execute("INSERT INTO security.external_identities(provider_id,issuer,external_subject,local_subject_id,claims_json,linked_at) VALUES(%s,%s,%s,%s,%s::jsonb,%s::timestamptz) ON CONFLICT(provider_id,issuer,external_subject) DO UPDATE SET local_subject_id=excluded.local_subject_id,claims_json=excluded.claims_json",(provider_id,issuer,external_subject,local_subject_id,json.dumps(claims,ensure_ascii=False),linked_at))
+        context = replace(CURRENT_DATABASE_IDENTITY.get(), role="oidc_link")
+        with contextual_connection(self.pool, context) as conn:
+            conn.execute(
+                "INSERT INTO security.external_identities "
+                "(provider_id,issuer,external_subject,local_subject_id,claims_json,linked_at) "
+                "VALUES(%s,%s,%s,%s,%s::jsonb,%s::timestamptz) "
+                "ON CONFLICT(provider_id,issuer,external_subject) DO UPDATE "
+                "SET local_subject_id=excluded.local_subject_id,claims_json=excluded.claims_json",
+                (provider_id, issuer, external_subject, local_subject_id,
+                 json.dumps(claims, ensure_ascii=False), linked_at),
+            )
     def close(self): self.pool.close()

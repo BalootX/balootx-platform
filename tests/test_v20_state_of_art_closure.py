@@ -6,16 +6,18 @@ import hashlib
 import json
 import os
 from datetime import datetime
+from email.message import Message
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
-from urllib.request import OpenerDirector
+from urllib.request import HTTPSHandler, OpenerDirector
+from urllib.response import addinfourl
 
 import httpx
 import pytest
 import yaml
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -32,6 +34,7 @@ from baloot_platform.security import (
 )
 from baloot_platform.security.oidc import (
     OIDC_PROVIDER_FAMILY,
+    http_oidc_runtime,
     load_oidc_providers,
     validate_oidc_provider_profile,
 )
@@ -180,21 +183,12 @@ def test_v20_oidc_registry_drives_api_and_preserves_audit(
     ]
     assert audit["items"][0]["payload"]["payloadSha256"] == revision["payloadSha256"]
 
-    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_REVISION", revision["revisionId"])
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
     monkeypatch.setenv("BALOOT_OIDC_CLIENT_SECRET_BETA", "synthetic-fixture")
     monkeypatch.setenv("BALOOT_OIDC_ISSUER", "https://legacy.example")
     monkeypatch.setenv("BALOOT_OIDC_PROVIDER_ID", "legacy")
     container = build_container(writable_root=tmp_path / "data", database_url="")
     try:
-        legacy_warnings = [
-            record for record in caplog.records if "Ignoring legacy OIDC provider metadata" in record.message
-        ]
-        assert len(legacy_warnings) == 1
-        assert container.oidc_callback.providers == container.oidc_providers
-        assert container.oidc_providers["alpha"].client_secret is None
-        assert container.oidc_providers["beta"].client_secret == "synthetic-fixture"
-        assert "synthetic-fixture" not in repr(container.oidc_providers)
-        assert container.oidc_providers["beta"].issuer == "https://beta.example/oidc/"
         api = FastAPI()
 
         @api.middleware("http")
@@ -216,15 +210,21 @@ def test_v20_oidc_registry_drives_api_and_preserves_audit(
                 container.identity,
                 container.access_tokens,
                 container.authorization_policy,
-                container.oidc_transactions,
-                container.oidc_providers,
-                container.oidc_callback,
                 container.passkeys,
                 container.websocket_tickets,
                 container.security_state,
             )
         )
-        with TestClient(api) as client:
+        caplog.set_level("INFO", logger="baloot_platform.security.oidc")
+        with http_oidc_runtime(container.configuration, container.security_state) as oidc, TestClient(api) as client:
+            api.state.oidc = oidc
+            assert oidc is not None
+            assert oidc.providers["alpha"].client_secret is None
+            assert oidc.providers["beta"].client_secret == "synthetic-fixture"
+            assert "synthetic-fixture" not in repr(oidc.providers)
+            assert oidc.providers["beta"].issuer == "https://beta.example/oidc/"
+            assert sum("Ignoring legacy OIDC provider metadata" in record.message for record in caplog.records) == 1
+            assert any(revision["revisionId"] in record.message for record in caplog.records)
             prefix = "/api/v1/configuration-registry"
             revision_id = revision["revisionId"]
             profile_path = f"{prefix}/profiles/{revision_id}"
@@ -285,29 +285,64 @@ def test_v20_oidc_registry_rejects_rows_on_write(oidc_configuration, field, valu
     assert oidc_configuration.store.list_profiles(family=OIDC_PROVIDER_FAMILY) == []
 
 
+def test_v20_oidc_schema_and_writes_agree_on_profile_version(oidc_configuration):
+    from jsonschema import Draft202012Validator
+
+    validator = Draft202012Validator(oidc_configuration.profile_schema(OIDC_PROVIDER_FAMILY))
+    payload = _oidc_profile({})
+    assert validator.is_valid(payload)
+    payload["profile"]["version"] = "release"
+    assert not validator.is_valid(payload)
+    with pytest.raises(ValueError, match=r"OIDC registry profile\.version"):
+        oidc_configuration.create_profile(
+            family=OIDC_PROVIDER_FAMILY, payload=payload, created_by="operator-1",
+        )
+
+
 def test_v20_oidc_registry_fails_closed_at_startup(tmp_path, monkeypatch, oidc_configuration):
-    monkeypatch.delenv("BALOOT_OIDC_PROVIDERS_REVISION", raising=False)
+    monkeypatch.delenv("BALOOT_OIDC_PROVIDERS_PROFILE", raising=False)
     monkeypatch.delenv("BALOOT_OIDC_ISSUER", raising=False)
     assert load_oidc_providers(oidc_configuration) == {}
     monkeypatch.setenv("BALOOT_OIDC_ISSUER", "https://legacy.example")
     with pytest.raises(ValueError, match="migrate legacy OIDC"):
         load_oidc_providers(oidc_configuration)
-    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_REVISION", "CPR-MISSING")
-    with pytest.raises(ValueError, match="published OIDC provider profile"):
-        build_container(writable_root=tmp_path / "data", database_url="")
 
     alpha = {**_oidc_row("alpha"), "client_secret_env": "BALOOT_OIDC_CLIENT_SECRET_ALPHA"}
     draft = oidc_configuration.create_profile(
         family=OIDC_PROVIDER_FAMILY, payload=_oidc_profile({"alpha": alpha}), created_by="operator-1"
     )
-    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_REVISION", draft["revisionId"])
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
     with pytest.raises(ValueError, match="published OIDC provider profile"):
         load_oidc_providers(oidc_configuration)
     oidc_configuration.publish_profile(
         draft["revisionId"], expected_etag=draft["etag"], actor_id="operator-1"
     )
     monkeypatch.delenv("BALOOT_OIDC_CLIENT_SECRET_ALPHA", raising=False)
+    worker = build_container(writable_root=tmp_path / "data", database_url="")
+    worker.shutdown()
     with pytest.raises(ValueError, match="OIDC provider 'alpha': missing deployment secret"):
+        load_oidc_providers(oidc_configuration)
+
+
+def test_v20_oidc_startup_follows_current_published_revision(monkeypatch, oidc_configuration):
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
+    previous = oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=_oidc_profile({"alpha": _oidc_row("alpha")}),
+        created_by="operator-1", publish=True,
+    )
+    assert set(load_oidc_providers(oidc_configuration)) == {"alpha"}
+    revised = _oidc_profile({"beta": _oidc_row("beta")})
+    revised["profile"]["version"] = "1.0.1"
+    current = oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=revised, created_by="operator-1",
+        supersedes_revision_id=previous["revisionId"], publish=True,
+    )
+    assert set(load_oidc_providers(oidc_configuration)) == {"beta"}
+    oidc_configuration.retire_profile(
+        current["revisionId"], expected_etag=current["etag"], actor_id="operator-1",
+        reason="Retire current sign-in profile",
+    )
+    with pytest.raises(ValueError, match="no active published"):
         load_oidc_providers(oidc_configuration)
 
 
@@ -319,7 +354,8 @@ def test_v20_oidc_registry_preserves_provider_keys(keys):
     assert list(validated.providers) == keys
 
 
-def test_v20_oidc_callback_uses_real_signature_and_discovered_keys(monkeypatch):
+@pytest.mark.parametrize("algorithm", ["EdDSA", "RS256"])
+def test_v20_oidc_callback_uses_real_signature_and_discovered_keys(monkeypatch, algorithm):
     import jwt
 
     provider = OidcProviderConfig(
@@ -329,7 +365,7 @@ def test_v20_oidc_callback_uses_real_signature_and_discovered_keys(monkeypatch):
         "https://issuer.example/token",
         "demo-client",
         "https://app.example/callback",
-        allowed_algorithms=("EdDSA",),
+        allowed_algorithms=(algorithm,),
         client_secret="synthetic-client-fixture",
     )
     timestamp = 1_767_225_600
@@ -340,10 +376,17 @@ def test_v20_oidc_callback_uses_real_signature_and_discovered_keys(monkeypatch):
             return cls.fromtimestamp(timestamp, tz)
 
     monkeypatch.setattr(jwt.api_jwt, "datetime", FixedDateTime)
-    ed_key = Ed25519PrivateKey.from_private_bytes(b"a" * 32)
+    if algorithm == "EdDSA":
+        private_key = Ed25519PrivateKey.from_private_bytes(b"a" * 32)
+        other_key = Ed25519PrivateKey.from_private_bytes(b"b" * 32)
+        jwk = jwt.algorithms.OKPAlgorithm.to_jwk(private_key.public_key())
+    else:
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        jwk = jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())
     ec_key = ec.derive_private_key(7, ec.SECP256R1())
     keys = [
-        {**json.loads(jwt.algorithms.OKPAlgorithm.to_jwk(ed_key.public_key())), "kid": "ed"},
+        {**json.loads(jwk), "kid": "signing"},
         {**json.loads(jwt.algorithms.ECAlgorithm.to_jwk(ec_key.public_key())), "kid": "ec"},
     ]
     discovery_url = "https://issuer.example/oidc/.well-known/openid-configuration"
@@ -375,7 +418,7 @@ def test_v20_oidc_callback_uses_real_signature_and_discovered_keys(monkeypatch):
     with httpx.Client(transport=httpx.MockTransport(exchange)) as client:
         service = OidcCallbackService({"demo": provider}, transactions, http_client=client)
 
-        def complete(*, key=ed_key, alg="EdDSA", kid="ed", **overrides):
+        def complete(*, key=private_key, alg=algorithm, kid="signing", **overrides):
             nonlocal token
             transaction = transactions.create("demo")
             claims = {
@@ -392,6 +435,8 @@ def test_v20_oidc_callback_uses_real_signature_and_discovered_keys(monkeypatch):
 
         with pytest.raises(ValueError, match="signing algorithm is not allowed"):
             complete(key=ec_key, alg="ES256", kid="ec")
+        with pytest.raises(ValueError, match="signing algorithm is not allowed"):
+            complete(key=None, alg="none")
         assert discovery_reads == jwks_reads == []
         metadata["issuer"] = provider.issuer.rstrip("/")
         with pytest.raises(ValueError, match="discovery issuer mismatch"):
@@ -412,11 +457,31 @@ def test_v20_oidc_callback_uses_real_signature_and_discovered_keys(monkeypatch):
             {"iss": provider.issuer.rstrip("/")},
             {"aud": "different-client"},
             {"exp": timestamp - 1},
-            {"key": Ed25519PrivateKey.from_private_bytes(b"b" * 32)},
+            {"key": other_key},
         ):
             with pytest.raises(ValueError, match="OIDC ID token validation failed"):
                 complete(**overrides)
     assert discovery_reads == [discovery_url]
+
+
+def test_v20_oidc_jwks_transport_rejects_redirect(monkeypatch):
+    import jwt
+
+    requests = []
+    jwks_url = "https://keys.example/oidc/public"
+
+    def redirect(_handler, request):
+        requests.append(request.full_url)
+        headers = Message()
+        headers["Location"] = "http://keys.example/other"
+        response = addinfourl(BytesIO(), headers, request.full_url, 302)
+        response.msg = "Found"
+        return response
+
+    monkeypatch.setattr(HTTPSHandler, "https_open", redirect)
+    with pytest.raises(jwt.exceptions.PyJWKClientConnectionError):
+        jwt.PyJWKClient(jwks_url).get_signing_key("signing")
+    assert requests == [jwks_url]
 
 
 def test_v20_passkey_state_is_durable_and_replay_safe(tmp_path: Path):

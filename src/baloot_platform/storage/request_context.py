@@ -32,7 +32,9 @@ def apply_postgres_identity_context(connection: Any, context: DatabaseIdentityCo
 
 
 @contextlib.contextmanager
-def contextual_connection(pool: Any) -> Iterator[Any]:
+def contextual_connection(
+    pool: Any, context: DatabaseIdentityContext | None = None
+) -> Iterator[Any]:
     with pool.connection() as connection:
-        apply_postgres_identity_context(connection)
+        apply_postgres_identity_context(connection, context)
         yield connection

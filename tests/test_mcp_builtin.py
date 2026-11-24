@@ -278,7 +278,7 @@ def test_mcp_streamable_http_json_mode(monkeypatch):
 
 
 def test_mcp_starts_without_oidc_provider_secrets(monkeypatch):
-    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_REVISION", "CPR-TEST")
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
     monkeypatch.setenv("BALOOT_OIDC_ISSUER", "https://signin.example")
     monkeypatch.delenv("BALOOT_OIDC_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("BALOOT_OIDC_CLIENT_SECRET_EXAMPLE", raising=False)
