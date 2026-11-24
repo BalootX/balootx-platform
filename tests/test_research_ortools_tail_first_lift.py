@@ -4,6 +4,7 @@ import copy
 import json
 from dataclasses import replace
 from pathlib import Path
+from time import perf_counter
 from types import SimpleNamespace
 
 import pytest
@@ -1982,6 +1983,8 @@ def test_default_executor_finds_relaxed_late_play(rules, tail_lift_fixture) -> N
     scenario = _relaxed_late_play_scenario(tail_lift_fixture,
         _leaf("PRED-AUTO-TACTIC", "tactic.applicable", {
             "kind": "only_winning_move", "applicable": True}))
+    solver_budget_seconds = 30
+    started = perf_counter()
     result = OrToolsUnifiedResearchExecutorV1(
         rules,
         bundle_revision_id="CBR-TAIL-FIRST-TEST",
@@ -1992,8 +1995,10 @@ def test_default_executor_finds_relaxed_late_play(rules, tail_lift_fixture) -> N
         maximum_proof_nodes=10_000,
         maximum_proof_depth=12,
         maximum_prefix_lift_attempts=32,
-        maximum_seconds=30,
+        maximum_seconds=solver_budget_seconds,
     )
+    elapsed = perf_counter() - started
+    assert elapsed <= solver_budget_seconds, f"Live late-play qualification took {elapsed:.3f}s"
     assert result.status == "qualified", json.dumps(result.execution_receipt, sort_keys=True)
     assert result.proof is not None and result.proof["claimSatisfied"] is True
     evidence = result.proof["nativeQualification"]["PRED-AUTO-TACTIC"]

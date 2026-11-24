@@ -146,7 +146,9 @@ def test_ci_shards_receive_builds_and_required_node_dependencies(root: Path) -> 
     assert all(step.get("with", {}).get("digest-mismatch") == "error" for step in steps
                if "download-artifact@" in step.get("uses", ""))
     foundry = jobs["foundry"]["steps"]
-    assert any(step.get("run") == "npm run test:research" for step in foundry)
+    assert any(step.get("run", "").startswith("npm run test:research -- ") for step in foundry)
+    assert any(step.get("run", "").startswith("npm run test:operator-e2e -- ") for step in foundry)
+    assert any(step.get("with", {}).get("name") == "foundry-test-receipts" for step in foundry)
     assert installs <= {step.get("working-directory") for step in foundry
                         if step.get("run", "").startswith("npm ci ")}
     assert jobs["media-render"]["strategy"]["matrix"]["shard"] == ["flagship", "decision", "companion", "parity"]

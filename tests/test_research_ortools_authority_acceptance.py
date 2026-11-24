@@ -240,7 +240,7 @@ _NEW_ACCEPTANCE_OWNERS = {
         "tests/test_research_ortools_unified_executor.py::test_native_exact_proof_cannot_bypass_hard_qualification"
     ],
     "V4-ACC-19": [
-        "src/baloot_platform/service/foundry_dashboard/e2e/foundry_ortools_operator.spec.ts::the disclosed target-wins-trick-6 alternative finds five exact variants",
+        "src/baloot_platform/service/foundry_dashboard/e2e/foundry_ortools_operator.spec.ts::the disclosed target-wins-trick-6 alternative displays five precomputed exact variants",
         "tests/test_research_ortools_backend_service.py::test_search_v4_full_ui_selector_campaign_persists_five_distinct_qualified_results",
     ],
     "V4-ACC-20": [

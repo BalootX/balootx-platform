@@ -259,10 +259,9 @@ def main() -> None:
                 [
                     "node",
                     "node_modules/vitest/vitest.mjs",
-                    "--root",
-                    "../../../..",
                     "run",
-                    "tests/frontend/research_recipes.spec.ts",
+                    "--config",
+                    "vitest.config.mts",
                 ],
                 cwd=FOUNDRY,
                 timeout=300,

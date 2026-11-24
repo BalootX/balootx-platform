@@ -176,7 +176,8 @@ def test_mcp_stdio_protocol_boundary_keeps_structured_censor_reason(monkeypatch)
 
 @pytest.mark.real_clock
 def test_grpc_censor_interceptor_returns_failed_precondition(root):
-    grpc = pytest.importorskip("grpc")
+    import grpc
+
     source = root / "src/baloot_platform/service/grpc_service.py"
     serve = next(n for n in ast.parse(source.read_text(encoding="utf-8")).body
                  if isinstance(n, ast.AsyncFunctionDef) and n.name == "serve")

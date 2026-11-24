@@ -3,8 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-
-pytest.importorskip("ortools")
+from ortools.sat.python import cp_model  # noqa: F401
 
 from baloot_platform.research.policy_proof_campaign import (
     PolicyProofCampaignProfileV1,

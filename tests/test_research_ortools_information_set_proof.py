@@ -18,10 +18,9 @@ import time
 from types import SimpleNamespace
 
 import pytest
+from ortools.sat.python import cp_model  # noqa: F401
 
 from deterministic_work import HANG_GUARD, set_monotonic
-
-pytest.importorskip("ortools")
 
 from baloot_platform.core.cards import Card, FULL_DECK, cards_to_mask
 from baloot_platform.core.dealing import DealLayoutV1

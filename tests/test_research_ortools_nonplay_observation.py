@@ -5,8 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-
-pytest.importorskip("ortools")
+from ortools.sat.python import cp_model  # noqa: F401
 
 from baloot_platform.core.cards import Card, FULL_DECK, cards_to_mask
 from baloot_platform.core.enums import Contract, GamePhase, Seat

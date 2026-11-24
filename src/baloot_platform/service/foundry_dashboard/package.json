@@ -8,7 +8,7 @@
     "check": "node scripts/check-generated-api.mjs && tsc --noEmit",
     "check:api-generated": "node scripts/check-generated-api.mjs",
     "generate:api": "openapi-ts --file openapi-ts.config.mjs --no-log-file",
-    "test:research": "vitest --root ../../../.. run tests/frontend/research_recipes.spec.ts tests/frontend/card_selector.spec.tsx tests/frontend/ortools_scenario_ui.spec.ts tests/frontend/ortools_scenario_predicate_capabilities.spec.ts tests/frontend/video_playback_state.spec.ts tests/frontend/video_qr_policy.spec.ts tests/frontend/configuration_schedule.spec.ts",
+    "test:research": "vitest run --config vitest.config.mts",
     "test:operator-e2e": "playwright test --config e2e/playwright.config.cjs"
   },
   "overrides": {

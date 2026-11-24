@@ -3,8 +3,7 @@ from __future__ import annotations
 import itertools
 
 import pytest
-
-pytest.importorskip("ortools")
+from ortools.sat.python import cp_model  # noqa: F401
 
 from baloot_platform.core.cards import Card
 from baloot_platform.research.best_response_proof import (
