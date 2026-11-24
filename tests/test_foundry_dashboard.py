@@ -1408,10 +1408,7 @@ def test_dashboard_build_and_wheel_inputs_are_exactly_pinned(root):
         in package
     )
     assert '"check:api-generated": "node scripts/check-generated-api.mjs"' in package
-    assert (
-        '"test:research": "vitest --root ../../../.. run tests/frontend/research_recipes.spec.ts tests/frontend/card_selector.spec.tsx tests/frontend/ortools_scenario_ui.spec.ts tests/frontend/ortools_scenario_predicate_capabilities.spec.ts tests/frontend/video_playback_state.spec.ts tests/frontend/video_qr_policy.spec.ts"'
-        in package
-    )
+    assert manifest["scripts"]["test:research"] == "vitest run --config vitest.config.mts"
     assert '"openapi-fetch"' not in package
     assert '"static/foundry/*.html"' in pyproject
     assert '"static/foundry/assets/*.css"' in pyproject

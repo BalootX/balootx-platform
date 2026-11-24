@@ -8,8 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
-pytest.importorskip("ortools")
+from ortools.sat.python import cp_model  # noqa: F401
 
 from baloot_platform.core.cards import Card
 from baloot_platform.core.enums import Contract, Seat, Suit, Team

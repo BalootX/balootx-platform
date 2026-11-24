@@ -19,7 +19,7 @@ from baloot_platform.core.engine import BalootEngine
 from baloot_platform.core.enums import Contract, Seat, Suit
 from baloot_platform.core.models import RoundState
 from baloot_platform.core.scenario import ScenarioRequest
-from baloot_platform.native.accelerator import NativeAccelerator, NativeUnavailable
+from baloot_platform.native.accelerator import NativeAccelerator
 
 
 def _endgame(rules, *, remaining: int = 5):
@@ -283,12 +283,7 @@ def test_v21_exact_search_matches_frozen_independent_oracles(root, rules):
 
 
 def test_native_v3_exact_search_matches_python_on_frozen_endgames(root, rules):
-    try:
-        native = NativeAccelerator(rules)
-    except (NativeUnavailable, OSError):
-        pytest.skip("native V3 library is not built in this test lane")
-    if not native.supports_v3:
-        pytest.skip("native library does not expose exact-search ABI V3")
+    native = NativeAccelerator(rules)
     fixture = json.loads(
         (root / "tests/fixtures/synthetic-exact-endgames.json").read_text(encoding="utf-8")
     )
@@ -329,12 +324,7 @@ def test_native_v3_exact_search_matches_python_on_frozen_endgames(root, rules):
 
 
 def test_native_v3_exact_search_honors_delayed_cancellation(rules):
-    try:
-        native = NativeAccelerator(rules)
-    except (NativeUnavailable, OSError):
-        pytest.skip("native V3 library is not built in this test lane")
-    if not native.supports_v3:
-        pytest.skip("native library does not expose exact-search ABI V3")
+    native = NativeAccelerator(rules)
 
     engine, state = _endgame(rules, remaining=24)
     checks = 0
@@ -361,12 +351,7 @@ def test_native_v3_exact_search_honors_delayed_cancellation(rules):
 
 
 def test_native_v3_batched_rollouts_match_reference_with_unresolved_projects(rules):
-    try:
-        native = NativeAccelerator(rules)
-    except (NativeUnavailable, OSError):
-        pytest.skip("native V3 library is not built in this test lane")
-    if not native.supports_v3:
-        pytest.skip("native library does not expose rollout ABI V3")
+    native = NativeAccelerator(rules)
 
     engine = BalootEngine(rules)
     state = engine.create_round(seed=24001, dealer=Seat.EAST)

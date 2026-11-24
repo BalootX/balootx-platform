@@ -37,16 +37,8 @@ def test_missing_font_has_actionable_bounded_failure(tmp_path: Path) -> None:
 
 def test_supported_verifier_fonts_have_required_glyphs() -> None:
     preflight = _load_preflight()
-    missing_files = [
-        filename
-        for filename, _ in preflight.FONT_REQUIREMENTS.values()
-        if preflight.resolve_font(filename) is None
-    ]
-    if missing_files:
-        pytest.skip(
-            "positive prerequisite proof runs in the supported verifier image; "
-            f"host is missing {missing_files}"
-        )
+    manifest = preflight.font_manifest_check()
+    assert manifest["status"] == "passed", manifest
 
     results = [
         preflight.font_check(name, filename, sample)

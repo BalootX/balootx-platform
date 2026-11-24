@@ -3329,10 +3329,6 @@ def test_sequential_rejections_ask_for_exact_next_candidate_without_repair(
 
 
 @pytest.mark.real_clock
-@pytest.mark.skipif(
-    not OrToolsCpSatDealGeneratorV1.available(),
-    reason="OR-Tools optimization extra is not installed",
-)
 @pytest.mark.parametrize("compact", (False, True), ids=("full-deck", "compact-hands"))
 def test_real_generator_runs_post_final_cut_solver_without_evaluating_witness(
     root,
