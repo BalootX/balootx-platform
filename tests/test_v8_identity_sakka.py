@@ -158,7 +158,10 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
         p = store.placeholder
         with connect() as conn, closing(conn.cursor()) as cursor:
             if postgres:
-                assert cursor.execute("SHOW lc_collate").fetchone()[0].lower().startswith("en_us")
+                collation = cursor.execute(
+                    "SELECT datcollate FROM pg_database WHERE datname = current_database()"
+                ).fetchone()[0]
+                assert collation.lower().startswith("en_us")
             else:
                 for index in indexes.values():
                     cursor.execute(f"DROP INDEX {index}")
