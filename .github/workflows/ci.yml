@@ -703,7 +703,7 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           BALOOTX_CI_SHORT_COLLECTION_SAMPLE: ${{ github.event_name == 'pull_request' && matrix.shard == 'companion' }}
-          BALOOT_RENDER_EVIDENCE_DIR: ${{ runner.temp }}/media-stage-logs
+          BALOOT_RENDER_EVIDENCE_DIR: ${{ runner.temp }}/media-stage-logs/render
         run: |
           cpus="$(python -c 'import os; print(",".join(map(str, sorted(os.sched_getaffinity(0))[:4])))')"
           taskset --cpu-list "$cpus" sh -ec '
