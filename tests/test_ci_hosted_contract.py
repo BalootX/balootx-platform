@@ -254,7 +254,7 @@ def test_viewer_seat_proof_dispatch_uses_pinned_fixtures_and_skips_ci(root):
 
 def test_nightly_candidates_serializes_runs_and_retains_failure_evidence(root):
     workflow = yaml.safe_load((root / ".github/workflows/nightly-candidates.yml").read_bytes())
-    assert workflow[True] == {"schedule": [{"cron": "30 0 * * *"}], "workflow_dispatch": None}
+    assert workflow[True] == {"schedule": [{"cron": "17 0 * * *"}], "workflow_dispatch": None}
     assert workflow["concurrency"] == {"group": "nightly-candidates", "cancel-in-progress": False}
     assert workflow["permissions"] == {"contents": "read"}
     job, = workflow["jobs"].values()
