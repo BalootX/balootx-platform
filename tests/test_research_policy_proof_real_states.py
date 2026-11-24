@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from ortools.sat.python import cp_model  # noqa: F401
 import yaml
 from pathlib import Path
-
-pytest.importorskip("ortools")
 
 from baloot_platform.challenge.replay import CompleteTraceReplayerV1
 from baloot_platform.challenge.simulation import NaturalLaffaSimulatorV1
