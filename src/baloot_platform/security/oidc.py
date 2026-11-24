@@ -2,13 +2,25 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
+import re
 import secrets
 import time
-from dataclasses import asdict, dataclass
+import tomllib
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,14 +33,121 @@ class OidcProviderConfig:
     redirect_uri: str
     scopes: tuple[str, ...] = ("openid", "profile", "email")
     jwks_uri: str | None = None
-    client_secret: str | None = None
+    client_secret: str | None = field(default=None, repr=False)
 
     def authorization_url(self, *, state: str, nonce: str, code_challenge: str) -> str:
-        return f"{self.authorization_endpoint}?{urlencode({
+        separator = "&" if "?" in self.authorization_endpoint else "?"
+        return f"{self.authorization_endpoint}{separator}{urlencode({
             'response_type': 'code', 'client_id': self.client_id, 'redirect_uri': self.redirect_uri,
             'scope': ' '.join(self.scopes), 'state': state, 'nonce': nonce,
             'code_challenge': code_challenge, 'code_challenge_method': 'S256',
         })}"
+
+
+class _OidcProviderRow(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    issuer: str
+    authorization_endpoint: str
+    token_endpoint: str
+    client_id: str
+    redirect_uri: str
+    jwks_uri: str | None = None
+    client_secret_env: str | None = Field(
+        default=None, pattern=r"^BALOOT_OIDC_CLIENT_SECRET(?:_[A-Z0-9_]+)?$"
+    )
+
+    @field_validator("client_id")
+    @classmethod
+    def validate_client_id(cls, value: str) -> str:
+        if not value.strip() or not value.isprintable():
+            raise ValueError("must be a non-blank, printable client ID")
+        return value
+
+    @field_validator(
+        "issuer", "authorization_endpoint", "token_endpoint", "redirect_uri", "jwks_uri"
+    )
+    @classmethod
+    def validate_url(cls, value: str, info: ValidationInfo) -> str:
+        try:
+            url = urlsplit(value)
+            port = url.port
+        except ValueError:
+            raise ValueError("invalid URL authority") from None
+        loopback_redirect = (
+            info.field_name == "redirect_uri"
+            and url.scheme == "http"
+            and url.hostname in {"localhost", "127.0.0.1", "::1"}
+        )
+        if (
+            not (url.scheme == "https" or loopback_redirect)
+            or not url.hostname
+            or port == 0
+            or "@" in url.netloc
+            or "#" in value
+            or "\\" in value
+            or not value.isascii()
+            or any(not char.isprintable() or char.isspace() for char in value)
+        ):
+            raise ValueError("must be an absolute HTTPS URL (HTTP loopback redirect allowed)")
+        if info.field_name == "issuer" and "?" in value:
+            raise ValueError("issuer must not contain a query")
+        return value
+
+
+def load_oidc_providers() -> dict[str, OidcProviderConfig]:
+    path = os.environ.get("BALOOT_OIDC_PROVIDERS_FILE")
+    if path is None:
+        legacy_fields = (
+            "PROVIDER_ID",
+            "ISSUER",
+            "AUTHORIZATION_ENDPOINT",
+            "TOKEN_ENDPOINT",
+            "CLIENT_ID",
+            "REDIRECT_URI",
+            "JWKS_URI",
+        )
+        if any(f"BALOOT_OIDC_{name}" in os.environ for name in legacy_fields):
+            raise ValueError("migrate legacy OIDC provider settings to BALOOT_OIDC_PROVIDERS_FILE")
+        return {}
+
+    try:
+        with Path(path).open("rb") as config:
+            rows = tomllib.load(config)
+    except OSError:
+        raise ValueError("BALOOT_OIDC_PROVIDERS_FILE must name a readable file") from None
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+        raise ValueError("BALOOT_OIDC_PROVIDERS_FILE must contain valid UTF-8 TOML") from None
+
+    providers: dict[str, OidcProviderConfig] = {}
+    for key, fields in rows.items():
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", key):
+            raise ValueError(f"OIDC provider {key!r}: invalid provider key")
+        try:
+            row = _OidcProviderRow.model_validate(fields)
+        except ValidationError as exc:
+            problems = []
+            for error in exc.errors(
+                include_input=False, include_context=False, include_url=False
+            ):
+                if error["type"] == "extra_forbidden":
+                    problems.append("unsupported field")
+                elif error["loc"]:
+                    problems.append(f"{error['loc'][0]}: {error['msg']}")
+                else:
+                    problems.append("expected a provider table")
+            raise ValueError(f"OIDC provider {key!r}: {', '.join(problems)}") from None
+        secret = None
+        if row.client_secret_env is not None:
+            secret = os.environ.get(row.client_secret_env)
+            if not secret or not secret.strip():
+                raise ValueError(
+                    f"OIDC provider {key!r}: missing deployment secret {row.client_secret_env}"
+                )
+        providers[key] = OidcProviderConfig(
+            provider_id=key, client_secret=secret, **row.model_dump(exclude={"client_secret_env"})
+        )
+    return providers
 
 
 @dataclass(frozen=True, slots=True)

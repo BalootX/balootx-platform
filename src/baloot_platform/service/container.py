@@ -211,6 +211,7 @@ from baloot_platform.security import (
     SignedAccessTokenService,
     WebSocketTicketService,
 )
+from baloot_platform.security.oidc import load_oidc_providers
 from baloot_platform.service.game import GameManager
 from baloot_platform.storage.game_store import SQLiteGameStore
 from baloot_platform.storage.jobs import JobStore
@@ -445,6 +446,7 @@ def _build_container(
     database_url: str | None,
     owned_resources: list[Any],
 ) -> PlatformContainer:
+    oidc_providers = load_oidc_providers()
     resolved_root = platform_root(root)
     resolved_data = data_root(writable_root)
     if writable_root is not None:
@@ -701,25 +703,6 @@ def _build_container(
         ttl_seconds=int(os.environ.get("BALOOT_OIDC_TRANSACTION_TTL", "600")),
         backend=security_state,
     )
-    oidc_providers: dict[str, OidcProviderConfig] = {}
-    if (
-        os.environ.get("BALOOT_OIDC_ISSUER")
-        and os.environ.get("BALOOT_OIDC_AUTHORIZATION_ENDPOINT")
-        and os.environ.get("BALOOT_OIDC_TOKEN_ENDPOINT")
-        and os.environ.get("BALOOT_OIDC_CLIENT_ID")
-        and os.environ.get("BALOOT_OIDC_REDIRECT_URI")
-    ):
-        provider_id = os.environ.get("BALOOT_OIDC_PROVIDER_ID", "default")
-        oidc_providers[provider_id] = OidcProviderConfig(
-            provider_id=provider_id,
-            issuer=os.environ["BALOOT_OIDC_ISSUER"],
-            authorization_endpoint=os.environ["BALOOT_OIDC_AUTHORIZATION_ENDPOINT"],
-            token_endpoint=os.environ["BALOOT_OIDC_TOKEN_ENDPOINT"],
-            client_id=os.environ["BALOOT_OIDC_CLIENT_ID"],
-            redirect_uri=os.environ["BALOOT_OIDC_REDIRECT_URI"],
-            jwks_uri=os.environ.get("BALOOT_OIDC_JWKS_URI") or None,
-            client_secret=os.environ.get("BALOOT_OIDC_CLIENT_SECRET") or None,
-        )
     oidc_callback = _own(
         owned_resources, OidcCallbackService(oidc_providers, oidc_transactions)
     )

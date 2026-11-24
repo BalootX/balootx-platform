@@ -6,12 +6,17 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
 import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from hypothesis import given, strategies as st
 
 from baloot_platform.config import build_bundle, platform_root
 from baloot_platform.configuration import SQLiteConfigurationStore, VersionedConfigurationService
@@ -22,6 +27,10 @@ from baloot_platform.security import (
     OidcCallbackService, OidcProviderConfig, PasskeyChallengeService, PkceTransactionStore,
     SQLiteSecurityStateStore, WebSocketTicketService,
 )
+from baloot_platform.security.oidc import load_oidc_providers
+from baloot_platform.service.container import build_container
+from baloot_platform.service.mcp_server import create_http_app
+from baloot_platform.service.routes.security import build_security_router
 
 
 def test_v20_multi_scope_configuration_precedence_and_freeze(tmp_path: Path):
@@ -101,6 +110,152 @@ def test_v20_oidc_callback_pkce_nonce_and_claim_validation(tmp_path: Path):
     result = service.complete(provider_id="demo", state=transaction.state, code="code")
     assert result["externalSubject"] == "external-1" and result["returnTo"] == "/app"
     with pytest.raises(ValueError): service.complete(provider_id="demo", state=transaction.state, code="code")
+
+
+def _oidc_row(key: str) -> str:
+    return f'''["{key}"]
+issuer = "https://{key}.example/oidc/"
+authorization_endpoint = "https://{key}.example/authorize?prompt=login"
+token_endpoint = "https://{key}.example/token"
+client_id = "{key}-client"
+redirect_uri = "http://localhost:8080/callback"
+'''
+
+
+def test_v20_oidc_registry_drives_api_and_mcp(tmp_path, monkeypatch):
+    registry = tmp_path / "providers.toml"
+    registry.write_text(
+        _oidc_row("alpha")
+        + _oidc_row("beta")
+        + 'client_secret_env = "BALOOT_OIDC_CLIENT_SECRET_BETA"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_FILE", str(registry))
+    monkeypatch.setenv("BALOOT_OIDC_CLIENT_SECRET_BETA", "synthetic-fixture")
+    monkeypatch.delenv("BALOOT_MCP_AUTHORIZATION_SERVERS", raising=False)
+
+    container = build_container(writable_root=tmp_path / "data", database_url="")
+    try:
+        assert container.oidc_callback.providers == container.oidc_providers
+        assert container.oidc_providers["alpha"].client_secret is None
+        assert container.oidc_providers["beta"].client_secret == "synthetic-fixture"
+        assert "synthetic-fixture" not in repr(container.oidc_providers)
+        api = FastAPI()
+        api.include_router(
+            build_security_router(
+                container.identity,
+                container.access_tokens,
+                container.authorization_policy,
+                container.oidc_transactions,
+                container.oidc_providers,
+                container.oidc_callback,
+                container.passkeys,
+                container.websocket_tickets,
+                container.security_state,
+            )
+        )
+        with TestClient(api) as client:
+            assert client.get("/api/v1/security/capabilities").json()["oidcProviders"] == [
+                "alpha", "beta",
+            ]
+            for key in ("alpha", "beta"):
+                begin = client.post("/api/v1/security/oidc:begin", json={"providerId": key})
+                assert begin.status_code == 200
+                url = urlsplit(begin.json()["authorizationUrl"])
+                assert url.hostname == f"{key}.example"
+                params = parse_qs(url.query)
+                assert params["client_id"] == [f"{key}-client"]
+                assert params["prompt"] == ["login"]
+                assert params["code_challenge_method"] == ["S256"]
+            unknown = client.post("/api/v1/security/oidc:begin", json={"providerId": "unknown"})
+            assert unknown.status_code == 404
+    finally:
+        container.shutdown()
+
+    metadata_path = "/.well-known/oauth-protected-resource"
+    with TestClient(create_http_app()) as client:
+        for path in (metadata_path, metadata_path + "/mcp"):
+            assert client.get(path).json()["authorization_servers"] == [
+                "https://alpha.example/oidc/", "https://beta.example/oidc/",
+            ]
+    monkeypatch.setenv("BALOOT_MCP_AUTHORIZATION_SERVERS", "https://mcp.example")
+    with TestClient(create_http_app()) as client:
+        assert client.get(metadata_path).json()["authorization_servers"] == ["https://mcp.example"]
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement", "error"),
+    [
+        ('client_id = "beta-client"', "", "client_id"),
+        ('client_id = "beta-client"', "client_id = 123", "client_id"),
+        ('client_id = "beta-client"', 'client_id = " "', "client_id"),
+        ('["beta"]', '["bad key"]', "invalid provider key"),
+        ("https://beta.example/oidc/", "https://beta.example/oidc/?", "issuer"),
+        ("https://beta.example/token", "http://beta.example/token", "token_endpoint"),
+        (
+            "https://beta.example/token",
+            "https://beta.example:synthetic-fixture/token",
+            "token_endpoint",
+        ),
+        (
+            "https://beta.example/authorize",
+            "https://synthetic-fixture@localhost/authorize",
+            "authorization_endpoint",
+        ),
+        ("http://localhost:8080/callback", "http://beta.example/callback", "redirect_uri"),
+        ('client_id = "beta-client"', 'client_secret = "synthetic-fixture"', "unsupported field"),
+        ('["beta"]', '["beta"]\nclient_secret_env = "UNRELATED_SECRET"', "client_secret_env"),
+        (
+            '["beta"]',
+            '["beta"]\nclient_secret_env = "BALOOT_OIDC_CLIENT_SECRET_BETA"',
+            "missing deployment secret",
+        ),
+    ],
+)
+def test_v20_oidc_registry_rejects_invalid_rows(
+    tmp_path, monkeypatch, original, replacement, error
+):
+    registry = tmp_path / "providers.toml"
+    registry.write_text(
+        _oidc_row("alpha") + _oidc_row("beta").replace(original, replacement),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_FILE", str(registry))
+    monkeypatch.delenv("BALOOT_OIDC_CLIENT_SECRET_BETA", raising=False)
+    with pytest.raises(ValueError, match=error) as exc:
+        load_oidc_providers()
+    assert repr("bad key" if error == "invalid provider key" else "beta") in str(exc.value)
+    assert "synthetic-fixture" not in str(exc.value)
+
+
+def test_v20_oidc_registry_fails_closed_at_startup(tmp_path, monkeypatch):
+    monkeypatch.delenv("BALOOT_OIDC_PROVIDERS_FILE", raising=False)
+    assert load_oidc_providers() == {}
+    monkeypatch.setenv("BALOOT_OIDC_ISSUER", "https://legacy.example")
+    with pytest.raises(ValueError, match="migrate legacy OIDC"):
+        load_oidc_providers()
+    registry = tmp_path / "missing.toml"
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_FILE", str(registry))
+    with pytest.raises(ValueError, match="readable file"):
+        load_oidc_providers()
+    registry.write_text(_oidc_row("alpha") * 2, encoding="utf-8")
+    data = tmp_path / "data"
+    with pytest.raises(ValueError, match="valid UTF-8 TOML"):
+        build_container(writable_root=data, database_url="")
+    assert not data.exists()
+
+
+@given(
+    st.lists(st.from_regex(r"[a-z][a-z0-9-]{0,10}", fullmatch=True), max_size=4, unique=True)
+)
+def test_v20_oidc_registry_preserves_provider_keys(keys):
+    with TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as monkeypatch:
+        registry = Path(directory) / "providers.toml"
+        registry.write_text("".join(map(_oidc_row, keys)), encoding="utf-8")
+        monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_FILE", str(registry))
+        assert {key: row.provider_id for key, row in load_oidc_providers().items()} == {
+            key: key for key in keys
+        }
 
 
 def test_v20_passkey_state_is_durable_and_replay_safe(tmp_path: Path):

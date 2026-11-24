@@ -46,6 +46,25 @@ Servers sends Delivery the `main` SHA, test counts, failing test IDs, a JUnit fi
 
 A Due is the latest finish. Start Ready work at once and ship as soon as its checks pass. Every hold names its blocker and what clears it.
 
+## OIDC provider configuration
+
+Set `BALOOT_OIDC_PROVIDERS_FILE` to a readable UTF-8 TOML file from the deployment's versioned configuration. Each top-level table is a provider. Its key is the `providerId` clients send when starting and completing sign-in. Add another table to enable another provider.
+
+```toml
+[example]
+issuer = "https://issuer.example"
+authorization_endpoint = "https://issuer.example/authorize"
+token_endpoint = "https://issuer.example/token"
+client_id = "example-client"
+redirect_uri = "https://app.example/callback"
+jwks_uri = "https://issuer.example/jwks"
+client_secret_env = "BALOOT_OIDC_CLIENT_SECRET_EXAMPLE"
+```
+
+`jwks_uri` and `client_secret_env` are optional. For a confidential client, inject the referenced environment variable from the deployment secret store. Public clients omit the reference. All URLs use HTTPS, with HTTP permitted for localhost and loopback redirect URIs. If a configured file is unreadable or invalid, or a referenced secret is missing, startup fails. An empty registry disables OIDC sign-in.
+
+When migrating from the single-provider environment variables, move provider metadata into the file and keep the existing provider key to preserve account links. A row can reference the existing `BALOOT_OIDC_CLIENT_SECRET` variable. After the migration, remove the old metadata variables. With neither a registry file nor legacy metadata configured, OIDC sign-in is disabled. MCP protected-resource metadata uses the registry's issuers when `BALOOT_MCP_AUTHORIZATION_SERVERS` is unset or empty.
+
 ## Merge
 
 - The `main` merge queue is the only path to trunk and uses squash merges only. Workers push their own short-lived branches without rewriting history and open PRs under the project's App identity. Merge, split or close an open PR within two days of its first push. The ruleset requires zero human approvals.
