@@ -18,6 +18,8 @@ The required **ci-gate** check compares the producer results to the plan and fai
 
 The `docker-constraints` job dry-runs pip with the Python base image, exact constraints and extras shared by the Docker test and verifier stages. It runs when its Docker, dependency or CI inputs change on a PR, when CI cannot resolve the diff, and on main and merge groups.
 
+The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples.
+
 The main ruleset's CodeQL rule evaluates each PR at admission and blocks new high or critical alerts on lines the PR changes. The main-push scan surfaces alerts that arise only in the combined commit.
 
 The concurrency key uses the PR number to keep same-named branches from different forks in separate groups. A new run supersedes only the same PR's older run. Each push, merge-group and manual CI run has its own group and cannot cancel another run.
@@ -28,9 +30,11 @@ Fix failed checks at the source. Do not rerun failures, widen deadlines or skip 
 
 The full suite runs daily at 20:00 UTC on the `Servers isolated $0 Linux test host (credential-free, not a GitHub runner)`, capped at 2h20m. A systemd timer starts each run with a fresh depth-1 checkout of public `main` and a per-run virtual environment. Nightly runs stay off the PC and outside the merge gate. [#109](https://github.com/BalootX/balootx-platform/issues/109)
 
-Servers sends Delivery the `main` SHA, test counts, failing test IDs, a JUnit file and a scrubbed log tail. Delivery files a Kind Bug issue titled `Nightly full suite red: <date>` the same day for any red or missing run and links the run when available. Treat flaky failures as High-priority bugs and fix or revert them.
+Servers sends BalootX QA the `main` SHA, test counts, failing test IDs, a JUnit file and a scrubbed log tail. BalootX QA files a Kind Bug issue titled `Nightly full suite red: <date>` the same day for any red or missing run and links the run when available. Treat flaky failures as High-priority bugs and fix or revert them. [#140](https://github.com/BalootX/balootx-platform/issues/140)
 
 ### Test coverage
+
+BalootX QA owns tests at every layer, the end-to-end journey catalogue, coverage, red and flaky tests, nightly results, and the pre-release sweep. QA routes pipeline faults to BalootX Delivery.
 
 The Python shards share a deadline derived from each job's timeout. The full matrix requires heavy OR-Tools coverage for every Python version it selects. The Linux file runner rejects skipped collection and unexpected skip or xfail phases. [Expected skip phases](ci/expected-pytest-skips.txt) identify the exact nodes and prerequisites for checks that run outside those file lanes.
 
@@ -53,7 +57,7 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 - The `main` merge queue is the only path to trunk and uses squash merges only. Workers push their own short-lived branches without rewriting history and open PRs under the project's App identity. Merge, split or close an open PR within two days of its first push. The ruleset requires zero human approvals.
 - Only changes in the [critical classes mapped in AGENTS.md](AGENTS.md#critical-paths) get one independent full-diff review in parallel with CI. The worker enables auto-merge after the verdict comment names the current head SHA. Turn off auto-merge before any later push. An existing verdict carries forward unless the push adds a new critical change. Verify fixes to review findings with tests.
 - For everything else, the thread that made the change opens its own PR and enables auto-merge at once. The PR merges through the queue once the required CI checks are green, with no review.
-- Delivery owns the queue, CI health and speed, releases, deploys, rollback and alerts. Workers handle each PR.
+- Delivery owns the queue, admission gates, pipeline faults, CI health and speed, releases, deploys, rollback and alerts. Workers handle each PR.
 - Use `Closes #n` in the PR body only if merging meets the item's whole Done-when. Otherwise use `Refs #n`.
 
 ## GitHub Releases

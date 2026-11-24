@@ -6,7 +6,7 @@
 - Main branch: `main`
 - Board (private): [BalootX](https://github.com/orgs/BalootX/projects/1)
 - Release plan: [milestones page](https://github.com/BalootX/balootx-platform/milestones)
-- Leads: BalootX Master, BalootX Delivery, BalootX Design
+- Leads: BalootX Master, BalootX Delivery, BalootX QA, BalootX Design
 - UI project: yes
 - Other repos: none
 - Environments used: [CI](DELIVERY.md#ci)
@@ -23,6 +23,7 @@ BalootX combines a Saudi Baloot engine, the Foundry research dashboard, and rend
 ## Architecture and sources of truth
 
 - The Python engine owns rules, transitions and replay. The [authority map](docs/architecture/authority-map.json) identifies the owner for each contract.
+- The [agent profile schema](schemas/profiles/agents.schema.json) validates both bundled and standalone lineups. Row errors give the file, JSON Pointer and correction. The shipped [v1 lineup](configs/agents/adaptive_lineup_v1.yaml) uses its own required fields and derives its search tuning from its budget.
 - The [OR-Tools Foundry guide](docs/OR_TOOLS_RESEARCH_FOUNDRY.md) covers rule and proof authority. The [Scenario V4 contract](docs/RESEARCH_SCENARIO_V4.md) covers research requests, result evidence and engine-interest criteria.
 - The FastAPI service serves the [Foundry dashboard](src/baloot_platform/service/foundry_dashboard) at `/foundry`. `/studio` redirects there. The [OpenAPI contract](api) drives generated clients.
 - The [video package](src/baloot_platform/video) projects the observer's replay into a render bundle for the Remotion compositions. See [the render design](DESIGN.md#rendered-clips) for the visual authorities.

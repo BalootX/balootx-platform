@@ -6,7 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
+from baloot_platform import config
 from baloot_platform.agents.profiles import (
     AdaptivePlayStrategy,
     AgentProfile,
@@ -15,11 +17,91 @@ from baloot_platform.agents.profiles import (
 from baloot_platform.agents.qualification import (
     validate_finalist_analysis_compatibility,
 )
-from baloot_platform.config import build_bundle
-from baloot_platform.config import _validate_research_agent_bindings
+from baloot_platform.config import _validate_research_agent_bindings, build_bundle
 from baloot_platform.core.engine import BalootEngine
 from baloot_platform.core.enums import Contract, Seat
 from baloot_platform.native.accelerator import NativeAccelerator
+
+
+@pytest.fixture(params=["adaptive_lineup_v1.yaml", "default.yaml"])
+def standalone_agent_profile(root, tmp_path, request):
+    source = root / "configs/agents" / request.param
+    return tmp_path / source.name, yaml.safe_load(source.read_text(encoding="utf-8"))
+
+
+def test_standalone_agent_profile_loads_from_working_directory(
+    standalone_agent_profile, monkeypatch
+):
+    path, data = standalone_agent_profile
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    monkeypatch.chdir(path.parent)
+
+    registry = AgentProfileRegistry.from_yaml(path.name)
+
+    assert registry.default_lineup == data["default_lineup"]
+    assert registry.get().id == data["default_profile"]
+    expert = registry.get("expert")
+    assert expert.play_search_mode == "paired_information_set"
+    assert expert.play_search_samples == data["profiles"]["expert"].get(
+        "play_search_samples", 16
+    )
+
+
+@pytest.mark.parametrize(
+    ("patch", "removed", "pointer", "action"),
+    [
+        ({}, ("skill",), "/profiles/strong/skill", "add this required field"),
+        ({"skil": 0.75}, (), "/profiles/strong/skil", "remove this unknown field"),
+        ({"skil/~": 0.75}, (), "/profiles/strong/skil~1~0", "remove this unknown field"),
+        ({"skill": "0.75"}, (), "/profiles/strong/skill", "use a value of type 'number'"),
+    ],
+)
+def test_standalone_agent_profile_rejects_malformed_row(
+    standalone_agent_profile, patch, removed, pointer, action
+):
+    path, data = standalone_agent_profile
+    row = data["profiles"]["strong"]
+    for field in removed:
+        del row[field]
+    row.update(patch)
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    with pytest.raises(ValueError) as caught:
+        AgentProfileRegistry.from_yaml(path)
+
+    assert str(caught.value) == f"invalid profile {path}: {pointer}: {action}"
+
+
+@pytest.mark.parametrize(
+    ("mode", "action"),
+    [
+        (None, "add this required field"),
+        ("invalid", "use one of 'disabled', 'paired_information_set'"),
+    ],
+)
+def test_bundled_agent_profile_rejects_invalid_search_tuning(
+    root, monkeypatch, mode, action
+):
+    load_yaml = config._load_yaml
+    source = root / "configs/agents/default.yaml"
+
+    def load_with_invalid_row(path):
+        data = load_yaml(path)
+        if path == source:
+            row = data["profiles"]["strong"]
+            if mode is None:
+                del row["play_search_mode"]
+            else:
+                row["play_search_mode"] = mode
+        return data
+
+    monkeypatch.setattr(config, "_load_yaml", load_with_invalid_row)
+    with pytest.raises(ValueError) as caught:
+        AgentProfileRegistry.from_bundle(root)
+
+    assert str(caught.value) == (
+        f"invalid profile {source}: /profiles/strong/play_search_mode: {action}"
+    )
 
 
 def test_active_agent_profile_is_v2_and_snapshot_round_trips(root: Path):
@@ -187,7 +269,7 @@ def test_zero_configured_mistakes_are_not_reintroduced_by_skill(
 
 
 def test_unknown_search_mode_fails_closed():
-    with pytest.raises(ValueError, match="search mode"):
+    with pytest.raises(ValueError) as caught:
         AgentProfile.from_mapping(
             "invalid",
             {
@@ -195,15 +277,24 @@ def test_unknown_search_mode_fails_closed():
             },
         )
 
+    assert str(caught.value) == (
+        "play_search_mode: use one of 'disabled', 'paired_information_set'"
+    )
+
 
 def test_unknown_search_objective_fails_closed():
-    with pytest.raises(ValueError, match="search objective"):
+    with pytest.raises(ValueError) as caught:
         AgentProfile.from_mapping(
             "invalid",
             {
                 "play_search_objective": "win_somehow",
             },
         )
+
+    assert str(caught.value) == (
+        "play_search_objective: use one of 'contract_success', 'cvar', "
+        "'low_volatility', 'match_point_margin', 'match_win_probability', 'round_margin'"
+    )
 
 
 def test_agent_search_node_budget_is_enforced_at_analysis_boundary(
