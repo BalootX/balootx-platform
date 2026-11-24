@@ -11,6 +11,7 @@ import pytest
 import yaml
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+from tzdata import IANA_VERSION
 
 from baloot_platform.configuration import (
     PostgresConfigurationStore,
@@ -453,6 +454,11 @@ def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
     )
     assert invalid.status_code == 422
     assert invalid.json()["detail"].startswith("effectiveFrom requires")
+    explicit_null = client.post(
+        endpoint, headers=headers, json={**create, "localSchedule": None}
+    )
+    assert explicit_null.status_code == 422
+    assert explicit_null.json()["detail"][0]["loc"] == ["body", "localSchedule"]
     local = {
         "timeZone": "America/New_York",
         "effectiveFrom": "2026-07-01T12:00:00",
@@ -472,7 +478,7 @@ def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
     scheduled = client.post(endpoint, headers=headers, json={**create, "localSchedule": local})
     assert scheduled.status_code == 201, scheduled.text
     profile = scheduled.json()
-    assert profile["localSchedule"] == local
+    assert profile["localSchedule"] == {**local, "zoneDataVersion": IANA_VERSION}
     assert profile["effectiveFrom"] == "2026-07-01T16:00:00+00:00"
     assert profile["effectiveUntil"] == "2026-07-01T17:00:00+00:00"
     legacy_resolution = f"{endpoint}:resolve"
@@ -504,6 +510,17 @@ def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
     listed = client.get(bundles, headers=headers, params={"bundleId": "schedule-test"})
     assert listed.status_code == 200, listed.text
     assert listed.json()["items"] == [bundle_response.json()]
+
+    # Simulate a saved instant from older zone rules.
+    with service.store._connect() as connection:
+        connection.execute(
+            "UPDATE configuration_profile_revisions SET effective_from=? WHERE revision_id=?",
+            ("2026-07-01T15:00:00+00:00", profile["revisionId"]),
+        )
+    with pytest.raises(ValueError, match=r"localSchedule\.effectiveFrom maps to a different UTC instant"):
+        service.resolve_profile(
+            family="performance", profile_id=profile["profileId"], revision_id=profile["revisionId"],
+        )
 
 
 def test_foundry_rules_operator_flow_is_api_backed_and_coverage_gated(

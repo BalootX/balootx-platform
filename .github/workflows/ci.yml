@@ -109,6 +109,29 @@ jobs:
       - *checkout
       - run: docker build --progress=plain --target docker-constraints .
 
+  postgres-configuration:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+        env:
+          POSTGRES_USER: baloot_test
+          POSTGRES_DB: baloot_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432/tcp
+        options: --health-cmd "pg_isready -U baloot_test -d baloot_test" --health-interval 2s --health-timeout 3s --health-retries 10
+    steps:
+      - *checkout
+      - *py313
+      - run: python -m pip install '.[dev,postgres]'
+      - env:
+          BALOOT_TEST_POSTGRES_URL: postgresql://baloot_test@127.0.0.1:${{ job.services.postgres.ports[5432] }}/baloot_test
+        run: python -m pytest -q -s tests/postgres_configuration_schedule.py tests/test_configuration_store_core.py
+
   foundry:
     needs: [plan, python-wheelhouse]
     if: >-
@@ -748,7 +771,7 @@ jobs:
 
   ci-gate:
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}
-    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
+    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, postgres-configuration, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
     if: ${{ always() && !inputs.viewer-seat-proof }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

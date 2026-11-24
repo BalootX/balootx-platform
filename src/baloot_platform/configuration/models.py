@@ -13,18 +13,6 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def parse_instant(value: str | None, field: str) -> datetime | None:
-    if value is None:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value)
-        if parsed.tzinfo is not None:
-            return parsed.astimezone(timezone.utc)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError(f"{field} must be a valid ISO date-time with an explicit UTC offset") from exc
-    raise ValueError(f"{field} requires an explicit UTC offset")
-
-
 def canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 

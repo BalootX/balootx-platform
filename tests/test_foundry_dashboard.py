@@ -1409,7 +1409,7 @@ def test_dashboard_build_and_wheel_inputs_are_exactly_pinned(root):
     )
     assert '"check:api-generated": "node scripts/check-generated-api.mjs"' in package
     assert (
-        '"test:research": "vitest --root ../../../.. run tests/frontend/research_recipes.spec.ts tests/frontend/card_selector.spec.tsx tests/frontend/ortools_scenario_ui.spec.ts tests/frontend/ortools_scenario_predicate_capabilities.spec.ts tests/frontend/video_playback_state.spec.ts tests/frontend/video_qr_policy.spec.ts"'
+        '"test:research": "vitest --root ../../../.. run tests/frontend/research_recipes.spec.ts tests/frontend/card_selector.spec.tsx tests/frontend/ortools_scenario_ui.spec.ts tests/frontend/ortools_scenario_predicate_capabilities.spec.ts tests/frontend/video_playback_state.spec.ts tests/frontend/video_qr_policy.spec.ts tests/frontend/configuration_schedule.spec.ts"'
         in package
     )
     assert '"openapi-fetch"' not in package

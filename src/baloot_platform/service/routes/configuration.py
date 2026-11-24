@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_serializer
+from pydantic.json_schema import SkipJsonSchema
 
 from baloot_platform.configuration import VersionedConfigurationService
 from baloot_platform.identity import IdentityService
@@ -20,16 +21,30 @@ class LocalSchedule(BaseModel):
     effectiveUntil: str | None = None
 
 
-class ProfileCreateRequest(BaseModel):
+class StoredLocalSchedule(LocalSchedule):
+    zoneDataVersion: str
+
+
+class ScheduleRequest(BaseModel):
+    effectiveFrom: str | None = None
+    effectiveUntil: str | None = None
+    localSchedule: LocalSchedule | SkipJsonSchema[None] = None
+
+    @field_validator("localSchedule")
+    @classmethod
+    def require_schedule_object(cls, value: LocalSchedule | None) -> LocalSchedule:
+        if value is None:
+            raise ValueError("omit localSchedule or provide a schedule object")
+        return value
+
+
+class ProfileCreateRequest(ScheduleRequest):
     family: str
     payload: dict[str, Any]
     scope: str = "global"
     scopeKey: str | None = None
     tenantId: str | None = None
     environment: str | None = None
-    effectiveFrom: str | None = None
-    effectiveUntil: str | None = None
-    localSchedule: LocalSchedule | None = None
     rolloutPercentage: float = Field(100.0, gt=0, le=100)
     rolloutSeed: str = "default"
     supersedesRevisionId: str | None = None
@@ -50,7 +65,7 @@ class TransitionRequest(BaseModel):
     reason: str = Field(min_length=2, max_length=2000)
 
 
-class BundleCreateRequest(BaseModel):
+class BundleCreateRequest(ScheduleRequest):
     bundleId: str = Field(min_length=2, max_length=160)
     version: str
     mode: str = "full"
@@ -59,9 +74,6 @@ class BundleCreateRequest(BaseModel):
     scopeKey: str | None = None
     tenantId: str | None = None
     environment: str | None = None
-    effectiveFrom: str | None = None
-    effectiveUntil: str | None = None
-    localSchedule: LocalSchedule | None = None
     rolloutPercentage: float = Field(100.0, gt=0, le=100)
     rolloutSeed: str = "default"
     supersedesRevisionId: str | None = None
@@ -95,7 +107,7 @@ class ConfigurationBundleRevisionResponse(BaseModel):
     sequence: int = Field(ge=1)
     effectiveFrom: str | None
     effectiveUntil: str | None
-    localSchedule: LocalSchedule | None = None
+    localSchedule: StoredLocalSchedule | SkipJsonSchema[None] = None
     rolloutPercentage: float = Field(gt=0.0, le=100.0)
     rolloutSeed: str
     createdBy: str
@@ -105,6 +117,13 @@ class ConfigurationBundleRevisionResponse(BaseModel):
     publishedAt: str | None
     supersedesRevisionId: str | None
     etag: int = Field(ge=1)
+
+    @model_serializer(mode="wrap")
+    def serialize_revision(self, handler):
+        data = handler(self)
+        if self.localSchedule is None:
+            data.pop("localSchedule", None)
+        return data
 
 
 class ConfigurationBundleListResponse(BaseModel):
@@ -293,7 +312,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
             raise HTTPException(404, "configuration profile revision not found")
         return service.store.events_with_verification("profile", revision_id)
 
-    @router.get("/bundles", response_model=ConfigurationBundleListResponse, response_model_exclude_unset=True)
+    @router.get("/bundles", response_model=ConfigurationBundleListResponse)
     def list_bundles(request: Request, bundleId: str | None = None, scope: str | None = None,
                      scopeKey: str | None = None, tenantId: str | None = None,
                      environment: str | None = None, status: str | None = None, limit: int = 200):
@@ -504,7 +523,6 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         methods=["GET"],
         name="v2_list_configuration_bundles",
         response_model=ConfigurationBundleListResponse,
-        response_model_exclude_unset=True,
     )
     aliases.add_api_route("/bundles", create_bundle, methods=["POST"], status_code=201, name="v2_create_configuration_bundle")
     aliases.add_api_route("/bundles/{revision_id}", get_bundle, methods=["GET"], name="v2_get_configuration_bundle")

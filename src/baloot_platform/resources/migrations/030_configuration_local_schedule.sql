@@ -1,5 +1,7 @@
 BEGIN;
 
+SET LOCAL lock_timeout = '5s';
+
 ALTER TABLE configuration.profile_revisions
   ADD COLUMN IF NOT EXISTS local_schedule jsonb;
 ALTER TABLE configuration.bundle_revisions
@@ -12,14 +14,14 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS guard_local_schedule ON configuration.profile_revisions;
-CREATE TRIGGER guard_local_schedule
+DROP TRIGGER IF EXISTS trg_configuration_profile_local_schedule_immutable ON configuration.profile_revisions;
+CREATE TRIGGER trg_configuration_profile_local_schedule_immutable
   BEFORE UPDATE OF local_schedule ON configuration.profile_revisions
   FOR EACH ROW WHEN (NEW.local_schedule IS DISTINCT FROM OLD.local_schedule)
   EXECUTE FUNCTION configuration.guard_local_schedule();
 
-DROP TRIGGER IF EXISTS guard_local_schedule ON configuration.bundle_revisions;
-CREATE TRIGGER guard_local_schedule
+DROP TRIGGER IF EXISTS trg_configuration_bundle_local_schedule_immutable ON configuration.bundle_revisions;
+CREATE TRIGGER trg_configuration_bundle_local_schedule_immutable
   BEFORE UPDATE OF local_schedule ON configuration.bundle_revisions
   FOR EACH ROW WHEN (NEW.local_schedule IS DISTINCT FROM OLD.local_schedule)
   EXECUTE FUNCTION configuration.guard_local_schedule();

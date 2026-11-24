@@ -60,7 +60,8 @@ $('draftForm').onsubmit = async event => {
       body: JSON.stringify({
         family, payload, scope: $('scope').value, scopeKey: $('scopeKey').value || null,
         tenantId: $('tenantId').value || null, environment: $('environment').value || null,
-        localSchedule, rolloutPercentage: Number($('rolloutPercentage').value || 100),
+        ...(localSchedule ? {localSchedule} : {}),
+        rolloutPercentage: Number($('rolloutPercentage').value || 100),
         rolloutSeed: $('rolloutSeed').value || 'default',
         supersedesRevisionId: state.source?.revisionId || null, publish: false,
       }),

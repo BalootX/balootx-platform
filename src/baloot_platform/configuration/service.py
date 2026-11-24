@@ -24,8 +24,8 @@ from .models import (
     ResolutionContext,
     RevisionStatus,
     digest,
-    parse_instant,
 )
+from .schedule import parse_instant, verify_schedule
 
 _SEMVER = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
@@ -406,7 +406,17 @@ class VersionedConfigurationService:
         return result.to_dict()
 
     @staticmethod
+    def _verify_schedule(revision: Any) -> None:
+        verify_schedule(
+            revision.revision_id,
+            revision.effective_from,
+            revision.effective_until,
+            revision.local_schedule,
+        )
+
+    @staticmethod
     def _eligible(revision: Any, context: ResolutionContext) -> bool:
+        VersionedConfigurationService._verify_schedule(revision)
         now = parse_instant(context.at_time, "atTime") or datetime.now(timezone.utc)
         start = parse_instant(revision.effective_from, f"{revision.revision_id}.effectiveFrom")
         end = parse_instant(revision.effective_until, f"{revision.revision_id}.effectiveUntil")
@@ -543,6 +553,7 @@ class VersionedConfigurationService:
                 raise PermissionError(
                     "runtime resolution requires a published revision"
                 )
+            self._verify_schedule(revision)
             result = revision.to_dict()
             result["resolutionTrace"] = [
                 {"scope": "exact_revision", "revisionId": revision_id}
@@ -951,6 +962,8 @@ class VersionedConfigurationService:
                     break
         if bundle is None:
             raise KeyError("published configuration bundle not found")
+        if revision_id is not None:
+            self._verify_schedule(bundle)
         exact_historical = (
             revision_id is not None and (
                 bundle.status == RevisionStatus.SUPERSEDED.value
@@ -973,6 +986,7 @@ class VersionedConfigurationService:
                 raise RuntimeError(
                     f"configuration bundle references missing revision {rid}"
                 )
+            self._verify_schedule(revision)
             if (
                 revision.status
                 not in {

@@ -75,7 +75,7 @@ REQUIRED_MIGRATION_HASHES = {
         "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"
     ),
     "030_configuration_local_schedule.sql": (
-        "548aee7fc30c6a1ba88bf0fd99a868f19fb826e062cd7ee4de3c7cf5fa37a2c8"
+        "314fde4a8203348f10791f2494933b7cba7b0b57e36f0914c57d7a0177b3acf6"
     ),
 }
 CONFIGURATION_V25_CONSTRAINTS = frozenset(
@@ -3636,7 +3636,10 @@ def _prove_configuration_v25_schema(database_url: str) -> dict[str, Any]:
                  ON function_row.oid=trigger_row.tgfoid
                WHERE namespace.nspname='configuration'
                  AND NOT trigger_row.tgisinternal
-                 AND trigger_row.tgname LIKE 'trg_configuration_%_immutable'
+                 AND trigger_row.tgname IN (
+                   'trg_configuration_profile_immutable',
+                   'trg_configuration_bundle_immutable'
+                 )
                ORDER BY 1,2"""
         ).fetchall()
         policy_rows = connection.execute(
@@ -3793,7 +3796,9 @@ def _prove_configuration_schedule(store: Any, components: dict[str, str]) -> Non
         if (
             saved is None
             or saved != revision
-            or saved.local_schedule != local
+            or saved.local_schedule is None
+            or {key: saved.local_schedule[key] for key in local} != local
+            or not saved.local_schedule.get("zoneDataVersion")
             or saved.effective_from != "2026-07-01T16:00:00+00:00"
         ):
             raise ProofError("PostgreSQL local schedule did not round-trip")
