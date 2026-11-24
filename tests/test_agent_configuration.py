@@ -269,7 +269,7 @@ def test_zero_configured_mistakes_are_not_reintroduced_by_skill(
 
 
 def test_unknown_search_mode_fails_closed():
-    with pytest.raises(ValueError, match="search mode"):
+    with pytest.raises(ValueError) as caught:
         AgentProfile.from_mapping(
             "invalid",
             {
@@ -277,15 +277,24 @@ def test_unknown_search_mode_fails_closed():
             },
         )
 
+    assert str(caught.value) == (
+        "play_search_mode: use one of 'disabled', 'paired_information_set'"
+    )
+
 
 def test_unknown_search_objective_fails_closed():
-    with pytest.raises(ValueError, match="search objective"):
+    with pytest.raises(ValueError) as caught:
         AgentProfile.from_mapping(
             "invalid",
             {
                 "play_search_objective": "win_somehow",
             },
         )
+
+    assert str(caught.value) == (
+        "play_search_objective: use one of 'contract_success', 'cvar', "
+        "'low_volatility', 'match_point_margin', 'match_win_probability', 'round_margin'"
+    )
 
 
 def test_agent_search_node_budget_is_enforced_at_analysis_boundary(
