@@ -961,6 +961,13 @@ class ResearchExecutionContextFactoryV1:
         )
         if str(resolved["bundle"]["revisionId"]) != str(bundle_revision_id):
             raise KeyError("exact Research configuration bundle revision not found")
+        return self.context_from_resolved(resolved, require_published=require_published)
+
+    def context_from_resolved(
+        self, resolved: Mapping[str, Any], *, require_published: bool = True
+    ) -> tuple[EffectiveRuntimeConfigV2, ResearchExecutionContextV1]:
+        """Build a context from a bundle already verified by configuration resolution."""
+        bundle_revision_id = str(resolved["bundle"]["revisionId"])
         if require_published and str(resolved["bundle"].get("status")) != "published":
             raise ValueError("new Research recipes require a published bundle revision")
         with self._lock:

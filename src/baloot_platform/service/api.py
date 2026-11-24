@@ -350,30 +350,6 @@ app = FastAPI(
 app.add_exception_handler(ConfigurationIntegrityError, configuration_integrity_response)
 
 
-if CONTAINER.configuration_error is not None:
-    boot_error = CONTAINER.configuration_error
-
-    def unavailable_configuration(app):
-        async def guarded(scope, receive, send):
-            if scope["type"] == "websocket":
-                await send({"type": "websocket.close", "code": 1013})
-                return
-            if scope["type"] == "http" and scope["path"] not in {"/healthz", "/api/v1/health", "/metrics"}:
-                response = await configuration_integrity_response(Request(scope, receive), boot_error)
-                await response(scope, receive, send)
-                return
-            await app(scope, receive, send)
-
-        return guarded
-
-    app.add_middleware(unavailable_configuration)
-
-
-@app.exception_handler(SearchTimeBudgetExceeded)
-async def search_time_budget_exceeded(_request: Request, exc: SearchTimeBudgetExceeded):
-    return JSONResponse(status_code=409, content={"detail": exc.to_detail()})
-
-
 app.state.identity_service = IDENTITY
 app.state.sakka_service = SAKKA
 app.state.shared_service = SAKKA
@@ -818,6 +794,30 @@ async def platform_security(request: Request, call_next):
         "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
     )
     return response
+
+
+if CONTAINER.configuration_error is not None:
+    boot_error = CONTAINER.configuration_error
+
+    def unavailable_configuration(app):
+        async def guarded(scope, receive, send):
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1013})
+                return
+            if scope["type"] == "http" and scope["path"] not in {"/healthz", "/api/v1/health", "/metrics"}:
+                response = await configuration_integrity_response(Request(scope, receive), boot_error)
+                await response(scope, receive, send)
+                return
+            await app(scope, receive, send)
+
+        return guarded
+
+    app.add_middleware(unavailable_configuration)
+
+
+@app.exception_handler(SearchTimeBudgetExceeded)
+async def search_time_budget_exceeded(_request: Request, exc: SearchTimeBudgetExceeded):
+    return JSONResponse(status_code=409, content={"detail": exc.to_detail()})
 
 
 class VideoJobRequest(BaseModel):

@@ -505,6 +505,7 @@ def _build_container(
             raise
         logging.getLogger(__name__).error("Runtime configuration unavailable: %s", exc)
         configuration_error = exc
+        resolved_configuration = None
         # The HTTP app uses these defaults to construct routes while traffic is blocked.
         bundle = packaged_bundle
         runtime_identity = {"revisionId": "", "version": bundle.bundle_profile["profile"]["version"]}
@@ -1564,14 +1565,15 @@ def _build_container(
         active_bundle=bundle,
         active_exact_search_backend=exact_search_backend,
     )
-    _, active_research_context = research_execution_contexts.resolve_bundle_revision(
-        str(resolved_configuration["bundle"]["revisionId"])
-    )
-    if (
-        active_research_context.compiled_domain.compiled.sha256
-        != compiled_research_domain.compiled.sha256
-    ):
-        raise ValueError("active Research compiled-domain identity mismatch")
+    if resolved_configuration is not None:
+        _, active_research_context = research_execution_contexts.context_from_resolved(
+            resolved_configuration
+        )
+        if (
+            active_research_context.compiled_domain.compiled.sha256
+            != compiled_research_domain.compiled.sha256
+        ):
+            raise ValueError("active Research compiled-domain identity mismatch")
     research = ResearchFoundryServiceV1(
         domain=research_domain,
         compiled_domain=compiled_research_domain,
