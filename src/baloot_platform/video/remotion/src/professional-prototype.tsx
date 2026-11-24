@@ -1,7 +1,7 @@
 import React from "react";
 import {QRCodeSVG} from "qrcode.react";
 import {AbsoluteFill, Artifact, cancelRender, continueRender, delayRender, Easing, Img, interpolate, staticFile, useCurrentFrame} from "remotion";
-import {playbackMotionTiming, trickCollectionProgress} from "../scripts/playback-timing.mjs";
+import {playbackMotionTiming, trickCollectionProgress} from "./playback-timing.mjs";
 import {
   derivePlaybackState,
   collectionOpacity,

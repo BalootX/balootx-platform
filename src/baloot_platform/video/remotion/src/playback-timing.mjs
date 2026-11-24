@@ -28,7 +28,7 @@ export const trickCollectionProgress = (playAge, {collectionFrames, collectionSt
     : Math.min(1, Math.max(0, (playAge - collectionStart) / collectionFrames));
 
 /**
- * @param {import("../src/types").RenderBundle} bundle
+ * @param {import("./types").RenderBundle} bundle
  * @returns {[number, number]}
  */
 export const trickCollectionSampleFrameRange = ({timeline, scenes, presentation}) => {

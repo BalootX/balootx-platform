@@ -7,7 +7,7 @@ import {bundle} from "@remotion/bundler";
 import {openBrowser, renderMedia, renderStill, selectComposition} from "@remotion/renderer";
 import {bt709FfmpegOverride} from "./ffmpeg-profile.mjs";
 import {writeFileWithRetry} from "./fs-safe.mjs";
-import {trickCollectionSampleFrameRange} from "./playback-timing.mjs";
+import {trickCollectionSampleFrameRange} from "../src/playback-timing.mjs";
 import {cgroupCpuLimit, governedH264Options, hostSafeConcurrency, readValidatedRenderBundle} from "./render-options.mjs";
 
 const rendererRoot = process.cwd();

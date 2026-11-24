@@ -11,7 +11,7 @@ vi.mock("../../src/baloot_platform/video/remotion/node_modules/remotion/dist/esm
 }));
 
 import {ProfessionalPrototypeFrame} from "../../src/baloot_platform/video/remotion/src/professional-prototype.js";
-import {trickCollectionSampleFrameRange} from "../../src/baloot_platform/video/remotion/scripts/playback-timing.mjs";
+import {trickCollectionSampleFrameRange} from "../../src/baloot_platform/video/remotion/src/playback-timing.mjs";
 import {
   derivePlaybackState,
   type PlaybackPlay,

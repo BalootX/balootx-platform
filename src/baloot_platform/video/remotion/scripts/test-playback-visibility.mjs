@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import ts from "typescript";
-import {playbackMotionTiming, trickCollectionProgress} from "./playback-timing.mjs";
+import {playbackMotionTiming, trickCollectionProgress} from "../src/playback-timing.mjs";
 
 const source = readFileSync(new URL("../src/playback-state.ts", import.meta.url), "utf8");
 const {outputText} = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.ESNext}});

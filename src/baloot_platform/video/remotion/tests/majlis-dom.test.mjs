@@ -1,7 +1,7 @@
 // Server-renders the Majlis frame (no browser) and checks the selectors that
 // playback DOM capture and media checks depend on, plus the palette contract.
 import assert from "node:assert/strict";
-import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
+import {copyFileSync, mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {test} from "node:test";
 import ts from "typescript";
 import {checkLayoutGeometry, loadLayoutTable, sha256} from "../scripts/layout-gate.mjs";
@@ -31,6 +31,7 @@ export const cancelRender = (error) => { throw error; };
 export const useCurrentFrame = () => 0;
 `);
 transpile("playback-state.ts");
+copyFileSync(new URL("../src/playback-timing.mjs", import.meta.url), new URL("playback-timing.mjs", out));
 transpile("professional-prototype.tsx", (text) => text
   .replace('import "./style.css";', "")
   .replace('} from "remotion";', '} from "./remotion-stub.mjs";')
