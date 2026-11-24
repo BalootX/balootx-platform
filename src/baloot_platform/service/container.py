@@ -597,10 +597,7 @@ def _build_container(
     games.learning_service = learning
 
     identity_profile = bundle.component("identity")
-    pagination = identity_profile.get("pagination")
-    if pagination is None:
-        pagination = packaged_bundle.component("identity")["pagination"]
-    identity_pagination = IdentityPaginationConfig.model_validate(pagination)
+    identity_pagination = IdentityPaginationConfig.model_validate(identity_profile["pagination"])
     identity_store = _own(
         owned_resources,
         PostgresIdentityStore(dsn)

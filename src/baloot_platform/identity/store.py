@@ -30,7 +30,7 @@ class _IdentityLists:
         return self._read_page_rows(
             f"""WITH exact AS (
                   SELECT '0' AS search_rank,{fields} FROM {self.subjects}
-                  WHERE disabled_at IS NULL AND username IN ({p},{p})
+                  WHERE disabled_at IS NULL AND username = {p}
                   ORDER BY subject_id LIMIT 1
                 ), matches AS (
                   SELECT '1' AS search_rank,{fields}
@@ -42,7 +42,7 @@ class _IdentityLists:
                 )
                 SELECT * FROM (SELECT * FROM exact UNION ALL SELECT * FROM matches) AS candidates
                 {seek} ORDER BY search_rank,subject_id LIMIT {p}""",
-            (query, query.lower(), needle, needle, maximum_results, *after, limit),
+            (query.lower(), needle, needle, maximum_results, *after, limit),
         )
 
     def _friend_neighbors(

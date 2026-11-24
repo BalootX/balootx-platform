@@ -65,7 +65,13 @@ def test_identity_pagination_configuration_is_validated(root):
 
     path = root / "configs/identity/optional_simple_v1.yaml"
     profile = load_profile_payload("identity", path, root=root)
-    settings = profile["pagination"]
+    settings = profile.pop("pagination")
+    with pytest.raises(ValueError, match="'pagination' is a required property"):
+        validate_profile_payload("identity", profile, root=root)
+    with pytest.raises(ValueError, match="pagination: Additional properties are not allowed"):
+        validate_profile_payload(
+            "identity", {**profile, "pagination": {**settings, "unexpected": True}}, root=root
+        )
     with pytest.raises(ValueError, match="must not exceed"):
         validate_profile_payload(
             "identity", {**profile, "pagination": {**settings, "default_page_size": settings["maximum_page_size"] + 1}},
@@ -255,6 +261,7 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
             pagination = IdentityPaginationConfig(
                 default_page_size=13, maximum_page_size=21,
                 minimum_search_query_length=3, maximum_search_query_length=20, maximum_search_results=64,
+                allow_guest_search=False,
             )
             app = FastAPI()
             app.include_router(build_auth_router(service, pagination=pagination))

@@ -20,7 +20,7 @@ class IdentityPaginationConfig(BaseModel):
     minimum_search_query_length: int = Field(gt=0, strict=True)
     maximum_search_query_length: int = Field(gt=0, strict=True)
     maximum_search_results: int = Field(gt=0, strict=True)
-    allow_guest_search: bool = Field(default=False, strict=True)
+    allow_guest_search: bool = Field(strict=True)
 
     @model_validator(mode="after")
     def validate_bounds(self) -> Self:

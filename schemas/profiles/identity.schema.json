@@ -95,6 +95,35 @@
       "type": "string"
     },
     "pagination": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_guest_search": {
+          "type": "boolean"
+        },
+        "default_page_size": {
+          "type": "integer"
+        },
+        "maximum_page_size": {
+          "type": "integer"
+        },
+        "maximum_search_query_length": {
+          "type": "integer"
+        },
+        "maximum_search_results": {
+          "type": "integer"
+        },
+        "minimum_search_query_length": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "allow_guest_search",
+        "default_page_size",
+        "maximum_page_size",
+        "maximum_search_query_length",
+        "maximum_search_results",
+        "minimum_search_query_length"
+      ],
       "type": "object"
     },
     "profile": {
@@ -148,6 +177,7 @@
     "guest",
     "local_accounts",
     "mode",
+    "pagination",
     "profile",
     "providers",
     "schema_version"
