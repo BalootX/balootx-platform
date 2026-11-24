@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from numbers import Number
 from typing import Iterable, Iterator
 
 from .enums import Rank, Suit
@@ -39,11 +40,19 @@ class Card:
         if isinstance(value, cls):
             return value
         try:
+            if isinstance(value, bool):
+                raise ValueError("card id must be an integer")
             if isinstance(value, int):
                 return cls(value)
             if isinstance(value, dict):
                 if "id" in value:
-                    return cls(int(value["id"]))
+                    raw_id = value["id"]
+                    card_id = int(raw_id)
+                    if isinstance(raw_id, bool) or (
+                        isinstance(raw_id, Number) and raw_id != card_id
+                    ):
+                        raise ValueError("card id must be an integer")
+                    return cls(card_id)
                 return cls.of(
                     Suit.parse(value["suit"]),
                     Rank.parse(value["rank"]),
@@ -52,8 +61,12 @@ class Card:
             if len(text) < 2:
                 raise ValueError("card code must include suit and rank")
             return cls.of(Suit.parse(text[0]), Rank.parse(text[1:]))
-        except (KeyError, TypeError, IndexError, ValueError) as exc:
-            raise ValueError(f"invalid card: {value!r}") from exc
+        except (KeyError, TypeError, IndexError, ValueError, OverflowError) as exc:
+            try:
+                description = repr(value)
+            except ValueError:
+                description = f"<{type(value).__name__}>"
+            raise ValueError(f"invalid card: {description}") from exc
 
     def to_dict(self) -> dict[str, object]:
         return {
