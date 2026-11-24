@@ -583,14 +583,19 @@ jobs:
         id: video-worker-build-cache
         with: &video-worker-build-cache
           path: ${{ runner.temp }}/video-worker-build-cache
-          key: ${{ runner.os }}-video-worker-build-${{ hashFiles('Dockerfile', '.dockerignore', 'pyproject.toml', 'src/baloot_platform/video/remotion/package*.json') }}
+          key: ${{ runner.os }}-video-worker-build-${{ hashFiles('Dockerfile', 'ci/Dockerfile.buildkit', '.dockerignore', 'pyproject.toml', 'requirements-docker.txt', 'src/baloot_platform/video/remotion/package*.json') }}
       - name: Build the video worker
         shell: bash
         env:
           CACHE_HIT: ${{ steps.video-worker-build-cache.outputs.cache-hit }}
           MAIN_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
-          docker buildx create --driver docker-container --use
+          read -r instruction buildkit_image extra < ci/Dockerfile.buildkit
+          if [[ "$instruction" != FROM || -n "$extra" || ! "$buildkit_image" =~ ^moby/buildkit:[^@]+@sha256:[0-9a-f]{64}$ ]]; then
+            echo 'ci/Dockerfile.buildkit must declare one digest-pinned BuildKit image' >&2
+            exit 1
+          fi
+          docker buildx create --driver docker-container --driver-opt "image=$buildkit_image" --use
           cache_dir="$RUNNER_TEMP/video-worker-build-cache"
           cache_args=()
           if [[ "$CACHE_HIT" == 'true' ]]; then
@@ -603,9 +608,18 @@ jobs:
         run: |
           docker run --rm --network none --workdir /check \
             --mount "type=bind,source=$GITHUB_WORKSPACE/src/baloot_platform/video/remotion/package-lock.json,target=/check/package-lock.json,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/requirements-docker.txt,target=/check/requirements-docker.txt,readonly" \
             --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/remotion_image_parity.py,target=/check/scripts/remotion_image_parity.py,readonly" \
             balootx-video-worker-parity sh -ec '
               sha256sum --check --strict /opt/baloot-remotion/.lock-sha256
+              cmp requirements-docker.txt /opt/baloot-build/requirements-docker.txt
+              python -m pip list --format=freeze --exclude pip --exclude baloot-platform > /tmp/render-pip.txt
+              if grep -Fixv -f requirements-docker.txt /tmp/render-pip.txt; then
+                echo "Unexpected Python package versions in the worker" >&2
+                exit 1
+              else
+                test "$?" -eq 1
+              fi
               exec python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules package-lock.json
             '
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.video-worker-build-cache.outputs.cache-hit != 'true'
