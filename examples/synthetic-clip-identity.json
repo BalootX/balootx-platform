@@ -1,0 +1,13 @@
+{
+  "enrollment_uri_template": "balootx://g/{game_serial}",
+  "default_player_names": {
+    "north": "بدر",
+    "east": "زياد",
+    "south": "سعد",
+    "west": "حسن"
+  },
+  "player_name_pool": [
+    "بدر", "زياد", "سعد", "حسن", "عمر", "ماجد", "سامي", "طلال",
+    "فارس", "أيمن", "حمد", "سالم", "نايف", "ريان", "مهند", "هادي"
+  ]
+}

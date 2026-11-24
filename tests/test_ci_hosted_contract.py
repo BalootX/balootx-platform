@@ -257,7 +257,14 @@ def test_nightly_candidates_serializes_runs_and_retains_failure_evidence(root):
     assert workflow[True] == {"schedule": [{"cron": "17 0 * * *"}], "workflow_dispatch": None}
     assert workflow["concurrency"] == {"group": "nightly-candidates", "cancel-in-progress": False}
     assert workflow["permissions"] == {"contents": "read"}
-    job, = workflow["jobs"].values()
+    job = workflow["jobs"]["nightly-candidates"]
+    seal = workflow["jobs"]["seal-pool"]
+    assert job["strategy"]["matrix"] == {"shard": [0, 1, 2, 3]}
+    assert seal["needs"] == "nightly-candidates"
+    assert seal["runs-on"] == "ubuntu-24.04"
+    assert seal["steps"][-1]["with"]["retention-days"] == 3
+    assert "sha256sum --check --strict SHA256SUMS.txt" in seal["steps"][-2]["run"]
+    assert "secrets." not in json.dumps(workflow["jobs"])
     assert job["runs-on"] == "ubuntu-24.04" and job["timeout-minutes"] == 25
     assert "permissions" not in job
     for step in job["steps"]:
