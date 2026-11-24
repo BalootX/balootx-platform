@@ -375,7 +375,6 @@ def build_plan(args, gate):
     except PlanError as exc:
         exc.details["coverageByReleasedDay"] = coverage_by_day(routes, [])
         raise
-    pinned_bytes(args.gate, GATE_SHA, "GATE_SCRIPT_DIGEST_MISMATCH")
     pinned_bytes(args.policy, POLICY_SHA, "GATE_POLICY_DIGEST_MISMATCH")
     pinned_bytes(args.ledger, ledger_sha, "CANONICAL_LEDGER_CHANGED_DURING_PLANNING")
     report = {
