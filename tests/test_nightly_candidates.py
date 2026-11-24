@@ -279,3 +279,50 @@ def test_unexpected_failure_finalizes_index(batch, monkeypatch, stage):
     assert index["status"] == "failed"
     assert index["stage"] == stage
     assert index["reason"] == "AssertionError"
+
+
+def test_r8_synthetic_fixtures_replay_to_the_exact_expected_scores(rules):
+    from baloot_platform.research.lesson_tags import classify_public_mechanism_v1
+
+    fixture_dir = nightly.notice.ROOT / "examples" / "research-r8"
+    fixtures = sorted(fixture_dir.glob("*.json"))
+    assert len(fixtures) == 10
+    profile = nightly.notice.notice_profile(public=True)
+    normalizer = nightly.ExactStateNormalizerV1(rules)
+    deal_hashes = set()
+    families = set()
+
+    for fixture in fixtures:
+        data = json.loads(fixture.read_bytes())
+        expected = data["expected"]
+        state = normalizer.normalize(data["exactTracePrefix"])
+        assert state.next_actor == expected["actingSeat"]
+        assert state.state["buyer"] == expected["buyer"]
+        assert [row["code"] for row in state.legal_actions] == expected[
+            "legalRootActions"
+        ]
+        mechanism = classify_public_mechanism_v1(
+            rules=rules,
+            current_trick=state.state["currentTrick"] or {"plays": []},
+            contract=state.state["contract"],
+            trump=state.state.get("trumpSuit"),
+            action=expected["selectedAction"],
+        )
+        assert mechanism == data["rulesMeaning"]["mechanism"]
+        assert "caption" not in data
+        families.add(data["scenarioFamily"])
+        deal_hashes.add(state.round_state.shuffle.deck_commitment)
+
+        final = nightly.notice.engine_round_result(rules, fixture)
+        assert all(
+            final["roundScore"][key] == value
+            for key, value in expected["roundScore"].items()
+        )
+        bundle = nightly.notice.build_notice_bundle(
+            rules, profile, fixture=fixture, golden=data["scenarioId"]
+        )
+        nightly.notice.validate_notice_bundle(
+            bundle, final, public=True, fixture=fixture
+        )
+
+    assert len(deal_hashes) == len(families) == len(fixtures)

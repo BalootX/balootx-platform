@@ -1,0 +1,245 @@
+{
+  "construction": {
+    "method": "seeded_shuffle_and_legal_play",
+    "seed": 261202099
+  },
+  "exactTracePrefix": {
+    "auctionActions": [
+      {
+        "action": "sun",
+        "actor": "east"
+      }
+    ],
+    "dealer": "south",
+    "deckOrder": [
+      4,
+      11,
+      2,
+      22,
+      30,
+      26,
+      31,
+      20,
+      16,
+      0,
+      25,
+      6,
+      10,
+      5,
+      13,
+      19,
+      27,
+      23,
+      29,
+      8,
+      7,
+      17,
+      18,
+      1,
+      12,
+      15,
+      28,
+      21,
+      9,
+      14,
+      24,
+      3
+    ],
+    "matchScore": [
+      0,
+      0
+    ],
+    "playActions": [
+      {
+        "actor": "east",
+        "card": "H10",
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": "HQ",
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": "H8",
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": "HK",
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": "SJ",
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": "S8",
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": "DJ",
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": "SK",
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": "S7",
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": "S9",
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": "HA",
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": "CJ",
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": "SQ",
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": "HJ",
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": "CA",
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": "S10",
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": "CQ",
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": "H9",
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": "CK",
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": "C10",
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": "DA",
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": "H7",
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": "D9",
+        "ekka": false
+      }
+    ],
+    "projectDeclarations": [],
+    "roundNumber": 1,
+    "schemaVersion": 1
+  },
+  "expected": {
+    "actingSeat": "north",
+    "buyer": "east",
+    "claimSatisfied": true,
+    "completionStatus": "exact_complete",
+    "contract": "sun",
+    "legalRootActions": [
+      "D10",
+      "DK"
+    ],
+    "phase": "playing",
+    "principalVariation": [
+      "DK",
+      "D7",
+      "C7",
+      "D8",
+      "D10",
+      "C9",
+      "DQ",
+      "C8",
+      "SA"
+    ],
+    "rootValues": {
+      "D10": -1,
+      "DK": 1
+    },
+    "roundScore": {
+      "awardedPoints": [
+        26,
+        0
+      ],
+      "balootPoints": [
+        0,
+        0
+      ],
+      "cardGamePoints": [
+        14,
+        12
+      ],
+      "projectPoints": [
+        0,
+        0
+      ],
+      "winner": "north_south"
+    },
+    "selectedAction": "DK",
+    "winningRootActionCount": 1
+  },
+  "proof": {
+    "budgetProfile": "late_game_exact_v1",
+    "claim": "selected_action_is_unique_winner",
+    "lineUniverse": "all_legal",
+    "mode": "exact",
+    "schemaVersion": 1,
+    "selectedAction": "DK",
+    "successThreshold": 1,
+    "targetTeam": "north_south",
+    "utility": "round_win",
+    "visibility": "complete_state"
+  },
+  "rulesMeaning": {
+    "actingSeat": "north",
+    "buyer": "east",
+    "contract": "sun",
+    "mechanism": "FOLLOW_SUIT_UNDERPLAY",
+    "successMeaning": "north_south wins the round",
+    "successThreshold": 1
+  },
+  "scenarioFamily": "duck-established-ace-preserve-ten-entry",
+  "scenarioId": "sun-single-winner-r8-261202099-23-v1",
+  "schemaVersion": 1,
+  "titleAr": "وش تلعب؟"
+}
