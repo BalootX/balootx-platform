@@ -21,7 +21,7 @@ const cases = [
   {name: "viewer-dealer-east-buyer", observer: "west", buyer: "south", dealer: "west", contract: "ashkal", pause: 27},
   {name: "east-dealer-and-buyer", observer: "north", buyer: "west", dealer: "west", contract: "sun", pause: 27},
   {name: "west-buyer", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26},
-  {name: "viewer-buyer", observer: "south", buyer: "south", dealer: "east", contract: "sun", pause: 26, allPhases: true},
+  {name: "viewer-buyer", observer: "south", buyer: "south", dealer: "east", contract: "sun", allPhases: true},
   {name: "wide-west-buyer", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26, wideName: true},
   {name: "uncalibrated-prompt-hud-contact", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26, reject: true},
 ];
@@ -38,26 +38,23 @@ try {
     if (reject) fixture.presentation.safe_areas.bottom_px = 1310;
     fixture.audioCues = [];
     fixture.scenes.forEach(scene => { scene.observer = observer; });
-    const turnOrder = seats.map((_, index) => seats[(seats.indexOf(observer) + index + 1) % seats.length]);
-    const trickPlays = turnOrder.slice(0, pause % 4).map((seat, index) => ({seat, card: cards[index]}));
-    const hands = Object.fromEntries(turnOrder.map((seat, index) => [seat, 2 - Number(index < trickPlays.length)]));
-    Object.assign(layer(fixture, "context", "public-lifecycle"), {
+    const lifecycle = layer(fixture, "context", "public-lifecycle");
+    Object.assign(lifecycle, {
       buyer, dealer, contract, purchaseCard: cards[4], bidHistory: [{seat: buyer, action: contract, round: 1}],
-      pauseBeforePlayIndex: pause,
     });
-    const decisionTable = {buyer, dealer, contract, currentPlayer: observer, currentTrick: {plays: trickPlays}};
-    const observerHand = {seat: observer, cards: cards.slice(5, 7)};
-    for (const stage of allPhases ? ["question", "reveal"] : ["question"]) {
-      Object.assign(layer(fixture, stage, "table"), decisionTable);
-      Object.assign(layer(fixture, stage, "observer-hand"), observerHand);
-      layer(fixture, stage, "seats").handCounts = hands;
-    }
     layer(fixture, "question", "decision-prompt").actingSeat = observer;
     if (allPhases) {
-      const card = observerHand.cards[1];
-      Object.assign(layer(fixture, "reveal", "analysis"), {
-        selectedAction: card.code, recommendedAction: {kind: "play_card", card},
-      });
+      // Question and reveal replay the prototype trace, so keep its hand and answer together.
+      const answer = layer(fixture, "reveal", "analysis");
+      answer.selectedAction = answer.recommendedAction.card.code;
+    } else {
+      const turnOrder = seats.map((_, index) => seats[(seats.indexOf(observer) + index + 1) % seats.length]);
+      const trickPlays = turnOrder.slice(0, pause % 4).map((seat, index) => ({seat, card: cards[index]}));
+      const hands = Object.fromEntries(turnOrder.map((seat, index) => [seat, 2 - Number(index < trickPlays.length)]));
+      lifecycle.pauseBeforePlayIndex = pause;
+      Object.assign(layer(fixture, "question", "table"), {buyer, dealer, contract, currentPlayer: observer, currentTrick: {plays: trickPlays}});
+      Object.assign(layer(fixture, "question", "observer-hand"), {seat: observer, cards: cards.slice(5, 7)});
+      layer(fixture, "question", "seats").handCounts = hands;
     }
 
     const input = path.join(work, `${name}.json`);
