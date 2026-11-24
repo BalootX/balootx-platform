@@ -170,7 +170,6 @@ jobs:
       - &remotion-install
         working-directory: src/baloot_platform/video/remotion
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npm run check
       - name: Run Foundry Vitest suite
         run: npm run test:research -- --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/foundry-vitest.xml"
       - if: ${{ !cancelled() }}

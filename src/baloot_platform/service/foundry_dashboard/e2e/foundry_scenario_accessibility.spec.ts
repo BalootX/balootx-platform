@@ -55,12 +55,15 @@ test('optional proof group can be enabled, configured and removed visually witho
   const version = group.getByRole('combobox').first();
   await expect(version).toHaveValue('');
   await version.selectOption('2');
-  await expect(group.getByRole('spinbutton')).toHaveCount(3);
-  for (const input of await group.getByRole('spinbutton').all()) await expect(input).toHaveValue('');
-  await expect(group.getByRole('combobox').nth(1)).toHaveValue('information_set_refutation_v1');
-  await group.getByRole('spinbutton').nth(0).fill('512');
-  await group.getByRole('spinbutton').nth(1).fill('120');
-  await group.getByRole('spinbutton').nth(2).fill('46');
+  const field = (key: string) => group.locator(`#config-scenarioResearchV4-qualityExecution-bidAlternativeProof-${key}`);
+  await expect(field('schemaVersion')).toBeDisabled();
+  await expect(field('schemaVersion')).toHaveValue('2');
+  await expect(field('method')).toHaveValue('information_set_refutation_v1');
+  await expect(group.locator('input[type="number"]:enabled')).toHaveCount(3);
+  for (const [name, value] of [['maximumQueries', '512'], ['maximumSeconds', '120'], ['upperBound', '46']]) {
+    await expect(field(name)).toHaveValue('');
+    await field(name).fill(value);
+  }
   await group.screenshot({path:test.info().outputPath('configured-proof-group.png')});
   await group.locator(':scope > summary > button').click();
   await expect(group).toHaveCount(0);
@@ -116,9 +119,11 @@ test('intelligent quality controls preserve per-decision settings in the recipe'
   expect(heuristicPayload.playingQuality.decisions.play.horizon.value).toBe(3);
   await page.getByRole('button', {name: 'افحص الوصفة', exact: true}).click();
   await expect(page.getByRole('button', {name: 'احسب التكلفة والوقت', exact: true})).toBeEnabled();
+  await quality.locator('select[name="playing-quality-visibility"]').selectOption('actor_information_set');
   await quality.locator('input[name="playing-quality-mode"][value="exact"]').check();
   const exactPayload = JSON.parse(await preview.locator('pre').innerText());
   expect(exactPayload.playingQuality.mode).toBe('exact');
+  expect(exactPayload.playingQuality.visibility).toBe('actor_information_set');
   expect(exactPayload.playingQuality.decisions.bid).toEqual({
     utility: 'awarded_point_margin',
     budgetProfile: 'actor_information_set_exact_v1',
@@ -286,9 +291,12 @@ test('native drawer confines focus, exposes its accessibility tree, and restores
 });
 
 test('distinct performance metrics follow the selected governed copy capability', async ({page}) => {
+  await page.route((url) => url.pathname === '/api/v2/research-runs', (route) => route.fulfill({json: {
+    items: [{runCode: 'RUN-PERFORMANCE-COPY', recipeCode: 'RCP-PERFORMANCE-COPY', status: 'completed'}],
+  }}));
   await page.goto('/foundry?section=overview');
   const distinctMetrics = page.locator('[data-performance-metric^="distinct-"]');
-  await expect(page.locator('.readiness-item').first()).toBeVisible();
+  await expect(page.locator('.research-performance-summary')).toBeVisible();
   await expect(distinctMetrics).toHaveCount(0);
 
   await page.locator('.workspace-nav button').nth(1).click();
@@ -349,32 +357,24 @@ test('@zoom drawer remains operable and contained at 200 percent zoom', async ({
 test('shows provisional solver variants while the selected research run is still running', async ({page}) => {
   const runCode = 'RUN-PROGRESSIVE-RESULT';
   const candidateHash = 'A'.repeat(64);
-  let runReads = 0;
-  await page.route((url) => url.pathname === '/api/v2/research-runs', async (route) => {
-    runReads += 1;
-    await route.fulfill({json: {items: [{
-      runCode,
-      recipeCode: 'RCP-PROGRESSIVE-RESULT',
-      status: 'running',
-      progress: 0.5,
-      resultCount: 1,
-      qualifiedCount: 1,
-      quarantineCount: 0,
-      campaignProgress: {
-        state: 'running',
-        provisionalResults: runReads > 1 ? [{
-          schemaVersion: 1,
-          candidateHash,
-          exactStateId: 'STATE-00000000000000000000',
-          decisionKind: 'play',
-          contract: 'sun',
-          actingSeat: 'west',
-          proofCompletionStatus: 'exact_complete',
-          winningRootActionCount: 1,
-          selectedAction: 'play:spades:ace',
-        }] : [],
-      },
-    }]}});
+  const run = {
+    runCode, recipeCode: 'RCP-PROGRESSIVE-RESULT', status: 'running',
+    progress: 0.5, resultCount: 1, qualifiedCount: 1, quarantineCount: 0,
+  };
+  await page.route((url) => url.pathname === '/api/v2/research-runs', (route) =>
+    route.fulfill({json: {items: [run]}}));
+  let detailReads = 0;
+  await page.route((url) => url.pathname === `/api/v2/research-runs/${runCode}`, (route) => {
+    detailReads += 1;
+    return route.fulfill({json: {...run, campaignProgress: {
+      state: 'running',
+      provisionalResults: [{
+        schemaVersion: 1, candidateHash, exactStateId: 'STATE-00000000000000000000',
+        decisionKind: 'play', contract: 'sun', actingSeat: 'west',
+        proofCompletionStatus: 'exact_complete', winningRootActionCount: 1,
+        selectedAction: 'play:spades:ace',
+      }],
+    }}});
   });
   await page.route((url) => url.pathname === '/api/v2/research-results', async (route) => {
     await route.fulfill({json: {
@@ -389,10 +389,10 @@ test('shows provisional solver variants while the selected research run is still
   await openStudio(page);
   await page.locator('.scenario-result-facets select').first().selectOption(runCode);
   const provisional = page.getByRole('article').filter({hasText: candidateHash});
-  await expect(provisional).toBeVisible({timeout: 8_000});
+  await expect(provisional).toBeVisible();
   await expect(provisional.getByText('أولي للبحث فقط')).toBeVisible();
   await expect(provisional.getByText('play:spades:ace')).toBeVisible();
-  expect(runReads).toBeGreaterThan(1);
+  expect(detailReads).toBeGreaterThan(0);
   await expect(page.getByText(`${runCode}`, {exact: true}).last()).toBeVisible();
 });
 

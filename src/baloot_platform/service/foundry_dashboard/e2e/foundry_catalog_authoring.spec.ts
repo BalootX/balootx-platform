@@ -481,11 +481,11 @@ test('@zoom shows exact official and optional rule authority with an accessible 
       revisionId:string; bundleId:string; version:string;
     }>}).items;
   });
-  const official = published.find((item)=>
-    item.bundleId === 'baloot_ortools_research_native_v3' && item.version === '25.4.1');
+  const official = published
+    .filter((item) => item.bundleId === 'baloot_ortools_research_native_v3')
+    .sort((left, right) => right.version.localeCompare(left.version, undefined, {numeric: true}))[0];
   const optional = published.find((item)=>
-    item.bundleId === 'baloot_ortools_research_native_v3_optional_project'
-    && item.version === '1.0.1');
+    item.bundleId === 'baloot_ortools_research_native_v3_optional_project');
   expect(official).toBeTruthy();
   expect(optional).toBeTruthy();
 

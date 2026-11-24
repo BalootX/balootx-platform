@@ -37,14 +37,34 @@ async function openNativeSettings(page: Page) {
   await page.getByPlaceholder('أدخل مفتاح الإدارة وقت الحفظ').fill(process.env.BALOOT_OPERATOR_E2E_API_KEY!);
 }
 
+async function createDraft(page: Page, version: string): Promise<string> {
+  const headers = {'x-api-key': process.env.BALOOT_OPERATOR_E2E_API_KEY!, 'x-baloot-role': 'admin'};
+  const profiles = '/api/v1/configuration-registry/profiles';
+  const drafts = await page.request.get(profiles, {
+    headers, params: {family: 'challenge', status: 'draft'},
+  });
+  await expect(drafts).toBeOK();
+  const seeds = (await drafts.json()).items.filter((item: {createdBy: string}) => item.createdBy === 'OPERATOR-E2E');
+  expect(seeds).toHaveLength(1);
+  const source = await page.request.get(`${profiles}/${seeds[0].revisionId}`, {headers});
+  await expect(source).toBeOK();
+  const {payload} = await source.json();
+  payload.profile.version = version;
+  const response = await page.request.post('/api/v2/configuration/profiles', {
+    headers, data: {family: 'challenge', payload, publish: false},
+  });
+  await expect(response).toBeOK();
+  return (await response.json()).revisionId;
+}
+
 test('private family template edits save and reload through typed UI without JSON', async ({page}, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', error=>errors.push(error.message));
+  const revisionId = await createDraft(page, '99.0.1');
   await openNativeSettings(page);
   const revisions = page.locator('.revision-picker select');
-  const draft = revisions.locator('option').filter({hasText:/مسودة/});
-  await expect(draft).toHaveCount(1);
-  await revisions.selectOption({label:await draft.innerText()});
+  await revisions.selectOption(revisionId);
+  await expect(revisions).toHaveValue(revisionId);
   await openTemplate(page);
   const kindPicker = page.locator(`[data-config-path="${expression}.children.1"]`)
     .locator(':scope > .json-editor > .field-label > select');
@@ -71,8 +91,8 @@ test('private family template edits save and reload through typed UI without JSO
   await expect(page.locator('.settings-layout')).toBeVisible();
   // Reopen the saved draft rather than relying on the pre-save React state.
   await openNativeSettings(page);
-  await expect(draft).toHaveCount(1);
-  await revisions.selectOption({label:await draft.innerText()});
+  await revisions.selectOption(revisionId);
+  await expect(revisions).toHaveValue(revisionId);
   await openTemplate(page);
   await expect(minimum).toHaveValue('1');
   await page.getByRole('button',{name:'افحص المسودة',exact:true}).click();
@@ -83,20 +103,18 @@ test('private family template edits save and reload through typed UI without JSO
   await page.screenshot({path:testInfo.outputPath('typed-family-controls.png')});
 });
 
-for (const mode of ['desktop', '@mobile']) test(`delayed payoff controls enable save reload validate and remove ${mode}`, async ({page}, testInfo) => {
+for (const [mode, version] of [['desktop', '99.0.2'], ['@mobile', '99.0.3']]) test(`delayed payoff controls enable save reload validate and remove ${mode}`, async ({page}, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', error=>errors.push(error.message));
+  const revisionId = await createDraft(page, version);
   await openNativeSettings(page);
   const revisions = page.locator('.revision-picker select');
-  const draft = revisions.locator('option').filter({hasText:/مسودة/});
-  await expect(draft).toHaveCount(1);
-  const draftLabel = await draft.innerText();
-  await revisions.selectOption({label:draftLabel});
+  await revisions.selectOption(revisionId);
+  await expect(revisions).toHaveValue(revisionId);
   await open(page, 'tactical_detectors');
   const label = 'إثبات فائدة الورقة المتأخرة';
   const sectionPath = 'tactical_detectors.nativeDelayedPayoff';
   const section = page.locator(`[data-config-path="${sectionPath}"]`);
-  // The preceding project test may have saved this same isolated draft.
   await page.getByRole('switch',{name:label,exact:true}).click();
   await open(page, sectionPath);
   const metric = section.getByLabel('وحدة قياس المكسب',{exact:true});
@@ -124,7 +142,8 @@ for (const mode of ['desktop', '@mobile']) test(`delayed payoff controls enable 
   expect((await response.json()).payload.tactical_detectors.nativeDelayedPayoff).toEqual({gainMetric:'raw_card_points',minimumGain:20.5});
   await page.reload();
   await openNativeSettings(page);
-  await revisions.selectOption({label:draftLabel});
+  await revisions.selectOption(revisionId);
+  await expect(revisions).toHaveValue(revisionId);
   await open(page, 'tactical_detectors');
   await open(page, sectionPath);
   await expect(metric).toHaveValue('raw_card_points');
