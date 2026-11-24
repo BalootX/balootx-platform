@@ -5,19 +5,21 @@ from types import SimpleNamespace
 import pytest
 
 from scripts import nightly_candidates as nightly
+from scripts import pick_nightly_candidates as picker
 
 
 @pytest.fixture(scope="module")
 def sample(rules, tmp_path_factory):
     engine = nightly.BalootEngine(rules)
     profile = nightly.notice.notice_profile(public=True)
+    profile["identity"] = nightly.synthetic_identity()
     source = "a" * 40
     seed = 140250512009021371
     prefixes = list(nightly.synthetic_prefixes(engine, seed, nightly.Contract.SUN))
     assert prefixes == list(
         nightly.synthetic_prefixes(engine, seed, nightly.Contract.SUN)
     )
-    prefix = prefixes[1]
+    prefix = next(row for row in prefixes if len(row["playActions"]) == 25)
     exact = nightly.ExactStateNormalizerV1(rules).normalize(prefix)
     service = nightly.UnifiedScenarioProofServiceV1.from_repository(nightly.notice.ROOT)
     scenario_id = "synthetic-candidate"
@@ -198,11 +200,14 @@ def batch(tmp_path, monkeypatch, rules):
     monkeypatch.setattr(nightly.RuleBook, "load", lambda path: rules)
     monkeypatch.setattr(nightly.notice, "notice_profile", lambda **kwargs: {})
     monkeypatch.setattr(
-        nightly.notice, "RemotionProfessionalRenderer", lambda *args, **kwargs: None
+        nightly.notice,
+        "RemotionProfessionalRenderer",
+        lambda *args, **kwargs: SimpleNamespace(renderer_root=None),
     )
     monkeypatch.setattr(
         nightly.UnifiedScenarioProofServiceV1, "from_repository", lambda path: None
     )
+    monkeypatch.setattr(nightly, "check_renderer_runtime", lambda *args: None)
     monkeypatch.setattr(nightly, "media_tool", lambda *args: None)
     monkeypatch.setattr(
         nightly.viewer,
@@ -326,3 +331,168 @@ def test_r8_synthetic_fixtures_replay_to_the_exact_expected_scores(rules):
         )
 
     assert len(deal_hashes) == len(families) == len(fixtures)
+
+
+def test_nightly_identity_rejects_generic_labels():
+    seed = "synthetic-fixture"
+    names = nightly.notice.seeded_player_names(nightly.synthetic_identity(), seed)
+    nightly.check_names({"gameSerial": seed, "players": names})
+    with pytest.raises(nightly.Rejected, match="generic_or_unapproved_player_names"):
+        nightly.check_names(
+            {
+                "gameSerial": seed,
+                "players": {**names, "north": "Player 01"},
+            }
+        )
+
+
+def test_nightly_rejects_stale_renderer_runtime(tmp_path, monkeypatch):
+    monkeypatch.setattr(nightly, "REMOTION", tmp_path)
+    package = tmp_path / "node_modules" / "renderer"
+    package.mkdir(parents=True)
+    lock = tmp_path / "package-lock.json"
+    lock.write_text(
+        json.dumps(
+            {
+                "lockfileVersion": 3,
+                "packages": {"node_modules/renderer": {"version": "2.0.0"}},
+            }
+        )
+    )
+    manifest = package / "package.json"
+    manifest.write_text('{"version":"1.0.0"}')
+    with pytest.raises(nightly.Rejected, match="stale_render_runtime"):
+        nightly.check_renderer_runtime(tmp_path)
+    manifest.write_text('{"version":"2.0.0"}')
+    nightly.check_renderer_runtime(tmp_path)
+
+
+def test_early_caption_selection_excludes_recent_unapproved_and_retired():
+    def check_caption(text, private, pool):
+        if text == "unapproved":
+            return ["CAPTION_NOT_IN_APPROVED_POOL"]
+        return ["BANNED_CAPTION_PHRASE"] if text in private else []
+
+    records = [{"text": f"approved-{i}", "sha256": f"id-{i}"} for i in range(10)]
+    records += [{"text": text, "sha256": text} for text in ("unapproved", "retired")]
+    gate = SimpleNamespace(check_caption=check_caption)
+    result = picker.caption_options(
+        gate, {"captions": records}, {"retired"}, {"id-0", "id-1"}
+    )
+    assert result == [f"id-{i}" for i in range(2, 10)]
+    with pytest.raises(picker.PlanError, match="INSUFFICIENT_APPROVED_CAPTIONS"):
+        picker.caption_options(
+            gate, {"captions": records}, {"retired"}, {"id-0", "id-1", "id-2"}
+        )
+
+
+def test_picker_applies_live_variety_before_filling_two_days():
+    live_history = [{"mechanism": "lead", "scenarioFamily": "used-family"}]
+
+    def check_history(known, captions, latest, forbidden, binding, chronology):
+        assert known is latest is chronology is live_history
+        assert captions == {"recent"} and forbidden == []
+        if binding["opener"]["family"] == latest[-1]["scenarioFamily"]:
+            return ["CONSECUTIVE_FAMILY"], 0
+        return (
+            (["CONSECUTIVE_MECHANISM"], 0)
+            if binding["opener"]["mechanism"] == latest[-1]["mechanism"]
+            else ([], 15)
+        )
+
+    gate = SimpleNamespace(
+        variety_windows=lambda chronology: (chronology, chronology),
+        check_history=check_history,
+        check_score=lambda base, variety, *args: ["SCORE_BELOW_60"]
+        if base + variety < 60
+        else [],
+    )
+    rows = [
+        {
+            "id": str(i),
+            "video": {"sha256": "test"},
+            "scoreInputs": {
+                "mechanism": ("lead", "ruff", "discard")[i % 3],
+                "scenarioFamily": "used-family" if i == 1 else f"fresh-{i}",
+                "visibleOpenerSha256": str(i),
+            },
+            "scorecard": {
+                "parts": {"D": 25, "S": 10, "R": 10, "C": 10, "V": 15},
+                "difficultyPrior": 50,
+                "mechanismFrequency": 0,
+                "exactStateId": str(i),
+            },
+        }
+        for i in range(18)
+    ]
+    days, fallbacks = picker.select(
+        gate,
+        rows,
+        [str(i) for i in range(8)],
+        (live_history, {"recent"}, [], [], live_history, []),
+    )
+    picks = days[0] + days[1]
+    assert list(map(len, days)) == [4, 4]
+    assert all(
+        item["id"] != "1" and item["mechanism"] != "lead" for item in picks + fallbacks
+    )
+    assert all(
+        left["mechanism"] != right["mechanism"] for left, right in zip(picks, picks[1:])
+    )
+    assert len({item["id"] for item in picks + fallbacks}) == len(picks + fallbacks)
+
+
+def test_sealed_pool_binds_media_and_exact_run(tmp_path):
+    shards = tmp_path / "shards"
+    shard = shards / "nightly-candidate-shard-0"
+    rows = []
+    for i in range(nightly.MINIMUM_POOL_SIZE):
+        key = f"candidate-{i:016x}-24"
+        folder = shard / key
+        folder.mkdir(parents=True)
+        video = folder / "candidate.mp4"
+        video.write_bytes(bytes([i]))
+        rows.append(
+            {
+                "id": key,
+                "status": "passed",
+                "video": nightly.file_receipt(video),
+                "scoreInputs": {
+                    "mechanism": i % 3,
+                    **{
+                        field: str(i)
+                        for field in (
+                            "exactStateId",
+                            "dealHash",
+                            "scenarioFamily",
+                            "visibleOpenerSha256",
+                        )
+                    },
+                },
+            }
+        )
+    source, tree, run_id = "a" * 40, "b" * 40, 123
+    nightly.write_json(
+        shard / "candidate-index.json",
+        {
+            "status": "passed",
+            "postingAuthorized": False,
+            "sourceCommit": source,
+            "sourceTree": tree,
+            "runId": run_id,
+            "qualified": [row["id"] for row in rows],
+            "candidates": rows,
+        },
+    )
+    output = tmp_path / "pool"
+    nightly.seal_pool(shards, output, source=source, tree=tree, run_id=run_id)
+    index, seal = picker.verified_pool(
+        output, {"databaseId": run_id, "headSha": source}
+    )
+    assert index["status"] == "NEVER_POST" and len(index["qualified"]) == 14
+    assert len(seal) == 64
+    with pytest.raises(picker.PlanError, match="POOL_RUN_BINDING_MISMATCH"):
+        picker.verified_pool(output, {"databaseId": run_id + 1, "headSha": source})
+    (output / rows[0]["id"] / "candidate.mp4").write_bytes(b"tampered")
+    with pytest.raises(picker.PlanError, match="POOL_HASH_MISMATCH"):
+        picker.verified_pool(output)

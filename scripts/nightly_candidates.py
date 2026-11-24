@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import shutil
 import signal
 import subprocess
@@ -28,6 +29,7 @@ from baloot_platform.core.rules import RuleBook
 from baloot_platform.filesystem import atomic_write_text
 from baloot_platform.research.calibration.score import engine_interest_v1
 from baloot_platform.research.exact_state import ExactStateNormalizerV1
+from baloot_platform.research.lesson_tags import classify_public_mechanism_v1
 from baloot_platform.research.proof_service import UnifiedScenarioProofServiceV1
 from baloot_platform.research.scenario_contracts import (
     ScenarioProofRequestV1,
@@ -41,10 +43,15 @@ from baloot_platform.video.media_validation import (
 
 from scripts import render_research_notice as notice
 from scripts import viewer_seat_proof as viewer
+from scripts.remotion_image_parity import check_parity
 
 
 REMOTION = notice.ROOT / "src/baloot_platform/video/remotion"
-PLAY_INDICES = range(24, 28)
+PLAY_INDICES = range(20, 28)
+MINIMUM_POOL_SIZE = 14
+MINIMUM_MECHANISMS = 3
+CANDIDATE_ID = re.compile(r"candidate-[0-9a-f]{16}-[0-9]+")
+SYNTHETIC_IDENTITY = notice.ROOT / "examples/synthetic-clip-identity.json"
 PUBLICATION_PENDING = {"V_history_unavailable", "publication_qa_unverified"}
 
 
@@ -92,6 +99,48 @@ def write_json(path, value):
 
 def file_receipt(path):
     return {"file": path.name, "sha256": notice._sha256(path)}
+
+
+def synthetic_identity():
+    return json.loads(SYNTHETIC_IDENTITY.read_bytes())
+
+
+def check_names(identity):
+    expected = notice.seeded_player_names(synthetic_identity(), identity["gameSerial"])
+    if identity["players"] != expected:
+        raise Rejected("generic_or_unapproved_player_names")
+
+
+def check_renderer_runtime(renderer_root):
+    if renderer_root != REMOTION or check_parity(
+        renderer_root / "node_modules", REMOTION / "package-lock.json"
+    ):
+        raise Rejected("stale_render_runtime")
+
+
+def variety_inputs(exact, action, rules):
+    state = exact.round_state
+    deal_hash = state.shuffle.deck_commitment
+    opener = {
+        "hand": sorted(card.code for card in state.hand(state.current_player)),
+        "table": sorted(play.card.code for play in state.current_trick.plays),
+    }
+    play_index = len(state.played_cards)
+    band = play_index // 8 * 8
+    return {
+        "scenarioFamily": f"synthetic-{deal_hash}",
+        "dealHash": deal_hash,
+        "visibleOpenerSha256": canonical_sha256(opener),
+        "mechanism": classify_public_mechanism_v1(
+            rules=rules,
+            current_trick=exact.state["currentTrick"] or {"plays": []},
+            contract=state.contract.value,
+            trump=exact.state.get("trumpSuit"),
+            action=action,
+        ),
+        "contract": state.contract.value,
+        "trickBand": f"{band}-{band + 7}",
+    }
 
 
 def synthetic_prefixes(engine, seed, contract):
@@ -408,7 +457,10 @@ def qualify(
             profile,
         )
         row["scorecard"] = card
-        row["scoreInputs"] = measurements
+        row["scoreInputs"] = {
+            **measurements,
+            **variety_inputs(exact, proof["selectedAction"], engine.rules),
+        }
         failures = [
             reason
             for reason in card["gateReasons"]
@@ -423,6 +475,7 @@ def qualify(
             engine.rules, profile, fixture=fixture_path, golden=row["id"]
         )
         notice.validate_notice_bundle(bundle, final, public=True, fixture=fixture_path)
+        check_names(bundle.value["identity"])
         bundle_file = directory / "bundle.json"
         row["bundle"] = write_json(bundle_file, bundle.to_dict())
 
@@ -475,13 +528,14 @@ def qualify(
         return False
 
 
-def generate(output, *, run_id, source, tree, library, rounds, target):
+def generate(output, *, run_id, source, tree, library, rounds, target, shard=0):
     output.mkdir(parents=True, exist_ok=False)
     index = {
         "schemaVersion": 1,
         "sourceCommit": source,
         "sourceTree": tree,
         "runId": run_id,
+        "shard": shard,
         "roundBudget": rounds,
         "target": target,
         "synthetic": True,
@@ -504,6 +558,7 @@ def generate(output, *, run_id, source, tree, library, rounds, target):
                 rules = RuleBook.load(viewer.RULES_PATH)
                 engine = BalootEngine(rules)
                 profile = notice.notice_profile(public=True)
+                profile["identity"] = synthetic_identity()
                 proof_service = UnifiedScenarioProofServiceV1.from_repository(
                     notice.ROOT
                 )
@@ -512,6 +567,7 @@ def generate(output, *, run_id, source, tree, library, rounds, target):
                     repository_root=notice.ROOT,
                     timeout_seconds=notice.render_timeout_seconds(),
                 )
+                check_renderer_runtime(renderer.renderer_root)
                 ffmpeg = media_tool(notice.ROOT, "ffmpeg")
                 media_tool(notice.ROOT, "ffprobe")
                 solver = viewer.DoubleDummySolver(rules, library)
@@ -536,7 +592,9 @@ def generate(output, *, run_id, source, tree, library, rounds, target):
             if solver is not None:
                 solver.close()
     except Exception as error:
-        index["reason"] = type(error).__name__
+        index["reason"] = (
+            str(error) if isinstance(error, Rejected) else type(error).__name__
+        )
         return 1
     else:
         if qualified:
@@ -562,7 +620,7 @@ def search(
     renderer,
     ffmpeg,
 ):
-    rng = random.Random(index["runId"])
+    rng = random.Random(f"{index['runId']}:{index['shard']}")
     for trial in range(index["roundBudget"]):
         if time.monotonic() >= deadline:
             stop_search()
@@ -606,14 +664,93 @@ def search(
             break
 
 
+def seal_pool(shards, output, *, source, tree, run_id):
+    rows = {}
+    for shard in sorted(shards.iterdir()):
+        index = json.loads((shard / "candidate-index.json").read_bytes())
+        if index["status"] != "passed":
+            continue
+        if (index["sourceCommit"], index["sourceTree"], index["runId"]) != (
+            source,
+            tree,
+            run_id,
+        ) or index["postingAuthorized"] is not False:
+            raise Rejected("shard_binding_mismatch")
+        for row in index["candidates"]:
+            key = row["id"]
+            if key not in index["qualified"]:
+                continue
+            if (
+                not CANDIDATE_ID.fullmatch(key)
+                or key in rows
+                or row["status"] != "passed"
+            ):
+                raise Rejected("invalid_qualified_candidate")
+            rows[key] = (shard / key, row)
+
+    measurements = [row["scoreInputs"] for _, row in rows.values()]
+    if (
+        len(rows) < MINIMUM_POOL_SIZE
+        or len({item["mechanism"] for item in measurements}) < MINIMUM_MECHANISMS
+        or any(
+            len({item[key] for item in measurements}) != len(rows)
+            for key in (
+                "exactStateId",
+                "dealHash",
+                "scenarioFamily",
+                "visibleOpenerSha256",
+            )
+        )
+    ):
+        raise Rejected("pool_size_variety_or_distinctness_failed")
+
+    output.mkdir(parents=True, exist_ok=False)
+    for key, (directory, row) in rows.items():
+        video = directory / "candidate.mp4"
+        if row["video"] != file_receipt(video):
+            raise Rejected("qualified_media_binding_mismatch")
+        shutil.copytree(directory, output / key)
+    write_json(
+        output / "candidate-index.json",
+        {
+            "schemaVersion": 1,
+            "status": "NEVER_POST",
+            "sourceCommit": source,
+            "sourceTree": tree,
+            "runId": run_id,
+            "synthetic": True,
+            "postingAuthorized": False,
+            "candidates": [row for _, row in rows.values()],
+            "qualified": list(rows),
+        },
+    )
+    seal = output / "SHA256SUMS.txt"
+    seal.write_text(
+        "".join(
+            f"{notice._sha256(path)}  {path.relative_to(output).as_posix()}\n"
+            for path in sorted(output.rglob("*"))
+            if path.is_file()
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    print(
+        f"NEVER_POST: {len(rows)} checked clips across "
+        f"{len({item['mechanism'] for item in measurements})} mechanisms"
+    )
+    print(f"Pool seal SHA-256: {notice._sha256(seal)}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--source", required=True)
-    parser.add_argument("--native-library", type=Path, required=True)
-    parser.add_argument("--rounds", type=int, required=True)
-    parser.add_argument("--target", type=int, required=True)
+    parser.add_argument("--native-library", type=Path)
+    parser.add_argument("--rounds", type=int)
+    parser.add_argument("--target", type=int)
+    parser.add_argument("--shard", type=int, default=0)
+    parser.add_argument("--seal-shards", type=Path)
     args = parser.parse_args()
     source, tree = subprocess.check_output(
         ["git", "rev-parse", "HEAD", "HEAD^{tree}"],
@@ -621,7 +758,7 @@ def main():
         text=True,
         timeout=10,
     ).splitlines()
-    if source != args.source or not 1 <= args.target <= args.rounds or args.run_id <= 0:
+    if source != args.source or args.run_id <= 0:
         parser.error("the checkout or batch inputs do not match the workflow run")
     subprocess.run(
         ["git", "diff", "--quiet", "HEAD", "--"],
@@ -629,6 +766,23 @@ def main():
         check=True,
         timeout=10,
     )
+    if args.seal_shards is not None:
+        try:
+            seal_pool(
+                args.seal_shards, args.out, source=source, tree=tree, run_id=args.run_id
+            )
+        except Rejected as error:
+            parser.exit(1, f"{error}\n")
+        return 0
+    if not (
+        args.native_library
+        and args.target
+        and args.rounds
+        and 1 <= args.target <= args.rounds
+    ):
+        parser.error(
+            "generation requires a native library and valid round and target counts"
+        )
     return generate(
         args.out.resolve(),
         run_id=args.run_id,
@@ -637,6 +791,7 @@ def main():
         library=args.native_library,
         rounds=args.rounds,
         target=args.target,
+        shard=args.shard,
     )
 
 

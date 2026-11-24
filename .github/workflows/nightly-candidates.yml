@@ -16,6 +16,10 @@ jobs:
   nightly-candidates:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     env:
       PYTHONPATH: src:.
       SOURCE_DATE_EPOCH: '315532800'
@@ -48,7 +52,7 @@ jobs:
       - name: Install the locked Remotion dependencies
         timeout-minutes: 3
         working-directory: src/baloot_platform/video/remotion
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
       - id: ffmpeg-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         timeout-minutes: 2
@@ -81,13 +85,15 @@ jobs:
           cmake --build build/native-release --target baloot_native
       - name: Generate and qualify synthetic candidates
         id: qualify
+        env:
+          SHARD: ${{ matrix.shard }}
         run: |
           remaining=$(( BALOOT_NIGHTLY_JOB_DEADLINE - $(date +%s) ))
           (( remaining > 0 ))
           timeout --kill-after=10s "${remaining}s" python -B -P scripts/nightly_candidates.py \
             --run-id "$GITHUB_RUN_ID" --source "$GITHUB_SHA" \
             --native-library build/native-release/libbaloot_native.so \
-            --rounds 96 --target 4 --out "$RUNNER_TEMP/nightly-candidates"
+            --rounds 144 --target 5 --shard "$SHARD" --out "$RUNNER_TEMP/nightly-candidates"
       - name: Ensure an index exists after an early failure
         if: ${{ !cancelled() }}
         timeout-minutes: 1
@@ -107,8 +113,42 @@ jobs:
         timeout-minutes: 2
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: nightly-synthetic-candidates
+          name: nightly-candidate-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/nightly-candidates/
           if-no-files-found: error
           compression-level: 0
-          retention-days: 7
+          retention-days: 1
+
+  seal-pool:
+    needs: nightly-candidates
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    env:
+      PYTHONPATH: src:.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: nightly-candidate-shard-*
+          path: ${{ runner.temp }}/shards
+          digest-mismatch: error
+      - name: Seal and verify the candidate pool
+        run: |
+          python -m pip install .
+          python -B -P scripts/nightly_candidates.py \
+            --run-id "$GITHUB_RUN_ID" --source "$GITHUB_SHA" \
+            --seal-shards "$RUNNER_TEMP/shards" --out "$RUNNER_TEMP/nightly-pool"
+          (cd "$RUNNER_TEMP/nightly-pool" && sha256sum --check --strict SHA256SUMS.txt)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nightly-synthetic-candidates
+          path: ${{ runner.temp }}/nightly-pool/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
