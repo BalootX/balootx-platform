@@ -1,4 +1,4 @@
-Follows engineering standard v1.24.
+Follows engineering standard v1.26.
 
 # BalootX delivery
 
@@ -11,7 +11,7 @@ Follows engineering standard v1.24.
 | Ready pull request | Preflight, dependency review and Python version smoke. [The CI selector](scripts/ci_scope.py) adds affected Python, SDK, Foundry and worker checks. Unrecognized paths or an unresolved diff select the full profile. |
 | Main push and merge group | Full profile with the Python wheelhouse, native build and sanitizers, fast, backend and heavy Python shards with exact coverage verification, SDK and Foundry checks, Remotion and video-worker parity, media rendering and release smoke. The merge group verifies its event head before running the profile. |
 | Manual dispatch | Full diagnostics under `CI diagnostic result`, or the dedicated viewer-seat proof cohort when selected. |
-| [Nightly at 00:17 UTC or manual trigger](.github/workflows/nightly-candidates.yml) | Generates and proves synthetic deals on GitHub-hosted runners. A successful run seals at least 14 fully checked clips across at least three mechanisms and retains the pool for three days. Live variety and caption checks run on the PC. |
+| [Nightly at 00:17 UTC or manual trigger](.github/workflows/nightly-candidates.yml) | Generates and proves synthetic deals on GitHub-hosted runners. A successful run seals at least 14 fully checked clips across at least three mechanisms and retains the pool for three days. Run live variety and caption checks on a server runner. |
 | Media verification | The full profile builds the governed inputs, renders shards, checks repeatability and playback parity, decodes the sample media, and generates media and supply-chain evidence. |
 
 The required **ci-gate** check compares the producer results to the plan and fails on missing, failed, cancelled or unexpectedly skipped work. See [the current limits in the workflow](.github/workflows/ci.yml) and the [historical timing samples](ci/TIMINGS.md).
@@ -28,11 +28,17 @@ The full suite runs daily at 20:00 UTC on the `Servers isolated $0 Linux test ho
 
 Servers sends Delivery the `main` SHA, test counts, failing test IDs, a JUnit file and a scrubbed log tail. Delivery files a Kind Bug issue titled `Nightly full suite red: <date>` the same day for any red or missing run and links the run when available. Treat flaky failures as High-priority bugs and fix or revert them.
 
-### Test coverage and local load
+### Test coverage
 
 - Add property and edge-case tests for code that handles untrusted or varied input, including parsers, limits, time zones and daylight saving transitions, schedules, slot sequencing and caption windows. Put long runs in the nightly profile.
 - Every bug that reached `main` adds its failing case as a regression test or a golden-case row.
-- Run every local test, lint, render or scrub through the shared two-slot test lock. Use `pytest -n 1` for pytest. Send render jobs and heavier workloads to project servers or GitHub-hosted runners.
+
+### CI-only PC rule
+
+- Keep PC work to Git edits and commits plus the required pre-push deny check and privacy screen. Close shells when their step ends.
+- Run tests, lint, scrubs, builds and renders through CI. On the PC, `run-locked.ps1` returns `SKIP_TO_CI`.
+- Use free GitHub-hosted runners for public repo checks. Use zero-cost server runners for private repos, deploys and jobs that use secrets.
+- If a check has no CI job, add one in the same PR.
 
 ## Work scheduling
 
@@ -41,7 +47,7 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 ## Merge
 
 - The `main` merge queue is the only path to trunk and uses squash merges only. Workers push their own short-lived branches without rewriting history and open PRs under the project's App identity. Merge, split or close an open PR within two days of its first push. The ruleset requires zero human approvals.
-- Only critical changes get a review. Critical means production, secrets, real data, making anything public, host or network changes, repo settings, and release gates. See [critical paths](AGENTS.md#risk-paths). Get one independent full-diff review. The worker enables auto-merge only after the reviewer posts a verdict comment naming the reviewed head SHA. Turn off auto-merge before any later push to the PR. A later push touching a critical path needs a new verdict on that head. For other pushes, the recorded verdict carries forward. Verify fixes to review findings with tests.
+- Only changes in the [critical classes mapped in AGENTS.md](AGENTS.md#critical-paths) get one independent full-diff review in parallel with CI. The worker enables auto-merge after the verdict comment names the current head SHA. Turn off auto-merge before any later push. An existing verdict carries forward unless the push adds a new critical change. Verify fixes to review findings with tests.
 - For everything else, the thread that made the change opens its own PR and enables auto-merge at once. The PR merges through the queue once the required CI checks are green, with no review.
 - Delivery owns the queue, CI health and speed, releases, deploys, rollback and alerts. Workers handle each PR.
 - Use `Closes #n` in the PR body only if merging meets the item's whole Done-when. Otherwise use `Refs #n`.
@@ -55,8 +61,8 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 
 - Live clip publication requires individual release approval until the clip release gate is approved. Once approved, the gate can admit clips for publication. A production deploy requires the project owner's explicit approval.
 - The `nightly-synthetic-candidates` artifact contains synthetic render evidence. Check `SHA256SUMS.txt` for the complete pool and use `candidate-index.json` to bind the exact source tree and qualified media. Each render uses the checkout's locked renderer and the [shared synthetic name pool](examples/synthetic-clip-identity.json). The hosted pool is marked `NEVER_POST` and carries no posting ledger or caption pool.
-- The PC task runs `python -B -m scripts.pick_nightly_candidates` from the checkout with the package installed. Pass `--ledger`, `--caption-pool`, `--gate`, `--policy`, and `--output` from the existing private release configuration. Set `GH_TOKEN` only for this process using the repository-scoped, Actions-read App token. The picker verifies the newest successful scheduled pool from main, uses the pinned release gate against the live ledger, and writes a private two-day pick with distinct reserves. For manual evidence, pass a downloaded pool directory with `--artifact`. Both paths produce `NEVER_POST` picks, which the next stage must validate against its own receiving rules.
-- Build a private shadow day with `python -B -m scripts.build_nightly_shadow_day`, using the PC `--pick`, current `--ledger`, pinned `--caption-pool`, `--gate` and `--policy`, and a `--reference` slot manifest and its `--reference-sha`. Give it a new private `--output` directory. It maps the picks to the reference's four UTC slots, copies the primaries and reserves, and verifies synthetic names, the approved red notice and layout, omitted justification, exact viewer-seat proof at 90% or higher, and loudness evidence bound to each exact video. It checks captions against the last eight posts and the approved pool and retired-phrase rules, screens every clip against the canonical ledger, and records Policy C for each reachable primary, reserve and no-post branch in `SLOT-COMBINATION-CHECKS.json`. `shadow-day.json` and `SHA256SUMS.txt` record the checks. Unresolved canonical history holds the sealed day and returns a nonzero exit status. Every output is marked `NEVER_POST`.
+- On a server runner, run `python -B -m scripts.pick_nightly_candidates` from the checkout with the package installed. Pass `--ledger`, `--caption-pool`, `--gate`, `--policy`, and `--output` from the existing private release configuration. Set `GH_TOKEN` only for this process using the repository-scoped, Actions-read App token. The picker verifies the newest successful scheduled pool from main, uses the pinned release gate against the live ledger, and writes a private two-day pick with distinct reserves. For manual evidence, pass a downloaded pool directory with `--artifact`. Both paths produce `NEVER_POST` picks, which the next stage must validate against its own receiving rules.
+- Build a private shadow day with `python -B -m scripts.build_nightly_shadow_day`, using the resulting `--pick`, current `--ledger`, pinned `--caption-pool`, `--gate` and `--policy`, and a `--reference` slot manifest and its `--reference-sha`. Give it a new private `--output` directory. It maps the picks to the reference's four UTC slots, copies the primaries and reserves, and verifies synthetic names, the approved red notice and layout, omitted justification, exact viewer-seat proof at 90% or higher, and loudness evidence bound to each exact video. It checks captions against the last eight posts and the approved pool and retired-phrase rules, screens every clip against the canonical ledger, and records Policy C for each reachable primary, reserve and no-post branch in `SLOT-COMBINATION-CHECKS.json`. `shadow-day.json` and `SHA256SUMS.txt` record the checks. Unresolved canonical history holds the sealed day and returns a nonzero exit status. Every output is marked `NEVER_POST`.
 - The clip gate keeps its audit rows in a private evidence store. Each row records the gate and ledger hashes.
 - Require independent media QA, [engine-interest and viewer-seat proof](docs/RESEARCH_SCENARIO_V4.md#engine-interest-v1), the [approved clip presentation](DESIGN.md#rendered-clips), caption policy and a current per-platform publication history. Hold a failing or unverified clip and record the reason.
 
@@ -81,4 +87,3 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 | Scoped URL and IP literal check | The push guard checks private values. The source literal check and committed allowlist are pending. | 2026-12-04 |
 | Configured no-reply domains for commit identities and trailers | The push guard checks commit metadata with a fixed address policy. | 2026-12-04 |
 | Affected CI on draft PRs | The affected checks start when a PR is ready. | 2026-12-04 |
-| Critical review coverage | The risk-path list leaves gaps for retention, audit logs and backups that affect real data. | 2026-12-04 |

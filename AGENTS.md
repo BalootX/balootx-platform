@@ -29,7 +29,7 @@ BalootX combines a Saudi Baloot engine, the Foundry research dashboard, and rend
 
 ## Commands
 
-Run the Python commands at the repository root. Run npm commands in the named package.
+Run the Python commands at the repository root and npm commands in the named package. Use the [CI-only PC rule](DELIVERY.md#ci-only-pc-rule) to choose where to run them.
 
 | Task | Command |
 | --- | --- |
@@ -41,7 +41,7 @@ Run the Python commands at the repository root. Run npm commands in the named pa
 | Fast test | `python -m pytest -q tests/test_ci_hosted_contract.py tests/test_repository_structure.py tests/test_media_render_artifact.py` |
 | Full test | Use the hosted full profile in [DELIVERY.md](DELIVERY.md#ci). |
 | Build | Python `python -m pip wheel --no-deps .`. Foundry `npm run build`. |
-| Run locally | `uvicorn baloot_platform.service.api:app --host 127.0.0.1 --port 8080`. Open `/foundry` after building the dashboard. |
+| Run on a development host | `uvicorn baloot_platform.service.api:app --host 127.0.0.1 --port 8080`. Open `/foundry` after building the dashboard. |
 
 ## Coding rules
 
@@ -55,22 +55,18 @@ Run the Python commands at the repository root. Run npm commands in the named pa
 - Preserve the public rules and replay contracts at their owning source. Update generated views and packaged copies from that source. Use `python scripts/sync_package_resources.py` after changing mirrored resources and `python scripts/generate_openapi.py --check` to check the OpenAPI output.
 - Treat a valid replay, a bounded result and an exact proof as separate evidence. Preserve a result's scope and budget when exposing it through the API, UI or render bundle.
 
-## Risk paths
+## Critical paths
 
-Apply the [critical-change review rule](DELIVERY.md#merge) to these BalootX paths and the specific controls named below.
+Apply the [independent review procedure](DELIVERY.md#merge) only when a change affects one of these controls. Paths show where the controls live in this repo. All other changes merge on green required CI.
 
-- Workflows in `.github/workflows/` can access repository secrets and set token permissions in this public repo. An edit can expose secrets or grant unintended access.
-- `.gitleaks.toml` controls exemptions from secret scanning.
-- `migrations/`, `src/baloot_platform/resources/migrations/`, `scripts/migrate_{postgres,to_canonical_v17}.py` and `src/baloot_platform/history/migration_v17.py` can rewrite stored data.
-- `src/baloot_platform/storage/{artifact_store,game_store,postgres}.py` and `src/baloot_platform/configuration/{service,store}.py` can remove or replace stored media, game data or published configuration.
-- `src/baloot_platform/{identity,security,adjudication}/`, `configs/{identity,security}/` and their packaged configuration mirrors control sign-in, credential handling and access to restricted evidence.
-- `src/baloot_platform/service/{api,client_identity,container,grpc_service,mcp_server}.py`, `src/baloot_platform/service/routes/{adjudication,auth,canonical_history,configuration,foundry_admin_v2,hitl,live,security,shared}.py` and `src/baloot_platform/{shared/access,live/service}.py` enforce access and observer visibility. Review changes to personal-data visibility in API contracts and UI where they govern what is exposed and to whom.
-- `src/baloot_platform/challenge/{evidence_v3,locator,perspective_pipeline,publication_service}.py`, `src/baloot_platform/research/render_service.py` and `src/baloot_platform/video/render_projection.py` control what evidence is exposed or eligible for publication.
-- `src/baloot_platform/video/remotion/scripts/{layout-gate.mjs,approved-layout-adjacencies.json}` and the approved research-notice digest and validation in `src/baloot_platform/video/render_bundle.py` protect clip admission.
-- The release checks in `src/baloot_platform/video/media_validation.py` and `scripts/render_research_notice.py` verify loudness and bind the layout evidence to the clip.
-- `schemas/profiles/video.schema.json` and `src/baloot_platform/resources/schemas/profiles/video.schema.json` validate the render profile used for admission.
-- `release/`, `src/baloot_platform/resources/release/`, `scripts/{check_release_readiness,verify_release}.py` and `src/baloot_platform/release_scope.py` bind release admission to approved evidence.
-- `Dockerfile`, `.dockerignore`, `configs/runtime/docker_v1.yaml` and its packaged copy configure the production image or runtime.
+- **Production** includes deploys, production configuration and production data. The production image uses `Dockerfile` and `.dockerignore`. Runtime configuration lives in `configs/runtime/docker_v1.yaml` and its packaged copy.
+- **Secrets and credentials** include how tokens and keys are read, scoped, stored and rotated. Repo controls include workflow secrets and token permissions in `.github/workflows/`, secret scanning in `.gitleaks.toml`, and credential handling in `src/baloot_platform/{identity,security}/`, `configs/{identity,security}/` and their packaged mirrors.
+- **Real people's or customer data** includes migrations, deletion, retention, audit history, backups, restore and access to personal or restricted records. Data controls include `migrations/` and its packaged copy, `scripts/migrate_{postgres,to_canonical_v17}.py`, `src/baloot_platform/{history,storage,configuration,adjudication}/`, and authorization and response fields in `src/baloot_platform/service/`, `src/baloot_platform/shared/access.py` and `api/`. Uncovered safety-critical rules also require review.
+- **Making anything public** includes the posting controller, publication ledger writer, caption and media release steps, and any transition from `NEVER_POST` to posting. Repo inputs include `scripts/{pick_nightly_candidates,build_nightly_shadow_day,render_research_notice}.py`, `src/baloot_platform/challenge/publication_service.py`, `src/baloot_platform/research/slot_sequencer.py` and `src/baloot_platform/video/{captions,render_projection}.py`.
+- **Hosts, networks and firewalls** include runner and render-host configuration, network access and firewall rules. Repo controls include runner selection in `.github/workflows/`, the video-worker image in `Dockerfile`, and network policy in `configs/{runtime/docker_v1,security/local_secure_v1}.yaml` and their packaged copies.
+- **Repo settings, branch protection and release gates** include rulesets, required checks, the privacy deny check, and removing, skipping or weakening a test or the test-file guard. Repo controls include `.github/workflows/`, `scripts/ci_scope.py`, `release/`, `scripts/{check_release_readiness,verify_release}.py`, `src/baloot_platform/release_scope.py` and clip admission checks in `src/baloot_platform/video/`. The clip release gate's r8 revision requires its one independent review.
+
+Once end-to-end tests cover every BalootX safety rule and this section records each rule and its test, changes to covered rules merge on green CI. A new safety rule needs one review until its test lands.
 
 ## Data safety
 
