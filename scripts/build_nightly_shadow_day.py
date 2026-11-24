@@ -297,6 +297,15 @@ def combination_checks(
     }, clip_expected
 
 
+def day_qa_blockers(combinations, policy):
+    reasons = []
+    if combinations["unresolvedCanonicalRows"]:
+        reasons.append("LEDGER_HISTORY_UNRESOLVED")
+    if any(item["eligibleInSlotCombination"] != "PASS" for item in policy.values()):
+        reasons.append("CLIP_HAS_NO_ELIGIBLE_SLOT_COMBINATION")
+    return reasons
+
+
 def build_day(
     pick_path,
     ledger,
@@ -382,6 +391,7 @@ def build_day(
     combinations["captionPoolSha256"] = gate.CAPTION_POOL_SHA
     combinations["poolSealSha256"] = seal
     combinations["primaryPlan"] = [row["id"] for row in primaries]
+    blockers = day_qa_blockers(combinations, policy)
 
     with TemporaryDirectory(prefix=".shadow-day-", dir=output.parent) as scratch:
         day = Path(scratch) / "day"
@@ -423,12 +433,8 @@ def build_day(
                 "ledgerSha256": ledger_digest,
                 "captionPoolSha256": gate.CAPTION_POOL_SHA,
                 "slotCombinationChecks": combinations_receipt,
-                "qaStatus": "PASS"
-                if all(
-                    item["eligibleInSlotCombination"] == "PASS"
-                    for item in policy.values()
-                )
-                else "HOLD",
+                "qaStatus": "HOLD" if blockers else "PASS",
+                "qaBlockingReasons": blockers,
                 "pickSha256": sha256(pick_raw).hexdigest(),
                 "referenceSlotManifestSha256": reference_sha,
                 "slots": [
@@ -455,6 +461,7 @@ def build_day(
             newline="\n",
         )
         day.rename(output)
+    return blockers
 
 
 def main():
@@ -473,7 +480,7 @@ def main():
     parser.add_argument("--day-index", type=int, choices=(0, 1), default=0)
     args = parser.parse_args()
     try:
-        build_day(
+        blockers = build_day(
             args.pick,
             args.ledger,
             args.reference,
@@ -488,6 +495,9 @@ def main():
         return 1
     except (Rejected, ValueError, OSError, KeyError, IndexError, TypeError):
         print("SHADOW_HELD invalid media evidence or local input")
+        return 1
+    if blockers:
+        print("SHADOW_QA_HOLD " + ", ".join(blockers))
         return 1
     print("SHADOW_READY")
     return 0

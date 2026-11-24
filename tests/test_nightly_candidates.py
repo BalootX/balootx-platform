@@ -654,3 +654,11 @@ def test_shadow_viewer_requires_complete_exact_receipt_at_ninety_percent():
         shadow.check_viewer({**proof, "R": 0.8999}, **binding)
     with pytest.raises(picker.PlanError, match="SHADOW_VIEWER_PROOF_MISMATCH"):
         shadow.check_viewer({**proof, "scenarioSha256": "another fixture"}, **binding)
+
+
+def test_shadow_day_holds_with_unresolved_canonical_history():
+    policy = {"clip": {"eligibleInSlotCombination": "PASS"}}
+    assert shadow.day_qa_blockers({"unresolvedCanonicalRows": 0}, policy) == []
+    assert shadow.day_qa_blockers({"unresolvedCanonicalRows": 1}, policy) == [
+        "LEDGER_HISTORY_UNRESOLVED"
+    ]
