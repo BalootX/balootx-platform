@@ -1198,14 +1198,16 @@ function App() {
     }
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (reportStartupError?: (error: Error) => void) => {
     await ensureConfigurationIdentity();
     const runtimeRequest=api<FoundryProfile>('/api/v2/foundry-profile').then((value)=>{setProfile(value);return value;});
     const bundleRequest=api<{items: ConfigBundle[]}>('/api/v2/configuration/bundles?status=published&limit=200').then((value)=>{setResearchBundles(value.items);return value;});
-    const [,,, disagreementPage, campaignPage, catalogPage, sakkaPage, reviewPage, analysisPage, finalistPage, renderPage, videoBatchPage, qualifiedPage] = await Promise.all([
+    const runsRequest = api<{items: ResearchRun[]}>('/api/v2/research-runs?limit=100')
+      .then((value) => setResearchRuns(value.items));
+    const overview = await Promise.all([
       runtimeRequest,
       bundleRequest,
-      api<{items: ResearchRun[]}>('/api/v2/research-runs?limit=100').then((value)=>{setResearchRuns(value.items);return value;}),
+      runsRequest,
       api<{items: SemanticDisagreement[]}>('/api/v2/semantic-disagreements?limit=100'),
       api<{items: Campaign[]}>('/api/v2/campaigns?limit=100'),
       api<{items: CatalogRecord[]}>('/api/v2/foundry-catalogs?limit=100'),
@@ -1216,7 +1218,15 @@ function App() {
       api<{items: RenderJob[]}>('/api/v2/render-batches?limit=20').catch(() => ({items: []})),
       api<{items: VideoProductionBatch[]}>('/api/v2/video-production-batches?limit=20').catch(() => ({items: []})),
       api<{items: BatchPreparedItem[]; nextCursor:string|null}>('/api/v2/qualified-laffat?limit=100&sort=laffa_score&direction=desc').catch(() => ({items: [], nextCursor:null})),
-    ]);
+    ]).catch(async (error: Error) => {
+      if (!reportStartupError) throw error;
+      reportStartupError(error);
+      // These requests can still update the layout after the aggregate rejects.
+      await Promise.allSettled([runtimeRequest, bundleRequest, runsRequest]);
+      return null;
+    });
+    if (!overview) return;
+    const [,,, disagreementPage, campaignPage, catalogPage, sakkaPage, reviewPage, analysisPage, finalistPage, renderPage, videoBatchPage, qualifiedPage] = overview;
     const recentCampaigns = [...campaignPage.items].sort((left, right) => {
       const created = Date.parse(right.createdAt) - Date.parse(left.createdAt);
       return created || right.campaignHash.localeCompare(left.campaignHash);
@@ -1291,8 +1301,10 @@ function App() {
     }
   };
 
-  // A failed startup load still settles the layout, so readiness details must not stay disabled.
-  useEffect(() => { refresh().catch((error: Error) => setMessage(error.message)).finally(() => setReadinessLoaded(true)); }, [refresh]);
+  useEffect(() => {
+    const reportStartupError = (error: Error) => setMessage(error.message);
+    void refresh(reportStartupError).catch(reportStartupError).finally(() => setReadinessLoaded(true));
+  }, [refresh]);
   useEffect(() => {
     if ((view !== 'overview' && view !== 'research') || !researchRuns.length) return;
     api<ResearchStats>('/api/v2/research-stats').then(setResearchStats).catch((error: Error) => {

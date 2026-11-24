@@ -320,16 +320,59 @@ test('distinct performance metrics follow the selected governed copy capability'
   await expect(distinctMetrics).toHaveCount(3);
 });
 
-test('readiness details open after a failed startup load', async ({page}) => {
-  await page.route('**/api/v2/foundry-profile', (route) => route.fulfill({status: 503, json: {detail: 'profile unavailable'}}));
-  await page.goto('/foundry?section=overview');
-  const trigger = readinessTrigger(page);
-  await expect(trigger).toBeEnabled();
-  await trigger.click();
-  const dialog = page.locator('dialog.drawer-layer');
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toHaveAccessibleName(readinessLabel);
-});
+for (const summaryOutcome of ['success', 'failure'] as const) {
+  test('readiness waits for the run list and summary after a profile failure (' + summaryOutcome + ')', async ({page}) => {
+    let releaseRuns!: () => void;
+    let releaseSummary!: () => void;
+    const runsGate = new Promise<void>((resolve) => { releaseRuns = resolve; });
+    const summaryGate = new Promise<void>((resolve) => { releaseSummary = resolve; });
+
+    await page.route('**/api/v2/foundry-profile', (route) =>
+      route.fulfill({status: 503, json: {detail: 'profile unavailable'}}));
+    await page.route((url) => url.pathname === '/api/v2/research-runs', async (route) => {
+      await runsGate;
+      await route.fulfill({json: {
+        items: [{runCode: 'RUN-STARTUP-SETTLEMENT', recipeCode: 'RCP-STARTUP-SETTLEMENT', status: 'completed'}],
+      }});
+    });
+    await page.route('**/api/v2/research-stats', async (route) => {
+      await summaryGate;
+      if (summaryOutcome === 'failure') {
+        await route.fulfill({status: 503, json: {detail: 'research summary unavailable'}});
+      } else {
+        await route.continue();
+      }
+    });
+
+    const trigger = readinessTrigger(page);
+    const notice = page.locator('.notice');
+    try {
+      await page.goto('/foundry?section=overview');
+      await expect(notice.getByText('profile unavailable', {exact: true})).toBeVisible();
+      await expect(trigger).toBeDisabled();
+
+      const summaryRequested = page.waitForRequest((request) =>
+        new URL(request.url()).pathname === '/api/v2/research-stats');
+      releaseRuns();
+      await summaryRequested;
+      await expect(trigger).toBeDisabled();
+    } finally {
+      releaseRuns();
+      releaseSummary();
+    }
+
+    await expect(trigger).toBeEnabled();
+    if (summaryOutcome === 'failure') {
+      await expect(notice.getByText('research summary unavailable', {exact: true})).toBeVisible();
+    } else {
+      await expect(page.locator('.research-performance-summary')).toBeVisible();
+    }
+    await trigger.click();
+    const dialog = page.locator('dialog.drawer-layer');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAccessibleName(readinessLabel);
+  });
+}
 
 test('@mobile touch opens and closes the drawer with a full-size control', async ({page}) => {
   expect(await page.evaluate(() => navigator.maxTouchPoints)).toBeGreaterThan(0);
