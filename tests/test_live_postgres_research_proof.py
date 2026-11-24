@@ -953,11 +953,12 @@ def test_current_migration_policy_contract_is_final_and_deterministic(
         ("live.rooms", "live_room_read_v20"),
         ("live.rooms", "live_room_write_v20"),
         ("security.external_identities", "external_identity_owner_v20"),
+        ("security.external_identities", "external_identity_service_v30"),
         ("security.passkey_credentials", "passkey_owner_v20"),
         ("security.websocket_tickets", "websocket_ticket_service_v20"),
     }
 
-    assert len(inventory) == 28
+    assert len(inventory) == 29
     assert first == second
     assert (
         first["sha256"]

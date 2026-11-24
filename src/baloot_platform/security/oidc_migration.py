@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 from typing import Any
 
@@ -15,7 +16,9 @@ from baloot_platform.storage.request_context import (
     apply_postgres_identity_context,
 )
 
-from .oidc import OIDC_PROFILE_ENV, OIDC_PROVIDER_FAMILY, discover_oidc_issuer
+from .oidc import DEFAULT_OIDC_HTTP_TIMEOUT, OIDC_PROFILE_ENV, OIDC_PROVIDER_FAMILY, discover_oidc_issuer
+
+LEGACY_DEFAULT_PROVIDER_ID = "default"
 
 
 def legacy_oidc_profile(
@@ -27,7 +30,9 @@ def legacy_oidc_profile(
         raise ValueError("complete legacy OIDC provider metadata is required")
     legacy_issuer = provider["issuer"]
     assert legacy_issuer is not None
-    issuer, _ = discover_oidc_issuer(client, legacy_issuer)
+    if "BALOOT_OIDC_JWKS_URI" in os.environ:
+        logging.getLogger(__name__).warning("The legacy JWKS override is ignored; OIDC Discovery is required")
+    issuer, _ = discover_oidc_issuer(client, legacy_issuer, timeout=DEFAULT_OIDC_HTTP_TIMEOUT)
     if issuer.rstrip("/") != legacy_issuer.rstrip("/"):
         raise ValueError("discovered issuer differs from legacy issuer beyond a trailing slash")
     provider["issuer"] = issuer
@@ -41,7 +46,7 @@ def legacy_oidc_profile(
         "profile": {"id": profile_id, "version": version},
         "change_reason": reason,
         "providers": {
-            os.environ.get("BALOOT_OIDC_PROVIDER_ID", "default"): {
+            os.environ.get("BALOOT_OIDC_PROVIDER_ID", LEGACY_DEFAULT_PROVIDER_ID): {
                 **provider, "allowed_algorithms": algorithms,
             },
         },
@@ -77,7 +82,8 @@ def migrate_legacy_oidc(
         transition = prior[0]
         revision = configuration.store.get_profile(transition["revision_id"])
         if (
-            revision is None or revision.payload != payload
+            revision is None
+            or revision.payload != {**payload, "change_reason": revision.payload["change_reason"]}
             or transition["legacy_issuer"] != legacy_issuer
         ):
             raise ValueError("existing OIDC migration has a different binding")
@@ -157,9 +163,10 @@ def rollback_legacy_oidc(
         return {"revisionId": revision_id, "status": "already-rolled-back"}
     if transition["finalized_at"] is not None:
         raise ValueError("the OIDC migration rollback window has closed")
-    revision = configuration.resolve_profile(family=OIDC_PROVIDER_FAMILY, profile_id=profile_id)
-    if revision["revisionId"] != revision_id:
-        raise ValueError("OIDC profile has a different active revision")
+    try:
+        active = configuration.resolve_profile(family=OIDC_PROVIDER_FAMILY, profile_id=profile_id)
+    except KeyError:
+        active = None
 
     conn.execute(
         "UPDATE security.oidc_issuer_transitions SET rolled_back_at = now() WHERE revision_id = %s",
@@ -175,11 +182,13 @@ def rollback_legacy_oidc(
             "UPDATE security.external_identities SET issuer = %s WHERE provider_id = %s AND issuer = %s",
             (legacy_issuer, provider_id, issuer),
         ).rowcount
-    configuration.retire_profile(
-        revision_id, expected_etag=revision["etag"], actor_id=actor, reason=reason
-    )
+    if active is not None:
+        configuration.retire_profile(
+            active["revisionId"], expected_etag=active["etag"], actor_id=actor, reason=reason
+        )
     configuration.store.append_event(
-        "profile", revision_id, "oidc_issuer_rolled_back", actor, {"links": count}
+        "profile", revision_id, "oidc_issuer_rolled_back", actor,
+        {"links": count, "retiredRevisionId": active["revisionId"] if active else None, "reason": reason},
     )
     return {"revisionId": revision_id, "status": "rolled-back", "links": count}
 
@@ -232,7 +241,7 @@ def main() -> None:
 
     try:
         if not closing_revision:
-            with httpx.Client(timeout=15.0, follow_redirects=False) as client:
+            with httpx.Client(follow_redirects=False) as client:
                 legacy_issuer, payload = legacy_oidc_profile(
                     client, profile_id=profile_id, version=args.version,
                     reason=reason, algorithms=args.algorithm,

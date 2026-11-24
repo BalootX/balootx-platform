@@ -110,6 +110,7 @@ from baloot_platform.service.routes import (
 from baloot_platform.service.container import PlatformContainer, build_container
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER
 from baloot_platform.service.client_identity import (
+    caller_role,
     initialize_service_subject_ownership,
     service_subject_ownership,
 )
@@ -758,14 +759,11 @@ async def platform_security(request: Request, call_next):
         getattr(access_claims, "tenant_id", "")
         or request.headers.get("x-baloot-tenant-id", "")
     )
-    role = str(
-        getattr(access_claims, "role", "")
-        or (
-            request.headers.get("x-baloot-role", "service")
-            if api_key_valid
-            else ("player" if claims_subject else "anonymous")
-        )
+    role = caller_role(
+        request.headers, api_key_valid=api_key_valid,
+        claims_role=getattr(access_claims, "role", None), subject_id=claims_subject,
     )
+    request.state.caller_role = role
     context_token = CURRENT_DATABASE_IDENTITY.set(
         DatabaseIdentityContext(
             subject_id=claims_subject,

@@ -122,6 +122,14 @@ class PostgresSecurityStateStore:
             raise RuntimeError('Install with: pip install "baloot-platform[postgres]"') from exc
         self.pool=ConnectionPool(dsn,min_size=1,max_size=16,open=True)
 
+    def require_oidc_rls(self) -> None:
+        with contextual_connection(self.pool) as conn:
+            active = conn.execute(
+                "SELECT row_security_active('security.external_identities')"
+            ).fetchone()
+        if not active or not active[0]:
+            raise RuntimeError("OIDC requires a PostgreSQL application role subject to row-level security")
+
     def save_oidc(self,state,payload,expires_at):
         with contextual_connection(self.pool) as conn: conn.execute("INSERT INTO security.oidc_transactions(state,payload_json,expires_at) VALUES(%s,%s::jsonb,to_timestamp(%s)) ON CONFLICT(state) DO UPDATE SET payload_json=excluded.payload_json,expires_at=excluded.expires_at,consumed_at=NULL",(state,json.dumps(payload,ensure_ascii=False),expires_at))
     def consume_oidc(self,state,now):

@@ -9,6 +9,7 @@ from baloot_platform.configuration import VersionedConfigurationService
 from baloot_platform.identity import IdentityService
 from baloot_platform.security import AuthorizationPolicy, Scope
 from baloot_platform.configuration.service import profile_families_require_admin
+from baloot_platform.service.client_identity import caller_role
 
 from .auth import require_identity
 
@@ -103,19 +104,17 @@ class ConfigurationBundleListResponse(BaseModel):
     items: list[ConfigurationBundleRevisionResponse]
 
 
-def _role(request: Request) -> str:
-    claims = getattr(request.state, "access_claims", None)
-    if claims is not None:
-        return str(getattr(claims, "role", "player")).lower()
-    if bool(getattr(request.state, "api_key_valid", False)):
-        return request.headers.get("x-baloot-role", "service").lower()
-    return "player"
-
-
 def _admin(request: Request, policy: AuthorizationPolicy) -> None:
     claims = getattr(request.state, "access_claims", None)
+    role = getattr(request.state, "caller_role", None)
+    if role is None:
+        role = caller_role(
+            request.headers, api_key_valid=bool(getattr(request.state, "api_key_valid", False)),
+            claims_role=getattr(claims, "role", None),
+            subject_id=getattr(getattr(request.state, "identity", None), "subject_id", ""),
+        )
     try:
-        policy.require(role=_role(request), required=Scope.CONFIG_ADMIN, claims=claims)
+        policy.require(role=role, required=Scope.CONFIG_ADMIN, claims=claims)
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
 

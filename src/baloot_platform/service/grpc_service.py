@@ -11,6 +11,7 @@ import hmac
 import json
 import os
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from baloot_platform.analysis.search_errors import SearchTimeBudgetExceeded
 from baloot_platform.config import data_root, platform_root
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER, owns_subject
 from baloot_platform.service.client_identity import (
+    caller_role,
     initialize_service_subject_ownership,
     service_client_identity,
     service_subject_ownership,
@@ -1441,26 +1443,38 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             value = _metadata(context).get("x-baloot-tenant-id", "").strip()
             return value or None
 
-        @staticmethod
-        async def _require_profile_admin(context, *families: str) -> None:
-            if profile_families_require_admin(*families):
+        @asynccontextmanager
+        async def _profile_context(self, context, *families: str, revision_id: str | None = None, write: bool = False):
+            if write:
+                await _require_api(context)
+            if revision_id is not None:
+                current = CONFIGURATION.store.get_profile(revision_id)
+                if current is None:
+                    await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
+                families = (current.family,)
+            restricted = profile_families_require_admin(*families)
+            token = None
+            if restricted:
                 if not os.environ.get("BALOOT_API_KEY"):
                     await context.abort(grpc.StatusCode.PERMISSION_DENIED, "restricted profiles require a configured API key")
-                await _require_api(context)
-                role = _metadata(context).get("x-baloot-role", "service").lower()
+                if not write:
+                    await _require_api(context)
+                role = caller_role(_metadata(context), api_key_valid=True)
                 try:
                     AUTHORIZATION_POLICY.require(role=role, required=Scope.CONFIG_ADMIN)
                 except PermissionError as exc:
                     await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
-                CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(role=role))
-
-        async def _profile_write_identity(self, context, revision_id: str):
-            await _require_api(context)
-            current = CONFIGURATION.store.get_profile(revision_id)
-            if current is None:
-                await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
-            await self._require_profile_admin(context, current.family)
-            return await _identity(context)
+                identity = await _identity(context)
+                token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(
+                    role=role, subject_id=identity.subject_id, tenant_id=self._tenant(context) or "",
+                ))
+            else:
+                identity = await _identity(context)
+            try:
+                yield identity
+            finally:
+                if token is not None:
+                    CURRENT_DATABASE_IDENTITY.reset(token)
 
         async def GetCapabilities(self, request, context):
             await _identity(context)
@@ -1480,14 +1494,13 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result({"items": [item.to_dict(include_payload=False) for item in values]})
 
         async def CreateProfile(self, request, context):
-            await self._require_profile_admin(context, request.family)
-            await _require_api(context); identity = await _identity(context)
             try:
-                value = CONFIGURATION.create_profile(
-                    family=request.family, payload=_payload(request.canonical_json), created_by=identity.subject_id,
-                    scope=request.scope or "global", tenant_id=request.tenant_id or self._tenant(context),
-                    supersedes_revision_id=request.supersedes_revision_id or None, publish=request.publish,
-                )
+                async with self._profile_context(context, request.family, write=True) as identity:
+                    value = CONFIGURATION.create_profile(
+                        family=request.family, payload=_payload(request.canonical_json), created_by=identity.subject_id,
+                        scope=request.scope or "global", tenant_id=request.tenant_id or self._tenant(context),
+                        supersedes_revision_id=request.supersedes_revision_id or None, publish=request.publish,
+                    )
                 return self._result(value)
             except ValueError as exc:
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
@@ -1495,11 +1508,11 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.ABORTED, str(exc))
 
         async def PublishProfile(self, request, context):
-            identity = await self._profile_write_identity(context, request.value)
             try:
-                return self._result(CONFIGURATION.publish_profile(
-                    request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id,
-                ))
+                async with self._profile_context(context, revision_id=request.value, write=True) as identity:
+                    return self._result(CONFIGURATION.publish_profile(
+                        request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id,
+                    ))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
             except RuntimeError as exc:
@@ -1508,9 +1521,9 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def RejectProfile(self, request, context):
-            identity = await self._profile_write_identity(context, request.value)
             try:
-                return self._result(CONFIGURATION.reject_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
+                async with self._profile_context(context, revision_id=request.value, write=True) as identity:
+                    return self._result(CONFIGURATION.reject_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
             except RuntimeError as exc:
@@ -1519,9 +1532,9 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def RetireProfile(self, request, context):
-            identity = await self._profile_write_identity(context, request.value)
             try:
-                return self._result(CONFIGURATION.retire_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
+                async with self._profile_context(context, revision_id=request.value, write=True) as identity:
+                    return self._result(CONFIGURATION.retire_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
             except RuntimeError as exc:
@@ -1530,13 +1543,12 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def ResolveProfile(self, request, context):
-            await _identity(context)
-            await self._require_profile_admin(context, request.family)
             try:
-                return self._result(CONFIGURATION.resolve_profile(
-                    family=request.family, profile_id=request.profile_id,
-                    tenant_id=request.tenant_id or self._tenant(context),
-                ))
+                async with self._profile_context(context, request.family):
+                    return self._result(CONFIGURATION.resolve_profile(
+                        family=request.family, profile_id=request.profile_id,
+                        tenant_id=request.tenant_id or self._tenant(context),
+                    ))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile not resolved")
 
@@ -1545,11 +1557,11 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             left = CONFIGURATION.store.get_profile(request.left); right = CONFIGURATION.store.get_profile(request.right)
             if left is None or right is None:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
-            await self._require_profile_admin(context, left.family, right.family)
-            return self._result({
-                "left": left.to_dict(include_payload=False), "right": right.to_dict(include_payload=False),
-                "changes": CONFIGURATION.compare_payloads(dict(left.payload), dict(right.payload)),
-            })
+            async with self._profile_context(context, left.family, right.family):
+                return self._result({
+                    "left": left.to_dict(include_payload=False), "right": right.to_dict(include_payload=False),
+                    "changes": CONFIGURATION.compare_payloads(dict(left.payload), dict(right.payload)),
+                })
 
         async def ListBundles(self, request, context):
             await _identity(context)

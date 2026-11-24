@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import os
 import secrets
@@ -9,6 +10,7 @@ import threading
 import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
+from time import monotonic
 from typing import TYPE_CHECKING, Annotated, Any, Callable, Iterator, Literal
 from urllib.parse import urlencode, urlsplit
 
@@ -31,6 +33,10 @@ if TYPE_CHECKING:
 
 OIDC_PROVIDER_FAMILY = "oidc_providers"
 OIDC_PROFILE_ENV = "BALOOT_OIDC_PROVIDERS_PROFILE"
+DEFAULT_OIDC_HTTP_TIMEOUT = 15
+_DEFAULT_SCOPES = ("openid", "profile", "email")
+_DEFAULT_CLOCK_SKEW = 30
+_DEFAULT_DISCOVERY_TTL = 300
 _LEGACY_PROVIDER_FIELDS = (
     "PROVIDER_ID",
     "ISSUER",
@@ -50,9 +56,16 @@ class OidcProviderConfig:
     token_endpoint: str
     client_id: str
     redirect_uri: str
-    scopes: tuple[str, ...] = ("openid", "profile", "email")
+    scopes: tuple[str, ...] = _DEFAULT_SCOPES
     allowed_algorithms: tuple[str, ...] = field(kw_only=True)
     client_secret: str | None = field(default=None, repr=False)
+    clock_skew_seconds: int = _DEFAULT_CLOCK_SKEW
+    http_timeout_seconds: int = DEFAULT_OIDC_HTTP_TIMEOUT
+    discovery_cache_seconds: int = _DEFAULT_DISCOVERY_TTL
+
+    def transaction_binding(self) -> str:
+        fields = (self.issuer, self.client_id, self.redirect_uri, self.authorization_endpoint, self.token_endpoint)
+        return hashlib.sha256(json.dumps(fields).encode()).hexdigest()
 
     def authorization_url(self, *, state: str, nonce: str, code_challenge: str) -> str:
         separator = "&" if "?" in self.authorization_endpoint else "?"
@@ -72,6 +85,10 @@ class _OidcProviderRow(BaseModel):
     client_id: str
     redirect_uri: str
     allowed_algorithms: list[Literal["RS256", "ES256", "EdDSA"]] = Field(min_length=1)
+    scopes: list[Annotated[str, StringConstraints(pattern=r"^[\x21\x23-\x5b\x5d-\x7e]+$")]] = Field(default=list(_DEFAULT_SCOPES))
+    clock_skew_seconds: int = Field(default=_DEFAULT_CLOCK_SKEW, ge=0, le=300)
+    http_timeout_seconds: int = Field(default=DEFAULT_OIDC_HTTP_TIMEOUT, gt=0, le=60)
+    discovery_cache_seconds: int = Field(default=_DEFAULT_DISCOVERY_TTL, gt=0, le=3600)
     client_secret_env: str | None = Field(
         default=None, pattern=r"^BALOOT_OIDC_CLIENT_SECRET(?:_[A-Z0-9_]+)?$"
     )
@@ -88,6 +105,13 @@ class _OidcProviderRow(BaseModel):
     def validate_algorithms(cls, values: list[str]) -> list[str]:
         if len(values) != len(set(values)):
             raise ValueError("must contain unique algorithms")
+        return values
+
+    @field_validator("scopes")
+    @classmethod
+    def validate_scopes(cls, values: list[str]) -> list[str]:
+        if "openid" not in values or len(values) != len(set(values)):
+            raise ValueError("scopes must be unique and include openid")
         return values
 
     @field_validator("issuer", "authorization_endpoint", "token_endpoint", "redirect_uri")
@@ -121,13 +145,13 @@ def _validate_oidc_url(value: str, *, allow_loopback: bool = False) -> None:
         raise ValueError("must be an absolute HTTPS URL without user info or a fragment")
 
 
-def discover_oidc_issuer(client: httpx.Client, issuer: str) -> tuple[str, str]:
+def discover_oidc_issuer(client: httpx.Client, issuer: str, *, timeout: int) -> tuple[str, str]:
     _validate_oidc_url(issuer)
     if "?" in issuer:
         raise ValueError("OIDC issuer must not contain a query")
     discovery_url = issuer.rstrip("/") + "/.well-known/openid-configuration"
     try:
-        response = client.get(discovery_url, follow_redirects=False)
+        response = client.get(discovery_url, follow_redirects=False, timeout=timeout)
         response.raise_for_status()
         metadata = response.json()
     except (httpx.HTTPError, httpx.InvalidURL, ValueError):
@@ -181,7 +205,7 @@ def validate_oidc_provider_profile(payload: dict[str, Any]) -> OidcProviderProfi
         raise ValueError("; ".join(problems)) from None
 
 
-def load_oidc_providers(configuration: VersionedConfigurationService) -> dict[str, OidcProviderConfig]:
+def _configured_profile() -> str | None:
     profile_id = os.environ.get(OIDC_PROFILE_ENV)
     has_legacy_metadata = any(
         f"BALOOT_OIDC_{name}" in os.environ for name in _LEGACY_PROVIDER_FIELDS
@@ -189,13 +213,25 @@ def load_oidc_providers(configuration: VersionedConfigurationService) -> dict[st
     if profile_id is None:
         if has_legacy_metadata:
             raise ValueError(f"migrate legacy OIDC provider settings to {OIDC_PROFILE_ENV}")
-        return {}
+        return None
+    if has_legacy_metadata:
+        logging.getLogger(__name__).warning(
+            "Ignoring legacy OIDC provider metadata because a registry revision is configured"
+        )
+    return profile_id
+
+
+class OidcProfileUnavailable(ValueError):
+    """The configured profile has no published revision."""
+
+
+def _resolve_revision(configuration: VersionedConfigurationService, profile_id: str) -> dict[str, Any]:
     try:
         revision = configuration.resolve_profile(
             family=OIDC_PROVIDER_FAMILY, profile_id=profile_id
         )
     except KeyError:
-        raise ValueError(
+        raise OidcProfileUnavailable(
             f"{OIDC_PROFILE_ENV} has no active published OIDC provider profile"
         ) from None
     if (
@@ -208,11 +244,10 @@ def load_oidc_providers(configuration: VersionedConfigurationService) -> dict[st
         raise ValueError(
             f"{OIDC_PROFILE_ENV} requires a global provider profile without rollout conditions"
         )
-    if has_legacy_metadata:
-        logging.getLogger(__name__).warning(
-            "Ignoring legacy OIDC provider metadata because a registry revision is configured"
-        )
+    return revision
 
+
+def _resolved_providers(revision: dict[str, Any]) -> dict[str, OidcProviderConfig]:
     profile = validate_oidc_provider_profile(revision["payload"])
     providers: dict[str, OidcProviderConfig] = {}
     for key, row in profile.providers.items():
@@ -227,29 +262,64 @@ def load_oidc_providers(configuration: VersionedConfigurationService) -> dict[st
             provider_id=key,
             client_secret=secret,
             allowed_algorithms=tuple(row.allowed_algorithms),
-            **row.model_dump(exclude={"client_secret_env", "allowed_algorithms"}),
+            scopes=tuple(row.scopes),
+            **row.model_dump(exclude={"client_secret_env", "allowed_algorithms", "scopes"}),
         )
     logging.getLogger(__name__).info("Loaded OIDC provider profile revision %s", revision["revisionId"])
     return providers
 
 
+def load_oidc_providers(configuration: VersionedConfigurationService) -> dict[str, OidcProviderConfig]:
+    profile_id = _configured_profile()
+    return _resolved_providers(_resolve_revision(configuration, profile_id)) if profile_id is not None else {}
+
+
+class HttpOidcRuntime:
+    def __init__(self, configuration: VersionedConfigurationService, security_state: Any):
+        self.configuration = configuration
+        self.security_state = security_state
+        self.profile_id = _configured_profile()
+        self.client = httpx.Client(follow_redirects=False)
+        self.transactions = PkceTransactionStore(
+            ttl_seconds=int(os.environ.get("BALOOT_OIDC_TRANSACTION_TTL", "600")),
+            backend=security_state,
+        )
+        self._lock = threading.Lock()
+        self._revision_id: str | None = None
+        self._callback: OidcCallbackService | None = None
+
+    def current(self, *, startup: bool = False) -> OidcCallbackService | None:
+        if self.profile_id is None:
+            return None
+        with self._lock:
+            try:
+                revision = _resolve_revision(self.configuration, self.profile_id)
+            except OidcProfileUnavailable:
+                self._callback = None
+                self._revision_id = None
+                if startup:
+                    raise
+                return None
+            if revision["revisionId"] != self._revision_id:
+                providers = _resolved_providers(revision)
+                require_rls = getattr(self.security_state, "require_oidc_rls", None)
+                if providers and require_rls is not None:
+                    require_rls()
+                self._callback = OidcCallbackService(providers, self.transactions, http_client=self.client)
+                self._revision_id = revision["revisionId"]
+            return self._callback
+
+
 @contextmanager
 def http_oidc_runtime(
     configuration: VersionedConfigurationService, security_state: Any
-) -> Iterator[OidcCallbackService | None]:
-    providers = load_oidc_providers(configuration)
-    if not providers:
-        yield None
-        return
-    transactions = PkceTransactionStore(
-        ttl_seconds=int(os.environ.get("BALOOT_OIDC_TRANSACTION_TTL", "600")),
-        backend=security_state,
-    )
-    callback = OidcCallbackService(providers, transactions)
+) -> Iterator[HttpOidcRuntime]:
+    runtime = HttpOidcRuntime(configuration, security_state)
     try:
-        yield callback
+        runtime.current(startup=True)
+        yield runtime
     finally:
-        callback.close()
+        runtime.client.close()
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,6 +333,7 @@ class PkceTransaction:
     created_at: int
     expires_at: int
     return_to: str
+    provider_binding: str | None = None
 
 
 class PkceTransactionStore:
@@ -276,14 +347,16 @@ class PkceTransactionStore:
         digest = hashlib.sha256(verifier.encode()).digest()
         return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
-    def create(self, provider_id: str, *, return_to: str = "/") -> PkceTransaction:
+    def create(
+        self, provider_id: str, *, return_to: str = "/", provider_binding: str | None = None,
+    ) -> PkceTransaction:
         now = int(time.time())
         verifier = secrets.token_urlsafe(48)
         item = PkceTransaction(
             transaction_id=secrets.token_urlsafe(18), provider_id=provider_id,
             state=secrets.token_urlsafe(24), nonce=secrets.token_urlsafe(24),
             verifier=verifier, challenge=self._challenge(verifier), created_at=now,
-            expires_at=now + self.ttl_seconds, return_to=return_to,
+            expires_at=now + self.ttl_seconds, return_to=return_to, provider_binding=provider_binding,
         )
         if self.backend is not None:
             self.backend.save_oidc(item.state, asdict(item), item.expires_at)
@@ -317,10 +390,10 @@ class OidcCallbackService:
                  claims_verifier: Callable[[str, OidcProviderConfig, str], dict[str, Any]] | None = None):
         self.providers = dict(providers)
         self.transactions = transactions
-        self._client = http_client or httpx.Client(timeout=15.0, follow_redirects=False)
+        self._client = http_client or httpx.Client(follow_redirects=False)
         self._owns_client = http_client is None
         self.claims_verifier = claims_verifier
-        self._jwks_clients: dict[str, jwt.PyJWKClient] = {}
+        self._jwks_clients: dict[str, tuple[float, jwt.PyJWKClient]] = {}
         self._discovery_locks = {key: threading.Lock() for key in providers}
 
     def _jwks_client(self, provider: OidcProviderConfig) -> jwt.PyJWKClient:
@@ -328,14 +401,18 @@ class OidcCallbackService:
 
         with self._discovery_locks[provider.provider_id]:
             cached = self._jwks_clients.get(provider.provider_id)
-            if cached is not None:
-                return cached
-            issuer, jwks_uri = discover_oidc_issuer(self._client, provider.issuer)
+            if cached is not None and monotonic() < cached[0]:
+                return cached[1]
+            issuer, jwks_uri = discover_oidc_issuer(
+                self._client, provider.issuer, timeout=provider.http_timeout_seconds,
+            )
             if issuer != provider.issuer:
                 raise ValueError("OIDC discovery issuer mismatch")
             # PyJWT 2.15.1 rejects redirects when fetching the discovered key set.
-            client = PyJWKClient(jwks_uri, timeout=15)
-            self._jwks_clients[provider.provider_id] = client
+            client = cached[1] if cached is not None and cached[1].uri == jwks_uri else PyJWKClient(
+                jwks_uri, timeout=provider.http_timeout_seconds,
+            )
+            self._jwks_clients[provider.provider_id] = (monotonic() + provider.discovery_cache_seconds, client)
             return client
 
     def _verify_id_token(self, token: str, provider: OidcProviderConfig, nonce: str) -> dict[str, Any]:
@@ -360,6 +437,7 @@ class OidcCallbackService:
                     algorithms=provider.allowed_algorithms,
                     audience=provider.client_id,
                     issuer=provider.issuer,
+                    leeway=provider.clock_skew_seconds,
                     options={"require": ["exp", "iat", "iss", "aud", "sub"]},
                 )
             except jwt.PyJWTError:
@@ -383,6 +461,8 @@ class OidcCallbackService:
         transaction = self.transactions.consume(state)
         if transaction.provider_id != provider_id:
             raise ValueError("OIDC provider/state mismatch")
+        if transaction.provider_binding is not None and transaction.provider_binding != provider.transaction_binding():
+            raise ValueError("OIDC provider changed; restart sign-in")
         body: dict[str, Any] = {
             "grant_type": "authorization_code", "code": code,
             "redirect_uri": provider.redirect_uri, "client_id": provider.client_id,
@@ -390,7 +470,10 @@ class OidcCallbackService:
         }
         if provider.client_secret:
             body["client_secret"] = provider.client_secret
-        response = self._client.post(provider.token_endpoint, data=body, headers={"Accept": "application/json"})
+        response = self._client.post(
+            provider.token_endpoint, data=body, headers={"Accept": "application/json"},
+            timeout=provider.http_timeout_seconds, follow_redirects=False,
+        )
         response.raise_for_status()
         tokens = dict(response.json())
         id_token = str(tokens.get("id_token") or "")

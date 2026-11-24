@@ -10,6 +10,17 @@ from baloot_platform.identity import Identity
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER
 
 
+def caller_role(
+    headers: Mapping[str, str], *, api_key_valid: bool, claims_role: str | None = None,
+    subject_id: str = "",
+) -> str:
+    if claims_role:
+        return claims_role.lower()
+    if api_key_valid:
+        return headers.get("x-baloot-role", "service").lower()
+    return "player" if subject_id else "anonymous"
+
+
 def _derived_subject_id(configured_key: str) -> str:
     digest = hashlib.pbkdf2_hmac(
         "sha256", configured_key.encode("utf-8"),

@@ -261,6 +261,19 @@ def test_docker_constraint_job_resolves_the_shared_target(root):
     assert "docker-constraints" not in jobs["media-inputs"]["needs"]
 
 
+def test_oidc_postgres_proof_uses_hosted_database_before_the_shard(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    shard = jobs["python-fast-run"]
+    steps = {step.get("name"): step for step in shard["steps"]}
+    proof = steps["Verify OIDC migration on PostgreSQL"]
+    assert shard["services"]["postgres"]["image"].endswith("'postgres:17-alpine' || '' }}")
+    assert "job.services.postgres.ports[5432]" in proof["env"]["BALOOT_TEST_OIDC_POSTGRES_DSN"]
+    assert "tests/oidc_postgres_integration.py" in proof["run"]
+    assert "!cancelled()" in proof["if"]
+    assert shard["steps"].index(proof) < shard["steps"].index(steps["Run isolated Python shard"])
+    assert "python-fast-run" in jobs["ci-gate"]["needs"]
+
+
 def test_viewer_seat_proof_dispatch_and_nightly_use_the_same_pinned_cohort(root):
     import hashlib
 

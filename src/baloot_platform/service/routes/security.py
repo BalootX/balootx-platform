@@ -15,6 +15,16 @@ from baloot_platform.security import (
 from .auth import require_identity
 
 
+def _current_oidc(request: Request):
+    runtime = getattr(request.app.state, "oidc", None)
+    if runtime is None:
+        return None
+    try:
+        return runtime.current()
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(503, "OIDC provider configuration is unavailable") from exc
+
+
 class TokenRequest(BaseModel):
     scopes: list[str] = Field(default_factory=lambda: [Scope.READ.value, Scope.PLAY.value])
     lifetimeSeconds: int = Field(900, ge=30, le=86400)
@@ -65,7 +75,7 @@ def build_security_router(
 
     @router.get("/capabilities")
     def capabilities(request: Request):
-        oidc = getattr(request.app.state, "oidc", None)
+        oidc = _current_oidc(request)
         return {
             "optionalSignIn": True, "localGuest": True, "localAccount": True,
             "oidcProviders": sorted(oidc.providers) if oidc else [], "oidcCallback": True,
@@ -96,11 +106,14 @@ def build_security_router(
 
     @router.post("/oidc:begin")
     def oidc_begin(body: OidcBeginRequest, request: Request):
-        oidc = getattr(request.app.state, "oidc", None)
+        oidc = _current_oidc(request)
         provider = oidc.providers.get(body.providerId) if oidc else None
         if provider is None:
             raise HTTPException(404, "OIDC provider is not configured")
-        transaction = oidc.transactions.create(provider.provider_id, return_to=body.returnTo)
+        transaction = oidc.transactions.create(
+            provider.provider_id, return_to=body.returnTo,
+            provider_binding=provider.transaction_binding(),
+        )
         return {
             "authorizationUrl": provider.authorization_url(
                 state=transaction.state, nonce=transaction.nonce, code_challenge=transaction.challenge,
@@ -111,7 +124,7 @@ def build_security_router(
 
     @router.post("/oidc:callback")
     def oidc_complete(body: OidcCallbackRequest, request: Request):
-        oidc = getattr(request.app.state, "oidc", None)
+        oidc = _current_oidc(request)
         if oidc is None:
             raise HTTPException(400, "OIDC provider is not configured")
         try:

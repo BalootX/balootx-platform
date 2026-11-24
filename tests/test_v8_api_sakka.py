@@ -202,6 +202,28 @@ def test_http_oidc_profile_lifecycle_requires_config_admin(monkeypatch):
                 "expectedEtag": published["etag"], "reason": "Retire revision",
             })
 
+
+def test_http_database_role_ignores_keyless_role_header(monkeypatch):
+    from fastapi import FastAPI
+
+    from baloot_platform.service.api import platform_security
+    from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY
+
+    probe = FastAPI()
+    probe.middleware("http")(platform_security)
+
+    @probe.get("/database-role")
+    def database_role():
+        return {"role": CURRENT_DATABASE_IDENTITY.get().role}
+
+    monkeypatch.delenv("BALOOT_API_KEY", raising=False)
+    with TestClient(probe) as client:
+        headers = {"x-baloot-role": "admin"}
+        assert client.get("/database-role", headers=headers).json() == {"role": "anonymous"}
+        monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
+        assert client.get("/database-role", headers={**headers, "x-api-key": "wrong-fixture-key"}).json() == {"role": "anonymous"}
+        assert client.get("/database-role", headers={**headers, "x-api-key": _SERVICE_KEY}).json() == {"role": "admin"}
+
 # The SHA-256 subject IDs used by the pre-upgrade server for these fixtures.
 _LEGACY_SERVICE = "SVC-FC90545E2119AD22B93F"
 _LEGACY_KEYLESS_ONE = "SVC-F04BE659D2BE04575D83"
@@ -269,8 +291,26 @@ def _grpc_probe(tmp_path, monkeypatch, probe, *, stub_factory=None):
 
 def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch):
     from baloot_platform.generated import configuration_pb2, configuration_pb2_grpc
+    from baloot_platform.storage import request_context
 
     monkeypatch.delenv("BALOOT_API_KEY", raising=False)
+    database_identity = request_context.CURRENT_DATABASE_IDENTITY
+    contexts, resets = [], []
+
+    class TrackingContext:
+        def get(self):
+            return database_identity.get()
+
+        def set(self, identity):
+            token = database_identity.set(identity)
+            contexts.append((identity, token))
+            return token
+
+        def reset(self, token):
+            database_identity.reset(token)
+            resets.append(token)
+
+    monkeypatch.setattr(request_context, "CURRENT_DATABASE_IDENTITY", TrackingContext())
 
     async def probe(grpc, stub):
         request = configuration_pb2.ProfileDraft(family="oidc_providers", canonical_json=b"{}")
@@ -279,7 +319,7 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
         assert error.value.code() == grpc.StatusCode.PERMISSION_DENIED
         monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
 
-        async def check(rpc, request, role):
+        async def check(rpc, request, role, *, tenant=None):
             for denied in _CONFIG_READ_ROLES:
                 with pytest.raises(grpc.aio.AioRpcError) as error:
                     await rpc(request, metadata=(("x-api-key", _SERVICE_KEY), ("x-baloot-role", denied)))
@@ -288,7 +328,13 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
                 with pytest.raises(grpc.aio.AioRpcError) as error:
                     await rpc(request, metadata=(*invalid, ("x-baloot-role", role)))
                 assert error.value.code() == grpc.StatusCode.UNAUTHENTICATED
-            result = await rpc(request, metadata=(("x-api-key", _SERVICE_KEY), ("x-baloot-role", role)))
+            headers = [
+                ("x-api-key", _SERVICE_KEY), ("x-baloot-role", role),
+                ("x-baloot-subject-id", "fixture-operator"),
+            ]
+            if tenant is not None:
+                headers.append(("x-baloot-tenant-id", tenant))
+            result = await rpc(request, metadata=headers)
             return json.loads(result.canonical_json)
 
         for role in ("admin", "service"):
@@ -312,7 +358,7 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
             ), role)
             await check(stub.CompareProfiles, configuration_pb2.ProfileCompare(
                 left=published["revisionId"], right=published["revisionId"],
-            ), role)
+            ), role, tenant="fixture-tenant")
             await check(stub.RetireProfile, configuration_pb2.TransitionRequest(
                 value=published["revisionId"], expected_etag=published["etag"], reason="Retire revision",
             ), role)
@@ -323,6 +369,10 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
         probe,
         stub_factory=configuration_pb2_grpc.ConfigurationControlStub,
     )
+    assert resets == [token for _, token in contexts]
+    assert {identity.role for identity, _ in contexts} == {"admin", "service"}
+    assert {identity.subject_id for identity, _ in contexts} == {"fixture-operator"}
+    assert any(identity.tenant_id == "fixture-tenant" for identity, _ in contexts)
 
 
 def test_api_key_reads_real_legacy_board_and_run_over_http_and_grpc(

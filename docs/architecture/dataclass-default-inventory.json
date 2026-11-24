@@ -509,6 +509,22 @@
       "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
     },
     {
+      "key": "src/baloot_platform/configuration/service.py:ProfileFamily.in_bundle",
+      "default": "True",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/service.py:ProfileFamily",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/service.py:ProfileFamily.requires_config_admin",
+      "default": "False",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/service.py:ProfileFamily",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
       "key": "src/baloot_platform/core/bid_scenario.py:BidEpisodeSpec.analysis_id",
       "default": "None",
       "classification": "protocol_or_mathematical_invariant",
@@ -1662,7 +1678,7 @@
     }
   ],
   "summary": {
-    "total": 206,
+    "total": 208,
     "migrationRequired": 0
   }
 }
