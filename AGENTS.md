@@ -57,10 +57,9 @@ Run the Python commands at the repository root. Run npm commands in the named pa
 
 ## Risk paths
 
-The engineering standard's “Branches, merging and releases” section defines high risk. Apply the review in [Delivery](DELIVERY.md#merge) to these BalootX paths and the specific controls named below.
+Apply the [critical-change review rule](DELIVERY.md#merge) to these BalootX paths and the specific controls named below.
 
-- `.github/workflows/`, the test-path inventory in `.github/python-test-durations.json`, `scripts/{ci_scope,ci_known_failures,run_isolated_pytest,run_heavy_pytest}.py` and `ci/{known-failures.json,all-skipped-allowlist.txt}` control merge-check execution and outcomes.
-- The CI-invoked scripts in `src/baloot_platform/service/foundry_dashboard/package.json` and `src/baloot_platform/video/remotion/package.json`, plus `src/baloot_platform/service/foundry_dashboard/scripts/check-generated-api.mjs`, control what required checks run.
+- Workflows in `.github/workflows/` can access repository secrets and set token permissions in this public repo. An edit can expose secrets or grant unintended access.
 - `.gitleaks.toml` controls exemptions from secret scanning.
 - `migrations/`, `src/baloot_platform/resources/migrations/`, `scripts/migrate_{postgres,to_canonical_v17}.py` and `src/baloot_platform/history/migration_v17.py` can rewrite stored data.
 - `src/baloot_platform/storage/{artifact_store,game_store,postgres}.py` and `src/baloot_platform/configuration/{service,store}.py` can remove or replace stored media, game data or published configuration.
