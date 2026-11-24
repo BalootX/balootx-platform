@@ -1,0 +1,8 @@
+{
+  "publicRemote": "https://github.com/BalootX/balootx-platform.git",
+  "rendererPaths": [
+    "src/baloot_platform/video",
+    "configs/video",
+    "schemas/profiles/video.schema.json"
+  ]
+}

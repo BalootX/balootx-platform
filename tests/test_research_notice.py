@@ -1,13 +1,14 @@
 import hashlib
 import json
 import runpy
+import subprocess
 import sys
 from types import SimpleNamespace
 
 from PIL import Image
 import pytest
 
-from scripts import render_research_notice as notice
+from scripts import render_kickoff, render_research_notice as notice
 
 
 @pytest.fixture
@@ -332,7 +333,76 @@ def test_notice_selectors_require_public_in_main_and_cli(monkeypatch, capsys, se
     assert "require --public" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("stale", [None, "image", "source", "lockfile", "dependencies"])
+@pytest.mark.parametrize("pin", ["4fd9b56a", "diverged", "current", "newer", "after-fix", "configured-layout"])
+def test_render_kickoff_checks_live_public_renderer_history(tmp_path, monkeypatch, capsys, pin):
+    def git(repo, *args):
+        return subprocess.check_output(
+            ["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@users.noreply.github.com",
+             "-c", "commit.gpgsign=false", *args],
+            cwd=repo, text=True, timeout=10,
+        ).strip()
+
+    public = tmp_path / "public"
+    public.mkdir()
+    git(public, "init", "--initial-branch=main")
+    renderer_path = "scene" if pin == "configured-layout" else "src/baloot_platform/video"
+    layout = public / renderer_path / "layout.txt"
+    layout.parent.mkdir(parents=True)
+    layout.write_text("before layout fix\n", encoding="utf-8")
+    git(public, "add", ".")
+    git(public, "commit", "-m", "4fd9b56a pre-fix renderer")
+    before_fix = git(public, "rev-parse", "HEAD")
+    checkout = tmp_path / "source"
+    git(tmp_path, "clone", "--no-local", str(public), str(checkout))
+    layout.write_text("after layout fix\n", encoding="utf-8")
+    git(public, "commit", "-am", "3e073db layout fix")
+    fix = git(public, "rev-parse", "HEAD")
+    git(public, "commit", "--allow-empty", "-m", "unrelated main change")
+    main_head = git(public, "rev-parse", "HEAD")
+    assert git(checkout, "rev-parse", "origin/main") == before_fix
+
+    if pin in {"current", "newer", "after-fix"}:
+        git(checkout, "fetch", "origin")
+        git(checkout, "checkout", "--detach", fix if pin == "after-fix" else "origin/main")
+    if pin in {"diverged", "newer"}:
+        git(checkout, "commit", "--allow-empty", "-m", "newer candidate change")
+    source_head, source_tree = git(checkout, "rev-parse", "HEAD", "HEAD^{tree}").splitlines()
+
+    policy = tmp_path / "policy.json"
+    policy.write_text(json.dumps({
+        "publicRemote": str(public),
+        "rendererPaths": [renderer_path],
+    }), encoding="utf-8")
+    monkeypatch.setattr(render_kickoff, "POLICY", policy)
+    image_id = "sha256:" + "3" * 64
+    build = tmp_path / "build.json"
+    build.write_text(json.dumps({
+        "status": "PASSED", "target": "video-worker", "sourceHead": source_head,
+        "sourceTree": source_tree, "imageId": image_id, "packageLockSha256": "4" * 64,
+    }), encoding="utf-8")
+
+    status = render_kickoff.main([
+        "--checkout", str(checkout), "--source-head", source_head, "--source-tree", source_tree,
+        "--build-receipt", str(build), "--image-id", image_id,
+    ])
+    verdict = json.loads(capsys.readouterr().out)
+    assert verdict["mainHead"] == main_head
+    assert verdict["sourceHead"] == source_head
+    assert verdict["sourceTree"] == source_tree
+    assert verdict["imageId"] == image_id
+    if pin in {"4fd9b56a", "diverged", "configured-layout"}:
+        assert status == 1
+        assert verdict["status"] == "failed"
+        assert verdict["missingRendererCommit"] == fix
+        assert "repin and rebuild" in verdict["reason"]
+    else:
+        assert status == 0
+        assert verdict["status"] == "passed"
+        assert verdict["missingRendererCommit"] is None
+        assert verdict["reason"] is None
+
+
+@pytest.mark.parametrize("stale", [None, "image", "source", "kickoff receipt", "lockfile", "dependencies"])
 def test_notice_selected_main_reaches_gates_with_selected_fixture(
     tmp_path, monkeypatch, approved_layout_bytes, stale
 ):
@@ -374,6 +444,14 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
     monkeypatch.setattr(notice, "select_deal", lambda *_: selection)
     monkeypatch.setenv("BALOOT_RENDER_BUILD_RECEIPT", str(build_receipt))
     monkeypatch.setenv("BALOOT_RENDER_IMAGE_ID", "sha256:" + "4" * 64 if stale == "image" else image_id)
+    kickoff = tmp_path / "kickoff.json"
+    kickoff.write_text(json.dumps({
+        "schemaVersion": 1, "status": "passed", "mainHead": "d" * 40,
+        "sourceHead": "a" * 40, "sourceTree": "b" * 40,
+        "imageId": "sha256:" + "4" * 64 if stale == "kickoff receipt" else image_id,
+        "packageLockSha256": lock_digest, "missingRendererCommit": None, "reason": None,
+    }), encoding="utf-8")
+    monkeypatch.setenv("BALOOT_RENDER_KICKOFF_RECEIPT", str(kickoff))
     output = tmp_path / "output"
     events = []
     monkeypatch.setattr(notice, "RuleBook", SimpleNamespace(load=lambda path: object()))
@@ -485,6 +563,7 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
     for document in (receipt, provenance_receipt):
         assert document["imageId"] == image_id
         assert document["packageLockSha256"] == lock_digest
+        assert document["kickoffMainHead"] == "d" * 40
     assert receipt["dealIdentifier"] == selection["identifier"]
     assert receipt["fixture"] == selection["source"]
     assert receipt["publicResearchNoticeShown"] is True

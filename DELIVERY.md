@@ -68,6 +68,20 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 - The clip gate keeps its audit rows in a private evidence store. Each row records the gate and ledger hashes.
 - Require independent media QA, [engine-interest and viewer-seat proof](docs/RESEARCH_SCENARIO_V4.md#engine-interest-v1), the [approved clip presentation](DESIGN.md#rendered-clips), caption policy and a current per-platform publication history. Hold a failing or unverified clip and record the reason.
 
+### Manual render kickoff
+
+At each batch kickoff, invoke the [shared preflight](scripts/render_kickoff.py) from a trusted public-main checkout that contains it. Give it the clean, full-history checkout for the selected inputs, the selected build receipt, and the image ID observed by the launcher. Capture stdout as the batch's kickoff receipt and stop on any nonzero exit.
+
+```sh
+python -B -m scripts.render_kickoff --checkout "$SOURCE_CHECKOUT" \
+  --source-head "$SOURCE_HEAD" --source-tree "$SOURCE_TREE" \
+  --build-receipt "$BUILD_RECEIPT" --image-id "$IMAGE_ID" > "$KICKOFF_RECEIPT"
+```
+
+The command snapshots public `main` from the configured remote and fetches the observed commit into the selected checkout's Git object store if needed. It checks for missing merged changes under the [configured renderer paths](scripts/render-kickoff.json). Changes on main outside those paths do not invalidate a pin. The verdict binds the input commit and tree to the selected worker image.
+
+Exit `0` means the preflight passed. Exit `1` means it refused the batch. Both write one JSON object with `schemaVersion` (`1`), `status` (`passed` or `failed`), `sourceHead`, `sourceTree`, `imageId`, `packageLockSha256`, `mainHead`, `missingRendererCommit`, and `reason`. Unavailable evidence is `null`. Exit `2` means invalid CLI usage. Keep the fresh receipt read-only for the batch. Pass it as `BALOOT_RENDER_KICKOFF_RECEIPT` to `render_research_notice --public` alongside `BALOOT_RENDER_BUILD_RECEIPT` and `BALOOT_RENDER_IMAGE_ID`.
+
 ## Rollback
 
 - Revert the change that broke main or the queue if the failure remains after 30 minutes. For a bad code release, start a revert branch at current `main`, run `git revert <squash-merge-sha>` and submit the revert through the [merge queue](#merge).
