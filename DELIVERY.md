@@ -28,9 +28,11 @@ Fix failed checks at the source. Do not rerun failures, widen deadlines or skip 
 
 The full suite runs daily at 20:00 UTC on the `Servers isolated $0 Linux test host (credential-free, not a GitHub runner)`, capped at 2h20m. A systemd timer starts each run with a fresh depth-1 checkout of public `main` and a per-run virtual environment. Nightly runs stay off the PC and outside the merge gate. [#109](https://github.com/BalootX/balootx-platform/issues/109)
 
-Servers sends Delivery the `main` SHA, test counts, failing test IDs, a JUnit file and a scrubbed log tail. Delivery files a Kind Bug issue titled `Nightly full suite red: <date>` the same day for any red or missing run and links the run when available. Treat flaky failures as High-priority bugs and fix or revert them.
+Servers sends BalootX QA the `main` SHA, test counts, failing test IDs, a JUnit file and a scrubbed log tail. BalootX QA files a Kind Bug issue titled `Nightly full suite red: <date>` the same day for any red or missing run and links the run when available. Treat flaky failures as High-priority bugs and fix or revert them. [#140](https://github.com/BalootX/balootx-platform/issues/140)
 
 ### Test coverage
+
+BalootX QA owns tests at every layer, the end-to-end journey catalogue, coverage, red and flaky tests, nightly results, and the pre-release sweep. QA routes pipeline faults to BalootX Delivery.
 
 - Add property and edge-case tests for code that handles untrusted or varied input, including parsers, limits, time zones and daylight saving transitions, schedules, slot sequencing and caption windows. Put long runs in the nightly profile.
 - Every bug that reached `main` adds its failing case as a regression test or a golden-case row.
@@ -51,7 +53,7 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 - The `main` merge queue is the only path to trunk and uses squash merges only. Workers push their own short-lived branches without rewriting history and open PRs under the project's App identity. Merge, split or close an open PR within two days of its first push. The ruleset requires zero human approvals.
 - Only changes in the [critical classes mapped in AGENTS.md](AGENTS.md#critical-paths) get one independent full-diff review in parallel with CI. The worker enables auto-merge after the verdict comment names the current head SHA. Turn off auto-merge before any later push. An existing verdict carries forward unless the push adds a new critical change. Verify fixes to review findings with tests.
 - For everything else, the thread that made the change opens its own PR and enables auto-merge at once. The PR merges through the queue once the required CI checks are green, with no review.
-- Delivery owns the queue, CI health and speed, releases, deploys, rollback and alerts. Workers handle each PR.
+- Delivery owns the queue, admission gates, pipeline faults, CI health and speed, releases, deploys, rollback and alerts. Workers handle each PR.
 - Use `Closes #n` in the PR body only if merging meets the item's whole Done-when. Otherwise use `Refs #n`.
 
 ## GitHub Releases
