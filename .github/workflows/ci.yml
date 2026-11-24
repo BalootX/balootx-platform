@@ -217,8 +217,10 @@ jobs:
           # Setuptools leaves source metadata on PYTHONPATH during the wheel build.
           "$RUNNER_TEMP/ci-venv/bin/python" -I -m pip install --no-index "$RUNNER_TEMP"/wheelhouse/*.whl
           "$RUNNER_TEMP/ci-venv/bin/python" -I -c 'from importlib.metadata import version; print(version("baloot-platform"))'
-          "$RUNNER_TEMP/ci-venv/bin/python" -I -c 'from ortools.sat.python import cp_model; cp_model.CpModel()'
           tar -C "$RUNNER_TEMP" -cf - ci-venv | gzip -1 > "$RUNNER_TEMP/python-runtime.tar.gz"
+      - name: Verify OR-Tools in the installed runtime
+        run: |
+          "$RUNNER_TEMP/ci-venv/bin/python" -I -c 'from ortools.sat.python import cp_model; cp_model.CpModel()'
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: *pip-cache
@@ -528,6 +530,7 @@ jobs:
       BALOOT_PYTEST_JOB_MINUTES: *heavy-timeout
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         python: *full-python
         shard: [1, 2]
