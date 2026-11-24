@@ -561,7 +561,9 @@ def _profile_schema_registry(schema_json: str) -> Registry | None:
     return Registry().with_resource(uri, DRAFT202012.create_resource(schema)).crawl()
 
 
-def _validate_profile(data: dict[str, Any], schema: dict[str, Any], path: Path) -> None:
+def _validate_profile(
+    data: dict[str, Any], schema: dict[str, Any], path: Path, *, family: str | None = None
+) -> None:
     # Referenced schemas must retain the source's first-error ordering.
     registry = _profile_schema_registry(json.dumps(schema, ensure_ascii=False, separators=(",", ":")))
     validator = (jsonschema.Draft202012Validator(schema) if registry is None else
@@ -571,6 +573,10 @@ def _validate_profile(data: dict[str, Any], schema: dict[str, Any], path: Path) 
     except jsonschema.ValidationError as exc:
         if exc.context:
             exc = best_match(exc.context)
+        if family == "agents":
+            from .agents.profiles import agent_profile_schema_error
+
+            raise agent_profile_schema_error(path, exc) from exc
         dotted = ".".join(str(part) for part in exc.absolute_path)
         raise ValueError(
             f"invalid profile {path}: {dotted or '<root>'}: {exc.message}"
@@ -1681,7 +1687,7 @@ def validate_profile_payload(
         else resolved_root / "schemas/profile.schema.json"
     )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    _validate_profile(data, schema, Path(source or f"<row:{family}>"))
+    _validate_profile(data, schema, Path(source or f"<row:{family}>"), family=family)
     _semantic_validate(family, data)
     return data
 
@@ -1809,7 +1815,7 @@ def build_bundle(
             if family_schema_path.exists()
             else generic_schema
         )
-        _validate_profile(data, schema, path)
+        _validate_profile(data, schema, path, family=family)
         _semantic_validate(family, data)
         artifacts[family] = ProfileArtifact(
             family, path.relative_to(root).as_posix(), data, _sha(data)
