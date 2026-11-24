@@ -1,5 +1,13 @@
 export type Json = null | boolean | number | string | Json[] | {[key:string]:Json};
 export type ObjectJson = {[key:string]:Json};
+export interface IdentityPageOptions {
+  cursor?: string;
+  limit?: number;
+}
+export interface IdentityPage {
+  items: ObjectJson[];
+  nextCursor: string|null;
+}
 export interface ResearchRenderPrepareRequest {
   revealPolicy?: 'after_commit'|'after_completion'|'post_reveal_only';
   exportPreset?: 'decision_clip'|'hooked_flagship'|null;
@@ -85,7 +93,21 @@ export class BalootClient {
   async register(username:string,password:string,displayName?:string){const value=await this.post('/api/v1/auth/register',{username,password,displayName:displayName??null});if(value.accessToken)this.accessToken=value.accessToken;return value}
   async login(username:string,password:string){const value=await this.post('/api/v1/auth/login',{username,password});if(value.accessToken)this.accessToken=value.accessToken;return value}
   async logout(){await this.request('/api/v1/auth/logout',{method:'POST'});this.accessToken=undefined}
-  friends(){return this.request('/api/v1/friends')}
+  friends(options:IdentityPageOptions={}):Promise<IdentityPage>{
+    return this.identityPage('/api/v1/friends',options);
+  }
+  friendRequests(options:IdentityPageOptions={}):Promise<IdentityPage>{
+    return this.identityPage('/api/v1/friends/requests',options);
+  }
+  searchUsers(query:string,options:IdentityPageOptions={}):Promise<IdentityPage>{
+    return this.identityPage('/api/v1/users:search',options,new URLSearchParams({query}));
+  }
+  private identityPage(path:string,{cursor,limit}:IdentityPageOptions,params=new URLSearchParams()):Promise<IdentityPage>{
+    if(cursor!==undefined)params.set('cursor',cursor);
+    if(limit!==undefined)params.set('limit',String(limit));
+    const query=params.toString();
+    return this.request(query?`${path}?${query}`:path);
+  }
   requestFriend(recipientId:string){return this.post('/api/v1/friends/requests',{recipientId})}
   validateConfiguration(request:ObjectJson){return this.post('/api/v1/configuration:validate',{request})}
   createGame(payload:ObjectJson){return this.post('/api/v1/games',payload)}

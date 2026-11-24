@@ -5,12 +5,14 @@ import hmac
 import re
 import secrets
 import uuid
+from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .models import Identity, utc_now
 from .ownership import owns_subject
-from .store import SQLiteIdentityStore
+from .pagination import cursor_scope, decode_cursor, encode_cursor
+from .store import PostgresIdentityStore, SQLiteIdentityStore
 
 _USERNAME = re.compile(r"^[A-Za-z0-9_\-.]{3,32}$")
 
@@ -23,7 +25,7 @@ class IdentityService:
     passwords, making OIDC/passkeys a later provider swap rather than a rewrite.
     """
 
-    def __init__(self, store: SQLiteIdentityStore, *, session_hours: int = 24 * 30,
+    def __init__(self, store: SQLiteIdentityStore | PostgresIdentityStore, *, session_hours: int = 24 * 30,
                  guest_hours: int = 24 * 7, password_minimum: int = 8):
         self.store = store
         self.session_hours = max(1, int(session_hours))
@@ -165,8 +167,31 @@ class IdentityService:
         session = self._new_session(selected, guest=False, user_agent=user_agent)
         return {"identity": self._identity(row).to_dict(), "session": session}
 
-    def search(self, query: str, *, limit: int = 20) -> list[dict[str, Any]]:
-        return [self._identity(row).to_dict() for row in self.store.search_subjects(query, limit=limit)]
+    def _page(
+        self,
+        fetch: Callable[..., list[dict[str, Any]]],
+        value: str,
+        *,
+        operation: str,
+        keys: tuple[str, ...],
+        limit: int,
+        cursor: str | None,
+    ) -> dict[str, Any]:
+        scope = cursor_scope(operation, value)
+        rows = fetch(value, limit=limit + 1, after=decode_cursor(cursor, scope, keys=keys))
+        items = rows[:limit]
+        next_cursor = None
+        if len(rows) > limit:
+            next_cursor = encode_cursor(scope, tuple(items[-1][key] for key in keys))
+        return {"items": items, "nextCursor": next_cursor}
+
+    def search(self, query: str, *, limit: int, cursor: str | None = None) -> dict[str, Any]:
+        page = self._page(
+            self.store.search_subjects, query.strip(), operation="search",
+            keys=("kind", "display_name", "subject_id"), limit=limit, cursor=cursor,
+        )
+        page["items"] = [self._identity(row).to_dict() for row in page["items"]]
+        return page
 
     def request_friend(self, sender_id: str, recipient_id: str) -> dict[str, Any]:
         if owns_subject(sender_id, recipient_id):
@@ -186,8 +211,25 @@ class IdentityService:
         )
         return {"requestId": request_id, "status": "accepted" if accept else "declined"}
 
-    def friends(self, subject_id: str) -> list[dict[str, Any]]:
-        return [self._identity(row).to_dict() for row in self.store.list_friends(subject_id)]
+    def friends(self, subject_id: str, *, limit: int, cursor: str | None = None) -> dict[str, Any]:
+        page = self._page(
+            self.store.list_friends, subject_id, operation="friends",
+            keys=("subject_id",), limit=limit, cursor=cursor,
+        )
+        page["items"] = [self._identity(row).to_dict() for row in page["items"]]
+        return page
 
-    def requests(self, subject_id: str) -> list[dict[str, Any]]:
-        return self.store.list_friend_requests(subject_id)
+    def requests(self, subject_id: str, *, limit: int, cursor: str | None = None) -> dict[str, Any]:
+        return self._page(
+            self.store.list_friend_requests, subject_id, operation="requests",
+            keys=("created_at", "request_id"), limit=limit, cursor=cursor,
+        )
+
+    def friend_ids(self, subject_id: str, *, limit: int) -> Iterator[str]:
+        cursor = None
+        while True:
+            page = self.friends(subject_id, limit=limit, cursor=cursor)
+            yield from (item["subjectId"] for item in page["items"])
+            cursor = page["nextCursor"]
+            if cursor is None:
+                return

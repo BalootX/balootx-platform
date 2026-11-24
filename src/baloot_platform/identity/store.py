@@ -2,13 +2,92 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .ownership import ownership_ids
 
 
-class SQLiteIdentityStore:
+class _IdentityLists:
+    def _read_page_rows(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def search_subjects(
+        self, query: str, *, limit: int, after: tuple[str, ...] = ()
+    ) -> list[dict[str, Any]]:
+        needle = f"%{query}%"
+        select = """SELECT subject_id,kind,username,display_name,created_at
+                    FROM identity_subjects_v8
+                    WHERE disabled_at IS NULL AND (display_name LIKE ? OR username LIKE ?)"""
+        order = "ORDER BY kind DESC,display_name,subject_id LIMIT ?"
+        if not after:
+            return self._read_page_rows(f"{select} {order}", (needle, needle, limit))
+        kind, display_name, subject_id = after
+        return self._read_page_rows(
+            f"""SELECT * FROM (
+                  SELECT * FROM ({select} AND kind=? AND (display_name,subject_id)>(?,?)
+                                 {order}) AS same_kind
+                  UNION ALL
+                  SELECT * FROM ({select} AND kind<? {order}) AS later_kinds
+                ) AS matches {order}""",
+            (needle, needle, kind, display_name, subject_id, limit, needle, needle, kind, limit, limit),
+        )
+
+    def list_friends(
+        self, subject_id: str, *, limit: int, after: tuple[str, ...] = ()
+    ) -> list[dict[str, Any]]:
+        owners = ownership_ids(subject_id)
+        branches = []
+        params: list[Any] = []
+        for owner in dict.fromkeys(owners):
+            for owner_column, friend_column in (("subject_low", "subject_high"), ("subject_high", "subject_low")):
+                seek = f"AND {friend_column}>?" if after else ""
+                branches.append(
+                    f"""SELECT friend_id FROM (
+                          SELECT {friend_column} AS friend_id FROM identity_friendships_v8
+                          WHERE {owner_column}=? AND {friend_column} NOT IN (?,?) {seek}
+                          ORDER BY {friend_column} LIMIT ?
+                        ) AS neighbors_{len(branches)}"""
+                )
+                params.extend((owner, *owners, *after, limit))
+        # Each branch contains unique neighbors. Deduplicate the bounded union across aliases.
+        neighbors = " UNION ".join(branches)
+        return self._read_page_rows(
+            f"""SELECT u.subject_id,u.kind,u.username,u.display_name,u.created_at
+                FROM ({neighbors} ORDER BY friend_id LIMIT ?) AS page
+                JOIN identity_subjects_v8 u ON u.subject_id=page.friend_id
+                ORDER BY page.friend_id""",
+            (*params, limit),
+        )
+
+    def list_friend_requests(
+        self, subject_id: str, *, limit: int, after: tuple[str, ...] = ()
+    ) -> list[dict[str, Any]]:
+        seek = "AND (created_at,request_id)<(?,?)" if after else ""
+        order = "ORDER BY created_at DESC,request_id DESC LIMIT ?"
+        branches = []
+        params: list[Any] = []
+        for owner in dict.fromkeys(ownership_ids(subject_id)):
+            branches.append(
+                f"""SELECT * FROM (
+                      SELECT request_id,sender_id,recipient_id,status,created_at,responded_at
+                      FROM identity_friend_requests_v8
+                      WHERE recipient_id=? AND status='pending' {seek} {order}
+                    ) AS requests_{len(branches)}"""
+            )
+            params.extend((owner, *after, limit))
+        requests = " UNION ALL ".join(branches)
+        return self._read_page_rows(
+            f"""SELECT r.*,u.display_name AS sender_display_name,u.username AS sender_username
+                FROM ({requests} {order}) AS r
+                JOIN identity_subjects_v8 u ON u.subject_id=r.sender_id
+                ORDER BY r.created_at DESC,r.request_id DESC""",
+            (*params, limit),
+        )
+
+
+class SQLiteIdentityStore(_IdentityLists):
     """Durable development identity store.
 
     Password material is stored only as scrypt-derived hashes. Session tokens are
@@ -64,6 +143,13 @@ class SQLiteIdentityStore:
                   responded_at TEXT,
                   UNIQUE(sender_id,recipient_id,status)
                 );
+                CREATE INDEX IF NOT EXISTS idx_identity_active_search
+                  ON identity_subjects_v8(kind DESC,display_name,subject_id) WHERE disabled_at IS NULL;
+                CREATE INDEX IF NOT EXISTS idx_identity_friendships_high_low
+                  ON identity_friendships_v8(subject_high,subject_low);
+                CREATE INDEX IF NOT EXISTS idx_identity_pending_requests
+                  ON identity_friend_requests_v8(recipient_id,created_at DESC,request_id DESC)
+                  WHERE status='pending';
                 """
             )
 
@@ -98,16 +184,9 @@ class SQLiteIdentityStore:
             ).fetchone()
         return dict(row) if row else None
 
-    def search_subjects(self, query: str, *, limit: int = 20) -> list[dict[str, Any]]:
-        needle = f"%{query.strip()}%"
+    def _read_page_rows(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
         with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT subject_id,kind,username,display_name,created_at
-                   FROM identity_subjects_v8
-                   WHERE disabled_at IS NULL AND (display_name LIKE ? OR username LIKE ?)
-                   ORDER BY kind DESC,display_name LIMIT ?""",
-                (needle, needle, max(1, min(100, int(limit)))),
-            ).fetchall()
+            rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
     def upgrade_guest(self, *, subject_id: str, username: str, display_name: str,
@@ -192,34 +271,7 @@ class SQLiteIdentityStore:
                 )
             conn.commit()
 
-    def list_friends(self, subject_id: str) -> list[dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT DISTINCT u.subject_id,u.kind,u.username,u.display_name,u.created_at
-                   FROM identity_friendships_v8 f
-                   JOIN identity_subjects_v8 u
-                     ON u.subject_id = CASE WHEN f.subject_low IN (?,?) THEN f.subject_high ELSE f.subject_low END
-                   WHERE (f.subject_low IN (?,?) OR f.subject_high IN (?,?))
-                     AND u.subject_id NOT IN (?,?)
-                   ORDER BY u.display_name""",
-                ownership_ids(subject_id) * 4,
-            ).fetchall()
-        return [dict(row) for row in rows]
-
-    def list_friend_requests(self, subject_id: str) -> list[dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT r.*,u.display_name AS sender_display_name,u.username AS sender_username
-                   FROM identity_friend_requests_v8 r
-                   JOIN identity_subjects_v8 u ON u.subject_id=r.sender_id
-                   WHERE r.recipient_id IN (?,?) AND r.status='pending'
-                   ORDER BY r.created_at DESC""",
-                ownership_ids(subject_id),
-            ).fetchall()
-        return [dict(row) for row in rows]
-
-
-class PostgresIdentityStore:
+class PostgresIdentityStore(_IdentityLists):
     """PostgreSQL production identity store with the same service contract."""
 
     def __init__(self, dsn: str):
@@ -266,19 +318,27 @@ class PostgresIdentityStore:
         value=self._dict(row,cols); value["created_at"]=value["created_at"].isoformat(); value["disabled_at"]=value["disabled_at"].isoformat() if value["disabled_at"] else None
         return value
 
-    def search_subjects(self, query: str, *, limit: int = 20) -> list[dict[str, Any]]:
-        cols=("subject_id","kind","username","display_name","created_at")
+    @staticmethod
+    def _postgres_page_sql(sql: str) -> str:
+        return (
+            sql.replace("identity_subjects_v8", "identity.subjects")
+            .replace("identity_friendships_v8", "identity.friendships")
+            .replace("identity_friend_requests_v8", "identity.friend_requests")
+            .replace(" LIKE ", " ILIKE ")
+            .replace("?", "%s")
+        )
+
+    def _read_page_rows(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        from psycopg.rows import dict_row
+
         with self.pool.connection() as conn:
-            rows=conn.execute(
-                """SELECT subject_id,kind,username,display_name,created_at FROM identity.subjects
-                   WHERE disabled_at IS NULL AND (display_name ILIKE %s OR username ILIKE %s)
-                   ORDER BY kind DESC,display_name LIMIT %s""",
-                (f"%{query.strip()}%",f"%{query.strip()}%",max(1,min(100,int(limit)))),
-            ).fetchall()
-        values=[]
+            with conn.cursor(row_factory=dict_row) as cursor:
+                rows = cursor.execute(self._postgres_page_sql(sql), params).fetchall()
         for row in rows:
-            value=self._dict(row,cols); value["created_at"]=value["created_at"].isoformat(); values.append(value)
-        return values
+            for key in ("created_at", "responded_at"):
+                if isinstance(row.get(key), datetime):
+                    row[key] = row[key].astimezone(timezone.utc).isoformat()
+        return rows
 
     def upgrade_guest(self, *, subject_id: str, username: str, display_name: str,
                       password_salt: bytes, password_hash: bytes) -> None:
@@ -346,27 +406,3 @@ class PostgresIdentityStore:
             if accept:
                 low,high=sorted((str(row[0]),str(row[1])))
                 conn.execute("INSERT INTO identity.friendships(subject_low,subject_high,created_at) VALUES(%s,%s,%s::timestamptz) ON CONFLICT DO NOTHING",(low,high,responded_at))
-
-    def list_friends(self, subject_id: str) -> list[dict[str, Any]]:
-        with self.pool.connection() as conn:
-            rows=conn.execute(
-                """SELECT DISTINCT u.subject_id,u.kind,u.username,u.display_name,u.created_at
-                   FROM identity.friendships f JOIN identity.subjects u
-                     ON u.subject_id=CASE WHEN f.subject_low IN (%s,%s) THEN f.subject_high ELSE f.subject_low END
-                   WHERE (f.subject_low IN (%s,%s) OR f.subject_high IN (%s,%s))
-                     AND u.subject_id NOT IN (%s,%s)
-                   ORDER BY u.display_name""",
-                ownership_ids(subject_id) * 4,
-            ).fetchall()
-        return [{"subject_id":r[0],"kind":r[1],"username":r[2],"display_name":r[3],"created_at":r[4].isoformat()} for r in rows]
-
-    def list_friend_requests(self, subject_id: str) -> list[dict[str, Any]]:
-        with self.pool.connection() as conn:
-            rows=conn.execute(
-                """SELECT r.request_id,r.sender_id,r.recipient_id,r.status,r.created_at,
-                          u.display_name,u.username FROM identity.friend_requests r
-                   JOIN identity.subjects u ON u.subject_id=r.sender_id
-                   WHERE r.recipient_id IN (%s,%s) AND r.status='pending' ORDER BY r.created_at DESC""",
-                ownership_ids(subject_id),
-            ).fetchall()
-        return [{"request_id":r[0],"sender_id":r[1],"recipient_id":r[2],"status":r[3],"created_at":r[4].isoformat(),"sender_display_name":r[5],"sender_username":r[6]} for r in rows]

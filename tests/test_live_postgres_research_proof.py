@@ -851,14 +851,14 @@ def test_current_migration_stage_freezes_complete_inventory_and_required_tail(
 ) -> None:
     snapshot_root, inventory = proof._stage_migrations(tmp_path)
 
-    assert len(inventory) == 28
+    assert len(inventory) == 29
     assert proof._migration_inventory(snapshot_root) == inventory
     assert {
         item["name"]: item["sha256"]
         for item in inventory
         if item["name"] in proof.REQUIRED_MIGRATION_HASHES
     } == proof.REQUIRED_MIGRATION_HASHES
-    assert inventory[-1]["name"] == "029_shared_run_game_access.sql"
+    assert inventory[-1]["name"] == "030_identity_list_pagination.sql"
     assert (
         proof.REQUIRED_MIGRATION_HASHES["029_shared_run_game_access.sql"]
         == "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"

@@ -11,7 +11,8 @@ from scripts import migrate_postgres
 
 
 MIGRATION_NAME = "025_configuration_store_contract.sql"
-LATEST_MIGRATION_NAME = "029_shared_run_game_access.sql"
+SHARED_RUN_MIGRATION_NAME = "029_shared_run_game_access.sql"
+LATEST_MIGRATION_NAME = "030_identity_list_pagination.sql"
 FROZEN_PREDECESSOR_HASHES = {
     "011_configuration_registry_v19.sql": (
         "1e79c94b6244244afe0a2fd1f9ef421dcfadca6c32a48bd4c7f4b8fee97b9931"
@@ -72,10 +73,10 @@ def test_v25_authored_and_packaged_inventory_are_byte_identical(root: Path) -> N
         assert (authored / name).read_bytes() == (packaged / name).read_bytes()
 
 
-def test_latest_shared_run_access_migration_matches_store_bootstrap(
+def test_shared_run_access_migration_matches_store_bootstrap(
     root: Path,
 ) -> None:
-    sql = (root / "migrations" / LATEST_MIGRATION_NAME).read_text(encoding="utf-8")
+    sql = (root / "migrations" / SHARED_RUN_MIGRATION_NAME).read_text(encoding="utf-8")
     normalized = _normalized(sql)
 
     assert normalized.startswith("BEGIN;")

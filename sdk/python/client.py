@@ -22,6 +22,11 @@ class ResearchRecipeListResponse(TypedDict):
     nextCursor: str | None
 
 
+class IdentityPage(TypedDict):
+    items: list[dict[str, Any]]
+    nextCursor: str | None
+
+
 class ResearchAuthorityV1(TypedDict):
     schemaVersion: Literal[1]
     backendId: Literal["ortools_cp_sat_v2"]
@@ -140,8 +145,18 @@ class BalootClient:
         response = self.client.post("/api/v1/auth/logout")
         response.raise_for_status()
 
-    def friends(self) -> dict[str, Any]:
-        return self._get("/api/v1/friends")
+    def friends(self, *, cursor: str | None = None, limit: int | None = None) -> IdentityPage:
+        return self._identity_page("/api/v1/friends", cursor=cursor, limit=limit)
+
+    def friend_requests(self, *, cursor: str | None = None, limit: int | None = None) -> IdentityPage:
+        return self._identity_page("/api/v1/friends/requests", cursor=cursor, limit=limit)
+
+    def search_users(self, query: str, *, cursor: str | None = None, limit: int | None = None) -> IdentityPage:
+        return self._identity_page("/api/v1/users:search", query=query, cursor=cursor, limit=limit)
+
+    def _identity_page(self, path: str, **options: str | int | None) -> IdentityPage:
+        params = {key: value for key, value in options.items() if value is not None}
+        return self._get(path, params=params)
 
     def request_friend(self, recipient_id: str) -> dict[str, Any]:
         return self._post("/api/v1/friends/requests", {"recipientId": recipient_id})

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from baloot_platform.identity import Identity, IdentityService
+from baloot_platform.identity.pagination import (
+    CURSOR_MAX_LENGTH,
+    IdentityPaginationConfig,
+    InvalidIdentityCursor,
+)
 from baloot_platform.service.client_identity import service_client_identity
 
 COOKIE_NAME = "baloot_session"
@@ -33,6 +39,11 @@ class FriendRequestBody(BaseModel):
 
 class FriendResponseBody(BaseModel):
     accept: bool = True
+
+
+class IdentityPage(BaseModel):
+    items: list[dict[str, Any]]
+    nextCursor: str | None
 
 
 def request_token(request: Request) -> str | None:
@@ -90,8 +101,15 @@ def apply_session_cookie(response: Response, request: Request, result: dict[str,
     )
 
 
-def build_auth_router(service: IdentityService) -> APIRouter:
+def build_auth_router(service: IdentityService, *, pagination: IdentityPaginationConfig) -> APIRouter:
     router = APIRouter(prefix="/api/v1", tags=["identity"])
+
+    def page(fetch: Callable[..., dict[str, Any]], value: str, limit: int | None, cursor: str | None):
+        page_size = min(limit, pagination.maximum_page_size) if limit is not None else pagination.default_page_size
+        try:
+            return fetch(value, limit=page_size, cursor=cursor)
+        except InvalidIdentityCursor as exc:
+            raise HTTPException(422, [{"loc": ["query", "cursor"], "msg": str(exc), "type": "value_error"}]) from exc
 
     @router.get("/auth/me")
     def me(request: Request):
@@ -152,20 +170,31 @@ def build_auth_router(service: IdentityService) -> APIRouter:
         response.delete_cookie(COOKIE_NAME, path="/")
         return Response(status_code=204)
 
-    @router.get("/users:search")
-    def search_users(request: Request, query: str, limit: int = 20):
+    @router.get("/users:search", response_model=IdentityPage)
+    def search_users(
+        request: Request, query: str, limit: int | None = Query(default=None, ge=1),
+        cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
+    ):
         require_identity(request, service)
-        return {"items": service.search(query, limit=limit)}
+        if "\0" in query:
+            raise HTTPException(422, [{"loc": ["query", "query"], "msg": "invalid search query", "type": "value_error"}])
+        return page(service.search, query, limit, cursor)
 
-    @router.get("/friends")
-    def friends(request: Request):
+    @router.get("/friends", response_model=IdentityPage)
+    def friends(
+        request: Request, limit: int | None = Query(default=None, ge=1),
+        cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
+    ):
         identity, _ = require_identity(request, service)
-        return {"items": service.friends(identity.subject_id)}
+        return page(service.friends, identity.subject_id, limit, cursor)
 
-    @router.get("/friends/requests")
-    def friend_requests(request: Request):
+    @router.get("/friends/requests", response_model=IdentityPage)
+    def friend_requests(
+        request: Request, limit: int | None = Query(default=None, ge=1),
+        cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
+    ):
         identity, _ = require_identity(request, service)
-        return {"items": service.requests(identity.subject_id)}
+        return page(service.requests, identity.subject_id, limit, cursor)
 
     @router.post("/friends/requests", status_code=201)
     def create_friend_request(body: FriendRequestBody, request: Request):

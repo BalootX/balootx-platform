@@ -3668,6 +3668,22 @@ export type HistoricalReplayRenderRequest = {
 };
 
 /**
+ * IdentityPage
+ */
+export type IdentityPage = {
+    /**
+     * Items
+     */
+    items: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Nextcursor
+     */
+    nextCursor: string | null;
+};
+
+/**
  * ImprovementEvaluationRequest
  */
 export type ImprovementEvaluationRequest = {
@@ -16471,30 +16487,70 @@ export type FoundryCopyApiV1FoundryCopyGetResponses = {
 export type FriendsApiV1FriendsGetData = {
     body?: never;
     path?: never;
-    query?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number | null;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+    };
     url: '/api/v1/friends';
 };
+
+export type FriendsApiV1FriendsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type FriendsApiV1FriendsGetError = FriendsApiV1FriendsGetErrors[keyof FriendsApiV1FriendsGetErrors];
 
 export type FriendsApiV1FriendsGetResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: IdentityPage;
 };
+
+export type FriendsApiV1FriendsGetResponse = FriendsApiV1FriendsGetResponses[keyof FriendsApiV1FriendsGetResponses];
 
 export type FriendRequestsApiV1FriendsRequestsGetData = {
     body?: never;
     path?: never;
-    query?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number | null;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+    };
     url: '/api/v1/friends/requests';
 };
+
+export type FriendRequestsApiV1FriendsRequestsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type FriendRequestsApiV1FriendsRequestsGetError = FriendRequestsApiV1FriendsRequestsGetErrors[keyof FriendRequestsApiV1FriendsRequestsGetErrors];
 
 export type FriendRequestsApiV1FriendsRequestsGetResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: IdentityPage;
 };
+
+export type FriendRequestsApiV1FriendsRequestsGetResponse = FriendRequestsApiV1FriendsRequestsGetResponses[keyof FriendRequestsApiV1FriendsRequestsGetResponses];
 
 export type CreateFriendRequestApiV1FriendsRequestsPostData = {
     body: FriendRequestBody;
@@ -20264,7 +20320,11 @@ export type SearchUsersApiV1UsersSearchGetData = {
         /**
          * Limit
          */
-        limit?: number;
+        limit?: number | null;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
     };
     url: '/api/v1/users:search';
 };
@@ -20282,8 +20342,10 @@ export type SearchUsersApiV1UsersSearchGetResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: IdentityPage;
 };
+
+export type SearchUsersApiV1UsersSearchGetResponse = SearchUsersApiV1UsersSearchGetResponses[keyof SearchUsersApiV1UsersSearchGetResponses];
 
 export type CreateVideoJobApiV1VideoJobsPostData = {
     body: VideoJobRequest;
