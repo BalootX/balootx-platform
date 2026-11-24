@@ -97,7 +97,8 @@ test('intelligent quality controls preserve per-decision settings in the recipe'
   await catalog.locator('select').nth(0).selectOption('outcome.team_round');
   await catalog.locator('select').nth(1).selectOption('EXPR-OUTCOME');
   await catalog.locator('button.primary').click();
-  const preview = page.locator('details').filter({has: page.getByText('معاينة الوصفة المرسلة', {exact: true})});
+  const preview = page.locator('#scenario-execution > details')
+    .filter({has: page.getByText('معاينة الوصفة المرسلة', {exact: true})});
   await preview.locator('summary').click();
   const payload = JSON.parse(await preview.locator('pre').innerText());
   expect(payload.playingQuality.mode).toBe('budgeted');
@@ -426,13 +427,15 @@ test('shows provisional solver variants while the selected research run is still
   });
 
   await openStudio(page);
-  await page.locator('.scenario-result-facets select').first().selectOption(runCode);
-  const provisional = page.getByRole('article').filter({hasText: candidateHash});
+  const main = page.getByRole('main');
+  await main.getByRole('combobox', {name: 'تشغيل البحث', exact: true}).selectOption(runCode);
+  const provisional = main.getByRole('status').getByRole('article').filter({hasText: candidateHash});
   await expect(provisional).toBeVisible();
   await expect(provisional.getByText('أولي للبحث فقط')).toBeVisible();
   await expect(provisional.getByText('play:spades:ace')).toBeVisible();
   expect(detailReads).toBeGreaterThan(0);
-  await expect(page.getByText(`${runCode}`, {exact: true}).last()).toBeVisible();
+  const liveCandidates = main.getByRole('region', {name: 'تقدم البحث', exact: true});
+  await expect(liveCandidates.getByText(runCode, {exact: true})).toBeVisible();
 });
 
 test('shows every active render and keeps an open receipt current', async ({page}) => {
