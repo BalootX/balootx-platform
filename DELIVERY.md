@@ -25,8 +25,8 @@ Fix failed checks at the source. Do not rerun failures, widen deadlines or skip 
 ## Merge
 
 - The `main` merge queue is the only path to trunk and uses squash merges only. Workers push their own short-lived branches without rewriting history and open PRs under the project's App identity. Merge, split or close an open PR within two days of its first push. The ruleset requires zero human approvals.
-- For a low-risk PR, the worker enables auto-merge at once. The PR merges through the queue on green `ci-gate`.
-- For a high-risk PR, see [risk paths](AGENTS.md#risk-paths). Get one independent full-diff review. The worker enables auto-merge only after the reviewer posts a verdict comment naming the reviewed head SHA. Keep the PR head unchanged while auto-merge is on. If a push is needed, turn off auto-merge first. A later push touching a risk path needs a new verdict on that head. Otherwise the recorded verdict carries forward. Verify other fixes to review findings with tests.
+- Only critical changes get a review. Critical means production, secrets, real data, making anything public, host or network changes, repo settings, and release gates. See [critical paths](AGENTS.md#risk-paths). Get one independent full-diff review. The worker enables auto-merge only after the reviewer posts a verdict comment naming the reviewed head SHA. Turn off auto-merge before any later push to the PR. A later push touching a critical path needs a new verdict on that head. For other pushes, the recorded verdict carries forward. Verify fixes to review findings with tests.
+- For everything else, the thread that made the change opens its own PR and enables auto-merge at once. The PR merges through the queue once the required CI checks are green, with no review.
 - Delivery owns the queue, CI health and speed, releases, deploys, rollback and alerts. Workers handle each PR.
 - Use `Closes #n` in the PR body only if merging meets the item's whole Done-when. Otherwise use `Refs #n`.
 
@@ -63,4 +63,4 @@ Fix failed checks at the source. Do not rerun failures, widen deadlines or skip 
 | Scoped URL and IP literal check | The push guard checks private values. The source literal check and committed allowlist are pending. | 2026-12-04 |
 | Configured no-reply domains for commit identities and trailers | The push guard checks commit metadata with a fixed address policy. | 2026-12-04 |
 | Affected CI on draft PRs | The affected checks start when a PR is ready. | 2026-12-04 |
-| High-risk review coverage | The risk-path list leaves gaps for new dependencies, retention, audit logs, backups and weakened tests. | 2026-12-04 |
+| Critical review coverage | The risk-path list leaves gaps for retention, audit logs and backups that affect real data. | 2026-12-04 |
