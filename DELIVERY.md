@@ -40,6 +40,7 @@ BalootX QA owns tests at every layer, the end-to-end journey catalogue, coverage
 ### CI-only PC rule
 
 - Keep PC work to Git edits and commits plus the required pre-push deny check and privacy screen. Close shells when their step ends.
+- The installed guard is the only reader of the deny inputs. Workers run it and read only its class counts. No agent opens, prints or copies the input file.
 - Run tests, lint, scrubs, builds and renders through CI. On the PC, `run-locked.ps1` returns `SKIP_TO_CI`.
 - Use free GitHub-hosted runners for public repo checks. Use zero-cost server runners for private repos, deploys and jobs that use secrets.
 - If a check has no CI job, add one in the same PR.
