@@ -851,14 +851,14 @@ def test_current_migration_stage_freezes_complete_inventory_and_required_tail(
 ) -> None:
     snapshot_root, inventory = proof._stage_migrations(tmp_path)
 
-    assert len(inventory) == 29
+    assert len(inventory) == 30
     assert proof._migration_inventory(snapshot_root) == inventory
     assert {
         item["name"]: item["sha256"]
         for item in inventory
         if item["name"] in proof.REQUIRED_MIGRATION_HASHES
     } == proof.REQUIRED_MIGRATION_HASHES
-    assert inventory[-1]["name"] == "030_oidc_issuer_transition.sql"
+    assert inventory[-1]["name"] == "031_oidc_registry_access.sql"
     assert (
         proof.REQUIRED_MIGRATION_HASHES["029_shared_run_game_access.sql"]
         == "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"
@@ -958,16 +958,20 @@ def test_current_migration_policy_contract_is_final_and_deterministic(
         ("security.websocket_tickets", "websocket_ticket_service_v20"),
     }
 
-    assert len(inventory) == 29
+    oidc_registry_policies = {
+        ("configuration.profile_revisions", "oidc_registry_access_v31"),
+        ("configuration.events", "oidc_registry_audit_v31"),
+    }
+    assert len(inventory) == 30
     assert first == second
     assert (
         first["sha256"]
-        == "5b0ca8ab52a50d8638a00727fc94230b4397d5f525b9f4e1e1c2b1bbf87cca3c"
+        == "c32a7be43c7a1af62397f311990cb520aac70cc4f5260004e9d9e6e9ce8b53e0"
     )
     assert policies.isdisjoint(legacy_configuration_policies)
     assert configuration_v25_policies.issubset(policies)
     assert unrelated_policies.issubset(policies)
-    assert policies == configuration_v25_policies | unrelated_policies
+    assert policies == configuration_v25_policies | oidc_registry_policies | unrelated_policies
 
 
 def test_schema_contract_reports_missing_and_unexpected_policy_identities(

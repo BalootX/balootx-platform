@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from contextlib import closing, contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -73,10 +74,16 @@ class SQLiteIdentityStore:
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
+    @contextmanager
+    def write_transaction(self):
+        with self._lock, closing(self._connect()) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            yield conn
+
     def insert_subject(self, *, subject_id: str, kind: str, username: str | None,
                        display_name: str, password_salt: bytes | None,
-                       password_hash: bytes | None, created_at: str) -> None:
-        with self._lock, self._connect() as conn:
+                       password_hash: bytes | None, created_at: str, connection=None) -> None:
+        with self._lock, (nullcontext(connection) if connection is not None else self._connect()) as conn:
             conn.execute(
                 """INSERT INTO identity_subjects_v8(
                      subject_id,kind,username,display_name,password_salt,password_hash,created_at
@@ -84,8 +91,8 @@ class SQLiteIdentityStore:
                 (subject_id, kind, username, display_name, password_salt, password_hash, created_at),
             )
 
-    def get_subject(self, subject_id: str) -> dict[str, Any] | None:
-        with self._connect() as conn:
+    def get_subject(self, subject_id: str, *, connection=None) -> dict[str, Any] | None:
+        with (nullcontext(connection) if connection is not None else self._connect()) as conn:
             row = conn.execute(
                 "SELECT * FROM identity_subjects_v8 WHERE subject_id=?", (subject_id,)
             ).fetchone()
@@ -122,8 +129,8 @@ class SQLiteIdentityStore:
             if cursor.rowcount != 1:
                 raise KeyError(subject_id)
 
-    def insert_session(self, row: dict[str, Any]) -> None:
-        with self._lock, self._connect() as conn:
+    def insert_session(self, row: dict[str, Any], *, connection=None) -> None:
+        with self._lock, (nullcontext(connection) if connection is not None else self._connect()) as conn:
             conn.execute(
                 """INSERT INTO identity_sessions_v8(
                      session_id,subject_id,token_hash,csrf_token,created_at,expires_at,last_seen_at,user_agent_hash
@@ -235,8 +242,8 @@ class PostgresIdentityStore:
 
     def insert_subject(self, *, subject_id: str, kind: str, username: str | None,
                        display_name: str, password_salt: bytes | None,
-                       password_hash: bytes | None, created_at: str) -> None:
-        with self.pool.connection() as conn:
+                       password_hash: bytes | None, created_at: str, connection=None) -> None:
+        with (nullcontext(connection) if connection is not None else self.pool.connection()) as conn:
             conn.execute(
                 """INSERT INTO identity.subjects(
                      subject_id,kind,username,display_name,password_salt,password_hash,created_at
@@ -244,9 +251,9 @@ class PostgresIdentityStore:
                 (subject_id,kind,username,display_name,password_salt,password_hash,created_at),
             )
 
-    def get_subject(self, subject_id: str) -> dict[str, Any] | None:
+    def get_subject(self, subject_id: str, *, connection=None) -> dict[str, Any] | None:
         cols=("subject_id","kind","username","display_name","password_salt","password_hash","created_at","disabled_at")
-        with self.pool.connection() as conn:
+        with (nullcontext(connection) if connection is not None else self.pool.connection()) as conn:
             row=conn.execute(
                 "SELECT subject_id,kind,username,display_name,password_salt,password_hash,created_at,disabled_at FROM identity.subjects WHERE subject_id=%s",
                 (subject_id,),
@@ -292,8 +299,8 @@ class PostgresIdentityStore:
             if row is None:
                 raise KeyError(subject_id)
 
-    def insert_session(self, row: dict[str, Any]) -> None:
-        with self.pool.connection() as conn:
+    def insert_session(self, row: dict[str, Any], *, connection=None) -> None:
+        with (nullcontext(connection) if connection is not None else self.pool.connection()) as conn:
             conn.execute(
                 """INSERT INTO identity.sessions(
                      session_id,subject_id,token_hash,csrf_token,created_at,expires_at,last_seen_at,user_agent_hash

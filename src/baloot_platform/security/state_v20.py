@@ -3,19 +3,46 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import closing, contextmanager, nullcontext
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from baloot_platform.identity.ownership import ownership_ids
 from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, contextual_connection
 
+_SQLITE_OIDC_LINKS = """
+CREATE TABLE IF NOT EXISTS security_external_identities_v20(
+  provider_id TEXT NOT NULL, issuer TEXT NOT NULL, external_subject TEXT NOT NULL,
+  local_subject_id TEXT NOT NULL, claims_json TEXT NOT NULL, linked_at TEXT NOT NULL,
+  PRIMARY KEY(provider_id,issuer,external_subject), UNIQUE(local_subject_id,provider_id)
+)
+"""
+
+
+def complete_oidc_sign_in(state, identities, verified, *, display_name, user_agent):
+    key = verified["providerId"], verified["issuer"], verified["externalSubject"]
+    with state.external_identity_transaction(identities.store, key) as connection:
+        existing = state.get_external_identity(*key, connection=connection)
+        session = identities.create_external(
+            kind="oidc", display_name=display_name, user_agent=user_agent,
+            subject_id=existing["local_subject_id"] if existing else None, connection=connection,
+        )
+        state.link_external_identity(
+            provider_id=key[0], issuer=key[1], external_subject=key[2],
+            local_subject_id=session["identity"]["subjectId"], claims=verified["claims"],
+            linked_at=datetime.now(timezone.utc).isoformat(timespec="seconds"), connection=connection,
+        )
+    return session
+
 
 class SQLiteSecurityStateStore:
     """Durable one-time security state for V20 development and tests."""
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, identity_store=None):
         self.path = Path(path); self.path.parent.mkdir(parents=True, exist_ok=True); self._lock = threading.RLock()
-        with self._connect() as conn:
+        self._identity_store = identity_store
+        with closing(self._connect()) as conn, conn:
             conn.executescript(
                 """
                 PRAGMA journal_mode=WAL;
@@ -35,13 +62,40 @@ class SQLiteSecurityStateStore:
                   sign_count INTEGER NOT NULL, transports_json TEXT NOT NULL, created_at INTEGER NOT NULL,
                   last_used_at INTEGER, label TEXT NOT NULL
                 );
-                CREATE TABLE IF NOT EXISTS security_external_identities_v20(
-                  provider_id TEXT NOT NULL, issuer TEXT NOT NULL, external_subject TEXT NOT NULL,
-                  local_subject_id TEXT NOT NULL, claims_json TEXT NOT NULL, linked_at TEXT NOT NULL,
-                  PRIMARY KEY(provider_id,issuer,external_subject), UNIQUE(local_subject_id,provider_id)
-                );
                 """
             )
+            conn.execute(_SQLITE_OIDC_LINKS)
+            if identity_store is not None:
+                self._move_oidc_links(conn, identity_store)
+
+    @staticmethod
+    def _move_oidc_links(previous, identity_store):
+        with identity_store.write_transaction() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='security_external_identities_v20'"
+            ).fetchone()
+            if not exists:
+                conn.execute(_SQLITE_OIDC_LINKS)
+                conn.executemany(
+                    "INSERT INTO security_external_identities_v20 VALUES(?,?,?,?,?,?)",
+                    previous.execute("SELECT * FROM security_external_identities_v20"),
+                )
+
+    def external_identity_transaction(self, identity_store, key):
+        if self._identity_store is not identity_store:
+            raise RuntimeError("OIDC links and local identities must use one SQLite transaction")
+        return identity_store.write_transaction()
+
+    @contextmanager
+    def _link_connection(self, connection):
+        if connection is not None:
+            yield connection
+        elif self._identity_store is not None:
+            with self._identity_store.write_transaction() as conn:
+                yield conn
+        else:
+            with self._lock, closing(self._connect()) as conn, conn:
+                yield conn
 
     def _connect(self) -> sqlite3.Connection:
         conn=sqlite3.connect(self.path,timeout=30); conn.row_factory=sqlite3.Row; return conn
@@ -102,14 +156,23 @@ class SQLiteSecurityStateStore:
             d=dict(row); d["transports"]=tuple(json.loads(d.pop("transports_json"))); result.append(d)
         return result
 
-    def get_external_identity(self, provider_id: str, issuer: str, external_subject: str) -> dict[str,Any] | None:
-        with self._connect() as conn: row=conn.execute("SELECT * FROM security_external_identities_v20 WHERE provider_id=? AND issuer=? AND external_subject=?",(provider_id,issuer,external_subject)).fetchone()
+    def get_external_identity(self, provider_id: str, issuer: str, external_subject: str, *, connection=None) -> dict[str,Any] | None:
+        with self._link_connection(connection) as conn:
+            row=conn.execute("SELECT * FROM security_external_identities_v20 WHERE provider_id=? AND issuer=? AND external_subject=?",(provider_id,issuer,external_subject)).fetchone()
         if not row:return None
         d=dict(row); d["claims"]=json.loads(d.pop("claims_json")); return d
 
-    def link_external_identity(self, *, provider_id: str, issuer: str, external_subject: str, local_subject_id: str, claims: dict[str,Any], linked_at: str) -> None:
-        with self._lock,self._connect() as conn:
-            conn.execute("INSERT INTO security_external_identities_v20 VALUES(?,?,?,?,?,?) ON CONFLICT(provider_id,issuer,external_subject) DO UPDATE SET local_subject_id=excluded.local_subject_id,claims_json=excluded.claims_json",(provider_id,issuer,external_subject,local_subject_id,json.dumps(claims,ensure_ascii=False,sort_keys=True),linked_at))
+    def link_external_identity(self, *, provider_id: str, issuer: str, external_subject: str, local_subject_id: str, claims: dict[str,Any], linked_at: str, connection=None) -> None:
+        with self._link_connection(connection) as conn:
+            row = conn.execute(
+                "INSERT INTO security_external_identities_v20 VALUES(?,?,?,?,?,?) "
+                "ON CONFLICT(provider_id,issuer,external_subject) DO UPDATE SET claims_json=excluded.claims_json "
+                "WHERE security_external_identities_v20.local_subject_id=excluded.local_subject_id",
+                (provider_id, issuer, external_subject, local_subject_id,
+                 json.dumps(claims, ensure_ascii=False, sort_keys=True), linked_at),
+            )
+            if row.rowcount != 1:
+                raise ValueError("OIDC external identity is already linked to another account")
 
     def close(self) -> None: return None
 
@@ -154,25 +217,40 @@ class PostgresSecurityStateStore:
     def list_credentials(self,subject_id):
         with contextual_connection(self.pool) as conn: rows=conn.execute("SELECT credential_id,subject_id,public_key_cose,sign_count,transports_json,extract(epoch from created_at)::bigint,extract(epoch from last_used_at)::bigint,label FROM security.passkey_credentials WHERE subject_id IN (%s,%s) ORDER BY created_at",ownership_ids(subject_id)).fetchall()
         return [{"credential_id":r[0],"subject_id":r[1],"public_key_cose":bytes(r[2]),"sign_count":int(r[3]),"transports":tuple(r[4]),"created_at":int(r[5]),"last_used_at":int(r[6]) if r[6] is not None else None,"label":r[7]} for r in rows]
-    def get_external_identity(self,provider_id,issuer,external_subject):
+    def _link_connection(self, connection=None):
+        if connection is not None:
+            return nullcontext(connection)
         context = replace(CURRENT_DATABASE_IDENTITY.get(), role="oidc_link")
-        with contextual_connection(self.pool, context) as conn:
+        return contextual_connection(self.pool, context)
+
+    @contextmanager
+    def external_identity_transaction(self, identity_store, key):
+        with self._link_connection() as conn:
+            # Legacy issuer aliases share the same provider and external subject.
+            lock_key = json.dumps((key[0], key[2]), separators=(",", ":"))
+            conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 31))", (lock_key,))
+            yield conn
+
+    def get_external_identity(self,provider_id,issuer,external_subject,*,connection=None):
+        with self._link_connection(connection) as conn:
             row = conn.execute(
                 "SELECT local_subject_id,claims_json,linked_at FROM security.external_identities "
                 "WHERE provider_id=%s AND issuer=%s AND external_subject=%s",
                 (provider_id, issuer, external_subject),
             ).fetchone()
         return {"local_subject_id":row[0],"claims":dict(row[1]),"linked_at":str(row[2])} if row else None
-    def link_external_identity(self,*,provider_id,issuer,external_subject,local_subject_id,claims,linked_at):
-        context = replace(CURRENT_DATABASE_IDENTITY.get(), role="oidc_link")
-        with contextual_connection(self.pool, context) as conn:
-            conn.execute(
+    def link_external_identity(self,*,provider_id,issuer,external_subject,local_subject_id,claims,linked_at,connection=None):
+        with self._link_connection(connection) as conn:
+            row = conn.execute(
                 "INSERT INTO security.external_identities "
                 "(provider_id,issuer,external_subject,local_subject_id,claims_json,linked_at) "
                 "VALUES(%s,%s,%s,%s,%s::jsonb,%s::timestamptz) "
                 "ON CONFLICT(provider_id,issuer,external_subject) DO UPDATE "
-                "SET local_subject_id=excluded.local_subject_id,claims_json=excluded.claims_json",
+                "SET claims_json=excluded.claims_json "
+                "WHERE security.external_identities.local_subject_id=excluded.local_subject_id",
                 (provider_id, issuer, external_subject, local_subject_id,
                  json.dumps(claims, ensure_ascii=False), linked_at),
             )
+            if row.rowcount != 1:
+                raise ValueError("OIDC external identity is already linked to another account")
     def close(self): self.pool.close()

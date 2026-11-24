@@ -104,7 +104,7 @@ class ConfigurationBundleListResponse(BaseModel):
     items: list[ConfigurationBundleRevisionResponse]
 
 
-def _admin(request: Request, policy: AuthorizationPolicy) -> None:
+def _has_admin(request: Request, policy: AuthorizationPolicy) -> bool:
     claims = getattr(request.state, "access_claims", None)
     role = getattr(request.state, "caller_role", None)
     if role is None:
@@ -113,10 +113,12 @@ def _admin(request: Request, policy: AuthorizationPolicy) -> None:
             claims_role=getattr(claims, "role", None),
             subject_id=getattr(getattr(request.state, "identity", None), "subject_id", ""),
         )
-    try:
-        policy.require(role=role, required=Scope.CONFIG_ADMIN, claims=claims)
-    except PermissionError as exc:
-        raise HTTPException(403, str(exc)) from exc
+    return Scope.CONFIG_ADMIN.value in policy.effective_scopes(role=role, claims=claims)
+
+
+def _admin(request: Request, policy: AuthorizationPolicy) -> None:
+    if not _has_admin(request, policy):
+        raise HTTPException(403, f"missing required scope: {Scope.CONFIG_ADMIN.value}")
 
 
 def build_configuration_router(service: VersionedConfigurationService, identities: IdentityService,
@@ -139,11 +141,17 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                       scope: str | None = None, scopeKey: str | None = None, tenantId: str | None = None,
                       environment: str | None = None, status: str | None = None, limit: int = 200):
         require_identity(request, identities)
+        if family and profile_families_require_admin(family):
+            _admin(request, policy)
         values = service.store.list_profiles(
             family=family, profile_id=profileId, scope=scope, scope_key=scopeKey, tenant_id=tenantId,
             environment=environment, status=status, limit=limit,
         )
-        return {"items": [item.to_dict(include_payload=False) for item in values]}
+        admin = _has_admin(request, policy)
+        return {"items": [
+            item.to_dict(include_payload=False)
+            for item in values if admin or not profile_families_require_admin(item.family)
+        ]}
 
     @router.get("/profile-schemas/{family}")
     def get_profile_schema(family: str, request: Request):
@@ -207,7 +215,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         value = service.store.get_profile(revision_id)
         if value is None:
             raise HTTPException(404, "configuration profile revision not found")
-        if includePayload and profile_families_require_admin(value.family):
+        if profile_families_require_admin(value.family):
             _admin(request, policy)
         return value.to_dict(include_payload=includePayload)
 

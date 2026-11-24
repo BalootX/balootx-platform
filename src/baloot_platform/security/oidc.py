@@ -25,6 +25,7 @@ from pydantic import (
     field_validator,
 )
 from baloot_platform.version import PROFILE_VERSION_PATTERN
+from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
 
 if TYPE_CHECKING:
     import jwt
@@ -237,6 +238,7 @@ class OidcProfileUnavailable(ValueError):
 
 
 def _resolve_revision(configuration: VersionedConfigurationService, profile_id: str) -> dict[str, Any]:
+    token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(oidc_registry_read=True))
     try:
         revision = configuration.resolve_profile(
             family=OIDC_PROVIDER_FAMILY, profile_id=profile_id
@@ -245,6 +247,8 @@ def _resolve_revision(configuration: VersionedConfigurationService, profile_id: 
         raise OidcProfileUnavailable(
             f"{OIDC_PROFILE_ENV} has no active published OIDC provider profile"
         ) from None
+    finally:
+        CURRENT_DATABASE_IDENTITY.reset(token)
     if (
         revision["scope"] != "global"
         or revision["environment"] is not None

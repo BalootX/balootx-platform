@@ -123,6 +123,36 @@ def test_v20_oidc_callback_pkce_nonce_and_claim_validation(tmp_path: Path):
     with pytest.raises(ValueError): service.complete(provider_id="demo", state=transaction.state, code="code")
 
 
+def test_sqlite_oidc_sign_in_adopts_existing_ownership(tmp_path):
+    from baloot_platform.identity import IdentityService
+    from baloot_platform.identity.store import SQLiteIdentityStore
+    from baloot_platform.security.state_v20 import complete_oidc_sign_in
+
+    security_path = tmp_path / "security.sqlite3"
+    identity_path = tmp_path / "identity.sqlite3"
+    legacy = SQLiteSecurityStateStore(security_path)
+    identities = IdentityService(SQLiteIdentityStore(identity_path))
+    original = identities.create_external(kind="oidc", display_name="Fixture", subject_id="fixture-owner")
+    issuer = "https://issuer.example"
+    legacy.link_external_identity(
+        provider_id="fixture", issuer=issuer, external_subject="subject",
+        local_subject_id="fixture-owner", claims={}, linked_at="2026-01-01T00:00:00Z",
+    )
+    state = SQLiteSecurityStateStore(security_path, identity_store=identities.store)
+    session = complete_oidc_sign_in(
+        state, identities, {"providerId": "fixture", "issuer": issuer, "externalSubject": "subject", "claims": {}},
+        display_name="Fixture", user_agent=None,
+    )
+    assert session["identity"] == original["identity"]
+    assert session["session"]["sessionId"] != original["session"]["sessionId"]
+    assert identities.resolve(session["session"]["token"])[0].subject_id == "fixture-owner"
+    with pytest.raises(ValueError, match="already linked"):
+        state.link_external_identity(
+            provider_id="fixture", issuer=issuer, external_subject="subject",
+            local_subject_id="other-owner", claims={}, linked_at="2026-01-01T00:00:00Z",
+        )
+
+
 def _oidc_row(key: str) -> dict:
     return {
         "issuer": f"https://{key}.example/oidc/",

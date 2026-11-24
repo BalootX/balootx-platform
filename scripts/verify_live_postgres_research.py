@@ -77,6 +77,9 @@ REQUIRED_MIGRATION_HASHES = {
     "030_oidc_issuer_transition.sql": (
         "5cba5166395de08d74ec5ba4dcd78eaee11756ac06f9a58acb14f7481e1ffa5e"
     ),
+    "031_oidc_registry_access.sql": (
+        "79f0419b6e14eff0320087847edf5688745041507c3b63df8f8e5254cc8871da"
+    ),
 }
 CONFIGURATION_V25_CONSTRAINTS = frozenset(
     {

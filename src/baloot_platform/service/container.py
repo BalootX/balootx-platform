@@ -688,7 +688,7 @@ def _build_container(
         owned_resources,
         PostgresSecurityStateStore(dsn)
         if dsn
-        else SQLiteSecurityStateStore(runtime / "security-v20.sqlite3"),
+        else SQLiteSecurityStateStore(runtime / "security-v20.sqlite3", identity_store=identity_store),
     )
     passkeys = PasskeyChallengeService(
         rp_id=os.environ.get("BALOOT_WEBAUTHN_RP_ID", "localhost"),

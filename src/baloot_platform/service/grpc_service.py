@@ -1444,34 +1444,31 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return value or None
 
         @asynccontextmanager
-        async def _profile_context(self, context, *families: str, revision_id: str | None = None, write: bool = False):
+        async def _profile_context(self, context, *families: str, revision_ids: tuple[str, ...] = (), write: bool = False):
             if write:
                 await _require_api(context)
-            if revision_id is not None:
-                current = CONFIGURATION.store.get_profile(revision_id)
-                if current is None:
-                    await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
-                families = (current.family,)
-            restricted = profile_families_require_admin(*families)
+            configured_key = os.environ.get("BALOOT_API_KEY")
+            metadata = _metadata(context)
+            key_valid = bool(configured_key) and hmac.compare_digest(
+                configured_key.encode("utf-8"), metadata.get("x-api-key", "").encode("utf-8"),
+            )
+            role = caller_role(metadata, api_key_valid=key_valid)
+            admin = key_valid and Scope.CONFIG_ADMIN.value in AUTHORIZATION_POLICY.effective_scopes(role=role)
+            identity = await _identity(context)
             token = None
-            if restricted:
-                if not os.environ.get("BALOOT_API_KEY"):
-                    await context.abort(grpc.StatusCode.PERMISSION_DENIED, "restricted profiles require a configured API key")
-                if not write:
-                    await _require_api(context)
-                role = caller_role(_metadata(context), api_key_valid=True)
-                try:
-                    AUTHORIZATION_POLICY.require(role=role, required=Scope.CONFIG_ADMIN)
-                except PermissionError as exc:
-                    await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
-                identity = await _identity(context)
+            if admin:
                 token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(
                     role=role, subject_id=identity.subject_id, tenant_id=self._tenant(context) or "",
+                    configuration_admin=True,
                 ))
-            else:
-                identity = await _identity(context)
             try:
-                yield identity
+                revisions = [CONFIGURATION.store.get_profile(revision_id) for revision_id in revision_ids]
+                if any(revision is None for revision in revisions):
+                    await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
+                if profile_families_require_admin(*families, *(revision.family for revision in revisions)) and not admin:
+                    await _require_api(context)
+                    await context.abort(grpc.StatusCode.PERMISSION_DENIED, f"missing required scope: {Scope.CONFIG_ADMIN.value}")
+                yield identity, revisions, admin
             finally:
                 if token is not None:
                     CURRENT_DATABASE_IDENTITY.reset(token)
@@ -1485,17 +1482,20 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             })
 
         async def ListProfiles(self, request, context):
-            await _identity(context)
-            values = CONFIGURATION.store.list_profiles(
-                tenant_id=request.tenant_id or self._tenant(context), family=request.family or None,
-                profile_id=request.profile_id or None, status=request.status or None,
-                scope=request.scope or None, limit=request.limit or 200,
-            )
-            return self._result({"items": [item.to_dict(include_payload=False) for item in values]})
+            async with self._profile_context(context, request.family) as (_, _, admin):
+                values = CONFIGURATION.store.list_profiles(
+                    tenant_id=request.tenant_id or self._tenant(context), family=request.family or None,
+                    profile_id=request.profile_id or None, status=request.status or None,
+                    scope=request.scope or None, limit=request.limit or 200,
+                )
+                return self._result({"items": [
+                    item.to_dict(include_payload=False)
+                    for item in values if admin or not profile_families_require_admin(item.family)
+                ]})
 
         async def CreateProfile(self, request, context):
             try:
-                async with self._profile_context(context, request.family, write=True) as identity:
+                async with self._profile_context(context, request.family, write=True) as (identity, _, _):
                     value = CONFIGURATION.create_profile(
                         family=request.family, payload=_payload(request.canonical_json), created_by=identity.subject_id,
                         scope=request.scope or "global", tenant_id=request.tenant_id or self._tenant(context),
@@ -1509,7 +1509,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
 
         async def PublishProfile(self, request, context):
             try:
-                async with self._profile_context(context, revision_id=request.value, write=True) as identity:
+                async with self._profile_context(context, revision_ids=(request.value,), write=True) as (identity, _, _):
                     return self._result(CONFIGURATION.publish_profile(
                         request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id,
                     ))
@@ -1522,7 +1522,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
 
         async def RejectProfile(self, request, context):
             try:
-                async with self._profile_context(context, revision_id=request.value, write=True) as identity:
+                async with self._profile_context(context, revision_ids=(request.value,), write=True) as (identity, _, _):
                     return self._result(CONFIGURATION.reject_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
@@ -1533,7 +1533,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
 
         async def RetireProfile(self, request, context):
             try:
-                async with self._profile_context(context, revision_id=request.value, write=True) as identity:
+                async with self._profile_context(context, revision_ids=(request.value,), write=True) as (identity, _, _):
                     return self._result(CONFIGURATION.retire_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
@@ -1553,11 +1553,8 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile not resolved")
 
         async def CompareProfiles(self, request, context):
-            await _identity(context)
-            left = CONFIGURATION.store.get_profile(request.left); right = CONFIGURATION.store.get_profile(request.right)
-            if left is None or right is None:
-                await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
-            async with self._profile_context(context, left.family, right.family):
+            async with self._profile_context(context, revision_ids=(request.left, request.right)) as (_, revisions, _):
+                left, right = revisions
                 return self._result({
                     "left": left.to_dict(include_payload=False), "right": right.to_dict(include_payload=False),
                     "changes": CONFIGURATION.compare_payloads(dict(left.payload), dict(right.payload)),

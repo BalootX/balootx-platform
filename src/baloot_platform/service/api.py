@@ -48,6 +48,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 from baloot_platform.config import build_bundle, profile_bundle_from_resolved
 from baloot_platform.security.oidc import http_oidc_runtime
+from baloot_platform.security.access import Scope
 from baloot_platform.guide import build_engine_guide
 from baloot_platform.analysis.belief_v7 import (
     BeliefPolicy,
@@ -115,6 +116,7 @@ from baloot_platform.service.client_identity import (
     service_subject_ownership,
 )
 from baloot_platform.service.routes.auth import request_token, require_identity
+from baloot_platform.service.routes.security import OIDC_SIGN_IN_PATHS
 from baloot_platform.shared import (
     SharedDecisionAccessError,
     project_shared_decision,
@@ -722,10 +724,15 @@ async def platform_security(request: Request, call_next):
         identity is not None and identity_session is not None
     ) or access_claims is not None
     auth_bootstrap = request.url.path.startswith("/api/v1/auth/")
+    oidc_sign_in = request.method == "POST" and request.url.path in OIDC_SIGN_IN_PATHS
+    if oidc_sign_in and request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+        return JSONResponse(
+            {"detail": "OIDC sign-in requires application/json", "requestId": request_id}, status_code=415,
+        )
     if (
         api_key
         and request.method not in {"GET", "HEAD", "OPTIONS"}
-        and not (api_key_valid or session_valid or auth_bootstrap)
+        and not (api_key_valid or session_valid or auth_bootstrap or oidc_sign_in)
     ):
         return JSONResponse(
             {"detail": "authentication required", "requestId": request_id},
@@ -769,6 +776,8 @@ async def platform_security(request: Request, call_next):
             subject_id=claims_subject,
             tenant_id=tenant,
             role=role,
+            configuration_admin=(api_key_valid or access_claims is not None)
+            and Scope.CONFIG_ADMIN.value in AUTHORIZATION_POLICY.effective_scopes(role=role, claims=access_claims),
             request_id=request_id,
             session_id=str(
                 getattr(access_claims, "session_id", "")

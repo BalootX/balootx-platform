@@ -40,6 +40,10 @@ Use HTTPS URLs throughout. Redirect URIs may use HTTP on localhost or loopback. 
 
 For PostgreSQL, use an application role subject to row-level security. The API checks that RLS applies to its effective role on `security.external_identities` before enabling sign-in. Use a separate migration role to apply schema and data changes.
 
+Signed-out clients can send JSON POSTs to the OIDC begin and callback routes without a session or API key. Clients presenting a valid session must follow the API's session CSRF policy. An API key or a verified access token follows the same rules as on other routes. A successful callback returns a session token in its response body. It does not set a browser cookie.
+
+PostgreSQL restricts OIDC registry rows and their audit history to the current API's authenticated configuration administrators. The sign-in runtime can resolve the published registry internally. Earlier API binaries cannot read or modify the OIDC registry, including retained revisions. Use the current API for registry administration.
+
 The sign-in path needs schema usage and the following table privileges in addition to any grants for other features.
 
 | Tables | Privileges |
@@ -47,13 +51,13 @@ The sign-in path needs schema usage and the following table privileges in additi
 | `configuration.profile_revisions`, `configuration.invalidation_epochs` | `SELECT` |
 | `security.oidc_transactions`, `security.external_identities` | `SELECT`, `INSERT`, `UPDATE` |
 | `identity.subjects` | `SELECT`, `INSERT` |
-| `identity.sessions` | `INSERT` |
+| `identity.sessions` | `SELECT`, `INSERT`, `UPDATE` |
 
 ## Migrate the previous release
 
 The previous API cannot complete a PostgreSQL OIDC callback under RLS. Plan a sign-in pause for the cutover. The previous API can continue to serve other routes.
 
-1. Deploy the new release alongside the serving release. Pause both OIDC routes at the ingress and let requests already executing finish before applying the migration. From the new release checkout, run `python scripts/migrate_postgres.py` against the PostgreSQL database.
+1. Deploy the new release alongside the serving release. Pause both OIDC routes at the ingress and let requests already executing finish before applying the migration. From the new release checkout, run `python scripts/migrate_postgres.py` against the PostgreSQL database. Apply the registry access policies before publishing the first OIDC profile.
 2. Before starting the new API, run the new release's `baloot-migrate-oidc` command with the legacy provider environment, `BALOOT_OIDC_PROVIDERS_PROFILE`, and the PostgreSQL migration connection in `BALOOT_DATABASE_URL`. Use the approved signing algorithms for that provider. The command retains the legacy provider key, or `default` if it was unset. It reads the authoritative issuer from Discovery and requires the original issuer to match byte for byte apart from a trailing slash. When the issuer changes, the same transaction publishes the audited profile and re-keys existing links. Keep the returned revision ID.
 
    ```sh
@@ -64,7 +68,7 @@ The previous API cannot complete a PostgreSQL OIDC callback under RLS. Plan a si
 
 The migration warns when a legacy JWKS override is configured. The provider needs a valid Discovery document before migration. The transition mirrors link upserts. Direct link updates and deletes belong to the transition commands while aliases are active.
 
-To roll back, pause new OIDC begins and keep callbacks on the new API with its registry and database intact. Allow outstanding transactions to complete or expire, then close the callback route and wait for active callbacks to finish. Run `baloot-migrate-oidc --rollback REVISION_ID --actor operator-id --reason "Restore previous release"` with the original migration revision ID. The command restores the legacy issuer keys, including links created during rollout, and retires the active revision of the migrated profile. Restore the previous API for other routes and keep OIDC paused until an API with RLS-capable callbacks is ready. The previous reader can decode the new state format, but the previous callback still lacks write access under RLS.
+To roll back, pause new OIDC begins and keep callbacks on the new API with its registry and database intact. Allow outstanding transactions to complete or expire, then close the callback route and wait for active callbacks to finish. Run `baloot-migrate-oidc --rollback REVISION_ID --actor operator-id --reason "Restore previous release"` with the original migration revision ID. The command restores the legacy issuer keys, including links created during rollout, and retires the active revision of the migrated profile. Keep the registry access policies installed. Restore the previous API for other routes and keep OIDC paused until an API with RLS-capable callbacks is ready. The previous reader can decode the new state format, but the previous callback still lacks write access under RLS.
 
 After accepting the new release, run `baloot-migrate-oidc --finalize REVISION_ID --actor operator-id --reason "Close rollback window"` to remove the legacy aliases, then remove the old metadata variables. Repeating a command preserves the original audit record.
 
