@@ -73,14 +73,16 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 At each batch kickoff, invoke the [shared preflight](scripts/render_kickoff.py) from a trusted public-main checkout with the project dependencies installed. Give it the clean, full-history checkout for the selected inputs, the selected build receipt, and the image ID observed by the launcher. Capture stdout as the batch's kickoff receipt and proceed only with a `passed` verdict.
 
 ```sh
-python -B -m scripts.render_kickoff --checkout "$SOURCE_CHECKOUT" \
+python -I -B scripts/render_kickoff.py --checkout "$SOURCE_CHECKOUT" \
   --source-head "$SOURCE_HEAD" --source-tree "$SOURCE_TREE" \
   --build-receipt "$BUILD_RECEIPT" --image-id "$IMAGE_ID" > "$KICKOFF_RECEIPT"
 ```
 
-The command snapshots public `main` from the configured remote and fetches the observed commit into the selected checkout's Git object store if needed. It requires every merged change under the [configured renderer paths](scripts/render-kickoff.json), matching renderer content on the two commits, and a clean renderer worktree. The verdict binds the input commit and tree to the selected worker image.
+The command resolves public `main` outside any Git checkout and fetches the observed commit into the selected checkout's Git object store if needed. It checks its own script, policy and schema against that commit. The selected checkout must be clean and its pinned tree must match public `main` across the repository, subject to the [reviewed exclusions](scripts/render-kickoff.json). If the content differs, the verdict identifies a missing merged commit when available. The verdict binds the input commit and tree to the selected worker image.
 
 Stdout always carries one JSON verdict with `schemaVersion` (`1`), `status`, `sourceHead`, `sourceTree`, `imageId`, `packageLockSha256`, `mainHead`, `checkedAt` (UTC), `missingRendererCommit`, and `reason`. Unavailable evidence is `null`. Exit `0` carries `passed` or `help`, exit `1` carries a refusal, and exit `2` carries a usage error. Keep the receipt read-only for the batch. Run `render_research_notice --public` from the pinned Git checkout with `BALOOT_RENDER_KICKOFF_RECEIPT`, `BALOOT_RENDER_BUILD_RECEIPT`, and `BALOOT_RENDER_IMAGE_ID`. The producer checks its own commit and tree and rejects future-dated receipts or receipts older than the configured limit. Run kickoff again before starting a producer with an expired receipt.
+
+Bind-mount a pinned checkout owned by UID `10001` into the video worker and run the producer as that UID. The hosted `remotion-image-parity` job exercises the Git check with a read-only mount and the image's default user.
 
 ## Rollback
 

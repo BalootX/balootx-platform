@@ -213,7 +213,7 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert parity["if"] == "needs.plan.outputs.video_worker == 'true'"
     assert jobs["plan"]["outputs"]["video_worker"] == "${{ steps.plan.outputs.video_worker }}"
     assert "remotion-image-parity" in jobs["media-render"]["needs"]
-    checkout, restore, build, check, save = parity["steps"]
+    checkout, restore, build, check, check_checkout, save = parity["steps"]
     assert checkout["with"]["persist-credentials"] is False
     assert restore["with"] == save["with"]
     assert all(path in restore["with"]["key"] for path in (
@@ -228,6 +228,12 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert "python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules package-lock.json" in check["run"]
     assert "target=/check/package-lock.json,readonly" in check["run"]
     assert "target=/check/scripts/remotion_image_parity.py,readonly" in check["run"]
+    assert "sudo chown -R 10001" in check_checkout["run"]
+    assert "docker run --rm --network none --read-only --workdir /checkout" in check_checkout["run"]
+    assert "target=/checkout,readonly" in check_checkout["run"]
+    assert 'test "$(id -u)" -eq 10001' in check_checkout["run"]
+    assert "verify_checkout(Path.cwd(), source_head, source_tree, timeout=timeout)" in check_checkout["run"]
+    assert "safe.directory" not in check_checkout["run"]
     dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
     assert re.fullmatch(r"FROM python:3\.13-slim@sha256:[0-9a-f]{64} AS python-base", dockerfile.splitlines()[0])
     assert jobs["python-wheelhouse"]["strategy"]["matrix"]["python"] == jobs["python-fast-run"]["strategy"]["matrix"]["python"]

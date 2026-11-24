@@ -1,23 +1,11 @@
 {
   "publicRemote": "https://github.com/BalootX/balootx-platform.git",
+  "mainRef": "refs/heads/main",
   "maxReceiptAgeSeconds": 900,
-  "rendererPaths": [
-    ".dockerignore",
-    "Dockerfile",
-    "assets",
-    "pyproject.toml",
-    "requirements-docker.txt",
-    "scripts/first_clip_job_metrics.py",
-    "scripts/remotion_image_parity.py",
-    "scripts/render-kickoff.json",
-    "scripts/render-kickoff.schema.json",
-    "scripts/render_kickoff.py",
-    "scripts/render_release.py",
-    "scripts/render_research_notice.py",
-    "scripts/render_research_scenario_v4_goldens.py",
-    "src/baloot_platform/resources/configs/video",
-    "src/baloot_platform/video",
-    "configs/video",
-    "schemas/profiles/video.schema.json"
-  ]
+  "gitTimeoutSeconds": {
+    "local": 10,
+    "discovery": 30,
+    "fetch": 60
+  },
+  "excludedPaths": ["docs", "tests"]
 }

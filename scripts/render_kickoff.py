@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import argparse
 from datetime import UTC, datetime
+from functools import partial
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
+import traceback
 
 
 TRUSTED_ROOT = Path(__file__).resolve().parents[1]
 POLICY = TRUSTED_ROOT / "scripts/render-kickoff.json"
 POLICY_SCHEMA = POLICY.with_suffix(".schema.json")
-MAIN_REF = "refs/heads/main"
 SOURCE_SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}")
 UTC_TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
@@ -69,15 +71,21 @@ def verify_worker_build(
     return lock_digest
 
 
-def git(checkout: Path, *args: str, timeout: int = 10, mismatch: str | None = None) -> str:
+class RenderContentMismatch(ValueError):
+    pass
+
+
+def git(checkout: Path, *args: str, timeout: int, outside_repository: bool = False) -> str:
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
     env.update(
         GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
         GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0",
     )
+    if outside_repository:
+        env["GIT_CEILING_DIRECTORIES"] = str(checkout.resolve().parent)
     try:
         return subprocess.run(
-            ["git", "--no-replace-objects", "--literal-pathspecs", *args],
+            ["git", "--no-replace-objects", "-c", "core.fsmonitor=false", *args],
             cwd=checkout,
             env=env,
             check=True,
@@ -86,21 +94,19 @@ def git(checkout: Path, *args: str, timeout: int = 10, mismatch: str | None = No
             timeout=timeout,
         ).stdout.strip()
     except (OSError, UnicodeError, subprocess.SubprocessError) as exc:
-        if mismatch and isinstance(exc, subprocess.CalledProcessError) and exc.returncode == 1:
-            raise ValueError(mismatch) from exc
+        if args[:2] == ("diff", "--quiet") and isinstance(exc, subprocess.CalledProcessError) and exc.returncode == 1:
+            raise RenderContentMismatch("render source differs from public main; repin and rebuild") from exc
         raise ValueError(f"cannot verify render source with git {args[0]}") from exc
 
 
-def verify_checkout(checkout: Path, source_head: str, source_tree: str, paths: list[str]) -> None:
+def verify_checkout(checkout: Path, source_head: str, source_tree: str, *, timeout: int) -> None:
     top, head, tree = git(
-        checkout, "rev-parse", "--show-toplevel", "HEAD", "HEAD^{tree}"
+        checkout, "rev-parse", "--show-toplevel", "HEAD", "HEAD^{tree}", timeout=timeout
     ).splitlines()
     if Path(top).resolve() != checkout.resolve() or (head, tree) != (source_head, source_tree):
         raise ValueError("render checkout does not match the pinned source commit and tree")
-    if git(checkout, "status", "--porcelain", "--untracked-files=no") or git(
-        checkout, "status", "--porcelain", "--untracked-files=all", "--", *paths
-    ):
-        raise ValueError("render kickoff requires clean tracked source and renderer inputs")
+    if git(checkout, "status", "--porcelain", "--untracked-files=all", timeout=timeout):
+        raise ValueError("render kickoff requires a clean checkout")
 
 
 def new_verdict(source_head: str = "", source_tree: str = "", image_id: str = "") -> dict:
@@ -127,42 +133,61 @@ def verify_kickoff(
             receipt_path, source_head, source_tree, image_id
         )
         policy = load_policy()
-        paths = policy["rendererPaths"]
+        timeouts = policy["gitTimeoutSeconds"]
+        paths = [".", *(f":(exclude,top,literal){path}" for path in policy["excludedPaths"])]
         remote = policy["publicRemote"]
-        verify_checkout(checkout, source_head, source_tree, paths)
-        if git(checkout, "rev-parse", "--is-shallow-repository") != "false":
+        main_ref = policy["mainRef"]
+        local_git = partial(git, checkout, timeout=timeouts["local"])
+        verify_checkout(checkout, source_head, source_tree, timeout=timeouts["local"])
+        if local_git("rev-parse", "--is-shallow-repository") != "false":
             raise ValueError("render kickoff requires a complete Git history")
         checked_at = utc_now().isoformat(timespec="seconds").replace("+00:00", "Z")
-        main, separator, ref = git(
-            TRUSTED_ROOT, "ls-remote", "--exit-code", remote, MAIN_REF, timeout=30
-        ).partition("\t")
-        if not separator or ref != MAIN_REF or not SOURCE_SHA.fullmatch(main):
+        with TemporaryDirectory() as directory:
+            main, separator, ref = git(
+                Path(directory), "ls-remote", "--exit-code", remote, main_ref,
+                timeout=timeouts["discovery"], outside_repository=True,
+            ).partition("\t")
+        if not separator or ref != main_ref or not SOURCE_SHA.fullmatch(main):
             raise ValueError("public main did not resolve to one commit")
         verdict["mainHead"] = main
         verdict["checkedAt"] = checked_at
+        try:
+            local_git("cat-file", "-e", f"{main}^{{commit}}")
+        except ValueError:
+            git(
+                checkout, "fetch", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance",
+                "--no-recurse-submodules", remote, main, timeout=timeouts["fetch"],
+            )
+
+        script = TRUSTED_ROOT / "scripts/render_kickoff.py"
+        for path in (script, POLICY, POLICY_SCHEMA):
+            relative = path.relative_to(TRUSTED_ROOT).as_posix()
+            try:
+                expected = local_git("rev-parse", "--verify", f"{main}:{relative}")
+            except ValueError as exc:
+                raise ValueError(f"public main does not contain kickoff authority {relative}") from exc
+            if local_git("hash-object", "--no-filters", "--", str(path)) != expected:
+                raise ValueError(f"kickoff authority {relative} differs from public main; update the kickoff checkout")
+
         if main != source_head:
             try:
-                git(checkout, "cat-file", "-e", f"{main}^{{commit}}")
-            except ValueError:
-                git(
-                    checkout, "fetch", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance",
-                    "--no-recurse-submodules", remote, main, timeout=60,
+                local_git(
+                    "diff", "--quiet", "--no-ext-diff", "--no-textconv", f"{main}..{source_head}", "--", *paths,
                 )
-            git(checkout, "merge-base", source_head, main)
-            missing = git(
-                checkout, "log", "--full-history", "--diff-merges=first-parent",
-                "--format=%H", "--max-count=1", f"{source_head}..{main}", "--", *paths,
-            )
-            if missing:
-                verdict["missingRendererCommit"] = missing
-                raise ValueError("render source is missing a merged renderer commit; repin and rebuild")
-            git(
-                checkout, "diff", "--quiet", "--no-ext-diff", "--no-textconv", f"{main}..{source_head}", "--", *paths,
-                mismatch="render source differs from public main under rendererPaths; repin and rebuild",
-            )
+            except RenderContentMismatch:
+                missing = local_git(
+                    "log", "--full-history", "--diff-merges=first-parent",
+                    "--format=%H", "--max-count=1", f"{source_head}..{main}", "--", *paths,
+                )
+                if missing:
+                    verdict["missingRendererCommit"] = missing
+                    raise ValueError("render source is missing a merged renderer commit; repin and rebuild") from None
+                raise
+            local_git("merge-base", source_head, main)
     except ValueError as exc:
         verdict["reason"] = str(exc)
     except (Exception, KeyboardInterrupt):
+        traceback.print_exc()
         verdict["reason"] = "unexpected render kickoff error"
     else:
         verdict["status"] = "passed"
@@ -200,7 +225,7 @@ def require_kickoff_receipt(
     policy = load_policy()
     if age > policy["maxReceiptAgeSeconds"]:
         raise ValueError("public render kickoff receipt has expired; rerun kickoff")
-    verify_checkout(checkout, source_head, source_tree, policy["rendererPaths"])
+    verify_checkout(checkout, source_head, source_tree, timeout=policy["gitTimeoutSeconds"]["local"])
     return main, checked_at
 
 

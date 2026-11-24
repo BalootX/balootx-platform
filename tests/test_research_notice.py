@@ -4,6 +4,7 @@ import json
 import runpy
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 from PIL import Image
@@ -357,16 +358,29 @@ def kickoff_inputs(tmp_path, monkeypatch):
     layout = public / "scene/layout.txt"
     layout.parent.mkdir(parents=True)
     layout.write_text("before layout fix\n", encoding="utf-8")
+    scripts = public / "scripts"
+    scripts.mkdir()
+    (scripts / "render_kickoff.py").write_bytes(
+        (render_kickoff.TRUSTED_ROOT / "scripts/render_kickoff.py").read_bytes()
+    )
+    policy = json.loads(render_kickoff.POLICY.read_bytes())
+    policy.update(publicRemote=public.as_uri(), maxReceiptAgeSeconds=60)
+    (scripts / "render-kickoff.json").write_text(json.dumps(policy), encoding="utf-8")
+    schema = json.loads(render_kickoff.POLICY_SCHEMA.read_bytes())
+    schema["properties"]["publicRemote"]["pattern"] = "^file://"
+    (scripts / "render-kickoff.schema.json").write_text(json.dumps(schema), encoding="utf-8")
+    (public / ".gitignore").write_bytes((render_kickoff.TRUSTED_ROOT / ".gitignore").read_bytes())
     fixture_git(public, "add", ".")
     fixture_git(public, "commit", "-m", "4fd9b56a pre-fix renderer")
     checkout = tmp_path / "source"
+    trusted = tmp_path / "kickoff"
     fixture_git(tmp_path, "clone", "--no-local", str(public), str(checkout))
-    policy = tmp_path / "policy.json"
-    policy.write_text(json.dumps({
-        "publicRemote": public.as_uri(), "maxReceiptAgeSeconds": 60, "rendererPaths": ["scene"],
-    }), encoding="utf-8")
-    monkeypatch.setattr(render_kickoff, "POLICY", policy)
-    return public, checkout, layout, policy
+    fixture_git(tmp_path, "clone", "--no-local", str(public), str(trusted))
+    policy_path = trusted / "scripts/render-kickoff.json"
+    monkeypatch.setattr(render_kickoff, "TRUSTED_ROOT", trusted)
+    monkeypatch.setattr(render_kickoff, "POLICY", policy_path)
+    monkeypatch.setattr(render_kickoff, "POLICY_SCHEMA", policy_path.with_suffix(".schema.json"))
+    return public, checkout, layout, policy_path
 
 
 def kickoff_cli_args(checkout, build, *, head=None, tree=None, image_id=None, build_edits=None):
@@ -385,20 +399,29 @@ def kickoff_cli_args(checkout, build, *, head=None, tree=None, image_id=None, bu
     ]
 
 
-@pytest.mark.parametrize("pin", ["4fd9b56a", "diverged", "current", "newer", "after-fix", "reverted"])
+@pytest.mark.parametrize("pin", ["4fd9b56a", "diverged", "current", "newer", "after-fix", "reverted", "main-reverted"])
 def test_render_kickoff_checks_live_public_renderer_history(tmp_path, monkeypatch, capsys, kickoff_inputs, kickoff_clock, pin):
-    public, checkout, layout, _ = kickoff_inputs
+    public, checkout, layout, policy = kickoff_inputs
     before_fix = fixture_git(public, "rev-parse", "HEAD")
     layout.write_text("after layout fix\n", encoding="utf-8")
     fixture_git(public, "commit", "-am", "3e073db layout fix")
     fix = fixture_git(public, "rev-parse", "HEAD")
-    fixture_git(public, "commit", "--allow-empty", "-m", "unrelated main change")
+    if pin == "main-reverted":
+        fixture_git(public, "revert", "--no-edit", fix)
+    docs = public / "docs"
+    docs.mkdir()
+    (docs / "notes.md").write_text("review notes\n", encoding="utf-8")
+    fixture_git(public, "add", "docs")
+    fixture_git(public, "commit", "-m", "unrelated documentation change")
     main_head = fixture_git(public, "rev-parse", "HEAD")
     assert fixture_git(checkout, "rev-parse", "origin/main") == before_fix
 
     if pin in {"current", "newer", "after-fix", "reverted"}:
         fixture_git(checkout, "fetch", "origin")
         fixture_git(checkout, "checkout", "--detach", fix if pin == "after-fix" else "origin/main")
+    if pin == "current":
+        (checkout / "outputs").mkdir()
+        (checkout / "outputs/render.json").write_bytes(b"{}")
     if pin in {"diverged", "newer"}:
         fixture_git(checkout, "commit", "--allow-empty", "-m", "newer candidate change")
     if pin == "reverted":
@@ -407,12 +430,12 @@ def test_render_kickoff_checks_live_public_renderer_history(tmp_path, monkeypatc
         alternate = tmp_path / "alternate"
         fixture_git(tmp_path, "clone", "--branch=main", str(checkout), str(alternate))
         directive = f"url.{alternate.as_uri()}.insteadOf"
-        fixture_git(checkout, "config", directive, public.as_uri())
+        trusted = policy.parent.parent
+        fixture_git(trusted, "config", directive, public.as_uri())
+        monkeypatch.setattr(render_kickoff, "TemporaryDirectory", lambda: TemporaryDirectory(dir=trusted))
         global_config = tmp_path / "global.cfg"
         fixture_git(checkout, "config", "--file", str(global_config), directive, public.as_uri())
         monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
-        # Seed the real objects before testing discovery independently of fetching.
-        fixture_git(checkout, "fetch", str(public), "main")
     args = kickoff_cli_args(checkout, tmp_path / "build.json")
     status = render_kickoff.main(args)
     verdict = json.loads(capsys.readouterr().out)
@@ -436,6 +459,38 @@ def test_render_kickoff_checks_live_public_renderer_history(tmp_path, monkeypatc
         assert verdict["reason"] is None
 
 
+@pytest.mark.parametrize("path", [
+    "src/baloot_platform/core/rules.py",
+    "src/baloot_platform/research/exact_state.py",
+    "configs/rules/saudi_common_v1.yaml",
+    "examples/synthetic-clip-identity.json",
+])
+def test_render_kickoff_refuses_pins_missing_merged_inputs(tmp_path, capsys, kickoff_inputs, path):
+    public, checkout, _, _ = kickoff_inputs
+    changed = public / path
+    changed.parent.mkdir(parents=True)
+    changed.write_text("synthetic renderer input\n", encoding="utf-8")
+    fixture_git(public, "add", path)
+    fixture_git(public, "commit", "-m", "fix a renderer input")
+    fix = fixture_git(public, "rev-parse", "HEAD")
+
+    assert render_kickoff.main(kickoff_cli_args(checkout, tmp_path / "build.json")) == 1
+    verdict = json.loads(capsys.readouterr().out)
+    assert verdict["mainHead"] == fix and verdict["missingRendererCommit"] == fix
+
+
+@pytest.mark.parametrize("filename", ["render_kickoff.py", "render-kickoff.json", "render-kickoff.schema.json"])
+def test_render_kickoff_requires_its_own_authority_from_main(tmp_path, capsys, kickoff_inputs, filename):
+    _, checkout, _, policy = kickoff_inputs
+    stale = policy.with_name(filename)
+    stale.write_bytes(stale.read_bytes() + b"\n")
+
+    assert render_kickoff.main(kickoff_cli_args(checkout, tmp_path / "build.json")) == 1
+    verdict = json.loads(capsys.readouterr().out)
+    assert verdict["mainHead"] is not None
+    assert f"scripts/{filename} differs from public main" in verdict["reason"]
+
+
 @pytest.mark.parametrize(("argv", "code", "status"), [([], 2, "failed"), (["--help"], 0, "help")])
 def test_render_kickoff_usage_writes_json(capsys, argv, code, status):
     assert render_kickoff.main(argv) == code
@@ -451,7 +506,7 @@ def test_render_kickoff_usage_writes_json(capsys, argv, code, status):
     ("subdirectory", "does not match the pinned source"), ("dirty", "requires clean"),
     ("untracked", "requires clean"), ("shallow", "requires a complete Git history"),
     ("build", "requires a passed video-worker build"), ("build-source", "build source does not match"),
-    ("policy", "rendererPaths"), ("remote", "git ls-remote"),
+    ("policy", "excludedPaths"), ("remote", "git ls-remote"),
     ("ids", "requires full source commit and tree IDs"), ("unexpected", "unexpected render kickoff error"),
 ])
 def test_render_kickoff_refuses_invalid_inputs(tmp_path, monkeypatch, capsys, kickoff_inputs, case, reason):
@@ -467,12 +522,14 @@ def test_render_kickoff_refuses_invalid_inputs(tmp_path, monkeypatch, capsys, ki
     )
     if case == "subdirectory":
         args[1] = str(checkout / "scene")
-    if case in {"dirty", "untracked"}:
-        (checkout / "scene" / ("layout.txt" if case == "dirty" else "shadow.txt")).write_bytes(b"dirty")
+    if case == "dirty":
+        (checkout / "scene/layout.txt").write_bytes(b"dirty")
+    if case == "untracked":
+        (checkout / "yaml.py").write_bytes(b"untracked module")
     if case in {"policy", "remote"}:
         policy = json.loads(policy_path.read_bytes())
         if case == "policy":
-            policy["rendererPaths"] = ["../scene"]
+            policy["excludedPaths"] = ["../scene"]
         else:
             policy["publicRemote"] = (tmp_path / "unreachable").as_uri()
         policy_path.write_text(json.dumps(policy), encoding="utf-8")
@@ -482,11 +539,14 @@ def test_render_kickoff_refuses_invalid_inputs(tmp_path, monkeypatch, capsys, ki
         monkeypatch.setattr(render_kickoff, "load_policy", fail)
 
     assert render_kickoff.main(args) == 1
-    verdict = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    verdict = json.loads(captured.out)
     assert verdict["status"] == "failed" and reason in verdict["reason"]
     assert verdict["mainHead"] is None and verdict["checkedAt"] is None
     if case == "ids":
         assert verdict["sourceHead"] is None and verdict["sourceTree"] is None and verdict["imageId"] is None
+    if case == "unexpected":
+        assert "Traceback" in captured.err and "RuntimeError: internal error" in captured.err
 
 
 @pytest.mark.parametrize(("edits", "reason"), [
