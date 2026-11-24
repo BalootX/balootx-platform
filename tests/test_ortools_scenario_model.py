@@ -1516,7 +1516,7 @@ def test_observed_bid_quality_dispatch_reserves_verification_and_time(root, monk
     request = ScenarioProofRequestV1.build(dict(schemaVersion=1, mode="exact", visibility="actor_information_set",
         strategyClass="pure_deterministic", claim="winning_root_action_count", targetTeam="north_south",
         utility="awarded_point_margin", successThreshold=1, budgetProfile=tier, selectedAction="sun"))
-    clock, calls, progress = [time.monotonic()], [], []
+    clock, calls, progress = [1000.0], [], []
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
     def prove(self, state, source, **kwargs):
         assert kwargs.get("opponent_play_policy_id") == play_policy
