@@ -208,6 +208,8 @@ if (!stillsOnly) {
 if (collectionOnly) {
   if (!replaySegment) throw new Error("trick collection sample requires a play-decision replay segment");
   const samplePath = path.join(outputDir, "trick-collection-sample.mp4");
+  // In the synthetic CI replay, frame 398 precedes the first collection and frame 423 starts the next play.
+  const sampleOffsets = process.env.BALOOTX_CI_SHORT_COLLECTION_SAMPLE === "true" ? [398, 423] : [362, 432];
   await renderMedia({
     composition,
     serveUrl,
@@ -217,7 +219,7 @@ if (collectionOnly) {
     colorSpace: "bt709",
     ffmpegOverride: bt709FfmpegOverride,
     disallowParallelEncoding: true,
-    frameRange: [replaySegment.startFrame + 362, replaySegment.startFrame + 432],
+    frameRange: sampleOffsets.map(offset => replaySegment.startFrame + offset),
     overwrite: true,
     chromiumOptions,
     puppeteerInstance: browser,

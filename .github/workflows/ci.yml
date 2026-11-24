@@ -664,6 +664,7 @@ jobs:
         working-directory: .
         env:
           SHARD: ${{ matrix.shard }}
+          BALOOTX_CI_SHORT_COLLECTION_SAMPLE: ${{ github.event_name == 'pull_request' && matrix.shard == 'companion' }}
           BALOOT_RENDER_EVIDENCE_DIR: ${{ runner.temp }}/media-stage-logs
         run: |
           cpus="$(python -c 'import os; print(",".join(map(str, sorted(os.sched_getaffinity(0))[:4])))')"
@@ -721,7 +722,7 @@ jobs:
           mv outputs/professional-video-collection/trick-collection-sample.mp4 outputs/professional-video-flagship/
           python -P scripts/verify_remotion_plugin_parity.py
           python -P scripts/generate_scene_preview.py --refresh
-          for video in outputs/professional-video-{flagship/balootx-complete-laffah-audit,decision/balootx-decision-clip}.mp4; do
+          for video in outputs/professional-video-{flagship/balootx-complete-laffah-audit,flagship/trick-collection-sample,decision/balootx-decision-clip}.mp4; do
             ffmpeg -v error -xerror -threads 4 -i "$video" -filter_threads 4 -filter_complex_threads 4 -threads 4 -f null -
           done
           python -P scripts/generate_media_probe.py
