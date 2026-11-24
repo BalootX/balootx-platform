@@ -31,10 +31,10 @@ grpc-dev = ["grpcio>=1.74", "grpcio-tools>=1.74", "protobuf>=5.29"]
 postgres = ["psycopg[binary,pool]>=3.2"]
 s3 = ["boto3>=1.37"]
 redis = ["redis>=5.2"]
-security = ["cryptography>=44", "PyJWT[crypto]>=2.10", "webauthn>=2.5"]
+security = ["cryptography>=44", "PyJWT[crypto]>=2.15.1", "webauthn>=2.5"]
 ml = ["onnxruntime>=1.21", "torch>=2.7"]
 optimization = ["ortools==9.15.6755"]
-all = ["grpcio>=1.74", "protobuf>=5.29", "psycopg[binary,pool]>=3.2", "boto3>=1.37", "onnxruntime>=1.21", "redis>=5.2", "cryptography>=44", "PyJWT[crypto]>=2.10", "webauthn>=2.5", "ortools==9.15.6755"]
+all = ["grpcio>=1.74", "protobuf>=5.29", "psycopg[binary,pool]>=3.2", "boto3>=1.37", "onnxruntime>=1.21", "redis>=5.2", "cryptography>=44", "PyJWT[crypto]>=2.15.1", "webauthn>=2.5", "ortools==9.15.6755"]
 
 [project.scripts]
 baloot = "baloot_platform.cli:main"

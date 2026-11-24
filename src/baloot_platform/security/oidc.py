@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
-import re
 import secrets
+import threading
 import time
-import tomllib
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal
 from urllib.parse import urlencode, urlsplit
 
 import httpx
@@ -17,9 +16,27 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StringConstraints,
     ValidationError,
     ValidationInfo,
     field_validator,
+)
+
+if TYPE_CHECKING:
+    import jwt
+
+    from baloot_platform.configuration import VersionedConfigurationService
+
+OIDC_PROVIDER_FAMILY = "oidc_providers"
+_REGISTRY_REVISION_ENV = "BALOOT_OIDC_PROVIDERS_REVISION"
+_LEGACY_PROVIDER_FIELDS = (
+    "PROVIDER_ID",
+    "ISSUER",
+    "AUTHORIZATION_ENDPOINT",
+    "TOKEN_ENDPOINT",
+    "CLIENT_ID",
+    "REDIRECT_URI",
+    "JWKS_URI",
 )
 
 
@@ -32,7 +49,7 @@ class OidcProviderConfig:
     client_id: str
     redirect_uri: str
     scopes: tuple[str, ...] = ("openid", "profile", "email")
-    jwks_uri: str | None = None
+    allowed_algorithms: tuple[str, ...] = field(kw_only=True)
     client_secret: str | None = field(default=None, repr=False)
 
     def authorization_url(self, *, state: str, nonce: str, code_challenge: str) -> str:
@@ -52,7 +69,7 @@ class _OidcProviderRow(BaseModel):
     token_endpoint: str
     client_id: str
     redirect_uri: str
-    jwks_uri: str | None = None
+    allowed_algorithms: list[Literal["RS256", "ES256", "EdDSA"]] = Field(min_length=1)
     client_secret_env: str | None = Field(
         default=None, pattern=r"^BALOOT_OIDC_CLIENT_SECRET(?:_[A-Z0-9_]+)?$"
     )
@@ -64,79 +81,119 @@ class _OidcProviderRow(BaseModel):
             raise ValueError("must be a non-blank, printable client ID")
         return value
 
-    @field_validator(
-        "issuer", "authorization_endpoint", "token_endpoint", "redirect_uri", "jwks_uri"
-    )
+    @field_validator("allowed_algorithms")
+    @classmethod
+    def validate_algorithms(cls, values: list[str]) -> list[str]:
+        if len(values) != len(set(values)):
+            raise ValueError("must contain unique algorithms")
+        return values
+
+    @field_validator("issuer", "authorization_endpoint", "token_endpoint", "redirect_uri")
     @classmethod
     def validate_url(cls, value: str, info: ValidationInfo) -> str:
-        try:
-            url = urlsplit(value)
-            port = url.port
-        except ValueError:
-            raise ValueError("invalid URL authority") from None
-        loopback_redirect = (
-            info.field_name == "redirect_uri"
-            and url.scheme == "http"
-            and url.hostname in {"localhost", "127.0.0.1", "::1"}
-        )
-        if (
-            not (url.scheme == "https" or loopback_redirect)
-            or not url.hostname
-            or port == 0
-            or "@" in url.netloc
-            or "#" in value
-            or "\\" in value
-            or not value.isascii()
-            or any(not char.isprintable() or char.isspace() for char in value)
-        ):
-            raise ValueError("must be an absolute HTTPS URL (HTTP loopback redirect allowed)")
+        _validate_oidc_url(value, allow_loopback=info.field_name == "redirect_uri")
         if info.field_name == "issuer" and "?" in value:
             raise ValueError("issuer must not contain a query")
         return value
 
 
-def load_oidc_providers() -> dict[str, OidcProviderConfig]:
-    path = os.environ.get("BALOOT_OIDC_PROVIDERS_FILE")
-    if path is None:
-        legacy_fields = (
-            "PROVIDER_ID",
-            "ISSUER",
-            "AUTHORIZATION_ENDPOINT",
-            "TOKEN_ENDPOINT",
-            "CLIENT_ID",
-            "REDIRECT_URI",
-            "JWKS_URI",
-        )
-        if any(f"BALOOT_OIDC_{name}" in os.environ for name in legacy_fields):
-            raise ValueError("migrate legacy OIDC provider settings to BALOOT_OIDC_PROVIDERS_FILE")
-        return {}
-
+def _validate_oidc_url(value: str, *, allow_loopback: bool = False) -> None:
     try:
-        with Path(path).open("rb") as config:
-            rows = tomllib.load(config)
-    except OSError:
-        raise ValueError("BALOOT_OIDC_PROVIDERS_FILE must name a readable file") from None
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
-        raise ValueError("BALOOT_OIDC_PROVIDERS_FILE must contain valid UTF-8 TOML") from None
+        url = urlsplit(value)
+        port = url.port
+    except ValueError:
+        raise ValueError("invalid URL authority") from None
+    loopback_redirect = (
+        allow_loopback and url.scheme == "http" and url.hostname in {"localhost", "127.0.0.1", "::1"}
+    )
+    if (
+        not (url.scheme == "https" or loopback_redirect)
+        or not url.hostname
+        or port == 0
+        or "@" in url.netloc
+        or "#" in value
+        or "\\" in value
+        or not value.isascii()
+        or any(not char.isprintable() or char.isspace() for char in value)
+    ):
+        raise ValueError("must be an absolute HTTPS URL without user info or a fragment")
 
+
+class _RegistryIdentity(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+
+
+class OidcProviderProfile(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    schema_version: Literal[1]
+    profile: _RegistryIdentity
+    change_reason: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
+    ]
+    providers: dict[
+        Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")],
+        _OidcProviderRow,
+    ]
+
+
+def validate_oidc_provider_profile(payload: dict[str, Any]) -> OidcProviderProfile:
+    try:
+        return OidcProviderProfile.model_validate(payload)
+    except ValidationError as exc:
+        problems = []
+        for error in exc.errors(include_input=False, include_context=False, include_url=False):
+            location = error["loc"]
+            if len(location) >= 2 and location[0] == "providers":
+                label = f"OIDC provider {location[1]!r}"
+                if len(location) > 2 and error["type"] != "extra_forbidden":
+                    label += f" {location[2]}"
+            else:
+                label = "OIDC provider profile"
+                if location and error["type"] != "extra_forbidden":
+                    label += f" {location[0]}"
+            problems.append(f"{label}: {error['msg']}")
+        raise ValueError("; ".join(problems)) from None
+
+
+def load_oidc_providers(configuration: VersionedConfigurationService) -> dict[str, OidcProviderConfig]:
+    revision_id = os.environ.get(_REGISTRY_REVISION_ENV)
+    has_legacy_metadata = any(
+        f"BALOOT_OIDC_{name}" in os.environ for name in _LEGACY_PROVIDER_FIELDS
+    )
+    if revision_id is None:
+        if has_legacy_metadata:
+            raise ValueError(f"migrate legacy OIDC provider settings to {_REGISTRY_REVISION_ENV}")
+        return {}
+    try:
+        revision = configuration.resolve_profile(
+            family=OIDC_PROVIDER_FAMILY, revision_id=revision_id
+        )
+    except (KeyError, PermissionError, ValueError):
+        raise ValueError(
+            f"{_REGISTRY_REVISION_ENV} must name a published OIDC provider profile revision"
+        ) from None
+    if (
+        revision["scope"] != "global"
+        or revision["environment"] is not None
+        or revision["effectiveFrom"] is not None
+        or revision["effectiveUntil"] is not None
+        or revision["rolloutPercentage"] != 100.0
+    ):
+        raise ValueError(
+            f"{_REGISTRY_REVISION_ENV} requires a global provider profile without rollout conditions"
+        )
+    if has_legacy_metadata:
+        logging.getLogger(__name__).warning(
+            "Ignoring legacy OIDC provider metadata because a registry revision is configured"
+        )
+
+    profile = validate_oidc_provider_profile(revision["payload"])
     providers: dict[str, OidcProviderConfig] = {}
-    for key, fields in rows.items():
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", key):
-            raise ValueError(f"OIDC provider {key!r}: invalid provider key")
-        try:
-            row = _OidcProviderRow.model_validate(fields)
-        except ValidationError as exc:
-            problems = []
-            for error in exc.errors(
-                include_input=False, include_context=False, include_url=False
-            ):
-                if error["type"] == "extra_forbidden":
-                    problems.append("unsupported field")
-                elif error["loc"]:
-                    problems.append(f"{error['loc'][0]}: {error['msg']}")
-                else:
-                    problems.append("expected a provider table")
-            raise ValueError(f"OIDC provider {key!r}: {', '.join(problems)}") from None
+    for key, row in profile.providers.items():
         secret = None
         if row.client_secret_env is not None:
             secret = os.environ.get(row.client_secret_env)
@@ -145,7 +202,10 @@ def load_oidc_providers() -> dict[str, OidcProviderConfig]:
                     f"OIDC provider {key!r}: missing deployment secret {row.client_secret_env}"
                 )
         providers[key] = OidcProviderConfig(
-            provider_id=key, client_secret=secret, **row.model_dump(exclude={"client_secret_env"})
+            provider_id=key,
+            client_secret=secret,
+            allowed_algorithms=tuple(row.allowed_algorithms),
+            **row.model_dump(exclude={"client_secret_env", "allowed_algorithms"}),
         )
     return providers
 
@@ -218,6 +278,32 @@ class OidcCallbackService:
         self._client = http_client or httpx.Client(timeout=15.0, follow_redirects=False)
         self._owns_client = http_client is None
         self.claims_verifier = claims_verifier
+        self._jwks_clients: dict[str, jwt.PyJWKClient] = {}
+        self._discovery_locks = {key: threading.Lock() for key in providers}
+
+    def _jwks_client(self, provider: OidcProviderConfig) -> jwt.PyJWKClient:
+        from jwt import PyJWKClient
+
+        with self._discovery_locks[provider.provider_id]:
+            cached = self._jwks_clients.get(provider.provider_id)
+            if cached is not None:
+                return cached
+            discovery_url = provider.issuer.rstrip("/") + "/.well-known/openid-configuration"
+            try:
+                response = self._client.get(discovery_url, follow_redirects=False)
+                response.raise_for_status()
+                metadata = response.json()
+            except (httpx.HTTPError, httpx.InvalidURL, ValueError):
+                raise ValueError("OIDC issuer discovery failed") from None
+            if not isinstance(metadata, dict) or metadata.get("issuer") != provider.issuer:
+                raise ValueError("OIDC discovery issuer mismatch")
+            jwks_uri = metadata.get("jwks_uri")
+            if not isinstance(jwks_uri, str):
+                raise ValueError("OIDC discovery requires a jwks_uri")
+            _validate_oidc_url(jwks_uri)
+            client = PyJWKClient(jwks_uri, timeout=15)
+            self._jwks_clients[provider.provider_id] = client
+            return client
 
     def _verify_id_token(self, token: str, provider: OidcProviderConfig, nonce: str) -> dict[str, Any]:
         if self.claims_verifier is not None:
@@ -227,16 +313,27 @@ class OidcCallbackService:
                 import jwt
             except ImportError as exc:  # pragma: no cover
                 raise RuntimeError('OIDC callback verification requires "baloot-platform[security]"') from exc
-            jwks_uri = provider.jwks_uri or provider.issuer.rstrip("/") + "/.well-known/jwks.json"
-            signing_key = jwt.PyJWKClient(jwks_uri).get_signing_key_from_jwt(token).key
-            claims = dict(jwt.decode(
-                token, signing_key, algorithms=["RS256", "ES256", "EdDSA"],
-                audience=provider.client_id, issuer=provider.issuer,
-                options={"require": ["exp", "iat", "iss", "aud", "sub"]},
-            ))
+            try:
+                header = jwt.get_unverified_header(token)
+                if header.get("alg") not in provider.allowed_algorithms:
+                    raise ValueError("OIDC ID token signing algorithm is not allowed")
+                kid = header.get("kid")
+                if not isinstance(kid, str) or not kid:
+                    raise ValueError("OIDC ID token signing key ID is missing")
+                signing_key = self._jwks_client(provider).get_signing_key(kid)
+                claims = jwt.decode(
+                    token,
+                    signing_key,
+                    algorithms=provider.allowed_algorithms,
+                    audience=provider.client_id,
+                    issuer=provider.issuer,
+                    options={"require": ["exp", "iat", "iss", "aud", "sub"]},
+                )
+            except jwt.PyJWTError:
+                raise ValueError("OIDC ID token validation failed") from None
         if str(claims.get("nonce") or "") != nonce:
             raise ValueError("OIDC nonce mismatch")
-        if str(claims.get("iss") or "").rstrip("/") != provider.issuer.rstrip("/"):
+        if claims.get("iss") != provider.issuer:
             raise ValueError("OIDC issuer mismatch")
         aud = claims.get("aud")
         audiences = {str(item) for item in aud} if isinstance(aud, list) else {str(aud)}

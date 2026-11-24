@@ -33,7 +33,6 @@ from baloot_platform.core.enums import Seat
 from baloot_platform.core.serialization import continue_trusted_context, replay_trusted_context
 from baloot_platform.version import __version__
 from baloot_platform.security import Scope, SignedAccessTokenService
-from baloot_platform.security.oidc import load_oidc_providers
 
 ROOT = platform_root()
 BELIEF_POLICY = BeliefPolicy.from_profile(root=ROOT)
@@ -1773,8 +1772,6 @@ def create_http_app() -> FastAPI:
         for item in os.environ.get("BALOOT_MCP_AUTHORIZATION_SERVERS", "").split(",")
         if item.strip()
     ]
-    if not servers:
-        servers = sorted({provider.issuer for provider in load_oidc_providers().values()})
     app = FastAPI(title="Baloot Platform MCP", version=SERVER_VERSION, docs_url=None, redoc_url=None)
     sessions: dict[str, float] = {}
 

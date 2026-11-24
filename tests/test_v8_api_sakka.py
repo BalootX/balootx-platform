@@ -172,11 +172,12 @@ def legacy_service_records(monkeypatch):
         return board, code, run.json()["run"]
 
 
-def _grpc_probe(tmp_path, monkeypatch, probe):
+def _grpc_probe(tmp_path, monkeypatch, probe, *, stub_factory=None):
     grpc = pytest.importorskip("grpc")
     from baloot_platform.generated import sakka_pb2_grpc
     from baloot_platform.service.grpc_service import serve
 
+    stub_factory = stub_factory or sakka_pb2_grpc.SakkaPlatformStub
     monkeypatch.setenv("BALOOT_RUNTIME", str(tmp_path))
     monkeypatch.delenv("BALOOT_GRPC_TLS_CERT", raising=False)
     monkeypatch.delenv("BALOOT_GRPC_TLS_KEY", raising=False)
@@ -192,7 +193,7 @@ def _grpc_probe(tmp_path, monkeypatch, probe):
 
             async def after_start():
                 async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
-                    await probe(grpc, sakka_pb2_grpc.SakkaPlatformStub(channel))
+                    await probe(grpc, stub_factory(channel))
 
             monkeypatch.setattr(server, "add_insecure_port", lambda _address: port)
             monkeypatch.setattr(server, "wait_for_termination", after_start)
@@ -206,6 +207,26 @@ def _grpc_probe(tmp_path, monkeypatch, probe):
                 await server.stop(0)
 
     asyncio.run(run())
+
+
+def test_grpc_oidc_profile_creation_requires_configured_api_key(tmp_path, monkeypatch):
+    pytest.importorskip("grpc")
+    from baloot_platform.generated import configuration_pb2, configuration_pb2_grpc
+
+    monkeypatch.delenv("BALOOT_API_KEY", raising=False)
+
+    async def probe(grpc, stub):
+        request = configuration_pb2.ProfileDraft(family="oidc_providers", canonical_json=b"{}")
+        with pytest.raises(grpc.aio.AioRpcError) as error:
+            await stub.CreateProfile(request)
+        assert error.value.code() == grpc.StatusCode.PERMISSION_DENIED
+
+    _grpc_probe(
+        tmp_path,
+        monkeypatch,
+        probe,
+        stub_factory=configuration_pb2_grpc.ConfigurationControlStub,
+    )
 
 
 def test_api_key_reads_real_legacy_board_and_run_over_http_and_grpc(

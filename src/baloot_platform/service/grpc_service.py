@@ -60,6 +60,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
     from baloot_platform.core.cards import Card
     from baloot_platform.core.enums import Seat, Suit
     from baloot_platform.core.serialization import continue_trusted_context, replay_trusted_context
+    from baloot_platform.security.oidc import OIDC_PROVIDER_FAMILY
     from baloot_platform.service.api import (
         ADJUDICATION, AUDIT, AUTHORIZATION_POLICY, CONFIGURATION, CONFIGURATION_PROFILE, DIFFICULTY, EXECUTOR, EXPLANATIONS, IDENTITY,
         HITL, HITL_PROFILE, HITL_REVIEW_RENDERER, LEARNING, LEARNING_STORE, LIVE, OUTPUTS, PERFORMANCE, PERFORMANCE_PROFILE, CAPABILITY_MATRIX, CERTIFICATION_PROFILE, BENCHMARK_PROFILE, OPERATIONS_PROFILE, REGISTRY, RENDER_BATCHES, RESEARCH, REVIEWS, SAKKA, STORE,
@@ -1438,6 +1439,21 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             value = _metadata(context).get("x-baloot-tenant-id", "").strip()
             return value or None
 
+        @staticmethod
+        async def _require_oidc_admin(context, *families: str | None) -> None:
+            if OIDC_PROVIDER_FAMILY in families:
+                if not os.environ.get("BALOOT_API_KEY"):
+                    await context.abort(grpc.StatusCode.PERMISSION_DENIED, "OIDC profiles require a configured API key")
+                await _require_api(context)
+
+        async def _profile_write_identity(self, context, revision_id: str):
+            await _require_api(context)
+            current = CONFIGURATION.store.get_profile(revision_id)
+            if current is None:
+                await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
+            await self._require_oidc_admin(context, current.family)
+            return await _identity(context)
+
         async def GetCapabilities(self, request, context):
             await _identity(context)
             return self._result({
@@ -1456,6 +1472,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result({"items": [item.to_dict(include_payload=False) for item in values]})
 
         async def CreateProfile(self, request, context):
+            await self._require_oidc_admin(context, request.family)
             await _require_api(context); identity = await _identity(context)
             try:
                 value = CONFIGURATION.create_profile(
@@ -1470,7 +1487,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.ABORTED, str(exc))
 
         async def PublishProfile(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await self._profile_write_identity(context, request.value)
             try:
                 return self._result(CONFIGURATION.publish_profile(
                     request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id,
@@ -1483,7 +1500,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def RejectProfile(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await self._profile_write_identity(context, request.value)
             try:
                 return self._result(CONFIGURATION.reject_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
@@ -1494,7 +1511,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def RetireProfile(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await self._profile_write_identity(context, request.value)
             try:
                 return self._result(CONFIGURATION.retire_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
@@ -1506,6 +1523,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
 
         async def ResolveProfile(self, request, context):
             await _identity(context)
+            await self._require_oidc_admin(context, request.family)
             try:
                 return self._result(CONFIGURATION.resolve_profile(
                     family=request.family, profile_id=request.profile_id,
@@ -1519,6 +1537,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             left = CONFIGURATION.store.get_profile(request.left); right = CONFIGURATION.store.get_profile(request.right)
             if left is None or right is None:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
+            await self._require_oidc_admin(context, left.family, right.family)
             return self._result({
                 "left": left.to_dict(include_payload=False), "right": right.to_dict(include_payload=False),
                 "changes": CONFIGURATION.compare_payloads(dict(left.payload), dict(right.payload)),

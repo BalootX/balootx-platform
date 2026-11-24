@@ -5,16 +5,19 @@ import copy
 import hashlib
 import json
 import os
+from datetime import datetime
+from io import BytesIO
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from urllib.parse import parse_qs, urlsplit
+from urllib.request import OpenerDirector
 
 import httpx
 import pytest
 import yaml
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from hypothesis import given, strategies as st
 
@@ -27,9 +30,13 @@ from baloot_platform.security import (
     OidcCallbackService, OidcProviderConfig, PasskeyChallengeService, PkceTransactionStore,
     SQLiteSecurityStateStore, WebSocketTicketService,
 )
-from baloot_platform.security.oidc import load_oidc_providers
+from baloot_platform.security.oidc import (
+    OIDC_PROVIDER_FAMILY,
+    load_oidc_providers,
+    validate_oidc_provider_profile,
+)
 from baloot_platform.service.container import build_container
-from baloot_platform.service.mcp_server import create_http_app
+from baloot_platform.service.routes.configuration import build_configuration_router
 from baloot_platform.service.routes.security import build_security_router
 
 
@@ -101,7 +108,8 @@ def test_v20_oidc_callback_pkce_nonce_and_claim_validation(tmp_path: Path):
     state = SQLiteSecurityStateStore(tmp_path / "security.sqlite3")
     transactions = PkceTransactionStore(backend=state)
     provider = OidcProviderConfig("demo", "https://issuer.example", "https://issuer.example/auth",
-        "https://issuer.example/token", "client-1", "https://app.example/callback", jwks_uri="https://issuer.example/jwks")
+        "https://issuer.example/token", "client-1", "https://app.example/callback",
+        allowed_algorithms=("RS256",))
     transaction = transactions.create("demo", return_to="/app")
     transport = httpx.MockTransport(lambda request: httpx.Response(200, json={"id_token": "signed", "access_token": "access"}))
     client = httpx.Client(transport=transport)
@@ -112,35 +120,97 @@ def test_v20_oidc_callback_pkce_nonce_and_claim_validation(tmp_path: Path):
     with pytest.raises(ValueError): service.complete(provider_id="demo", state=transaction.state, code="code")
 
 
-def _oidc_row(key: str) -> str:
-    return f'''["{key}"]
-issuer = "https://{key}.example/oidc/"
-authorization_endpoint = "https://{key}.example/authorize?prompt=login"
-token_endpoint = "https://{key}.example/token"
-client_id = "{key}-client"
-redirect_uri = "http://localhost:8080/callback"
-'''
+def _oidc_row(key: str) -> dict:
+    return {
+        "issuer": f"https://{key}.example/oidc/",
+        "authorization_endpoint": f"https://{key}.example/authorize?prompt=login",
+        "token_endpoint": f"https://{key}.example/token",
+        "client_id": f"{key}-client",
+        "redirect_uri": "http://localhost:8080/callback",
+        "allowed_algorithms": ["EdDSA"],
+    }
 
 
-def test_v20_oidc_registry_drives_api_and_mcp(tmp_path, monkeypatch):
-    registry = tmp_path / "providers.toml"
-    registry.write_text(
-        _oidc_row("alpha")
-        + _oidc_row("beta")
-        + 'client_secret_env = "BALOOT_OIDC_CLIENT_SECRET_BETA"\n',
-        encoding="utf-8",
+def _oidc_profile(providers: dict) -> dict:
+    return {
+        "schema_version": 1,
+        "profile": {"id": "signin", "version": "1.0.0"},
+        "change_reason": "Migrate provider onboarding to the registry",
+        "providers": providers,
+    }
+
+
+@pytest.fixture
+def oidc_configuration(tmp_path):
+    root = platform_root()
+    config = yaml.safe_load((root / "configs/configuration/control-plane.yaml").read_text(encoding="utf-8"))
+    runtime = tmp_path / "data" / "runtime"
+    runtime.mkdir(parents=True)
+    store = SQLiteConfigurationStore(runtime / "configuration.sqlite3")
+    try:
+        yield VersionedConfigurationService(store, root=root, profile=config)
+    finally:
+        store.close()
+
+
+def test_v20_oidc_registry_drives_api_and_preserves_audit(
+    tmp_path, monkeypatch, caplog, oidc_configuration
+):
+    monkeypatch.setattr(
+        "baloot_platform.configuration.store.utc_now", lambda: "2026-01-01T00:00:00+00:00"
     )
-    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_FILE", str(registry))
-    monkeypatch.setenv("BALOOT_OIDC_CLIENT_SECRET_BETA", "synthetic-fixture")
-    monkeypatch.delenv("BALOOT_MCP_AUTHORIZATION_SERVERS", raising=False)
+    beta = {**_oidc_row("beta"), "client_secret_env": "BALOOT_OIDC_CLIENT_SECRET_BETA"}
+    payload = _oidc_profile({"alpha": _oidc_row("alpha"), "beta": beta})
+    draft = oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=payload, created_by="operator-1"
+    )
+    revision = oidc_configuration.publish_profile(
+        draft["revisionId"], expected_etag=draft["etag"], actor_id="operator-2"
+    )
+    assert revision["payload"]["change_reason"] == payload["change_reason"]
+    assert revision["payload"]["providers"] == payload["providers"]
+    audit = oidc_configuration.store.events_with_verification("profile", revision["revisionId"])
+    assert audit["verification"]["valid"]
+    assert [
+        (event["eventType"], event["actorId"], event["createdAt"])
+        for event in audit["items"]
+    ] == [
+        ("created", "operator-1", "2026-01-01T00:00:00+00:00"),
+        ("published", "operator-2", "2026-01-01T00:00:00+00:00"),
+    ]
+    assert audit["items"][0]["payload"]["payloadSha256"] == revision["payloadSha256"]
 
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_REVISION", revision["revisionId"])
+    monkeypatch.setenv("BALOOT_OIDC_CLIENT_SECRET_BETA", "synthetic-fixture")
+    monkeypatch.setenv("BALOOT_OIDC_ISSUER", "https://legacy.example")
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDER_ID", "legacy")
     container = build_container(writable_root=tmp_path / "data", database_url="")
     try:
+        legacy_warnings = [
+            record for record in caplog.records if "Ignoring legacy OIDC provider metadata" in record.message
+        ]
+        assert len(legacy_warnings) == 1
         assert container.oidc_callback.providers == container.oidc_providers
         assert container.oidc_providers["alpha"].client_secret is None
         assert container.oidc_providers["beta"].client_secret == "synthetic-fixture"
         assert "synthetic-fixture" not in repr(container.oidc_providers)
+        assert container.oidc_providers["beta"].issuer == "https://beta.example/oidc/"
         api = FastAPI()
+
+        @api.middleware("http")
+        async def mark_api_key(request: Request, call_next):
+            request.state.api_key_valid = request.headers.get("x-api-key") == "synthetic-test-key"
+            return await call_next(request)
+
+        api.include_router(
+            build_configuration_router(
+                container.configuration,
+                container.identity,
+                container.authorization_policy,
+                container.configuration_profile,
+                container.performance_profile,
+            )
+        )
         api.include_router(
             build_security_router(
                 container.identity,
@@ -155,9 +225,20 @@ def test_v20_oidc_registry_drives_api_and_mcp(tmp_path, monkeypatch):
             )
         )
         with TestClient(api) as client:
-            assert client.get("/api/v1/security/capabilities").json()["oidcProviders"] == [
-                "alpha", "beta",
-            ]
+            prefix = "/api/v1/configuration-registry"
+            revision_id = revision["revisionId"]
+            profile_path = f"{prefix}/profiles/{revision_id}"
+            for path in (
+                profile_path,
+                f"{profile_path}/events",
+                f"{prefix}/profiles:resolve?family=oidc_providers&profileId=signin",
+                f"{prefix}/profiles:compare?left={revision_id}&right={revision_id}",
+            ):
+                headers = {"x-api-key": "synthetic-test-key", "x-baloot-role": "player"}
+                assert client.get(path, headers=headers).status_code == 403
+                headers["x-baloot-role"] = "admin"
+                assert client.get(path, headers=headers).status_code == 200
+            assert client.get("/api/v1/security/capabilities").json()["oidcProviders"] == ["alpha", "beta"]
             for key in ("alpha", "beta"):
                 begin = client.post("/api/v1/security/oidc:begin", json={"providerId": key})
                 assert begin.status_code == 200
@@ -167,95 +248,175 @@ def test_v20_oidc_registry_drives_api_and_mcp(tmp_path, monkeypatch):
                 assert params["client_id"] == [f"{key}-client"]
                 assert params["prompt"] == ["login"]
                 assert params["code_challenge_method"] == ["S256"]
-            unknown = client.post("/api/v1/security/oidc:begin", json={"providerId": "unknown"})
+            unknown = client.post("/api/v1/security/oidc:begin", json={"providerId": "legacy"})
             assert unknown.status_code == 404
     finally:
         container.shutdown()
 
-    metadata_path = "/.well-known/oauth-protected-resource"
-    with TestClient(create_http_app()) as client:
-        for path in (metadata_path, metadata_path + "/mcp"):
-            assert client.get(path).json()["authorization_servers"] == [
-                "https://alpha.example/oidc/", "https://beta.example/oidc/",
-            ]
-    monkeypatch.setenv("BALOOT_MCP_AUTHORIZATION_SERVERS", "https://mcp.example")
-    with TestClient(create_http_app()) as client:
-        assert client.get(metadata_path).json()["authorization_servers"] == ["https://mcp.example"]
-
 
 @pytest.mark.parametrize(
-    ("original", "replacement", "error"),
+    ("field", "value"),
     [
-        ('client_id = "beta-client"', "", "client_id"),
-        ('client_id = "beta-client"', "client_id = 123", "client_id"),
-        ('client_id = "beta-client"', 'client_id = " "', "client_id"),
-        ('["beta"]', '["bad key"]', "invalid provider key"),
-        ("https://beta.example/oidc/", "https://beta.example/oidc/?", "issuer"),
-        ("https://beta.example/token", "http://beta.example/token", "token_endpoint"),
-        (
-            "https://beta.example/token",
-            "https://beta.example:synthetic-fixture/token",
-            "token_endpoint",
-        ),
-        (
-            "https://beta.example/authorize",
-            "https://synthetic-fixture@localhost/authorize",
-            "authorization_endpoint",
-        ),
-        ("http://localhost:8080/callback", "http://beta.example/callback", "redirect_uri"),
-        ('client_id = "beta-client"', 'client_secret = "synthetic-fixture"', "unsupported field"),
-        ('["beta"]', '["beta"]\nclient_secret_env = "UNRELATED_SECRET"', "client_secret_env"),
-        (
-            '["beta"]',
-            '["beta"]\nclient_secret_env = "BALOOT_OIDC_CLIENT_SECRET_BETA"',
-            "missing deployment secret",
-        ),
+        ("client_id", None),
+        ("client_id", 123),
+        ("client_id", " "),
+        ("issuer", "https://beta.example/oidc/?"),
+        ("token_endpoint", "http://beta.example/token"),
+        ("token_endpoint", "https://beta.example:synthetic-fixture/token"),
+        ("authorization_endpoint", "https://synthetic-fixture@localhost/authorize"),
+        ("redirect_uri", "http://beta.example/callback"),
+        ("client_secret", "synthetic-fixture"),
+        ("client_secret_env", "UNRELATED_SECRET"),
+        ("jwks_uri", "https://beta.example/keys"),
+        ("allowed_algorithms", []),
+        ("allowed_algorithms", ["HS256"]),
+        ("allowed_algorithms", ["EdDSA", "EdDSA"]),
     ],
 )
-def test_v20_oidc_registry_rejects_invalid_rows(
-    tmp_path, monkeypatch, original, replacement, error
-):
-    registry = tmp_path / "providers.toml"
-    registry.write_text(
-        _oidc_row("alpha") + _oidc_row("beta").replace(original, replacement),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_FILE", str(registry))
-    monkeypatch.delenv("BALOOT_OIDC_CLIENT_SECRET_BETA", raising=False)
-    with pytest.raises(ValueError, match=error) as exc:
-        load_oidc_providers()
-    assert repr("bad key" if error == "invalid provider key" else "beta") in str(exc.value)
+def test_v20_oidc_registry_rejects_rows_on_write(oidc_configuration, field, value):
+    beta = {**_oidc_row("beta"), field: value}
+    with pytest.raises(ValueError, match="OIDC provider 'beta'") as exc:
+        oidc_configuration.create_profile(
+            family=OIDC_PROVIDER_FAMILY,
+            payload=_oidc_profile({"alpha": _oidc_row("alpha"), "beta": beta}),
+            created_by="operator-1",
+        )
     assert "synthetic-fixture" not in str(exc.value)
+    assert oidc_configuration.store.list_profiles(family=OIDC_PROVIDER_FAMILY) == []
 
 
-def test_v20_oidc_registry_fails_closed_at_startup(tmp_path, monkeypatch):
-    monkeypatch.delenv("BALOOT_OIDC_PROVIDERS_FILE", raising=False)
-    assert load_oidc_providers() == {}
+def test_v20_oidc_registry_fails_closed_at_startup(tmp_path, monkeypatch, oidc_configuration):
+    monkeypatch.delenv("BALOOT_OIDC_PROVIDERS_REVISION", raising=False)
+    monkeypatch.delenv("BALOOT_OIDC_ISSUER", raising=False)
+    assert load_oidc_providers(oidc_configuration) == {}
     monkeypatch.setenv("BALOOT_OIDC_ISSUER", "https://legacy.example")
     with pytest.raises(ValueError, match="migrate legacy OIDC"):
-        load_oidc_providers()
-    registry = tmp_path / "missing.toml"
-    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_FILE", str(registry))
-    with pytest.raises(ValueError, match="readable file"):
-        load_oidc_providers()
-    registry.write_text(_oidc_row("alpha") * 2, encoding="utf-8")
-    data = tmp_path / "data"
-    with pytest.raises(ValueError, match="valid UTF-8 TOML"):
-        build_container(writable_root=data, database_url="")
-    assert not data.exists()
+        load_oidc_providers(oidc_configuration)
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_REVISION", "CPR-MISSING")
+    with pytest.raises(ValueError, match="published OIDC provider profile"):
+        build_container(writable_root=tmp_path / "data", database_url="")
+
+    alpha = {**_oidc_row("alpha"), "client_secret_env": "BALOOT_OIDC_CLIENT_SECRET_ALPHA"}
+    draft = oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=_oidc_profile({"alpha": alpha}), created_by="operator-1"
+    )
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_REVISION", draft["revisionId"])
+    with pytest.raises(ValueError, match="published OIDC provider profile"):
+        load_oidc_providers(oidc_configuration)
+    oidc_configuration.publish_profile(
+        draft["revisionId"], expected_etag=draft["etag"], actor_id="operator-1"
+    )
+    monkeypatch.delenv("BALOOT_OIDC_CLIENT_SECRET_ALPHA", raising=False)
+    with pytest.raises(ValueError, match="OIDC provider 'alpha': missing deployment secret"):
+        load_oidc_providers(oidc_configuration)
 
 
-@given(
-    st.lists(st.from_regex(r"[a-z][a-z0-9-]{0,10}", fullmatch=True), max_size=4, unique=True)
-)
+@given(st.lists(st.from_regex(r"[a-z][a-z0-9-]{0,10}", fullmatch=True), max_size=4, unique=True))
 def test_v20_oidc_registry_preserves_provider_keys(keys):
-    with TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as monkeypatch:
-        registry = Path(directory) / "providers.toml"
-        registry.write_text("".join(map(_oidc_row, keys)), encoding="utf-8")
-        monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_FILE", str(registry))
-        assert {key: row.provider_id for key, row in load_oidc_providers().items()} == {
-            key: key for key in keys
-        }
+    validated = validate_oidc_provider_profile(
+        _oidc_profile({key: _oidc_row(key) for key in keys})
+    )
+    assert list(validated.providers) == keys
+
+
+def test_v20_oidc_callback_uses_real_signature_and_discovered_keys(monkeypatch):
+    import jwt
+
+    provider = OidcProviderConfig(
+        "demo",
+        "https://issuer.example/oidc/",
+        "https://issuer.example/authorize",
+        "https://issuer.example/token",
+        "demo-client",
+        "https://app.example/callback",
+        allowed_algorithms=("EdDSA",),
+        client_secret="synthetic-client-fixture",
+    )
+    timestamp = 1_767_225_600
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls.fromtimestamp(timestamp, tz)
+
+    monkeypatch.setattr(jwt.api_jwt, "datetime", FixedDateTime)
+    ed_key = Ed25519PrivateKey.from_private_bytes(b"a" * 32)
+    ec_key = ec.derive_private_key(7, ec.SECP256R1())
+    keys = [
+        {**json.loads(jwt.algorithms.OKPAlgorithm.to_jwk(ed_key.public_key())), "kid": "ed"},
+        {**json.loads(jwt.algorithms.ECAlgorithm.to_jwk(ec_key.public_key())), "kid": "ec"},
+    ]
+    discovery_url = "https://issuer.example/oidc/.well-known/openid-configuration"
+    jwks_url = "https://keys.example/oidc/public"
+    discovery_reads = []
+    jwks_reads = []
+    metadata = {"issuer": provider.issuer, "jwks_uri": jwks_url}
+    token = ""
+
+    def fetch_jwks(_opener, request, timeout=None):
+        jwks_reads.append(request.full_url)
+        assert request.full_url == jwks_url
+        return BytesIO(json.dumps({"keys": keys}).encode())
+
+    monkeypatch.setattr(OpenerDirector, "open", fetch_jwks)
+
+    def exchange(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            discovery_reads.append(str(request.url))
+            assert str(request.url) == discovery_url
+            return httpx.Response(200, json=metadata)
+        assert str(request.url) == provider.token_endpoint
+        params = parse_qs(request.content.decode())
+        assert params["client_id"] == [provider.client_id]
+        assert params["client_secret"] == ["synthetic-client-fixture"]
+        return httpx.Response(200, json={"id_token": token})
+
+    transactions = PkceTransactionStore()
+    with httpx.Client(transport=httpx.MockTransport(exchange)) as client:
+        service = OidcCallbackService({"demo": provider}, transactions, http_client=client)
+
+        def complete(*, key=ed_key, alg="EdDSA", kid="ed", **overrides):
+            nonlocal token
+            transaction = transactions.create("demo")
+            claims = {
+                "iss": provider.issuer,
+                "aud": provider.client_id,
+                "sub": "external-1",
+                "nonce": transaction.nonce,
+                "iat": timestamp - 1,
+                "exp": timestamp + 60,
+                **overrides,
+            }
+            token = jwt.encode(claims, key, algorithm=alg, headers={"kid": kid})
+            return service.complete(provider_id="demo", state=transaction.state, code="code")
+
+        with pytest.raises(ValueError, match="signing algorithm is not allowed"):
+            complete(key=ec_key, alg="ES256", kid="ec")
+        assert discovery_reads == jwks_reads == []
+        metadata["issuer"] = provider.issuer.rstrip("/")
+        with pytest.raises(ValueError, match="discovery issuer mismatch"):
+            complete()
+        metadata["issuer"] = provider.issuer
+        metadata["jwks_uri"] = "http://keys.example/oidc/public"
+        with pytest.raises(ValueError, match="absolute HTTPS URL"):
+            complete()
+        metadata["jwks_uri"] = jwks_url
+        assert jwks_reads == []
+        discovery_reads.clear()
+        assert complete()["externalSubject"] == "external-1"
+        assert complete()["issuer"] == provider.issuer
+        assert discovery_reads == [discovery_url]
+        assert jwks_reads == [jwks_url]
+        for overrides in (
+            {"kid": "unknown"},
+            {"iss": provider.issuer.rstrip("/")},
+            {"aud": "different-client"},
+            {"exp": timestamp - 1},
+            {"key": Ed25519PrivateKey.from_private_bytes(b"b" * 32)},
+        ):
+            with pytest.raises(ValueError, match="OIDC ID token validation failed"):
+                complete(**overrides)
+    assert discovery_reads == [discovery_url]
 
 
 def test_v20_passkey_state_is_durable_and_replay_safe(tmp_path: Path):

@@ -275,3 +275,21 @@ def test_mcp_streamable_http_json_mode(monkeypatch):
     stream = client.get("/mcp", headers={"Authorization": "Bearer secret", "Accept": "text/event-stream"})
     assert stream.status_code == 200
     assert "text/event-stream" in stream.headers.get("content-type", "")
+
+
+def test_mcp_starts_without_oidc_provider_secrets(monkeypatch):
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_REVISION", "CPR-TEST")
+    monkeypatch.setenv("BALOOT_OIDC_ISSUER", "https://signin.example")
+    monkeypatch.delenv("BALOOT_OIDC_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("BALOOT_OIDC_CLIENT_SECRET_EXAMPLE", raising=False)
+    monkeypatch.delenv("BALOOT_MCP_AUTHORIZATION_SERVERS", raising=False)
+    metadata_path = "/.well-known/oauth-protected-resource"
+
+    with TestClient(create_http_app()) as client:
+        assert client.get("/healthz").status_code == 200
+        assert client.get(metadata_path).json()["authorization_servers"] == []
+
+    monkeypatch.setenv("BALOOT_MCP_AUTHORIZATION_SERVERS", "https://mcp.example")
+    with TestClient(create_http_app()) as client:
+        assert client.get(metadata_path).json()["authorization_servers"] == ["https://mcp.example"]
+        assert client.get(metadata_path + "/mcp").json()["authorization_servers"] == ["https://mcp.example"]

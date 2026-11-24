@@ -446,7 +446,6 @@ def _build_container(
     database_url: str | None,
     owned_resources: list[Any],
 ) -> PlatformContainer:
-    oidc_providers = load_oidc_providers()
     resolved_root = platform_root(root)
     resolved_data = data_root(writable_root)
     if writable_root is not None:
@@ -482,6 +481,7 @@ def _build_container(
     configuration = VersionedConfigurationService(
         configuration_store, root=resolved_root, profile=configuration_profile
     )
+    oidc_providers = load_oidc_providers(configuration)
     resolved_configuration = _bootstrap_packaged_configuration(configuration)
     bundle = profile_bundle_from_resolved(
         resolved_configuration,

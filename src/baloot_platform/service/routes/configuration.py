@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from baloot_platform.configuration import VersionedConfigurationService
 from baloot_platform.identity import IdentityService
 from baloot_platform.security import AuthorizationPolicy, Scope
+from baloot_platform.security.oidc import OIDC_PROVIDER_FAMILY
 
 from .auth import require_identity
 
@@ -159,6 +160,8 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                         sharedGameId: str | None = None, videoProfileId: str | None = None,
                         experimentKey: str | None = None, subjectId: str | None = None, atTime: str | None = None):
         require_identity(request, identities)
+        if family == OIDC_PROVIDER_FAMILY:
+            _admin(request, policy)
         try:
             return service.resolve_profile(family=family, profile_id=profileId, tenant_id=tenantId,
                 environment=environment, room_id=roomId, shared_game_id=sharedGameId,
@@ -176,6 +179,8 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         right_value = service.store.get_profile(right)
         if left_value is None or right_value is None:
             raise HTTPException(404, "configuration profile revision not found")
+        if OIDC_PROVIDER_FAMILY in (left_value.family, right_value.family):
+            _admin(request, policy)
         return {
             "left": left_value.to_dict(include_payload=False),
             "right": right_value.to_dict(include_payload=False),
@@ -203,6 +208,8 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         value = service.store.get_profile(revision_id)
         if value is None:
             raise HTTPException(404, "configuration profile revision not found")
+        if includePayload and value.family == OIDC_PROVIDER_FAMILY:
+            _admin(request, policy)
         return value.to_dict(include_payload=includePayload)
 
     @router.patch("/profiles/{revision_id}")
@@ -277,8 +284,11 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
     @router.get("/profiles/{revision_id}/events")
     def profile_events(revision_id: str, request: Request):
         require_identity(request, identities)
-        if service.store.get_profile(revision_id) is None:
+        value = service.store.get_profile(revision_id)
+        if value is None:
             raise HTTPException(404, "configuration profile revision not found")
+        if value.family == OIDC_PROVIDER_FAMILY:
+            _admin(request, policy)
         return service.store.events_with_verification("profile", revision_id)
 
     @router.get("/bundles", response_model=ConfigurationBundleListResponse)
