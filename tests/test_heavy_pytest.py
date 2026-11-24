@@ -264,9 +264,11 @@ def test_four_worker_shard_proves_exact_union(tmp_path, monkeypatch, fail_worker
     nodes = sorted(f"{FILE}::test_case[{index}]" for index in range(16))
     monkeypatch.setattr(os, "sched_getaffinity", lambda _: set(range(4)), raising=False)
     monkeypatch.setattr(os, "sched_setaffinity", lambda *_: None, raising=False)
+    monkeypatch.setattr(heavy, "job_seconds_remaining", lambda _: 1200 if "collection" not in calls else 975)
     calls = {}
 
     def run(arguments, output, name, seconds):
+        assert seconds == (300 if name == "collection" else 975)
         calls[name] = arguments
         if name == "execution-2" and fail_worker:
             return 1, None
@@ -290,7 +292,7 @@ def test_full_workflow_requires_coverage_for_all_matrices(root):
     assert jobs["python-wheelhouse"]["strategy"]["matrix"] == {"python": versions}
     assert jobs["python-backend-run"]["strategy"]["matrix"] == {"shard": [1, 2, 3, 4], "python": versions}
     assert jobs["python-fast-run"]["strategy"]["matrix"] == {"python": versions, "shard": [1, 2, 3]}
-    assert jobs["python-heavy"]["strategy"]["matrix"] == {"python": ["3.13"], "shard": [1, 2]}
+    assert jobs["python-heavy"]["strategy"]["matrix"] == {"python": versions, "shard": [1, 2]}
     # Keep the hosted 20-job cap enforced by test_one_run_never_holds_more_than_twenty_hosted_jobs.
     assert jobs["python-backend-run"]["strategy"]["max-parallel"] == 7
     for name in ("python-backend-run", "python-fast-run", "python-heavy"):
@@ -299,11 +301,12 @@ def test_full_workflow_requires_coverage_for_all_matrices(root):
             assert "max-parallel" not in jobs[name]["strategy"]
         assert any("--workers 4" in step.get("run", "") for step in jobs[name]["steps"])
     assert jobs["python-coverage"]["needs"] == ["plan", "python-fast-run", "python-backend-run", "python-heavy"]
-    base_step = jobs["python-fast-run"]["steps"][1]
+    base_step = jobs["python-fast-run"]["steps"][2]
     assert base_step["if"] == "github.event_name == 'merge_group'"
     assert base_step["env"] == {"MERGE_GROUP_BASE": "${{ github.event.merge_group.base_sha }}"}
     assert 'git fetch --no-tags --depth=1 origin "$MERGE_GROUP_BASE"' in base_step["run"]
-    assert all(jobs[name]["steps"][1] is base_step for name in ("python-backend-run", "python-heavy", "python-coverage"))
+    assert all(jobs[name]["steps"][2] is base_step for name in ("python-backend-run", "python-heavy"))
+    assert jobs["python-coverage"]["steps"][1] is base_step
     assert jobs["python-coverage"]["steps"][-1]["run"].startswith("python -P scripts/ci_scope.py coverage ")
 
 
@@ -334,8 +337,8 @@ def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path,
                   {"head": head_sha, "python": version, "result": "success", "shard": index, "files": group})
         for row in receipts(backend_nodes, BACKEND, version, weights, 4):
             write(f"python-backend-run-{version}-{row['shard']}", "receipt.json", {**row, "head": head_sha})
-    for row in receipts(heavy_nodes, FILE, "3.13", heavy_weights, 2):
-        write(f"python-heavy-3.13-{row['shard']}", "receipt.json", {**row, "head": head_sha})
+        for row in receipts(heavy_nodes, FILE, version, heavy_weights, 2):
+            write(f"python-heavy-{version}-{row['shard']}", "receipt.json", {**row, "head": head_sha})
 
     history_file = tmp_path / "history.json"
     history_file.write_text(json.dumps(history), encoding="utf-8")
@@ -347,21 +350,23 @@ def test_coverage_rejects_stale_version_missing_and_duplicate_receipts(tmp_path,
     coverage = json.loads(capsys.readouterr().out)
     assert all(value["head"] == head_sha for value in coverage.values())
     assert {key: value["executed"] for key, value in coverage.items()} == {
-        **{f"backend-{version}": 15 for version in versions}, "heavy": 12,
+        **{f"backend-{version}": 15 for version in versions},
+        **{f"heavy-{version}": 12 for version in versions},
     }
     if event == "pull_request":
         with pytest.raises(ValueError):
             ci_scope.validate_coverage(tmp_path, head_sha, history, "push")
-        stray = write("python-fast-run-3.12-1", "python-fast-status.json", {})
-        with pytest.raises(ValueError, match="unexpected Python version"):
-            ci_scope.validate_coverage(tmp_path, head_sha, history, event)
-        stray.unlink()
+        for name, filename in (("python-fast-run-3.12-1", "python-fast-status.json"), ("python-heavy-3.12-1", "receipt.json")):
+            stray = write(name, filename, {})
+            with pytest.raises(ValueError, match="unexpected Python version"):
+                ci_scope.validate_coverage(tmp_path, head_sha, history, event)
+            stray.unlink()
     for name, filename, changes in (
         (f"python-fast-run-{versions[0]}-1", "python-fast-status.json",
          {"head": "stale", "python": "3.11", "shard": 2, "files": [], "result": "cancelled"}),
         ("python-backend-run-3.13-1", "receipt.json",
          {"head": "stale", "python": "3.12.9", "shard": 2, "selected": [], "status": "failed", "files": [FILE]}),
-        ("python-heavy-3.13-1", "receipt.json", {"status": "failed"}),
+        *((f"python-heavy-{version}-1", "receipt.json", {"status": "failed"}) for version in versions),
     ):
         path = tmp_path / name / filename
         saved = json.loads(path.read_bytes())
