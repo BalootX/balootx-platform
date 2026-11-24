@@ -5,15 +5,16 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping, TypeVar
 
 from baloot_platform.storage.request_context import contextual_connection
 
 from .models import BundleRevision, ProfileRevision, canonical, digest, utc_now
-from .schedule import normalize_schedule
+from .schedule import ConfigurationScheduleConflict, normalize_schedule
 
 
 _UNSET = object()
+Revision = TypeVar("Revision", ProfileRevision, BundleRevision)
 
 _POSTGRES_PROFILE_COLUMNS = """
 revision_id,family,profile_id,version,scope,scope_key,tenant_id,environment,
@@ -81,6 +82,25 @@ def _same_schedule(
     if local is not None and saved_local is not None:
         local = {**local, "zoneDataVersion": saved_local.get("zoneDataVersion", "")}
     return (revision.effective_from, revision.effective_until, saved_local) == (start, end, local)
+
+
+def _find_matching_schedule(
+    revisions: Iterable[Revision | None],
+    schedule: tuple[str | None, str | None, dict[str, str] | None],
+) -> Revision | None:
+    first_revision_id = None
+    for revision in revisions:
+        assert revision is not None
+        if _same_schedule(revision, schedule):
+            return revision
+        if first_revision_id is None:
+            first_revision_id = revision.revision_id
+    if first_revision_id is not None:
+        raise ConfigurationScheduleConflict(
+            f"The schedule differs from existing revision {first_revision_id}. "
+            "Reuse its schedule or submit different configuration content."
+        )
+    return None
 
 
 def _row_mapping(row: Any) -> dict[str, Any]:
@@ -195,7 +215,6 @@ class SQLiteConfigurationStore:
                   sequence INTEGER NOT NULL,
                   effective_from TEXT,
                   effective_until TEXT,
-                  local_schedule TEXT,
                   rollout_percentage REAL NOT NULL DEFAULT 100,
                   rollout_seed TEXT NOT NULL DEFAULT 'default',
                   created_by TEXT NOT NULL,
@@ -231,7 +250,6 @@ class SQLiteConfigurationStore:
                   sequence INTEGER NOT NULL,
                   effective_from TEXT,
                   effective_until TEXT,
-                  local_schedule TEXT,
                   rollout_percentage REAL NOT NULL DEFAULT 100,
                   rollout_seed TEXT NOT NULL DEFAULT 'default',
                   created_by TEXT NOT NULL,
@@ -312,6 +330,14 @@ class SQLiteConfigurationStore:
                 table = f"configuration_{kind}_revisions"
                 columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
                 if "local_schedule" not in columns:
+                    if kind == "profile":
+                        conn.execute(
+                            """CREATE UNIQUE INDEX IF NOT EXISTS uq_configuration_profile_content_v20
+                               ON configuration_profile_revisions(
+                                 family,scope,scope_key,COALESCE(tenant_id,''),
+                                 COALESCE(environment,''),payload_sha256
+                               )"""
+                        )
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN local_schedule TEXT")
                     rows = conn.execute(
                         f"SELECT revision_id,effective_from,effective_until FROM {table} "
@@ -329,15 +355,6 @@ class SQLiteConfigurationStore:
                     "FOR EACH ROW WHEN NEW.local_schedule IS NOT OLD.local_schedule "
                     "BEGIN SELECT RAISE(ABORT, 'local_schedule is immutable'); END"
                 )
-            conn.execute("DROP INDEX IF EXISTS uq_configuration_profile_content_v20")
-            conn.execute(
-                """CREATE UNIQUE INDEX IF NOT EXISTS uq_configuration_profile_schedule
-                   ON configuration_profile_revisions(
-                     family,scope,scope_key,COALESCE(tenant_id,''),COALESCE(environment,''),
-                     payload_sha256,COALESCE(effective_from,''),COALESCE(effective_until,''),
-                     COALESCE(json_remove(local_schedule,'$.zoneDataVersion'),'')
-                   )"""
-            )
             conn.execute("COMMIT")
 
     @staticmethod
@@ -706,12 +723,10 @@ class SQLiteConfigurationStore:
                 "ORDER BY sequence DESC,revision_id",
                 (family, scope, scope_key, tenant_id, environment, payload_hash),
             ).fetchall()
-            for row in existing:
-                result = self._profile(row)
-                assert result is not None
-                if _same_schedule(result, schedule):
-                    conn.execute("COMMIT")
-                    return result
+            result = _find_matching_schedule(map(self._profile, existing), schedule)
+            if result is not None:
+                conn.execute("COMMIT")
+                return result
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) FROM configuration_profile_revisions "
                 "WHERE family=? AND profile_id=? AND scope=? AND scope_key=? "
@@ -895,8 +910,7 @@ class SQLiteConfigurationStore:
                 "SELECT * FROM configuration_profile_revisions "
                 "WHERE family=? AND scope=? AND scope_key=? AND tenant_id IS ? "
                 "AND environment IS ? AND payload_sha256=? "
-                "ORDER BY (effective_from IS NULL AND effective_until IS NULL AND local_schedule IS NULL) DESC,"
-                "sequence DESC,revision_id LIMIT 1",
+                "ORDER BY sequence DESC,revision_id LIMIT 1",
                 (family, scope, scope_key, tenant_id, environment, payload_sha256),
             ).fetchone()
         return self._profile(row)
@@ -1082,12 +1096,10 @@ class SQLiteConfigurationStore:
                 "ORDER BY sequence DESC,revision_id",
                 (bundle_id, scope, scope_key, tenant_id, environment, content_hash),
             ).fetchall()
-            for row in existing:
-                result = self._bundle(row)
-                assert result is not None
-                if not force_new_revision and _same_schedule(result, schedule):
-                    conn.execute("COMMIT")
-                    return result
+            result = _find_matching_schedule(map(self._bundle, existing), schedule)
+            if result is not None and not force_new_revision:
+                conn.execute("COMMIT")
+                return result
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) FROM configuration_bundle_revisions "
                 "WHERE bundle_id=? AND scope=? AND scope_key=? "
@@ -1161,8 +1173,7 @@ class SQLiteConfigurationStore:
                 "SELECT * FROM configuration_bundle_revisions "
                 "WHERE bundle_id=? AND scope=? AND scope_key=? AND tenant_id IS ? "
                 "AND environment IS ? AND content_sha256=? "
-                "ORDER BY (effective_from IS NULL AND effective_until IS NULL AND local_schedule IS NULL) DESC,"
-                "sequence DESC,revision_id LIMIT 1",
+                "ORDER BY sequence DESC,revision_id LIMIT 1",
                 (bundle_id, scope, scope_key, tenant_id, environment, content_sha256),
             ).fetchone()
         return self._bundle(row)
@@ -1760,11 +1771,9 @@ class PostgresConfigurationStore:
                 "ORDER BY sequence DESC,revision_id",
                 (family, scope, scope_key, tenant_id, environment, payload_hash),
             ).fetchall()
-            for row in existing:
-                result = self._profile(row)
-                assert result is not None
-                if _same_schedule(result, schedule):
-                    return result
+            result = _find_matching_schedule(map(self._profile, existing), schedule)
+            if result is not None:
+                return result
             self._lock_head(conn, "profile", logical_identity)
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) AS max_sequence "
@@ -2002,8 +2011,7 @@ class PostgresConfigurationStore:
                 "WHERE family=%s AND scope=%s AND scope_key=%s "
                 "AND tenant_id IS NOT DISTINCT FROM %s "
                 "AND environment IS NOT DISTINCT FROM %s AND payload_sha256=%s "
-                "ORDER BY (effective_from IS NULL AND effective_until IS NULL AND local_schedule IS NULL) DESC,"
-                "sequence DESC,revision_id LIMIT 1",
+                "ORDER BY sequence DESC,revision_id LIMIT 1",
                 (family, scope, scope_key, tenant_id, environment, payload_sha256),
             ).fetchone()
         return self._profile(row)
@@ -2233,11 +2241,9 @@ class PostgresConfigurationStore:
                 "ORDER BY sequence DESC,revision_id",
                 (bundle_id, scope, scope_key, tenant_id, environment, content_hash),
             ).fetchall()
-            for row in existing:
-                result = self._bundle(row)
-                assert result is not None
-                if not kwargs.get("force_new_revision") and _same_schedule(result, schedule):
-                    return result
+            result = _find_matching_schedule(map(self._bundle, existing), schedule)
+            if result is not None and not kwargs.get("force_new_revision"):
+                return result
             self._lock_head(conn, "bundle", logical_identity)
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) AS max_sequence "
@@ -2357,8 +2363,7 @@ class PostgresConfigurationStore:
                 "WHERE bundle_id=%s AND scope=%s AND scope_key=%s "
                 "AND tenant_id IS NOT DISTINCT FROM %s "
                 "AND environment IS NOT DISTINCT FROM %s AND content_sha256=%s "
-                "ORDER BY (effective_from IS NULL AND effective_until IS NULL AND local_schedule IS NULL) DESC,"
-                "sequence DESC,revision_id LIMIT 1",
+                "ORDER BY sequence DESC,revision_id LIMIT 1",
                 (
                     bundle_id,
                     scope,

@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from tzdata import IANA_VERSION
 
+from baloot_platform.config import build_bundle
 from baloot_platform.configuration import (
     PostgresConfigurationStore,
     SQLiteConfigurationStore,
@@ -33,8 +34,12 @@ from baloot_platform.service.container import build_container
 from baloot_platform.service.routes.configuration import (
     build_configuration_router,
     configuration_integrity_response,
+    configuration_schedule_conflict_response,
 )
-from baloot_platform.configuration.schedule import ConfigurationIntegrityError
+from baloot_platform.configuration.schedule import (
+    ConfigurationIntegrityError,
+    ConfigurationScheduleConflict,
+)
 from baloot_platform.storage.request_context import (
     CURRENT_DATABASE_IDENTITY,
     DatabaseIdentityContext,
@@ -404,6 +409,7 @@ def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
     identities = IdentityService(SQLiteIdentityStore(tmp_path / "identity.sqlite3"))
     app = FastAPI()
     app.add_exception_handler(ConfigurationIntegrityError, configuration_integrity_response)
+    app.add_exception_handler(ConfigurationScheduleConflict, configuration_schedule_conflict_response)
 
     @app.middleware("http")
     async def mark_api_key(request: Request, call_next):
@@ -489,6 +495,13 @@ def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
     assert profile["localSchedule"] == {**local, "zoneDataVersion": IANA_VERSION}
     assert profile["effectiveFrom"] == "2026-07-01T16:00:00+00:00"
     assert profile["effectiveUntil"] == "2026-07-01T17:00:00+00:00"
+    different_schedule = client.post(
+        endpoint, headers=headers,
+        json={**create, "localSchedule": {**local, "effectiveFrom": "2026-07-01T11:00:00"}},
+    )
+    assert different_schedule.status_code == 409, different_schedule.text
+    assert profile["revisionId"] in different_schedule.json()["detail"]
+    assert "Reuse its schedule" in different_schedule.json()["detail"]
     legacy_resolution = f"{endpoint}:resolve"
     for at_time, expected in (
         ("2026-07-01T16:00:00", 422),
@@ -506,16 +519,19 @@ def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
 
     bundles = "/api/v2/configuration/bundles"
     components = dict(service.resolve()["bundle"]["componentRevisions"])
-    bundle_response = client.post(
-        bundles,
-        headers=headers,
-        json={
-            "bundleId": "schedule-test", "version": "1.0.0",
-            "componentRevisions": components, "effectiveUntil": "2026-07-01T17:00:00Z",
-            "localSchedule": {"timeZone": local["timeZone"], "effectiveFrom": local["effectiveFrom"]},
-        },
-    )
+    bundle_request = {
+        "bundleId": "schedule-test", "version": "1.0.0",
+        "componentRevisions": components, "effectiveUntil": "2026-07-01T17:00:00Z",
+        "localSchedule": {"timeZone": local["timeZone"], "effectiveFrom": local["effectiveFrom"]},
+    }
+    bundle_response = client.post(bundles, headers=headers, json=bundle_request)
     assert bundle_response.status_code == 201, bundle_response.text
+    alternate = client.post(
+        bundles, headers=headers,
+        json={**bundle_request, "effectiveUntil": "2026-07-01T18:00:00Z"},
+    )
+    assert alternate.status_code == 409, alternate.text
+    assert bundle_response.json()["revisionId"] in alternate.json()["detail"]
     listed = client.get(bundles, headers=headers, params={"bundleId": "schedule-test"})
     assert listed.status_code == 200, listed.text
     assert listed.json()["items"] == [bundle_response.json()]
@@ -550,12 +566,29 @@ def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
     assert bundle["revisionId"] in fault.json()["detail"]
 
 
-def test_api_starts_when_the_runtime_schedule_fails_integrity(root: Path, tmp_path: Path) -> None:
-    service = _service(root, tmp_path)
-    original = service.resolve()["bundle"]
+@pytest.mark.parametrize("environment", [None, "research-native-v3"])
+def test_api_reports_schedule_integrity_failures_at_boot(
+    root: Path, tmp_path: Path, environment: str | None,
+) -> None:
+    service = VersionedConfigurationService(
+        SQLiteConfigurationStore(tmp_path / "configuration.sqlite3"),
+        root=root,
+        profile=build_bundle(root).component("configuration"),
+    )
+    container_module._bootstrap_packaged_configuration(service)
+    resolved = service.resolve(environment=environment)
+    original = resolved["bundle"]
+    assert original["environment"] == environment
+    payload = copy.deepcopy(resolved["profiles"]["performance"])
+    payload["profile"]["version"] = "99.0.3"
+    profile = service.create_profile(
+        family="performance", payload=payload, created_by="TEST", publish=True,
+        scope=original["scope"], environment=environment,
+    )
     scheduled = service.create_bundle(
         bundle_id=original["bundleId"], version=original["version"], mode=original["mode"],
-        component_revisions=original["componentRevisions"], created_by="TEST", publish=True,
+        component_revisions={**original["componentRevisions"], "performance": profile["revisionId"]},
+        created_by="TEST", publish=True, scope=original["scope"], environment=environment,
         local_schedule={"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00:00"},
     )
     with service.store._connect() as connection:
@@ -565,15 +598,26 @@ def test_api_starts_when_the_runtime_schedule_fails_integrity(root: Path, tmp_pa
         )
 
     probe = subprocess.run(
-        [sys.executable, "-c",
-         "from fastapi.testclient import TestClient\n"
-         "from baloot_platform.service.api import app\n"
-         "with TestClient(app) as client:\n"
-         "    assert client.get('/healthz').status_code == 200\n"
-         "    for path in ('/readyz', '/api/v1/options'):\n"
-         "        response = client.get(path)\n"
-         "        assert response.status_code == 503, response.text\n"
-         "        assert 'the saved schedule cannot be verified' in response.json()['detail']\n"],
+        [sys.executable, "-c", """
+import sys
+from fastapi.testclient import TestClient
+from baloot_platform.service.api import app
+
+environment, revision_id = sys.argv[1:]
+with TestClient(app) as client:
+    assert client.get('/healthz').status_code == 200
+    readiness = client.get('/readyz')
+    assert readiness.status_code == 503, readiness.text
+    detail = readiness.json()['detail']
+    if environment:
+        assert set(detail) == {environment}
+        detail = detail[environment]
+    assert revision_id in detail
+    assert 'the saved schedule cannot be verified' in detail
+    assert client.get('/api/v1/options').status_code == (200 if environment else 503)
+    gauge = f'baloot_research_configuration_unavailable {int(bool(environment))}'
+    assert gauge in client.get('/metrics').text.splitlines()
+""", environment or "", scheduled["revisionId"]],
         env={**os.environ, "BALOOT_ROOT": str(root), "BALOOT_DATA_DIR": str(tmp_path),
              "BALOOT_RUNTIME": str(tmp_path), "BALOOT_OUTPUTS": str(tmp_path / "outputs"),
              "BALOOT_DATABASE_URL": "", "BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT": "true"},

@@ -8,6 +8,8 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from scripts import migrate_postgres
 
 
@@ -91,7 +93,7 @@ def test_shared_run_access_migration_matches_store_bootstrap(
     assert "TRUNCATE " not in normalized
 
 
-def test_local_schedule_migration_preserves_rows_and_changes_revision_uniqueness(root: Path) -> None:
+def test_local_schedule_migration_preserves_rows_and_content_uniqueness(root: Path) -> None:
     sql = (root / "migrations" / LATEST_MIGRATION_NAME).read_text(encoding="utf-8")
     normalized = _normalized(sql)
     assert normalized.startswith("BEGIN;")
@@ -102,9 +104,7 @@ def test_local_schedule_migration_preserves_rows_and_changes_revision_uniqueness
         )
         assert f"BEFORE UPDATE OF LOCAL_SCHEDULE ON CONFIGURATION.{table}" in normalized
     assert normalized.count("NEW.LOCAL_SCHEDULE IS DISTINCT FROM OLD.LOCAL_SCHEDULE") == 2
-    index = _statement(sql, "CREATE UNIQUE INDEX IF NOT EXISTS uq_configuration_profile_schedule")
-    assert "PAYLOAD_SHA256, EFFECTIVE_FROM,EFFECTIVE_UNTIL,(LOCAL_SCHEDULE - 'ZONEDATAVERSION')" in index
-    assert "NULLS NOT DISTINCT" in index
+    assert "DROP INDEX" not in normalized
     assert "UPDATE CONFIGURATION." not in normalized
     assert "DELETE " not in normalized
 
@@ -163,6 +163,25 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
     ]
     assert any(path.name == MIGRATION_NAME for path in expected_paths)
     assert expected_paths[-1].name == LATEST_MIGRATION_NAME
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        b"-- comment before transaction\nBEGIN; SELECT 1; COMMIT;",
+        b"BEGIN; SELECT 1; COMMIT; SELECT 2; COMMIT;",
+        b"SELECT 1; commit /* trailing comment */",
+        b"SELECT 1; PREPARE /* comment */ TRANSACTION 'receipt-free';",
+    ],
+)
+def test_migration_runner_rejects_remaining_transaction_commands(source: bytes) -> None:
+    with pytest.raises(ValueError, match="Unexpected transaction control in test.sql"):
+        migrate_postgres._migration_sql(source, "test.sql")
+
+
+def test_migration_runner_ignores_transaction_words_inside_sql_literals() -> None:
+    inner = b"/* outer /* inner */ BEGIN; */ DO $code$ BEGIN RAISE NOTICE 'COMMIT;'; END; $code$;"
+    assert migrate_postgres._migration_sql(b"BEGIN; " + inner + b" COMMIT;", "test.sql").strip().encode() == inner
 
 
 def test_v25_is_forward_only_and_schema_idempotent_by_construction(root: Path) -> None:

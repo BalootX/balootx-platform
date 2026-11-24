@@ -2,7 +2,57 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from pathlib import Path
+
+
+_SQL_TOKEN = re.compile(
+    r"""(?P<line>--[^\r\n]*)|(?P<block>/\*)|(?P<dollar>\$(?:[^\W\d]\w*)?\$)"""
+    r"""|[Ee]'(?:\\.|''|[^'\\])*'|'(?:''|[^'])*'|"(?:""|[^"])*"|[\w$]+|\S""",
+    re.DOTALL,
+)
+_COMMENT_END = re.compile(r"/\*|\*/")
+_TRANSACTION_COMMANDS = {"ABORT", "BEGIN", "COMMIT", "END", "RELEASE", "ROLLBACK", "SAVEPOINT", "START"}
+
+
+def _migration_sql(source: bytes, name: str) -> str:
+    sql = source.decode("utf-8").strip()
+    # Preserve the old files and commit each migration with its receipt.
+    if sql.startswith("BEGIN;") and sql.endswith("COMMIT;"):
+        sql = sql.removeprefix("BEGIN;").removesuffix("COMMIT;")
+
+    position = 0
+    command = None
+    while token := _SQL_TOKEN.search(sql, position):
+        position = token.end()
+        if token.lastgroup == "line":
+            continue
+        if token.lastgroup == "block":
+            depth = 1
+            while depth:
+                marker = _COMMENT_END.search(sql, position)
+                if marker is None:
+                    raise ValueError(f"Unterminated SQL comment in {name}")
+                position = marker.end()
+                depth += 1 if marker[0] == "/*" else -1
+            continue
+        if token.lastgroup == "dollar":
+            closing = sql.find(token[0], position)
+            if closing < 0:
+                raise ValueError(f"Unterminated SQL dollar quote in {name}")
+            position = closing + len(token[0])
+        word = token[0].upper()
+        if word == ";":
+            command = None
+        elif command is None:
+            if word in _TRANSACTION_COMMANDS:
+                raise ValueError(f"Unexpected transaction control in {name}: {word}")
+            command = word
+        elif command == "PREPARE":
+            if word == "TRANSACTION":
+                raise ValueError(f"Unexpected transaction control in {name}: PREPARE TRANSACTION")
+            command = ""
+    return sql
 
 
 def apply_migrations(dsn: str, directory: Path) -> None:
@@ -25,10 +75,7 @@ def apply_migrations(dsn: str, directory: Path) -> None:
                 if applied[migration.name] != digest:
                     raise ValueError(f"Applied migration has changed: {migration.name}")
                 continue
-            sql = source.decode("utf-8").strip()
-            # Preserve the old files and commit each migration with its receipt.
-            if sql.startswith("BEGIN;") and sql.endswith("COMMIT;"):
-                sql = sql.removeprefix("BEGIN;").removesuffix("COMMIT;")
+            sql = _migration_sql(source, migration.name)
             with conn.transaction():
                 conn.execute(sql)
                 conn.execute(

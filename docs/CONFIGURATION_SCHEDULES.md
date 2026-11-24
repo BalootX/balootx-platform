@@ -26,8 +26,8 @@ with its explicit offset.
 
 New revisions retain the wall times and zone in `localSchedule` and continue
 returning UTC instants in `effectiveFrom` and `effectiveUntil`. Identical
-content and schedules reuse the existing revision. The same content with a new
-schedule creates a new revision without changing the content hash.
+content and schedules reuse the existing revision. A different schedule for
+existing content returns HTTP 409 and identifies the conflicting revision.
 
 The server reads zone rules from the pinned IANA data package and records the
 rule version in `localSchedule.zoneDataVersion`. On resolution it checks that
@@ -36,6 +36,10 @@ the time becomes ambiguous or nonexistent, or the zone is unavailable, the
 affected resolution returns HTTP 503. Create a replacement revision with a
 verified schedule. If the runtime bundle fails verification at startup, the
 API serves liveness and metrics and reports the schedule error on readiness.
+If a research environment's bundle fails verification, readiness returns
+HTTP 503 and names that environment. The
+`baloot_research_configuration_unavailable` gauge counts affected research
+environments.
 
 Apply the PostgreSQL migration with the current migration runner before starting
 new service code. The runner records checksums so the historical content-only
@@ -43,7 +47,6 @@ index is applied once. SQLite adds the nullable column on open and converts
 historical empty bounds to NULL. Historical bounds retain their effective
 instants and carry no local schedule.
 
-Prior PostgreSQL readers can still read the persisted UTC bounds. Once duplicate
-content exists under distinct schedules, the previous migration runner and
-SQLite initializer try to restore content-only uniqueness and cannot open that
-database. Rehearse application rollback before using schedule variants.
+The schema retains content-only uniqueness. The PostgreSQL CI job writes
+schedules with the new code, runs the previous revision's migration runner,
+and opens both databases with the previous stores to verify their UTC reads.

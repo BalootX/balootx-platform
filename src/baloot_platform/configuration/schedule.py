@@ -13,6 +13,10 @@ class ConfigurationIntegrityError(Exception):
     """A saved configuration schedule cannot be verified."""
 
 
+class ConfigurationScheduleConflict(Exception):
+    """An existing revision owns this content under a different schedule."""
+
+
 def _parse_datetime(value: str) -> datetime:
     if "T" not in value:
         raise ValueError

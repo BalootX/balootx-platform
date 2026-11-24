@@ -273,7 +273,7 @@ def _own(values: list[Any], value: Any) -> Any:
 def _bootstrap_packaged_configuration(
     configuration: VersionedConfigurationService,
     *,
-    allow_unavailable: bool = False,
+    research_errors: dict[str, ConfigurationIntegrityError] | None = None,
 ) -> dict[str, Any]:
     """Bootstrap under one service identity and always restore caller context."""
 
@@ -300,8 +300,9 @@ def _bootstrap_packaged_configuration(
                     environment=environment,
                 )
             except ConfigurationIntegrityError as exc:
-                if not allow_unavailable:
+                if research_errors is None:
                     raise
+                research_errors[environment] = exc
                 logging.getLogger(__name__).error("Configuration unavailable for %s: %s", environment, exc)
         return active
     finally:
@@ -378,6 +379,7 @@ class PlatformContainer:
     research_renders: ResearchRenderPreparationServiceV1
     runtime_bundle: ProfileBundle
     configuration_error: ConfigurationIntegrityError | None
+    research_configuration_errors: dict[str, ConfigurationIntegrityError]
 
     def shutdown(self) -> None:
         _close_owned_resources(
@@ -494,9 +496,11 @@ def _build_container(
         configuration_store, root=resolved_root, profile=configuration_profile
     )
     configuration_error = None
+    research_configuration_errors: dict[str, ConfigurationIntegrityError] = {}
     try:
         resolved_configuration = _bootstrap_packaged_configuration(
-            configuration, allow_unavailable=allow_unavailable_configuration
+            configuration,
+            research_errors=research_configuration_errors if allow_unavailable_configuration else None,
         )
         bundle = profile_bundle_from_resolved(resolved_configuration, root=resolved_root)
         runtime_identity = resolved_configuration["bundle"]
@@ -1692,4 +1696,5 @@ def _build_container(
         research_renders,
         bundle,
         configuration_error,
+        research_configuration_errors,
     )

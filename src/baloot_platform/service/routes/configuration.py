@@ -8,7 +8,10 @@ from pydantic import BaseModel, Field, field_validator, model_serializer
 from pydantic.json_schema import SkipJsonSchema
 
 from baloot_platform.configuration import VersionedConfigurationService
-from baloot_platform.configuration.schedule import ConfigurationIntegrityError
+from baloot_platform.configuration.schedule import (
+    ConfigurationIntegrityError,
+    ConfigurationScheduleConflict,
+)
 from baloot_platform.identity import IdentityService
 from baloot_platform.security import AuthorizationPolicy, Scope
 
@@ -19,6 +22,12 @@ async def configuration_integrity_response(
     _request: Request, exc: ConfigurationIntegrityError
 ) -> JSONResponse:
     return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
+async def configuration_schedule_conflict_response(
+    _request: Request, exc: ConfigurationScheduleConflict
+) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 class LocalSchedule(BaseModel):

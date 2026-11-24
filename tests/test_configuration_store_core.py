@@ -17,7 +17,11 @@ from hypothesis import example, given, strategies as st
 from tzdata import IANA_VERSION
 
 from baloot_platform.configuration.models import canonical, digest
-from baloot_platform.configuration.schedule import _zone, normalize_schedule
+from baloot_platform.configuration.schedule import (
+    ConfigurationScheduleConflict,
+    _zone,
+    normalize_schedule,
+)
 from baloot_platform.configuration.store import (
     PostgresConfigurationStore,
     SQLiteConfigurationStore,
@@ -229,13 +233,6 @@ def test_sqlite_round_trips_local_schedule_and_preserves_older_rows(tmp_path: Pa
     with store._connect() as connection:
         connection.execute("DROP TRIGGER trg_configuration_profile_local_schedule_immutable")
         connection.execute("DROP TRIGGER trg_configuration_bundle_local_schedule_immutable")
-        connection.execute("DROP INDEX uq_configuration_profile_schedule")
-        connection.execute(
-            """CREATE UNIQUE INDEX uq_configuration_profile_content_v20
-               ON configuration_profile_revisions(
-                 family,scope,scope_key,COALESCE(tenant_id,''),COALESCE(environment,''),payload_sha256
-               )"""
-        )
         connection.execute("ALTER TABLE configuration_profile_revisions DROP COLUMN local_schedule")
         connection.execute("ALTER TABLE configuration_bundle_revisions DROP COLUMN local_schedule")
         connection.execute(
@@ -251,10 +248,8 @@ def test_sqlite_round_trips_local_schedule_and_preserves_older_rows(tmp_path: Pa
     profile = reopened.create_profile(**profile_args, local_schedule=local)
     assert reopened.create_profile(**profile_args, local_schedule=local) == profile
     alternate_args = {**profile_args, "status": "draft", "effective_from": "2026-07-01T16:00Z"}
-    alternate_profile = reopened.create_profile(**alternate_args)
-    assert alternate_profile.revision_id != profile.revision_id
-    assert alternate_profile.payload_sha256 == profile.payload_sha256
-    assert reopened.create_profile(**alternate_args) == alternate_profile
+    with pytest.raises(ConfigurationScheduleConflict, match=profile.revision_id):
+        reopened.create_profile(**alternate_args)
     assert reopened.create_profile(**profile_args, local_schedule=local) == profile
     bundle_args = dict(
         bundle_id="scheduled", version="1.0.0", mode="full", scope="global",
@@ -265,10 +260,9 @@ def test_sqlite_round_trips_local_schedule_and_preserves_older_rows(tmp_path: Pa
         **bundle_args,
         effective_until="2026-07-01T13:00-04:00",
     )
-    alternate_bundle = reopened.create_bundle(**bundle_args)
-    assert alternate_bundle.revision_id != bundle.revision_id
-    assert alternate_bundle.content_sha256 == bundle.content_sha256
-    assert reopened.create_bundle(**bundle_args) == alternate_bundle
+    with pytest.raises(ConfigurationScheduleConflict, match=bundle.revision_id):
+        reopened.create_bundle(**bundle_args)
+    assert reopened.create_bundle(**bundle_args, effective_until="2026-07-01T17:00Z") == bundle
     cold = SQLiteConfigurationStore(path)
     assert cold.get_profile(profile.revision_id) == profile
     assert cold.get_bundle(bundle.revision_id) == bundle

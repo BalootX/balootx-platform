@@ -47,7 +47,10 @@ from pydantic import (
 from pydantic.json_schema import SkipJsonSchema
 
 from baloot_platform.config import build_bundle
-from baloot_platform.configuration.schedule import ConfigurationIntegrityError
+from baloot_platform.configuration.schedule import (
+    ConfigurationIntegrityError,
+    ConfigurationScheduleConflict,
+)
 from baloot_platform.guide import build_engine_guide
 from baloot_platform.analysis.belief_v7 import (
     BeliefPolicy,
@@ -114,7 +117,10 @@ from baloot_platform.service.client_identity import (
     service_subject_ownership,
 )
 from baloot_platform.service.routes.auth import request_token, require_identity
-from baloot_platform.service.routes.configuration import configuration_integrity_response
+from baloot_platform.service.routes.configuration import (
+    configuration_integrity_response,
+    configuration_schedule_conflict_response,
+)
 from baloot_platform.shared import (
     SharedDecisionAccessError,
     project_shared_decision,
@@ -348,6 +354,7 @@ app = FastAPI(
     redoc_url=None,
 )
 app.add_exception_handler(ConfigurationIntegrityError, configuration_integrity_response)
+app.add_exception_handler(ConfigurationScheduleConflict, configuration_schedule_conflict_response)
 
 
 app.state.identity_service = IDENTITY
@@ -7447,6 +7454,14 @@ def health():
 
 @app.get("/readyz")
 def ready():
+    if CONTAINER.research_configuration_errors:
+        raise HTTPException(
+            503,
+            detail={
+                environment: str(error)
+                for environment, error in CONTAINER.research_configuration_errors.items()
+            },
+        )
     bundle = ACTIVE_BUNDLE
     return {
         "status": "ready",
@@ -7460,6 +7475,8 @@ def metrics():
     lines = [
         "# TYPE baloot_http_requests_total counter",
         "# TYPE baloot_http_latency_microseconds_total counter",
+        "# TYPE baloot_research_configuration_unavailable gauge",
+        f"baloot_research_configuration_unavailable {len(CONTAINER.research_configuration_errors)}",
     ]
     with _METRIC_LOCK:
         items = list(_METRICS.items())

@@ -75,7 +75,7 @@ REQUIRED_MIGRATION_HASHES = {
         "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"
     ),
     "030_configuration_local_schedule.sql": (
-        "ed6c9bacec07461693344c3cf4d63cca9f51900a48e202b1544440784d9be371"
+        "314fde4a8203348f10791f2494933b7cba7b0b57e36f0914c57d7a0177b3acf6"
     ),
 }
 CONFIGURATION_V25_CONSTRAINTS = frozenset(
@@ -3781,7 +3781,9 @@ def _assert_configuration_immutability(
         raise ProofError("configuration immutable mutation unexpectedly succeeded")
 
 
-def _prove_configuration_schedule(store: Any, components: dict[str, str]) -> None:
+def _prove_configuration_schedule(store: Any, components: dict[str, str]) -> tuple[str, str]:
+    from baloot_platform.configuration.schedule import ConfigurationScheduleConflict
+
     local = {"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00:00"}
     kwargs = {
         "version": "1.0.0", "scope": "global", "tenant_id": None,
@@ -3803,14 +3805,14 @@ def _prove_configuration_schedule(store: Any, components: dict[str, str]) -> Non
         (store.create_bundle, bundle_args, bundle),
     ):
         revised_args = {**args, "local_schedule": reschedule}
-        revised = create(**revised_args)
-        if (
-            revised.revision_id == original.revision_id
-            or revised.effective_from != "2026-07-02T16:00:00+00:00"
-            or create(**revised_args) != revised
-            or create(**args) != original
-        ):
-            raise ProofError("PostgreSQL schedule variants did not create distinct, idempotent revisions")
+        try:
+            create(**revised_args)
+        except ConfigurationScheduleConflict:
+            pass
+        else:
+            raise ProofError("PostgreSQL accepted a different schedule for existing configuration content")
+        if create(**args) != original:
+            raise ProofError("PostgreSQL schedule retry did not reuse its revision")
     for relation, revision, saved in (
         ("profile_revisions", profile, store.get_profile(profile.revision_id)),
         ("bundle_revisions", bundle, store.get_bundle(bundle.revision_id)),
@@ -3829,6 +3831,7 @@ def _prove_configuration_schedule(store: Any, components: dict[str, str]) -> Non
             expected_message="local_schedule is immutable",
             assignment="local_schedule=NULL",
         )
+    return profile.revision_id, bundle.revision_id
 
 
 def _prove_research_scenario_v4_wiring(
