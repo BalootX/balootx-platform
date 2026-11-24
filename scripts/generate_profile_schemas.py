@@ -117,6 +117,37 @@ def apply_release_constraints(
     """Apply invariant release gates that type inference cannot express."""
 
     properties = schema.get("properties", {})
+    if family == "agents":
+        legacy = yaml.safe_load(
+            (ROOT / "configs/agents/adaptive_lineup_v1.yaml").read_text(encoding="utf-8")
+        )
+        identity_fields = ("id", "version")
+        schema["if"] = {
+            "properties": {
+                "profile": {
+                    "properties": {
+                        name: {"const": legacy["profile"][name]}
+                        for name in identity_fields
+                    },
+                    "required": list(identity_fields),
+                }
+            },
+            "required": ["profile"],
+        }
+        for branch, profiles in (
+            ("then", infer(legacy["profiles"])),
+            ("else", properties["profiles"]),
+        ):
+            rows = profiles["properties"]
+            first = next(iter(rows.values()))
+            if all(row == first for row in rows.values()):
+                definition = "legacyAgentRow" if branch == "then" else "agentRow"
+                schema.setdefault("$defs", {})[definition] = first
+                profiles["properties"] = {
+                    name: {"$ref": f"#/$defs/{definition}"} for name in rows
+                }
+            schema[branch] = {"properties": {"profiles": profiles}}
+        properties["profiles"] = {"type": "object"}
     if family == "challenge":
         # Reuse generic profile metadata without duplicating complete variants.
         properties["profile"]["properties"]["description"] = {"type": "string"}
