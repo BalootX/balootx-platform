@@ -858,7 +858,7 @@ def test_current_migration_stage_freezes_complete_inventory_and_required_tail(
         for item in inventory
         if item["name"] in proof.REQUIRED_MIGRATION_HASHES
     } == proof.REQUIRED_MIGRATION_HASHES
-    assert inventory[-1]["name"] == "030_identity_list_pagination.sql"
+    assert inventory[-1]["name"] == "031_identity_list_pagination.sql"
     assert (
         proof.REQUIRED_MIGRATION_HASHES["029_shared_run_game_access.sql"]
         == "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"

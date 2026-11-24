@@ -12,7 +12,7 @@ from scripts import migrate_postgres
 
 MIGRATION_NAME = "025_configuration_store_contract.sql"
 SHARED_RUN_MIGRATION_NAME = "029_shared_run_game_access.sql"
-LATEST_MIGRATION_NAME = "030_identity_list_pagination.sql"
+LATEST_MIGRATION_NAME = "031_identity_list_pagination.sql"
 FROZEN_PREDECESSOR_HASHES = {
     "011_configuration_registry_v19.sql": (
         "1e79c94b6244244afe0a2fd1f9ef421dcfadca6c32a48bd4c7f4b8fee97b9931"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 
@@ -335,9 +335,9 @@ class PostgresIdentityStore(_IdentityLists):
             with conn.cursor(row_factory=dict_row) as cursor:
                 rows = cursor.execute(self._postgres_page_sql(sql), params).fetchall()
         for row in rows:
-            for key in ("created_at", "responded_at"):
-                if isinstance(row.get(key), datetime):
-                    row[key] = row[key].astimezone(timezone.utc).isoformat()
+            row["created_at"] = row["created_at"].astimezone(timezone.utc).isoformat()
+            # The PostgreSQL pending-request response omits the response timestamp.
+            row.pop("responded_at", None)
         return rows
 
     def upgrade_guest(self, *, subject_id: str, username: str, display_name: str,

@@ -181,7 +181,7 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
             plans("baseline")
             if postgres:
                 with connect() as conn:
-                    conn.execute((root / "migrations/030_identity_list_pagination.sql").read_text(encoding="utf-8"))
+                    conn.execute((root / "migrations/031_identity_list_pagination.sql").read_text(encoding="utf-8"))
                     conn.execute("ANALYZE")
             else:
                 SQLiteIdentityStore(database)
@@ -230,6 +230,8 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 assert list(service.friend_ids(owner, limit=13)) == friends
                 pending, request_cursor = collect("/api/v1/friends/requests", "request_id")
                 assert pending == [key for _, key in sorted(request_keys, reverse=True)]
+                request_item = client.get("/api/v1/friends/requests", params={"limit": 1}).json()["items"][0]
+                assert ("responded_at" in request_item) == (not postgres)
                 users, search_cursor = collect("/api/v1/users:search", "subjectId", query="Page Fixture")
                 assert users == candidates[1::2] + ["SUB-USERNAME"] + candidates[::2]
                 assert client.get("/api/v1/users:search", params={"query": "Absent"}).json() == {
