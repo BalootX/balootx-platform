@@ -69,15 +69,14 @@ async function optionValues(select: Locator): Promise<string[]> {
   ));
 }
 
-test('Research opens on a published native V3 bundle and keeps explicit bundle choices', async ({page}, testInfo) => {
-  // Cold bundle compilation uses the test budget, not the DOM assertion budget.
+test('Research opens on a published native V3 bundle and keeps explicit bundle choices', async ({page}) => {
   const [catalogResponse] = await Promise.all([
     page.waitForResponse((response) => {
       const url = new URL(response.url());
       return response.request().method() === 'GET'
         && url.pathname === '/api/v2/domain-capabilities'
         && Boolean(url.searchParams.get('bundleRevisionId'));
-    }, {timeout: testInfo.timeout}),
+    }),
     page.goto('/foundry?section=research'),
   ]);
   expect(catalogResponse.ok()).toBeTruthy();
@@ -346,7 +345,6 @@ test('new tactic predicates start with a context-supported argument', async ({pa
 });
 
 test('authors every exposed predicate and governed expression operator from the live catalog', async ({page}) => {
-  test.setTimeout(180_000);
   const selected = await openNativeStudio(page);
   const definitions = selected.hardPredicateCatalog.definitions;
   for (const kind of [
@@ -472,7 +470,6 @@ test('applies catalog title constraints and checks core Foundry contrast', async
 });
 
 test('@zoom shows exact official and optional rule authority with an accessible semantic delta', async ({page}) => {
-  test.setTimeout(180_000);
   await page.goto('/foundry?section=research');
   await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
   await expect(page.locator('html')).toHaveAttribute('dir','rtl');
@@ -546,7 +543,6 @@ test('@zoom shows exact official and optional rule authority with an accessible 
 });
 
 test('authors every execution tuple advertised by the selected bundle', async ({page}) => {
-  test.setTimeout(180_000);
   const selected = await openNativeStudio(page);
   const combinations = selected.executionCapabilities.combinations;
   expect(combinations.length).toBeGreaterThan(0);

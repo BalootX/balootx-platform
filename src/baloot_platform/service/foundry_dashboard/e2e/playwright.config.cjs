@@ -8,22 +8,14 @@ process.env.BALOOT_OPERATOR_E2E_API_KEY ??= randomUUID();
 
 module.exports = defineConfig({
   testDir: __dirname,
-  testMatch: [
-    'foundry_ortools_operator.spec.ts',
-    'foundry_scenario_accessibility.spec.ts',
-    'foundry_catalog_authoring.spec.ts',
-    'research_live_result_latency.spec.ts',
-    'foundry_family_configuration.spec.ts',
-  ],
   fullyParallel: false,
-  workers: 1,
+  workers: process.env.CI ? 2 : 1,
   timeout: 120_000,
   expect: {timeout: 30_000},
   use: {
     actionTimeout: 30_000,
     baseURL: `http://127.0.0.1:${port}`,
     browserName: 'chromium',
-    channel: 'chrome',
     headless: true,
     locale: 'ar-SA',
     trace: 'retain-on-failure',

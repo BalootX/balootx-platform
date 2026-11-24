@@ -513,7 +513,6 @@ test('exact trace prefix is authored visually with a unique deck and legal timel
 });
 
 test('keyboard-only operator authors the complete five-variant flagship request', async ({page}) => {
-  test.setTimeout(120_000);
   await openStudio(page, true);
 
   await replace(page, page.locator('[data-field-path="titleAr"] input'), 'بحث تضحية الآص بخمس لفات');
