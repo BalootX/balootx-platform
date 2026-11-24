@@ -1,4 +1,4 @@
-Follows engineering standard v1.20.
+Follows engineering standard v1.24.
 
 # BalootX delivery
 
@@ -21,6 +21,22 @@ The main ruleset's CodeQL rule evaluates each PR at admission and blocks new hig
 The concurrency key uses the PR number to keep same-named branches from different forks in separate groups. A new run supersedes only the same PR's older run. Each push, merge-group and manual CI run has its own group and cannot cancel another run.
 
 Fix failed checks at the source. Do not rerun failures, widen deadlines or skip tests to get CI green. Keep authorization, privacy, migration and concurrency tests. Removing a test that only detects change requires two weeks of evidence. Follow the [test data and service rules](AGENTS.md#data-safety). Pin actions by full commit SHA, keep workflow defaults read-only, and grant writes only to jobs that need them. Keep secrets off fork runs and untrusted code off privileged triggers. A new `tests/test_*.py` file needs both `seconds` and `shardSeconds` entries in [.github/python-test-durations.json](.github/python-test-durations.json).
+
+### Nightly full suite
+
+The full suite runs daily at 20:00 UTC on the `Servers isolated $0 Linux test host (credential-free, not a GitHub runner)`, capped at 2h20m. A systemd timer starts each run with a fresh depth-1 checkout of public `main` and a per-run virtual environment. Nightly runs stay off the PC and outside the merge gate. [#109](https://github.com/BalootX/balootx-platform/issues/109)
+
+Servers sends Delivery the `main` SHA, test counts, failing test IDs, a JUnit file and a scrubbed log tail. Delivery files a Kind Bug issue titled `Nightly full suite red: <date>` the same day for any red or missing run and links the run when available. Treat flaky failures as High-priority bugs and fix or revert them.
+
+### Test coverage and local load
+
+- Add property and edge-case tests for code that handles untrusted or varied input, including parsers, limits, time zones and daylight saving transitions, schedules, slot sequencing and caption windows. Put long runs in the nightly profile.
+- Every bug that reached `main` adds its failing case as a regression test or a golden-case row.
+- Run every local test, lint, render or scrub through the shared two-slot test lock. Use `pytest -n 1` for pytest. Send render jobs and heavier workloads to project servers or GitHub-hosted runners.
+
+## Work scheduling
+
+A Due is the latest finish. Start Ready work at once and ship as soon as its checks pass. Every hold names its blocker and what clears it.
 
 ## Merge
 
