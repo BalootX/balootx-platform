@@ -45,10 +45,20 @@ try {
       buyer, dealer, contract, purchaseCard: cards[4], bidHistory: [{seat: buyer, action: contract, round: 1}],
       pauseBeforePlayIndex: pause,
     });
-    Object.assign(layer(fixture, "question", "table"), {buyer, dealer, contract, currentPlayer: observer, currentTrick: {plays: trickPlays}});
-    Object.assign(layer(fixture, "question", "observer-hand"), {seat: observer, cards: cards.slice(5, 7)});
-    layer(fixture, "question", "seats").handCounts = hands;
+    const decisionTable = {buyer, dealer, contract, currentPlayer: observer, currentTrick: {plays: trickPlays}};
+    const observerHand = {seat: observer, cards: cards.slice(5, 7)};
+    for (const stage of allPhases ? ["question", "reveal"] : ["question"]) {
+      Object.assign(layer(fixture, stage, "table"), decisionTable);
+      Object.assign(layer(fixture, stage, "observer-hand"), observerHand);
+      layer(fixture, stage, "seats").handCounts = hands;
+    }
     layer(fixture, "question", "decision-prompt").actingSeat = observer;
+    if (allPhases) {
+      const card = observerHand.cards[1];
+      Object.assign(layer(fixture, "reveal", "analysis"), {
+        selectedAction: card.code, recommendedAction: {kind: "play_card", card},
+      });
+    }
 
     const input = path.join(work, `${name}.json`);
     const output = path.join(work, name);
