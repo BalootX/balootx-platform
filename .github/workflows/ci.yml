@@ -695,6 +695,8 @@ jobs:
           digest-mismatch: error
       - name: Check synthetic hook layouts
         if: matrix.shard == 'decision'
+        env:
+          BALOOT_HOOK_LAYOUT_EVIDENCE_DIR: ${{ runner.temp }}/media-stage-logs/hook-layout
         run: node tests/hook-layout.integration.mjs ../../../../outputs/professional-video-prototypes/render-bundle-decision.json
       - name: Render the governed media shard
         working-directory: .

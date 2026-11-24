@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
-import {mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from "node:fs";
+import {copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import path from "node:path";
 import {canonical, layoutFrames, loadLayoutTable, sha256} from "../scripts/layout-gate.mjs";
@@ -10,6 +10,7 @@ import {canonical, layoutFrames, loadLayoutTable, sha256} from "../scripts/layou
 const prototype = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const table = await loadLayoutTable();
 const work = mkdtempSync(path.join(tmpdir(), "baloot-hook-layout-"));
+const screenshotDir = process.env.BALOOT_HOOK_LAYOUT_EVIDENCE_DIR;
 const seats = ["north", "west", "south", "east"];
 const layer = (bundle, stage, id) => bundle.scenes.find(scene => scene.stage === stage)
   .layers.find(item => item.id === id).content;
@@ -20,16 +21,16 @@ const cases = [
   {name: "viewer-dealer-east-buyer", observer: "west", buyer: "south", dealer: "west", contract: "ashkal", pause: 27},
   {name: "east-dealer-and-buyer", observer: "north", buyer: "west", dealer: "west", contract: "sun", pause: 27},
   {name: "west-buyer", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26},
-  // The viewer's own lane carries the tilted purchase card above the play prompt.
-  {name: "viewer-buyer", observer: "south", buyer: "south", dealer: "east", contract: "sun", pause: 26},
-  {name: "uncalibrated-west-contact", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26, reject: true},
+  {name: "viewer-buyer", observer: "south", buyer: "south", dealer: "east", contract: "sun", pause: 26, allPhases: true},
+  {name: "wide-west-buyer", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26, wideName: true},
 ];
 
 try {
-  for (const {name, observer, buyer, dealer, contract, pause, reject} of cases) {
+  if (screenshotDir) mkdirSync(screenshotDir, {recursive: true});
+  for (const {name, observer, buyer, dealer, contract, pause, allPhases, wideName} of cases) {
     const {bundleSha256: _, ...fixture} = structuredClone(prototype);
     fixture.observerSeat = observer;
-    fixture.identity.players = {north: "Zayd", west: reject ? "Alexandria Example" : "Khalid", south: "Omar", east: "Salem"};
+    fixture.identity.players = {north: "Zayd", west: wideName ? "Alexandria Example" : "Khalid", south: "Omar", east: "Salem"};
     fixture.presentation.majlis.research_notice = true;
     fixture.presentation.presentation.show_justification_text = false;
     fixture.audioCues = [];
@@ -49,15 +50,25 @@ try {
     const input = path.join(work, `${name}.json`);
     const output = path.join(work, name);
     writeFileSync(input, JSON.stringify({...fixture, bundleSha256: sha256(JSON.stringify(canonical(fixture)))}));
+    if (allPhases) {
+      const full = spawnSync(process.execPath, ["scripts/render-decision-clip.mjs", input, output + "-all"], {
+        encoding: "utf8", env: {...process.env, BALOOTX_STILLS_ONLY: "1"}, timeout: 120_000,
+      });
+      assert.equal(full.status, 0, full.error?.message ?? full.stderr);
+      const report = JSON.parse(readFileSync(path.join(output + "-all", "layout-evidence.json"), "utf8"));
+      assert.equal(report.status, "stills_passed");
+      assert.deepEqual(report.items.map(({phase}) => phase), ["hook", "question", "reveal"]);
+      for (const item of report.items) checkSeatLayout(item, fixture, name);
+    }
     const result = spawnSync(process.execPath, ["scripts/render-decision-clip.mjs", "--check-hook", input, output], {
       encoding: "utf8", timeout: 120_000,
     });
-    assert.equal(result.status, reject ? 1 : 0, result.error?.message ?? result.stderr);
+    assert.equal(result.status, 0, result.error?.message ?? result.stderr);
     assert.deepEqual(readdirSync(output).sort(), ["hook-layout-evidence.json", "layout-hook.png", "layout-table.json"]);
     const report = JSON.parse(readFileSync(path.join(output, "hook-layout-evidence.json"), "utf8"));
     assert.equal(report.scope, "hook");
     assert.equal(report.postingAuthorized, false);
-    assert.equal(report.status, reject ? "failed" : "stills_passed");
+    assert.equal(report.status, "stills_passed");
     assert.equal(report.binding.tableSha256, table.tableSha256);
     assert.equal(report.binding.bundleFileSha256, sha256(readFileSync(input)));
     assert.equal(report.items.length, 1);
@@ -65,11 +76,30 @@ try {
     assert.equal(item.phase, "hook");
     assert.equal(item.frame, layoutFrames(fixture)[0].frame);
     assert.equal(item.pngSha256, sha256(readFileSync(path.join(output, "layout-hook.png"))));
-    assert.equal(item.validation.status, reject ? "failed" : "passed");
-    const pairs = item.validation.disallowedIntersections.map(({first, second}) => [first, second]);
-    assert.deepEqual(pairs, reject ? [["namePills:1", "buyerBadge:0"]] : []);
+    checkSeatLayout(item, fixture, name);
+    if (screenshotDir) copyFileSync(path.join(output, "layout-hook.png"), path.join(screenshotDir, `${name}.png`));
     process.stdout.write(`${name}: ${item.validation.status}\n`);
   }
 } finally {
   rmSync(work, {recursive: true, force: true});
+}
+
+function checkSeatLayout(item, fixture, name) {
+  const label = `${name} ${item.phase}`;
+  const {left_px, right_px, top_px, bottom_px} = fixture.presentation.safe_areas;
+  const controls = ["promptPill", "namePills", "buyerBadge", "dealerBadge", "choiceBox"]
+    .flatMap(role => item.roles[role].items.filter(box => box.visible));
+  const hand = item.observerCards.filter(box => box.visible);
+  assert.equal(item.validation.status, "passed", label);
+  assert.deepEqual(item.validation.intersections, [], label);
+  assert.equal(item.buyerCardContained, true, label);
+  assert.ok(hand.length > 0, `${label}: viewer hand not measured`);
+  for (const box of [...controls, ...hand]) {
+    assert.ok(box.left >= left_px && box.top >= top_px && box.right <= fixture.render.width - right_px
+      && box.bottom <= fixture.render.height - bottom_px, `${label}: out of safe area ${JSON.stringify(box)}`);
+  }
+  for (const box of controls) {
+    assert.ok(hand.every(card => box.right <= card.left || box.left >= card.right || box.bottom <= card.top || box.top >= card.bottom),
+      `${label}: ${box.id} overlaps a hand card`);
+  }
 }

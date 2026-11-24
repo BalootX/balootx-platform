@@ -2,27 +2,5 @@
   "schemaVersion": 1,
   "metric": "intersection_width_height_in_composition_pixels",
   "noticeHeightPx": 116,
-  "rows": [
-    {
-      "phase": "hook",
-      "pair": ["namePills:1", "buyerBadge:0"],
-      "observedMaxWidth": 167.578125,
-      "observedMaxHeight": 3.8251953125,
-      "marginEachAxis": 2
-    },
-    {
-      "phase": "question",
-      "pair": ["namePills:1", "buyerBadge:0"],
-      "observedMaxWidth": 167.578125,
-      "observedMaxHeight": 3.8251953125,
-      "marginEachAxis": 2
-    },
-    {
-      "phase": "reveal",
-      "pair": ["namePills:1", "buyerBadge:0"],
-      "observedMaxWidth": 167.578125,
-      "observedMaxHeight": 3.8251953125,
-      "marginEachAxis": 2
-    }
-  ]
+  "rows": []
 }
