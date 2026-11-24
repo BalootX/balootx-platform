@@ -113,7 +113,7 @@ def test_hosted_ci_contract(root):
     for name, job in jobs.items():
         if name == "viewer-seat-proof":
             continue  # Checked with the nightly caller and shared workflow below.
-        assert job["runs-on"] == "ubuntu-24.04"
+        assert job["runs-on"] == ("windows-latest" if name == "python-windows" else "ubuntu-24.04"), name
         assert job["timeout-minutes"] > 0
         for step in job["steps"]:
             if "uses" in step:
