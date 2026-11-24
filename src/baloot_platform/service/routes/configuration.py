@@ -28,11 +28,11 @@ class StoredLocalSchedule(LocalSchedule):
 class ScheduleRequest(BaseModel):
     effectiveFrom: str | None = None
     effectiveUntil: str | None = None
-    localSchedule: LocalSchedule | SkipJsonSchema[None] = None
+    localSchedule: LocalSchedule = Field(default=None, validate_default=False)
 
-    @field_validator("localSchedule")
+    @field_validator("localSchedule", mode="before")
     @classmethod
-    def require_schedule_object(cls, value: LocalSchedule | None) -> LocalSchedule:
+    def require_schedule_object(cls, value: object) -> object:
         if value is None:
             raise ValueError("omit localSchedule or provide a schedule object")
         return value
@@ -123,6 +123,8 @@ class ConfigurationBundleRevisionResponse(BaseModel):
         data = handler(self)
         if self.localSchedule is None:
             data.pop("localSchedule", None)
+        else:
+            data["localSchedule"] = self.localSchedule.model_dump(exclude_unset=True)
         return data
 
 

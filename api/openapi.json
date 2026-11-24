@@ -397,8 +397,7 @@
             "title": "Environment"
           },
           "localSchedule": {
-            "$ref": "#/components/schemas/LocalSchedule",
-            "title": "Localschedule"
+            "$ref": "#/components/schemas/LocalSchedule"
           },
           "mode": {
             "default": "full",
@@ -8392,8 +8391,7 @@
             "type": "string"
           },
           "localSchedule": {
-            "$ref": "#/components/schemas/LocalSchedule",
-            "title": "Localschedule"
+            "$ref": "#/components/schemas/LocalSchedule"
           },
           "payload": {
             "additionalProperties": true,

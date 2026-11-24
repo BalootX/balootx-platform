@@ -254,9 +254,6 @@ export type BundleCreateRequest = {
      * Environment
      */
     environment?: string | null;
-    /**
-     * Localschedule
-     */
     localSchedule?: LocalSchedule;
     /**
      * Mode
@@ -4699,9 +4696,6 @@ export type ProfileCreateRequest = {
      * Family
      */
     family: string;
-    /**
-     * Localschedule
-     */
     localSchedule?: LocalSchedule;
     /**
      * Payload

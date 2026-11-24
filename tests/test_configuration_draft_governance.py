@@ -503,7 +503,8 @@ def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
         headers=headers,
         json={
             "bundleId": "schedule-test", "version": "1.0.0",
-            "componentRevisions": components, "localSchedule": local,
+            "componentRevisions": components, "effectiveUntil": "2026-07-01T17:00:00Z",
+            "localSchedule": {"timeZone": local["timeZone"], "effectiveFrom": local["effectiveFrom"]},
         },
     )
     assert bundle_response.status_code == 201, bundle_response.text
