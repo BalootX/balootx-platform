@@ -6569,12 +6569,68 @@
         "title": "HistoricalReplayRenderRequest",
         "type": "object"
       },
+      "IdentityItem": {
+        "properties": {
+          "authenticated": {
+            "title": "Authenticated",
+            "type": "boolean"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "displayName": {
+            "title": "Displayname",
+            "type": "string"
+          },
+          "guest": {
+            "title": "Guest",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "subjectId": {
+            "title": "Subjectid",
+            "type": "string"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "subjectId",
+          "kind",
+          "displayName",
+          "username",
+          "authenticated",
+          "guest",
+          "createdAt"
+        ],
+        "title": "IdentityItem",
+        "type": "object"
+      },
       "IdentityPage": {
         "properties": {
           "items": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/IdentityItem"
             },
             "title": "Items",
             "type": "array"
@@ -8158,6 +8214,85 @@
           "reason"
         ],
         "title": "PauseRequest",
+        "type": "object"
+      },
+      "PendingRequestItem": {
+        "properties": {
+          "createdAt": {
+            "title": "Createdat",
+            "type": "string"
+          },
+          "recipientId": {
+            "title": "Recipientid",
+            "type": "string"
+          },
+          "requestId": {
+            "title": "Requestid",
+            "type": "string"
+          },
+          "senderDisplayName": {
+            "title": "Senderdisplayname",
+            "type": "string"
+          },
+          "senderId": {
+            "title": "Senderid",
+            "type": "string"
+          },
+          "senderUsername": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Senderusername"
+          },
+          "status": {
+            "const": "pending",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "senderId",
+          "recipientId",
+          "status",
+          "createdAt",
+          "senderDisplayName",
+          "senderUsername"
+        ],
+        "title": "PendingRequestItem",
+        "type": "object"
+      },
+      "PendingRequestPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PendingRequestItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "title": "PendingRequestPage",
         "type": "object"
       },
       "PlayRequest": {
@@ -40555,7 +40690,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/IdentityPage"
+                  "$ref": "#/components/schemas/PendingRequestPage"
                 }
               }
             },

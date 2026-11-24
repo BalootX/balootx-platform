@@ -3668,15 +3668,47 @@ export type HistoricalReplayRenderRequest = {
 };
 
 /**
+ * IdentityItem
+ */
+export type IdentityItem = {
+    /**
+     * Authenticated
+     */
+    authenticated: boolean;
+    /**
+     * Createdat
+     */
+    createdAt: string | null;
+    /**
+     * Displayname
+     */
+    displayName: string;
+    /**
+     * Guest
+     */
+    guest: boolean;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Subjectid
+     */
+    subjectId: string;
+    /**
+     * Username
+     */
+    username: string | null;
+};
+
+/**
  * IdentityPage
  */
 export type IdentityPage = {
     /**
      * Items
      */
-    items: Array<{
-        [key: string]: unknown;
-    }>;
+    items: Array<IdentityItem>;
     /**
      * Nextcursor
      */
@@ -4587,6 +4619,54 @@ export type PauseRequest = {
      * Reason
      */
     reason: string;
+};
+
+/**
+ * PendingRequestItem
+ */
+export type PendingRequestItem = {
+    /**
+     * Createdat
+     */
+    createdAt: string;
+    /**
+     * Recipientid
+     */
+    recipientId: string;
+    /**
+     * Requestid
+     */
+    requestId: string;
+    /**
+     * Senderdisplayname
+     */
+    senderDisplayName: string;
+    /**
+     * Senderid
+     */
+    senderId: string;
+    /**
+     * Senderusername
+     */
+    senderUsername: string | null;
+    /**
+     * Status
+     */
+    status: 'pending';
+};
+
+/**
+ * PendingRequestPage
+ */
+export type PendingRequestPage = {
+    /**
+     * Items
+     */
+    items: Array<PendingRequestItem>;
+    /**
+     * Nextcursor
+     */
+    nextCursor: string | null;
 };
 
 /**
@@ -22277,7 +22357,7 @@ export type FriendRequestsPageApiV2FriendsRequestsGetResponses = {
     /**
      * Successful Response
      */
-    200: IdentityPage;
+    200: PendingRequestPage;
 };
 
 export type FriendRequestsPageApiV2FriendsRequestsGetResponse = FriendRequestsPageApiV2FriendsRequestsGetResponses[keyof FriendRequestsPageApiV2FriendsRequestsGetResponses];

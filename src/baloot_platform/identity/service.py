@@ -191,7 +191,7 @@ class IdentityService:
     ) -> dict[str, Any]:
         page = self._page(
             partial(self.store.search_subjects, maximum_results=maximum_results), query,
-            operation="search", keys=("subject_id",), limit=limit, cursor=cursor,
+            operation="search", keys=("search_rank", "subject_id"), limit=limit, cursor=cursor,
         )
         page["items"] = [self._identity(row).to_dict() for row in page["items"]]
         return page

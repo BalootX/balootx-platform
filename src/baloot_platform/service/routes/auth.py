@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from functools import partial
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
@@ -42,8 +42,33 @@ class FriendResponseBody(BaseModel):
     accept: bool = True
 
 
+class IdentityItem(BaseModel):
+    subjectId: str
+    kind: str
+    displayName: str
+    username: str | None
+    authenticated: bool
+    guest: bool
+    createdAt: str | None
+
+
+class PendingRequestItem(BaseModel):
+    requestId: str = Field(validation_alias="request_id")
+    senderId: str = Field(validation_alias="sender_id")
+    recipientId: str = Field(validation_alias="recipient_id")
+    status: Literal["pending"]
+    createdAt: str = Field(validation_alias="created_at")
+    senderDisplayName: str = Field(validation_alias="sender_display_name")
+    senderUsername: str | None = Field(validation_alias="sender_username")
+
+
 class IdentityPage(BaseModel):
-    items: list[dict[str, Any]]
+    items: list[IdentityItem]
+    nextCursor: str | None
+
+
+class PendingRequestPage(BaseModel):
+    items: list[PendingRequestItem]
     nextCursor: str | None
 
 
@@ -180,6 +205,13 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
         identity, _ = require_identity(request, service)
         if identity.is_guest and not pagination.allow_guest_search:
             raise HTTPException(403, "sign in to search for users")
+        maximum = pagination.maximum_search_query_length
+        if len(query) > maximum:
+            raise HTTPException(422, [{
+                "loc": ["query", "query"],
+                "msg": f"search query must contain at most {maximum} characters",
+                "type": "value_error",
+            }])
         query = query.strip()
         minimum = pagination.minimum_search_query_length
         if "\0" in query or len(query) < minimum:
@@ -208,7 +240,7 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
         identity, _ = require_identity(request, service)
         return page(service.friend_page, identity.subject_id, limit, cursor)
 
-    @paged_router.get("/friends/requests", response_model=IdentityPage)
+    @paged_router.get("/friends/requests", response_model=PendingRequestPage)
     def friend_requests_page(
         request: Request, limit: int | None = Query(default=None, ge=1),
         cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),

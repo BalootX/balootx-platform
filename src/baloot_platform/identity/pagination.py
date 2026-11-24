@@ -3,11 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Self
 
-import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from baloot_platform.storage.cursors import decode_cursor_payload, encode_cursor_payload
 
@@ -20,22 +18,17 @@ class IdentityPaginationConfig(BaseModel):
     default_page_size: int = Field(gt=0, strict=True)
     maximum_page_size: int = Field(gt=0, strict=True)
     minimum_search_query_length: int = Field(gt=0, strict=True)
+    maximum_search_query_length: int = Field(gt=0, strict=True)
     maximum_search_results: int = Field(gt=0, strict=True)
     allow_guest_search: bool = Field(default=False, strict=True)
 
     @model_validator(mode="after")
-    def validate_page_sizes(self) -> Self:
+    def validate_bounds(self) -> Self:
         if self.default_page_size > self.maximum_page_size:
             raise ValueError("default_page_size must not exceed maximum_page_size")
+        if self.minimum_search_query_length > self.maximum_search_query_length:
+            raise ValueError("minimum_search_query_length must not exceed maximum_search_query_length")
         return self
-
-    @classmethod
-    def load(cls, root: Path) -> Self:
-        path = root / "configs/identity/pagination_v1.yaml"
-        try:
-            return cls.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
-        except (ValidationError, yaml.YAMLError) as exc:
-            raise ValueError(f"invalid pagination_v1.yaml: {exc}") from exc
 
 
 class InvalidIdentityCursor(ValueError):

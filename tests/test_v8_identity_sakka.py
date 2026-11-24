@@ -25,7 +25,7 @@ from baloot_platform.identity.pagination import (
 from baloot_platform.learning.store import LearningStore
 from baloot_platform.sakka import SakkaService, SQLiteSakkaStore
 from baloot_platform.service.game import GameManager
-from baloot_platform.service.routes.auth import build_auth_router
+from baloot_platform.service.routes.auth import PendingRequestItem, build_auth_router
 from baloot_platform.storage.game_store import SQLiteGameStore
 
 
@@ -61,10 +61,16 @@ def test_identity_cursor_round_trips_and_rejects_another_scope(subject_id: str):
 
 
 def test_identity_pagination_configuration_is_validated(root):
-    assert IdentityPaginationConfig.load(root).maximum_page_size > 0
+    from baloot_platform.config import load_profile_payload, validate_profile_payload
+
+    path = root / "configs/identity/optional_simple_v1.yaml"
+    profile = load_profile_payload("identity", path, root=root)
+    settings = profile["pagination"]
     with pytest.raises(ValueError, match="must not exceed"):
-        IdentityPaginationConfig(default_page_size=2, maximum_page_size=1,
-                                 minimum_search_query_length=3, maximum_search_results=64)
+        validate_profile_payload(
+            "identity", {**profile, "pagination": {**settings, "default_page_size": settings["maximum_page_size"] + 1}},
+            root=root,
+        )
 
 
 def test_python_sdk_forwards_identity_pagination_options():
@@ -108,7 +114,7 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
     started = "2026-01-01T00:00:00+00:00"
     newer = "2026-01-02T00:00:00+00:00"
     request_keys = [(newer if index % 2 else started, f"REQ-{index:04}") for index in range(len(candidates))]
-    migration = "031_identity_list_pagination.sql"
+    migrations = {"031_identity_list_pagination.sql", "032_identity_pending_requests_index.sql"}
 
     def migrate(source_root):
         from scripts.migrate_postgres import main
@@ -123,14 +129,14 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
         "list_friend_requests": "idx_identity_pending_requests",
     }
     subject_rows = [(subject, "local" if index % 2 else "guest", None,
-                     "Page Fixture A" if index % 2 else "Page Fixture Z", started, None)
+                     "Page-Fixture A" if index % 2 else "Page-Fixture Z", started, None)
                     for index, subject in enumerate(candidates)]
     subject_rows.extend((subject, "local", None, "Background Fixture", started, None) for subject in unrelated)
     subject_rows.extend([
         (owner, "service", None, "Owner Fixture", started, None),
         (legacy, "service", None, "Legacy Fixture", started, None),
-        ("SUB-DISABLED", "local", None, "Page Fixture", started, started),
-        ("SUB-USERNAME", "local", "page fixture", "Username Fixture", started, None),
+        ("SUB-DISABLED", "local", None, "Page-Fixture", started, started),
+        ("SUB-USERNAME", "local", "page-fixture", "Username Fixture", started, None),
         ("SUB-LITERAL", "local", None, "Literal %_! token", started, None),
         ("SUB-SIMILAR", "local", None, "Literal AB! token", started, None),
     ])
@@ -151,17 +157,17 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
             baseline_migrations = baseline_root / "migrations"
             baseline_migrations.mkdir(parents=True)
             for path in (root / "migrations").glob("*.sql"):
-                if path.name != migration:
+                if path.name not in migrations:
                     shutil.copyfile(path, baseline_migrations / path.name)
             migrate(baseline_root)
 
         p = store.placeholder
         with connect() as conn, closing(conn.cursor()) as cursor:
             if postgres:
-                collation = cursor.execute(
-                    "SELECT datcollate FROM pg_database WHERE datname = current_database()"
-                ).fetchone()[0]
-                assert collation.lower().startswith("en_us")
+                provider, locale = cursor.execute(
+                    "SELECT datlocprovider,datlocale FROM pg_database WHERE datname = current_database()"
+                ).fetchone()
+                assert provider == "i" and locale == "en-US"
             else:
                 for index in indexes.values():
                     cursor.execute(f"DROP INDEX {index}")
@@ -182,7 +188,7 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
             cursor.execute("ANALYZE")
 
         operations = (
-            (store.search_subjects, "Fixture", (candidates[39],), {"maximum_results": 64}),
+            (store.search_subjects, "Fixture", ("1", candidates[39]), {"maximum_results": 64}),
             (store.list_friends, owner, (candidates[119],), {}),
             (store.list_friend_requests, owner, (newer, request_keys[119][1]), {}),
         )
@@ -215,10 +221,22 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
         try:
             plans("baseline")
             if postgres:
+                import psycopg
+
+                with psycopg.connect(dsn, autocommit=True) as conn:
+                    with pytest.raises(psycopg.errors.UniqueViolation):
+                        conn.execute(
+                            "CREATE UNIQUE INDEX CONCURRENTLY idx_identity_pending_requests "
+                            "ON identity.friend_requests(recipient_id)"
+                        )
                 migrate(root)
                 migrate(root)
                 with connect() as conn:
                     conn.execute("ANALYZE")
+                timestamp_row = store._read_page_rows(
+                    "SELECT %s::timestamptz AS created_at, %s::timestamp AS observed_at", (started, newer)
+                )
+                assert timestamp_row == [{"created_at": started, "observed_at": newer}]
             else:
                 SQLiteIdentityStore(database)
                 with connect() as conn:
@@ -236,7 +254,7 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
             ))
             pagination = IdentityPaginationConfig(
                 default_page_size=13, maximum_page_size=21,
-                minimum_search_query_length=3, maximum_search_results=64,
+                minimum_search_query_length=3, maximum_search_query_length=20, maximum_search_results=64,
             )
             app = FastAPI()
             app.include_router(build_auth_router(service, pagination=pagination))
@@ -269,18 +287,18 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 friends_path = "/api/v2/friends"
                 requests_path = "/api/v2/friends/requests"
                 assert client.get(friends_path).status_code == 401
-                assert client.get(search_path, params={"query": "Page Fixture"}).status_code == 401
+                assert client.get(search_path, params={"query": "Page-Fixture"}).status_code == 401
 
                 client.headers["Authorization"] = "Bearer fixture-guest"
                 assert client.get(friends_path).status_code == 200
-                assert client.get(search_path, params={"query": "Page Fixture"}).status_code == 403
+                assert client.get(search_path, params={"query": "Page-Fixture"}).status_code == 403
                 guest_app = FastAPI()
                 guest_app.include_router(build_auth_router(
                     service, pagination=pagination.model_copy(update={"allow_guest_search": True}),
                 ))
                 with TestClient(guest_app) as guest_client:
                     guest_search = guest_client.get(
-                        search_path, params={"query": "Page Fixture"}, headers=client.headers,
+                        search_path, params={"query": "Page-Fixture"}, headers=client.headers,
                     )
                     assert guest_search.status_code == 200
                     assert len(guest_search.json()["items"]) == pagination.default_page_size
@@ -295,17 +313,21 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 names = [row["displayName"] for row in legacy_friends["items"]]
                 assert names == sorted(names)
 
-                pending, request_cursor = collect(requests_path, "request_id")
+                pending, request_cursor = collect(requests_path, "requestId")
                 assert pending == [key for _, key in sorted(request_keys, reverse=True)]
                 request_item = client.get(requests_path, params={"limit": 1}).json()["items"][0]
                 request_keys_expected = {
+                    "requestId", "senderId", "recipientId", "status", "createdAt",
+                    "senderDisplayName", "senderUsername",
+                }
+                legacy_keys_expected = {
                     "request_id", "sender_id", "recipient_id", "status", "created_at",
                     "sender_display_name", "sender_username",
                 }
                 assert set(request_item) == request_keys_expected
                 unpaged_requests = client.get("/api/v1/friends/requests").json()["items"]
                 assert len(unpaged_requests) == len(request_keys)
-                assert all(set(item) == request_keys_expected for item in unpaged_requests)
+                assert all(set(item) == legacy_keys_expected for item in unpaged_requests)
                 if postgres:
                     sqlite_store = SQLiteIdentityStore(database)
                     for subject_id in (candidates[0], owner):
@@ -316,17 +338,18 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                     sqlite_store.create_friend_request(
                         request_id=request_keys[0][1], sender_id=candidates[0], recipient_id=owner, created_at=started,
                     )
-                    assert set(sqlite_store.list_friend_requests(owner, limit=1)[0]) == set(request_item)
+                    sqlite_item = sqlite_store.list_friend_requests(owner, limit=1)[0]
+                    assert set(PendingRequestItem.model_validate(sqlite_item).model_dump()) == set(request_item)
 
-                users, search_cursor = collect(search_path, "subjectId", query="Page Fixture")
-                assert users == candidates[:64]
+                users, search_cursor = collect(search_path, "subjectId", query="Page-Fixture")
+                assert users == ["SUB-USERNAME", *candidates[:63]]
                 literal = client.get(search_path, params={"query": "Literal %_!"}).json()
                 assert [row["subjectId"] for row in literal["items"]] == ["SUB-LITERAL"]
                 assert client.get(search_path, params={"query": "Absent"}).json() == {
                     "items": [], "nextCursor": None,
                 }
-                outside_cap = encode_cursor(cursor_scope("search", "Page Fixture"), (candidates[100],))
-                assert client.get(search_path, params={"query": "Page Fixture", "cursor": outside_cap}).json() == {
+                outside_cap = encode_cursor(cursor_scope("search", "Page-Fixture"), ("1", candidates[100]))
+                assert client.get(search_path, params={"query": "Page-Fixture", "cursor": outside_cap}).json() == {
                     "items": [], "nextCursor": None,
                 }
                 wildcard_only = client.get(search_path, params={"query": "%__%"})
@@ -336,13 +359,16 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                     rejection = client.get(search_path, params={"query": invalid})
                     assert rejection.status_code == 422
                     assert "at least 3 characters" in rejection.json()["detail"][0]["msg"]
+                oversized = client.get(search_path, params={"query": "x" * 21})
+                assert oversized.status_code == 422
+                assert "at most 20 characters" in oversized.json()["detail"][0]["msg"]
                 assert client.get(search_path, params={"query": "Changed", "cursor": search_cursor}).status_code == 422
                 assert client.get(friends_path, params={"limit": 0}).status_code == 422
                 for bad in ("", "@invalid", request_cursor, "A" * 2_049):
                     assert client.get(friends_path, params={"cursor": bad}).status_code == 422
 
                 client.headers["Authorization"] = "Bearer fixture-other"
-                assert client.get(search_path, params={"query": "Page Fixture"}).status_code == 200
+                assert client.get(search_path, params={"query": "Page-Fixture"}).status_code == 200
                 assert client.get(friends_path, params={"cursor": friend_cursor}).status_code == 422
                 assert client.get(friends_path).json() == {"items": [], "nextCursor": None}
 

@@ -104,7 +104,7 @@ def scoped_plan(paths: set[str]) -> dict | None:
             foundry = True
             tests.update(FOUNDRY_TESTS)
         elif ((path.startswith("sdk/go/") and path.endswith(".go"))
-              or (path.startswith("sdk/typescript/src/") and path.endswith(".ts"))):
+              or (path.startswith("sdk/typescript/src/") and path.endswith((".ts", ".test.mjs")))):
             sdk = True
             tests.update(SDK_TESTS)
         elif (re.fullmatch(r"tests/test_[a-zA-Z0-9_]+\.py", path)

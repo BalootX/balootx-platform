@@ -4,8 +4,26 @@ export interface IdentityPageOptions {
   cursor?: string;
   limit?: number;
 }
-export interface IdentityPage {
-  items: ObjectJson[];
+export interface IdentityItem {
+  subjectId: string;
+  kind: string;
+  displayName: string;
+  username: string|null;
+  authenticated: boolean;
+  guest: boolean;
+  createdAt: string|null;
+}
+export interface PendingRequestItem {
+  requestId: string;
+  senderId: string;
+  recipientId: string;
+  status: 'pending';
+  createdAt: string;
+  senderDisplayName: string;
+  senderUsername: string|null;
+}
+export interface IdentityPage<Item=IdentityItem> {
+  items: Item[];
   nextCursor: string|null;
 }
 export interface ResearchRenderPrepareRequest {
@@ -97,13 +115,13 @@ export class BalootClient {
   friendsPage(options:IdentityPageOptions={}):Promise<IdentityPage>{
     return this.identityPage('/api/v2/friends',options);
   }
-  friendRequests(options:IdentityPageOptions={}):Promise<IdentityPage>{
+  friendRequests(options:IdentityPageOptions={}):Promise<IdentityPage<PendingRequestItem>>{
     return this.identityPage('/api/v2/friends/requests',options);
   }
   searchUsers(query:string,options:IdentityPageOptions={}):Promise<IdentityPage>{
     return this.identityPage('/api/v1/users:search',options,new URLSearchParams({query}));
   }
-  private identityPage(path:string,{cursor,limit}:IdentityPageOptions,params=new URLSearchParams()):Promise<IdentityPage>{
+  private identityPage<Item=IdentityItem>(path:string,{cursor,limit}:IdentityPageOptions,params=new URLSearchParams()):Promise<IdentityPage<Item>>{
     if(cursor!==undefined)params.set('cursor',cursor);
     if(limit!==undefined)params.set('limit',String(limit));
     const query=params.toString();

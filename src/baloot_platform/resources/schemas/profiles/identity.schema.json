@@ -94,6 +94,9 @@
     "mode": {
       "type": "string"
     },
+    "pagination": {
+      "type": "object"
+    },
     "profile": {
       "additionalProperties": false,
       "properties": {

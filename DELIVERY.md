@@ -18,7 +18,7 @@ The required **ci-gate** check compares the producer results to the plan and fai
 
 The `docker-constraints` job dry-runs pip with the Python base image, exact constraints and extras shared by the Docker test and verifier stages. It runs when its Docker, dependency or CI inputs change on a PR, when CI cannot resolve the diff, and on main and merge groups.
 
-The full profile includes `identity-postgres`, which applies and replays the migrations in an isolated PostgreSQL instance using the driver versions in [the Docker constraints](requirements-docker.txt). It verifies paging and query plans with a non-C collation. The [identity migration notes](docs/IDENTITY_PAGINATION.md#migration-notes) cover deployment and reversal.
+The full profile includes `identity-postgres`, which applies and replays the migrations using the [PostgreSQL proof's pinned image](scripts/verify_live_postgres_research.py) and the driver versions in [the Docker constraints](requirements-docker.txt). It verifies paging and query plans with an ICU collation. The [identity migration notes](docs/IDENTITY_PAGINATION.md#migration-notes) cover deployment and reversal.
 
 The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples.
 

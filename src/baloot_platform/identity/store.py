@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from datetime import timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,17 +24,25 @@ class _IdentityLists:
     ) -> list[dict[str, Any]]:
         needle = "%" + query.translate(str.maketrans({"!": "!!", "%": "!%", "_": "!_"})) + "%"
         p = self.placeholder
-        seek = f"WHERE subject_id>{p}" if after else ""
+        fields = "subject_id,kind,username,display_name,created_at"
+        seek = f"WHERE (search_rank,subject_id)>({p},{p})" if after else ""
         # Cap the candidate set before applying the cursor, including for a forged anchor.
         return self._read_page_rows(
-            f"""SELECT * FROM (
-                  SELECT subject_id,kind,username,display_name,created_at
+            f"""WITH exact AS (
+                  SELECT '0' AS search_rank,{fields} FROM {self.subjects}
+                  WHERE disabled_at IS NULL AND username IN ({p},{p})
+                  ORDER BY subject_id LIMIT 1
+                ), matches AS (
+                  SELECT '1' AS search_rank,{fields}
                   FROM {self.subjects}
                   WHERE disabled_at IS NULL AND
                     (display_name {self.like} {p} ESCAPE '!' OR username {self.like} {p} ESCAPE '!')
-                  ORDER BY subject_id LIMIT {p}
-                ) AS candidates {seek} ORDER BY subject_id LIMIT {p}""",
-            (needle, needle, maximum_results, *after, limit),
+                    AND subject_id NOT IN (SELECT subject_id FROM exact)
+                  ORDER BY subject_id LIMIT ({p} - (SELECT count(*) FROM exact))
+                )
+                SELECT * FROM (SELECT * FROM exact UNION ALL SELECT * FROM matches) AS candidates
+                {seek} ORDER BY search_rank,subject_id LIMIT {p}""",
+            (query, query.lower(), needle, needle, maximum_results, *after, limit),
         )
 
     def _friend_neighbors(
@@ -368,8 +376,11 @@ class PostgresIdentityStore(_IdentityLists):
             with conn.cursor(row_factory=dict_row) as cursor:
                 rows = cursor.execute(sql, params).fetchall()
         for row in rows:
-            if "created_at" in row:
-                row["created_at"] = row["created_at"].astimezone(timezone.utc).isoformat()
+            for column, value in row.items():
+                if isinstance(value, datetime):
+                    if value.tzinfo is None:
+                        value = value.replace(tzinfo=timezone.utc)
+                    row[column] = value.astimezone(timezone.utc).isoformat()
         return rows
 
     def upgrade_guest(self, *, subject_id: str, username: str, display_name: str,
