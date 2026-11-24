@@ -42,7 +42,7 @@ Run the Python commands at the repository root and npm commands in the named pac
 | Fast test | `python -m pytest -q tests/test_ci_hosted_contract.py tests/test_repository_structure.py tests/test_media_render_artifact.py` |
 | Full test | Use the hosted full profile in [DELIVERY.md](DELIVERY.md#ci). |
 | Build | Python `python -m pip wheel --no-deps .`. Foundry `npm run build`. |
-| Run on a development host | `uvicorn baloot_platform.service.api:app --host 127.0.0.1 --port 8080`. Open `/foundry` after building the dashboard. |
+| Run on a development host | Set `BALOOT_HOST=127.0.0.1` and run `baloot-api`. Open `/foundry` after building the dashboard. |
 
 ## Coding rules
 
@@ -51,7 +51,7 @@ Run the Python commands at the repository root and npm commands in the named pac
 - Validate API, import and configuration inputs at entry and explain rejected values. Version APIs used by independently deployed clients. Keep client-facing API versions and the previous release's schema working during rollouts. Keep applied migrations immutable. Add a forward migration for schema corrections. Ship destructive cleanup separately after callers have moved.
 - Check actor, role and ownership on the server before serving protected data or mutating it. Reject access unless explicitly allowed, and test allowed and denied requests for each affected role.
 - Store instants in UTC and local schedules with their named time zone. Give background jobs and message handlers a dedupe key. Set deadlines and bounded backoff for outbound calls. Reconcile an uncertain external write before another attempt.
-- Use structured logs with a request or trace ID. Log BalootX IDs for players, reviewers and stored records. Keep names and record contents out of logs. Return safe errors with a next step. Page growing lists and check database query plans for indexing and per-row lookups.
+- Use structured logs with a request or trace ID. The API generates its own `x-request-id` and records the transport and outcome. Worker result events identify jobs by BalootX ID. Use the service entry points for these logs. Keep names, network addresses, raw request targets, credentials and record contents out of logs. Return safe errors with a next step. Page growing lists and check database query plans for indexing and per-row lookups.
 - Use the [design contract](DESIGN.md) for UI changes. Preserve Arabic and right-to-left layout, source visible copy from translations, and verify the changed flows against WCAG 2.2 AA.
 - Preserve the public rules and replay contracts at their owning source. Update generated views and packaged copies from that source. Use `python scripts/sync_package_resources.py` after changing mirrored resources and `python scripts/generate_openapi.py --check` to check the OpenAPI output.
 - Treat a valid replay, a bounded result and an exact proof as separate evidence. Preserve a result's scope and budget when exposing it through the API, UI or render bundle.

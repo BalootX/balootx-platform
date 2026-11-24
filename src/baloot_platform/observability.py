@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import contextlib
+import json
+import logging
 import os
 import time
+import uuid
 from dataclasses import dataclass, field
 from threading import RLock
-from typing import Any, Iterator, Mapping, MutableMapping
+from typing import Any, Callable, Iterator, Mapping, MutableMapping
 
 from baloot_platform.version import __version__
 
@@ -22,6 +25,58 @@ SEMANTIC_ATTRIBUTES = {
 }
 
 _FORBIDDEN_ATTRIBUTE_PARTS = {"hand", "hands", "cards", "hidden", "private", "password", "token", "secret", "voice"}
+EVENT_LOGGER = logging.getLogger("baloot_platform.events")
+
+
+def configure_event_logging() -> None:
+    if not EVENT_LOGGER.handlers:
+        EVENT_LOGGER.addHandler(logging.StreamHandler())
+    EVENT_LOGGER.setLevel(logging.INFO)
+    EVENT_LOGGER.propagate = False
+
+
+def log_event(event: str, *, level: int = logging.INFO, **fields: str | int | None) -> None:
+    EVENT_LOGGER.log(level, json.dumps({"event": event, **fields}))
+
+
+def log_worker_result(worker: str, job_id: str | None, status: str) -> None:
+    log_event(
+        "worker.job_result",
+        level=logging.ERROR if status == "failed" else logging.INFO,
+        trace_id=uuid.uuid4().hex,
+        worker=worker,
+        job_id=job_id,
+        status=status,
+    )
+
+
+def run_worker(worker: str, run: Callable[[], None]) -> None:
+    configure_event_logging()
+    try:
+        run()
+    except Exception as exc:
+        log_event(
+            "worker.failed",
+            level=logging.ERROR,
+            trace_id=uuid.uuid4().hex,
+            worker=worker,
+            error_type=type(exc).__name__,
+        )
+        raise SystemExit(1) from None
+
+
+class ServerDiagnosticFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        # Transport diagnostics may contain request values in both arguments and exceptions.
+        fields = {
+            "event": "server.diagnostic",
+            "trace_id": uuid.uuid4().hex,
+            "level": record.levelname,
+            "source": f"{record.module}.{record.funcName}:{record.lineno}",
+        }
+        if record.exc_info and record.exc_info[0]:
+            fields["error_type"] = record.exc_info[0].__name__
+        return json.dumps(fields)
 
 
 @dataclass(slots=True)

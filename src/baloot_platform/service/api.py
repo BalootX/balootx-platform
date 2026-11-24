@@ -6,6 +6,7 @@ import hashlib
 import math
 import hmac
 import json
+import logging
 import os
 import re
 import subprocess
@@ -45,6 +46,8 @@ from pydantic import (
     model_serializer,
 )
 from pydantic.json_schema import SkipJsonSchema
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from baloot_platform.config import build_bundle, profile_bundle_from_resolved
 from baloot_platform.guide import build_engine_guide
@@ -61,7 +64,12 @@ from baloot_platform.research.family_catalog import (
     tag_query_schema_v1,
 )
 from baloot_platform.adjudication.research import AuthoredAdjudicationEventV1
-from baloot_platform.observability import TELEMETRY
+from baloot_platform.observability import (
+    TELEMETRY,
+    ServerDiagnosticFormatter,
+    configure_event_logging,
+    log_event,
+)
 from baloot_platform.challenge.miner import MiningRequest
 from baloot_platform.challenge.campaign import (
     SimulationCampaignSpecV1,
@@ -325,6 +333,54 @@ _METRIC_LOCK = threading.RLock()
 _METRICS: dict[tuple[str, str, int], int] = defaultdict(int)
 
 
+class RequestLoggingMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        transport = scope["type"]
+        if transport not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+        request_id = uuid.uuid4().hex
+        scope.setdefault("state", {})["request_id"] = request_id
+        responded = False
+
+        async def send_with_request_event(message: Message) -> None:
+            nonlocal responded
+            status = None
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)["x-request-id"] = request_id
+                status = message["status"]
+            elif message["type"] == "websocket.http.response.start":
+                status = message["status"]
+            elif message["type"] == "websocket.accept":
+                status = 101
+            elif message["type"] == "websocket.close" and not responded:
+                status = 403
+            await send(message)
+            if status is not None:
+                responded = True
+                log_event(
+                    "request.response",
+                    request_id=request_id,
+                    transport=transport,
+                    status_code=status,
+                )
+
+        try:
+            await self.app(scope, receive, send_with_request_event)
+        except Exception as exc:
+            log_event(
+                "request.failed",
+                level=logging.ERROR,
+                request_id=request_id,
+                transport=transport,
+                error_type=type(exc).__name__,
+            )
+            raise
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     initialize_service_subject_ownership()
@@ -356,6 +412,15 @@ app = FastAPI(
 @app.exception_handler(SearchTimeBudgetExceeded)
 async def search_time_budget_exceeded(_request: Request, exc: SearchTimeBudgetExceeded):
     return JSONResponse(status_code=409, content={"detail": exc.to_detail()})
+
+
+@app.exception_handler(500)
+async def internal_server_error(request: Request, _exc: Exception):
+    return PlainTextResponse(
+        "Internal Server Error",
+        status_code=500,
+        headers={"x-request-id": request.state.request_id},
+    )
 
 
 app.state.identity_service = IDENTITY
@@ -681,7 +746,7 @@ def _rate_allowed(request: Request) -> tuple[bool, int]:
 
 @app.middleware("http")
 async def platform_security(request: Request, call_next):
-    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    request_id = request.state.request_id
     maximum = int(os.environ.get("BALOOT_MAX_BODY_BYTES", "2097152"))
     length = request.headers.get("content-length")
     try:
@@ -793,7 +858,6 @@ async def platform_security(request: Request, call_next):
         _METRICS[(request.method, request.url.path, response.status_code)] += 1
         # Keep a coarse latency sum in integer microseconds without another dependency.
         _METRICS[("LATENCY_US", request.url.path, 0)] += int(elapsed * 1_000_000)
-    response.headers["x-request-id"] = request_id
     response.headers["x-content-type-options"] = "nosniff"
     response.headers["x-frame-options"] = "DENY"
     response.headers["referrer-policy"] = "no-referrer"
@@ -802,6 +866,9 @@ async def platform_security(request: Request, call_next):
         "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
     )
     return response
+
+
+app.add_middleware(RequestLoggingMiddleware)
 
 
 class VideoJobRequest(BaseModel):
@@ -6766,7 +6833,7 @@ def _execute_job(
     store: Any = None,
     outputs: Path | None = None,
     registry: PluginRegistry | None = None,
-) -> None:
+) -> str:
     store = store or STORE
     outputs = outputs or OUTPUTS
     registry = registry or REGISTRY
@@ -6894,9 +6961,11 @@ def _execute_job(
             "videoRecords": [item.get("videoId") for item in video_records],
         }
         store.update(job_id, status="completed", progress=1.0, result=result)
+        return "completed"
     except InterruptedError:
         if not store.cancelled(job_id):
             store.update(job_id, status="cancelled", progress=1.0, error="cancelled")
+        return "cancelled"
     except Exception as exc:
         store.update(
             job_id,
@@ -6904,6 +6973,7 @@ def _execute_job(
             progress=1.0,
             error=f"{exc}\n{traceback.format_exc(limit=5)}",
         )
+        return "failed"
 
 
 def _execute_challenge_job(job_id: str, request_data: dict[str, Any]) -> None:
@@ -11163,9 +11233,16 @@ def render_challenge(challenge_id: str, request: ChallengeRenderRequest):
 
 
 def main() -> None:
+    configure_event_logging()
+    log_config = copy.deepcopy(uvicorn.config.LOGGING_CONFIG)
+    log_config["formatters"]["default"] = {"()": ServerDiagnosticFormatter}
     uvicorn.run(
         "baloot_platform.service.api:app",
         host=os.environ.get("BALOOT_HOST", "0.0.0.0"),
         port=int(os.environ.get("BALOOT_PORT", "8080")),
         reload=False,
+        access_log=False,
+        # Uvicorn sends its WebSocket access lines through the error logger.
+        log_level="warning",
+        log_config=log_config,
     )
