@@ -404,8 +404,7 @@
               {
                 "type": "null"
               }
-            ],
-            "default": null
+            ]
           },
           "mode": {
             "default": "full",
@@ -1499,8 +1498,7 @@
               {
                 "type": "null"
               }
-            ],
-            "default": null
+            ]
           },
           "mode": {
             "title": "Mode",
@@ -8413,8 +8411,7 @@
               {
                 "type": "null"
               }
-            ],
-            "default": null
+            ]
           },
           "payload": {
             "additionalProperties": true,

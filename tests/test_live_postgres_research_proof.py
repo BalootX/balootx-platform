@@ -1356,6 +1356,12 @@ def _install_full_wiring_fixture(
         "_prove_configuration_v25_schema",
         lambda _url: {"contractSha256": "c" * 64},
     )
+
+    def prove_configuration_schedule(store, components):
+        assert store is configuration_store
+        assert components == resolved["bundle"]["componentRevisions"]
+
+    monkeypatch.setattr(proof, "_prove_configuration_schedule", prove_configuration_schedule)
     immutable_calls: list[tuple[str, str]] = []
     monkeypatch.setattr(
         proof,
@@ -1484,6 +1490,7 @@ def test_full_wiring_proves_postgres_configuration_authority_and_cleanup(
         "postgresResearchStore": True,
         "postgresConfigurationStore": True,
         "configurationServiceRlsContext": True,
+        "configurationLocalScheduleRoundTrip": True,
         "packagedBundleResolved": True,
         "activeBundleRevisionId": "CBR-LIVE-PROOF",
         "packagedBundleSha256": fixture["packagedSha256"],
