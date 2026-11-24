@@ -311,7 +311,9 @@ test("answer-only reveal keeps the choice box and viewer pill clear of the raise
   const badgeH = 2 * border + px(".reason-band", "height") + bodyTop + bodyBottom + px(".pick", "height");
   const handLift = px(".observer-hand", "--hand-lift");
   const cardH = px(".observer-hand", "--hand-card-height");
-  const handTop = 1920 - px(".south-stack", "bottom") - px(".observer-hand", "padding-block-end") - cardH;
+  const value = bundle();
+  value.presentation.safe_areas = {bottom_px: 320};
+  const handTop = 1920 - value.presentation.safe_areas.bottom_px - px(".observer-hand", "padding-block-end") - cardH;
   const reservedTilt = Number(rule(".observer-hand:has(.is-recommended)").match(/padding-block-start:\s*calc\(var\(--hand-lift\) \+ (\d+)px\)/)[1]);
   const laneBottom = handTop - handLift - reservedTilt - px(".south-stack", "gap");
   const laneGap = px(".seat-lane", "column-gap");
@@ -320,7 +322,6 @@ test("answer-only reveal keeps the choice box and viewer pill clear of the raise
   assert.ok(laneGap >= MIN_GAP, `lane column gap ${laneGap}`);
   const cardW = px(".observer-hand .card", "width");
 
-  const value = bundle();
   // The geometry case models the production answer-only reveal layout.
   value.presentation.presentation.show_justification_text = false;
   value.identity.players.south = "South Example";
@@ -329,7 +330,7 @@ test("answer-only reveal keeps the choice box and viewer pill clear of the raise
   for (const code of ["CA", "C9", "SJ", "H7", "HA"]) {
     value.scenes = [value.scenes[0], question, {...question, stage: "reveal", layers: [...question.layers, {id: "analysis", content: {selectedAction: code}}]}];
     const html = render(value, "reveal");
-    assert.match(html, /class="south-stack"[^>]*><div class="seat-lane lane-south"[^>]*>.*?<div class="viewer-identity"[^>]*>.*?<div class="lane-side lane-end"><section class="reveal-reason" data-selected-action/, code);
+    assert.match(html, /class="south-stack" style="bottom:320px"><div class="seat-lane lane-south"[^>]*>.*?<div class="viewer-identity"[^>]*>.*?<div class="lane-side lane-end"><section class="reveal-reason" data-selected-action/, code);
     assert.equal((html.match(/class="reveal-reason"/g) ?? []).length, 1);
     const style = html.match(/<img class="card [^"]*is-recommended[^"]*"[^>]*style="([^"]*)"/)?.[1];
     assert.ok(style, `raised card for ${code}`);
@@ -404,7 +405,7 @@ test("the calibration table qualifies exact red notice checkpoints and excludes 
       promptPill: reveal ? [] : [rect(400, 280, 200, 100)],
       namePills: [rect(40, 400, 100, 40), name, rect(900, 400, 100, 40), ...(reveal ? [rect(750, 400, 100, 40)] : [])],
       buyerBadge: [rect(200, 452, 168, 75)],
-      dealerBadge: [rect(150, 500, 100, 40)],
+      dealerBadge: [rect(150, 540, 100, 40)],
       choiceBox: reveal ? [rect(400, 630, 200, 60)] : [],
       researchNotice: [rect(40, 40, 1000, 116)],
       broadcastHud: [rect(40, 175, 1000, 50)],

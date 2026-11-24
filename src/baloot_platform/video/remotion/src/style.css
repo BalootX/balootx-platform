@@ -630,7 +630,6 @@
   position: absolute;
   z-index: 55;
   right: 0;
-  bottom: 300px;
   left: 0;
   display: grid;
   gap: 12px;
@@ -704,6 +703,16 @@
 
 .tag.buyer {
   background: var(--mj-team-us);
+}
+
+:is(.row-west, .row-east) .tag.buyer {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.tag.buyer .pcard {
+  flex: none;
 }
 
 .tag.dealer {

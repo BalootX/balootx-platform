@@ -23,16 +23,19 @@ const cases = [
   {name: "west-buyer", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26},
   {name: "viewer-buyer", observer: "south", buyer: "south", dealer: "east", contract: "sun", pause: 26, allPhases: true},
   {name: "wide-west-buyer", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26, wideName: true},
+  {name: "uncalibrated-prompt-hud-contact", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26, reject: true},
 ];
 
 try {
   if (screenshotDir) mkdirSync(screenshotDir, {recursive: true});
-  for (const {name, observer, buyer, dealer, contract, pause, allPhases, wideName} of cases) {
+  for (const {name, observer, buyer, dealer, contract, pause, allPhases, wideName, reject} of cases) {
     const {bundleSha256: _, ...fixture} = structuredClone(prototype);
     fixture.observerSeat = observer;
     fixture.identity.players = {north: "Zayd", west: wideName ? "Alexandria Example" : "Khalid", south: "Omar", east: "Salem"};
     fixture.presentation.majlis.research_notice = true;
     fixture.presentation.presentation.show_justification_text = false;
+    // Lift the synthetic south stack until the rendered prompt intersects the HUD.
+    if (reject) fixture.presentation.safe_areas.bottom_px = 1310;
     fixture.audioCues = [];
     fixture.scenes.forEach(scene => { scene.observer = observer; });
     const turnOrder = seats.map((_, index) => seats[(seats.indexOf(observer) + index + 1) % seats.length]);
@@ -63,12 +66,12 @@ try {
     const result = spawnSync(process.execPath, ["scripts/render-decision-clip.mjs", "--check-hook", input, output], {
       encoding: "utf8", timeout: 120_000,
     });
-    assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+    assert.equal(result.status, reject ? 1 : 0, result.error?.message ?? result.stderr);
     assert.deepEqual(readdirSync(output).sort(), ["hook-layout-evidence.json", "layout-hook.png", "layout-table.json"]);
     const report = JSON.parse(readFileSync(path.join(output, "hook-layout-evidence.json"), "utf8"));
     assert.equal(report.scope, "hook");
     assert.equal(report.postingAuthorized, false);
-    assert.equal(report.status, "stills_passed");
+    assert.equal(report.status, reject ? "failed" : "stills_passed");
     assert.equal(report.binding.tableSha256, table.tableSha256);
     assert.equal(report.binding.bundleFileSha256, sha256(readFileSync(input)));
     assert.equal(report.items.length, 1);
@@ -76,7 +79,13 @@ try {
     assert.equal(item.phase, "hook");
     assert.equal(item.frame, layoutFrames(fixture)[0].frame);
     assert.equal(item.pngSha256, sha256(readFileSync(path.join(output, "layout-hook.png"))));
-    checkSeatLayout(item, fixture, name);
+    if (reject) {
+      assert.equal(item.validation.status, "failed");
+      assert.ok(item.validation.disallowedIntersections.some(({first, second, width, height}) =>
+        first === "promptPill:0" && second === "broadcastHud:0" && width > 0 && height > 0));
+    } else {
+      checkSeatLayout(item, fixture, name);
+    }
     if (screenshotDir) copyFileSync(path.join(output, "layout-hook.png"), path.join(screenshotDir, `${name}.png`));
     process.stdout.write(`${name}: ${item.validation.status}\n`);
   }

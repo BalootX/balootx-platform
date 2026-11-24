@@ -346,7 +346,10 @@ def test_layout_receipt_binds_raw_mp4_bundle_table_and_checkpoint_bytes(root, tm
     approved = (root / "src/baloot_platform/video/remotion/scripts/approved-layout-adjacencies.json").read_bytes()
     if widened:
         altered = json.loads(approved)
-        altered["rows"][0]["observedMaxWidth"] = 200
+        altered["rows"].append({
+            "phase": "hook", "pair": ["promptPill:0", "broadcastHud:0"],
+            "observedMaxWidth": 200, "observedMaxHeight": 5, "marginEachAxis": 2,
+        })
         approved = json.dumps(altered).encode("utf-8")
     table, table_sha = retain("layout-table.json", approved)
     bundle, bundle_sha = retain("render-bundle.json", b'{"schemaVersion": 1}')

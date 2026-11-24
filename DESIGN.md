@@ -8,7 +8,7 @@
 - The profile flag `majlis.research_notice` enables the one-line Arabic research notice in the red header band and the red session-code box. The [composition](src/baloot_platform/video/remotion/src/professional-prototype.tsx) uses separate graphics for audit media. Keep the on-screen question and the reveal clear of explanatory prose under the profile's presentation contract.
 - Use the `vertical_social_v1` safe area from the [premium profile](configs/video/premium.yaml#L786) for essential text, cards and overlays. Leave the top and bottom overlay space and side gutters available. Decorative elements can extend beyond the content area.
 - Keep the layout table pinned to its SHA-256 in the [layout gate](src/baloot_platform/video/remotion/scripts/layout-gate.mjs). The [approved table](src/baloot_platform/video/remotion/scripts/approved-layout-adjacencies.json) defines the notice height and the measured overlap allowance for each element pair and phase. Recalibrate and review changes to those allowances before adopting them. Measurement renders stay out of release.
-- The side seat tags flow below their name pills, and buyer badges enclose the rotated purchase card. The layout table no longer allows the three west pill and buyer-badge overlaps. The south stack flows up from the hand and reserves room for a raised card on reveal.
+- The side seat tags flow below their name pills. Buyer badges enclose the rotated purchase card and wrap long labels to fit their side row. The layout table no longer allows the three west pill and buyer-badge overlaps. The south stack flows up from the safe-area bottom and reserves room for a raised card on reveal.
 
 ## Foundry dashboard
 
