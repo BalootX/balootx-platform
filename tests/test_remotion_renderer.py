@@ -380,6 +380,11 @@ def test_layout_receipt_binds_raw_mp4_bundle_table_and_checkpoint_bytes(root, tm
         with pytest.raises(ValueError, match="layout table, bundle and rendered MP4|checkpoint binding"):
             read()
         file.write_bytes(original)
+    binding["tableSha256"] = "0" * 64
+    receipt.write_text(json.dumps(evidence), encoding="utf-8")
+    with pytest.raises(ValueError, match="layout table, bundle and rendered MP4"):
+        read()
+    binding["tableSha256"] = table_sha
     binding["mode"] = "measurement"
     receipt.write_text(json.dumps(evidence), encoding="utf-8")
     with pytest.raises(ValueError, match="permanently NEVER_POST"):

@@ -336,6 +336,33 @@ def test_release_evidence_requires_the_pinned_loudness_target(tmp_path, target_f
         assert "release loudness targetLufs must equal -19.4 LUFS" in result["reason"]
 
 
+@pytest.mark.parametrize(
+    ("measurements", "error"),
+    [
+        ({"integratedLufs": -17.89, "truePeakDbtp": -1.5}, "loudness validation failed"),
+        ({"integratedLufs": -20.9, "truePeakDbtp": -1.49}, "loudness validation failed"),
+        ({"integratedLufs": -19.4}, "requires numeric integratedLufs and truePeakDbtp"),
+    ],
+    ids=["integrated", "true-peak", "missing-peak"],
+)
+def test_release_evidence_rejects_invalid_loudness_measurements(tmp_path, measurements, error):
+    relative = "release/media-probe.json"
+    probe = tmp_path / relative
+    probe.parent.mkdir()
+    probe.write_text(
+        json.dumps({
+            "schemaVersion": 2,
+            "status": "passed",
+            "media": [{"loudness": {"targetLufs": -19.4, **measurements}}],
+        }),
+        encoding="utf-8",
+    )
+
+    result = _load()._evidence_artifact(tmp_path, relative)
+    assert result["status"] == "failed"
+    assert error in result["reason"]
+
+
 def test_release_evidence_rejects_present_but_pending_artifact(
     tmp_path: Path,
 ) -> None:

@@ -46,6 +46,27 @@ def test_public_notice_profile_builds_a_qualified_bundle_with_the_exact_notice()
     assert presentation["show_justification"] is presentation["show_justification_text"] is False
 
 
+@pytest.mark.parametrize("override", [None, "BALOOTX_LAYOUT_TABLE", "BALOOTX_LAYOUT_TABLE_SHA256"])
+def test_renderer_rejects_unapproved_layout_table_before_render(
+    root, tmp_path, monkeypatch, approved_layout_bytes, override
+):
+    profile = notice.notice_profile(public=True)
+    rules = notice.RuleBook.load(root / "configs/rules/saudi_common_v1.yaml")
+    bundle = notice.build_notice_bundle(rules, profile)
+    renderer = notice.RemotionProfessionalRenderer(profile, repository_root=root)
+    renderer.renderer_root = tmp_path
+    table = tmp_path / "scripts" / "approved-layout-adjacencies.json"
+    table.parent.mkdir()
+    table.write_bytes(approved_layout_bytes if override else approved_layout_bytes + b"\n")
+    if override:
+        monkeypatch.setenv(override, "unapproved")
+    monkeypatch.setattr(renderer, "_run_renderer", lambda **_: pytest.fail("renderer started"))
+
+    error = "overrides require NEVER_POST" if override else "approved layout table SHA-256 mismatch"
+    with pytest.raises(ValueError, match=error):
+        renderer.execute(bundle, export_preset="decision_clip", output_dir=tmp_path)
+
+
 @pytest.mark.parametrize(("section", "key", "value", "error"), [
     ("majlis", "research_notice", False, "research notice must match"),
     ("localizations", "video.notice.sentence", "هذا الفيديو لأغراض البحث فقط، ويُمنع تداوله.", "sentence hash mismatch"),
@@ -481,22 +502,46 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
         notice._release_layout(manifest, video, bundle.bundle_sha256)
 
 
-@pytest.mark.parametrize("change", ["table", "video"])
-def test_release_layout_rejects_widened_table_or_swapped_final_mp4(tmp_path, approved_layout_bytes, change):
+@pytest.mark.parametrize(
+    ("change", "error"),
+    [
+        ("widened-table", "approved layout table SHA-256"),
+        ("table-file", "release layout evidence SHA-256 mismatch"),
+        ("final-video", "bound to the exact MP4"),
+        ("evidence-table", "checkpoint evidence does not match"),
+        ("evidence-video", "checkpoint evidence does not match"),
+    ],
+)
+def test_release_layout_rejects_mismatched_receipt_pins(tmp_path, approved_layout_bytes, change, error):
     video = tmp_path / "final.mp4"
     video.write_bytes(b"qualified MP4")
     for phase in ("hook", "question", "reveal"):
         (tmp_path / f"{phase}.png").write_bytes(phase.encode("utf-8"))
     files = {}
     table_bytes = approved_layout_bytes
-    if change == "table":
+    if change == "widened-table":
         altered = json.loads(table_bytes)
         altered["rows"][0]["observedMaxWidth"] = 200
         table_bytes = json.dumps(altered).encode("utf-8")
-    manifest = {"files": files, "layoutGeometry": _fake_qualification(video, "bundle-sha", files, table_bytes)}
-    if change == "video":
+    geometry = _fake_qualification(video, "bundle-sha", files, table_bytes)
+    manifest = {"files": files, "layoutGeometry": geometry}
+    if change != "widened-table":
         notice._release_layout(manifest, video, "bundle-sha")
+    if change == "final-video":
         video.write_bytes(b"different final MP4")
-    error = "approved layout table SHA-256" if change == "table" else "bound to the exact MP4"
+    elif change == "table-file":
+        path = tmp_path / files["layoutTable"]["name"]
+        path.write_bytes(approved_layout_bytes + b"\n")
+        files["layoutTable"]["sha256"] = notice._sha256(path)
+    elif change.startswith("evidence-"):
+        path = tmp_path / files["layoutGeometry"]["name"]
+        evidence = json.loads(path.read_bytes())
+        if change == "evidence-table":
+            evidence["binding"]["tableSha256"] = "0" * 64
+        else:
+            evidence["videoSha256"] = "0" * 64
+        path.write_text(json.dumps(evidence), encoding="utf-8")
+        files["layoutGeometry"]["sha256"] = geometry["evidenceSha256"] = notice._sha256(path)
+
     with pytest.raises(ValueError, match=error):
         notice._release_layout(manifest, video, "bundle-sha")
