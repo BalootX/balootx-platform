@@ -1103,7 +1103,8 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
             if (!isFlagship && frame > 0 && index === 0) return null;
             const middle = (hand.length - 1) / 2;
             const offset = index - middle;
-            const spacing = Math.min(102, 720 / Math.max(1, hand.length - 1));
+            // Leave room for both rotated outer edges of a full hand inside the side gutters.
+            const spacing = Math.min(102, 680 / Math.max(1, hand.length - 1));
             const isRecommended = isActorChallenge && recommended?.id === card.id && showReveal;
             return <Card key={card.id} card={card} className={isRecommended ? "is-recommended" : ""} style={{
               transform: `translateX(${offset * spacing}px) rotate(${offset * 1.8}deg) translateY(${isRecommended ? "calc(-1 * var(--hand-lift))" : `${Math.abs(offset) * 4}px`})`,
