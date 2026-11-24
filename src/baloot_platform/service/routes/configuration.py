@@ -3,14 +3,22 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_serializer
 from pydantic.json_schema import SkipJsonSchema
 
 from baloot_platform.configuration import VersionedConfigurationService
+from baloot_platform.configuration.schedule import ConfigurationIntegrityError
 from baloot_platform.identity import IdentityService
 from baloot_platform.security import AuthorizationPolicy, Scope
 
 from .auth import require_identity
+
+
+async def configuration_integrity_response(
+    _request: Request, exc: ConfigurationIntegrityError
+) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
 class LocalSchedule(BaseModel):
@@ -28,9 +36,9 @@ class StoredLocalSchedule(LocalSchedule):
 class ScheduleRequest(BaseModel):
     effectiveFrom: str | None = None
     effectiveUntil: str | None = None
-    localSchedule: LocalSchedule = Field(default=None, validate_default=False)
+    localSchedule: LocalSchedule | None = Field(default=None, validate_default=False)
 
-    @field_validator("localSchedule", mode="before")
+    @field_validator("localSchedule", mode="before", json_schema_input_type=LocalSchedule)
     @classmethod
     def require_schedule_object(cls, value: object) -> object:
         if value is None:
@@ -342,14 +350,6 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(422, str(exc)) from exc
 
-    @router.get("/bundles/{revision_id}")
-    def get_bundle(revision_id: str, request: Request):
-        require_identity(request, identities)
-        value = service.store.get_bundle(revision_id)
-        if value is None:
-            raise HTTPException(404, "configuration bundle revision not found")
-        return value.to_dict()
-
     @router.post("/bundles/{revision_id}:compile")
     def compile_bundle(revision_id: str, request: Request):
         require_identity(request, identities)
@@ -453,6 +453,14 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         if service.store.get_bundle(revision_id) is None:
             raise HTTPException(404, "configuration bundle revision not found")
         return service.store.events_with_verification("bundle", revision_id)
+
+    @router.get("/bundles/{revision_id}")
+    def get_bundle(revision_id: str, request: Request):
+        require_identity(request, identities)
+        value = service.store.get_bundle(revision_id)
+        if value is None:
+            raise HTTPException(404, "configuration bundle revision not found")
+        return value.to_dict()
 
     @router.get("/resolve")
     def resolve_current(request: Request, bundleId: str | None = None, tenantId: str | None = None,

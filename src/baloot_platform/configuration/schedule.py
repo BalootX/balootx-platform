@@ -9,11 +9,21 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from tzdata import IANA_VERSION
 
 
+class ConfigurationIntegrityError(Exception):
+    """A saved configuration schedule cannot be verified."""
+
+
+def _parse_datetime(value: str) -> datetime:
+    if "T" not in value:
+        raise ValueError
+    return datetime.fromisoformat(value)
+
+
 def parse_instant(value: str | None, field: str) -> datetime | None:
     if value is None:
         return None
     try:
-        parsed = datetime.fromisoformat(value)
+        parsed = _parse_datetime(value)
         if parsed.tzinfo is not None:
             return parsed.astimezone(timezone.utc)
     except (TypeError, ValueError, OverflowError) as exc:
@@ -36,8 +46,8 @@ def _zone(name: str) -> ZoneInfo:
 
 def _local_instant(value: str, zone: ZoneInfo, field: str) -> tuple[datetime, str]:
     try:
-        wall_time = datetime.fromisoformat(value)
-        if wall_time.tzinfo is not None or "T" not in value:
+        wall_time = _parse_datetime(value)
+        if wall_time.tzinfo is not None:
             raise ValueError
         # Both folds round-trip during an overlap, and neither during a gap.
         instants = set()
@@ -102,22 +112,26 @@ def verify_schedule(
     effective_until: str | None,
     local_schedule: Mapping[str, str] | None,
 ) -> None:
-    if local_schedule is None:
-        return
     try:
+        bounds = {
+            "effectiveFrom": parse_instant(effective_from, "effectiveFrom"),
+            "effectiveUntil": parse_instant(effective_until, "effectiveUntil"),
+        }
+        if local_schedule is None:
+            return
         recorded_version = local_schedule["zoneDataVersion"]
         if not recorded_version or not local_schedule.keys() & {"effectiveFrom", "effectiveUntil"}:
             raise ValueError("localSchedule is missing its zone-data version or effective bounds")
         zone = _zone(local_schedule["timeZone"])
-        for field, saved in (("effectiveFrom", effective_from), ("effectiveUntil", effective_until)):
+        for field, saved in bounds.items():
             if field in local_schedule:
                 instant, _ = _local_instant(local_schedule[field], zone, f"localSchedule.{field}")
-                if instant != parse_instant(saved, field):
+                if instant != saved:
                     raise ValueError(
                         f"localSchedule.{field} maps to a different UTC instant than under IANA {recorded_version}"
                     )
     except (KeyError, TypeError, ZoneInfoNotFoundError, ValueError) as exc:
-        raise ValueError(
-            f"{revision_id}: localSchedule cannot be verified with IANA {IANA_VERSION}. "
+        raise ConfigurationIntegrityError(
+            f"{revision_id}: the saved schedule cannot be verified with IANA {IANA_VERSION}. "
             f"Create a replacement revision with a verified schedule. {exc}"
         ) from exc

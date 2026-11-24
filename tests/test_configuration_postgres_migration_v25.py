@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
+from contextlib import nullcontext
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -90,7 +91,7 @@ def test_shared_run_access_migration_matches_store_bootstrap(
     assert "TRUNCATE " not in normalized
 
 
-def test_local_schedule_migration_only_adds_nullable_immutable_metadata(root: Path) -> None:
+def test_local_schedule_migration_preserves_rows_and_changes_revision_uniqueness(root: Path) -> None:
     sql = (root / "migrations" / LATEST_MIGRATION_NAME).read_text(encoding="utf-8")
     normalized = _normalized(sql)
     assert normalized.startswith("BEGIN;")
@@ -101,6 +102,9 @@ def test_local_schedule_migration_only_adds_nullable_immutable_metadata(root: Pa
         )
         assert f"BEFORE UPDATE OF LOCAL_SCHEDULE ON CONFIGURATION.{table}" in normalized
     assert normalized.count("NEW.LOCAL_SCHEDULE IS DISTINCT FROM OLD.LOCAL_SCHEDULE") == 2
+    index = _statement(sql, "CREATE UNIQUE INDEX IF NOT EXISTS uq_configuration_profile_schedule")
+    assert "PAYLOAD_SHA256, EFFECTIVE_FROM,EFFECTIVE_UNTIL,(LOCAL_SCHEDULE - 'ZONEDATAVERSION')" in index
+    assert "NULLS NOT DISTINCT" in index
     assert "UPDATE CONFIGURATION." not in normalized
     assert "DELETE " not in normalized
 
@@ -114,11 +118,11 @@ def test_v25_preserves_published_predecessor_migration_bytes(root: Path) -> None
         assert (packaged / name).read_bytes() == source
 
 
-def test_full_history_bootstrap_order_is_exactly_repeatable(
+def test_runner_applies_history_in_order_and_skips_recorded_migrations(
     root: Path, monkeypatch
 ) -> None:
     expected_paths = sorted((root / "migrations").glob("*.sql"))
-    expected_sql = [path.read_text(encoding="utf-8") for path in expected_paths]
+    receipts: dict[str, str] = {}
     executed: list[str] = []
 
     class FakeConnection:
@@ -128,18 +132,35 @@ def test_full_history_bootstrap_order_is_exactly_repeatable(
         def __exit__(self, *_args):
             return False
 
-        def execute(self, sql: str) -> None:
+        def transaction(self):
+            return nullcontext()
+
+        def execute(self, sql: str, params=None):
+            if sql.startswith("SELECT name, sha256"):
+                return list(receipts.items())
+            if sql.startswith("INSERT INTO baloot_migrations.applied"):
+                name, digest = params
+                assert name not in receipts
+                receipts[name] = digest
+                return
+            if sql.startswith(("SELECT pg_advisory_lock", "CREATE SCHEMA IF NOT EXISTS baloot_migrations",
+                               "CREATE TABLE IF NOT EXISTS baloot_migrations.applied")):
+                return
             executed.append(sql)
 
-    fake_psycopg = SimpleNamespace(connect=lambda _dsn: FakeConnection())
+    fake_psycopg = SimpleNamespace(connect=lambda _dsn, *, autocommit: FakeConnection())
     monkeypatch.setitem(sys.modules, "psycopg", fake_psycopg)
     monkeypatch.setenv("BALOOT_DATABASE_URL", "postgresql://bootstrap.invalid/test")
     monkeypatch.setenv("BALOOT_ROOT", str(root))
 
     migrate_postgres.main()
+    assert len(executed) == len(expected_paths)
     migrate_postgres.main()
 
-    assert executed == expected_sql + expected_sql
+    assert len(executed) == len(expected_paths)
+    assert list(receipts.items()) == [
+        (path.name, hashlib.sha256(path.read_bytes()).hexdigest()) for path in expected_paths
+    ]
     assert any(path.name == MIGRATION_NAME for path in expected_paths)
     assert expected_paths[-1].name == LATEST_MIGRATION_NAME
 

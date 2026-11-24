@@ -8,6 +8,7 @@ construction logic throughout the API module.
 
 from __future__ import annotations
 
+import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -142,6 +143,7 @@ from baloot_platform.challenge.locator import (
     SQLiteChallengeLocatorStore,
 )
 from baloot_platform.config import (
+    ProfileBundle,
     build_bundle,
     data_root,
     platform_root,
@@ -152,6 +154,7 @@ from baloot_platform.configuration import (
     SQLiteConfigurationStore,
     VersionedConfigurationService,
 )
+from baloot_platform.configuration.schedule import ConfigurationIntegrityError
 from baloot_platform.identity import (
     IdentityService,
     PostgresIdentityStore,
@@ -269,6 +272,8 @@ def _own(values: list[Any], value: Any) -> Any:
 
 def _bootstrap_packaged_configuration(
     configuration: VersionedConfigurationService,
+    *,
+    allow_unavailable: bool = False,
 ) -> dict[str, Any]:
     """Bootstrap under one service identity and always restore caller context."""
 
@@ -283,18 +288,21 @@ def _bootstrap_packaged_configuration(
         active = configuration.bootstrap_packaged_bundle(
             actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT
         )
-        configuration.bootstrap_packaged_bundle(
-            actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT,
-            bundle_path=_NATIVE_RESEARCH_BUNDLE,
-            scope="environment",
-            environment="research-native-v3",
-        )
-        configuration.bootstrap_packaged_bundle(
-            actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT,
-            bundle_path=_INTELLIGENT_RESEARCH_BUNDLE,
-            scope="environment",
-            environment="research-native-v3-intelligent",
-        )
+        for path, environment in (
+            (_NATIVE_RESEARCH_BUNDLE, "research-native-v3"),
+            (_INTELLIGENT_RESEARCH_BUNDLE, "research-native-v3-intelligent"),
+        ):
+            try:
+                configuration.bootstrap_packaged_bundle(
+                    actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT,
+                    bundle_path=path,
+                    scope="environment",
+                    environment=environment,
+                )
+            except ConfigurationIntegrityError as exc:
+                if not allow_unavailable:
+                    raise
+                logging.getLogger(__name__).error("Configuration unavailable for %s: %s", environment, exc)
         return active
     finally:
         CURRENT_DATABASE_IDENTITY.reset(token)
@@ -368,6 +376,8 @@ class PlatformContainer:
     research_store: Any
     research: ResearchFoundryServiceV1
     research_renders: ResearchRenderPreparationServiceV1
+    runtime_bundle: ProfileBundle
+    configuration_error: ConfigurationIntegrityError | None
 
     def shutdown(self) -> None:
         _close_owned_resources(
@@ -424,6 +434,7 @@ def build_container(
     root: str | Path | None = None,
     writable_root: str | Path | None = None,
     database_url: str | None = None,
+    allow_unavailable_configuration: bool = False,
 ) -> PlatformContainer:
     owned_resources: list[Any] = []
     try:
@@ -431,6 +442,7 @@ def build_container(
             root=root,
             writable_root=writable_root,
             database_url=database_url,
+            allow_unavailable_configuration=allow_unavailable_configuration,
             owned_resources=owned_resources,
         )
     except BaseException:
@@ -443,6 +455,7 @@ def _build_container(
     root: str | Path | None,
     writable_root: str | Path | None,
     database_url: str | None,
+    allow_unavailable_configuration: bool,
     owned_resources: list[Any],
 ) -> PlatformContainer:
     resolved_root = platform_root(root)
@@ -480,11 +493,21 @@ def _build_container(
     configuration = VersionedConfigurationService(
         configuration_store, root=resolved_root, profile=configuration_profile
     )
-    resolved_configuration = _bootstrap_packaged_configuration(configuration)
-    bundle = profile_bundle_from_resolved(
-        resolved_configuration,
-        root=resolved_root,
-    )
+    configuration_error = None
+    try:
+        resolved_configuration = _bootstrap_packaged_configuration(
+            configuration, allow_unavailable=allow_unavailable_configuration
+        )
+        bundle = profile_bundle_from_resolved(resolved_configuration, root=resolved_root)
+        runtime_identity = resolved_configuration["bundle"]
+    except ConfigurationIntegrityError as exc:
+        if not allow_unavailable_configuration:
+            raise
+        logging.getLogger(__name__).error("Runtime configuration unavailable: %s", exc)
+        configuration_error = exc
+        # The HTTP app uses these defaults to construct routes while traffic is blocked.
+        bundle = packaged_bundle
+        runtime_identity = {"revisionId": "", "version": bundle.bundle_profile["profile"]["version"]}
     belief_policy = BeliefPolicy.from_profile(bundle.component("belief"))
     analysis_policy = AnalysisPolicy.from_profile(
         bundle.component("analysis"),
@@ -1413,8 +1436,8 @@ def _build_container(
     )
     foundry_profile = {
         "schemaVersion": 1,
-        "runtimeBundleRevisionId": resolved_configuration["bundle"]["revisionId"],
-        "runtimeBundleVersion": resolved_configuration["bundle"]["version"],
+        "runtimeBundleRevisionId": runtime_identity["revisionId"],
+        "runtimeBundleVersion": runtime_identity["version"],
         "rulesHash": bundle.rules.sha256,
         "bundleHash": bundle.sha256,
         "engineVersion": foundry_simulator.engine_version,
@@ -1665,4 +1688,6 @@ def _build_container(
         research_store,
         research,
         research_renders,
+        bundle,
+        configuration_error,
     )

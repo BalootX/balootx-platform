@@ -46,7 +46,8 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
-from baloot_platform.config import build_bundle, profile_bundle_from_resolved
+from baloot_platform.config import build_bundle
+from baloot_platform.configuration.schedule import ConfigurationIntegrityError
 from baloot_platform.guide import build_engine_guide
 from baloot_platform.analysis.belief_v7 import (
     BeliefPolicy,
@@ -113,6 +114,7 @@ from baloot_platform.service.client_identity import (
     service_subject_ownership,
 )
 from baloot_platform.service.routes.auth import request_token, require_identity
+from baloot_platform.service.routes.configuration import configuration_integrity_response
 from baloot_platform.shared import (
     SharedDecisionAccessError,
     project_shared_decision,
@@ -154,7 +156,7 @@ from baloot_platform.research.result_authority import (
     RuntimeCompatibilityV1 as RuntimeCompatibilityContractV1,
 )
 
-CONTAINER: PlatformContainer = build_container()
+CONTAINER: PlatformContainer = build_container(allow_unavailable_configuration=True)
 ROOT = CONTAINER.root
 DATA_ROOT = CONTAINER.data_root
 OUTPUTS = CONTAINER.outputs
@@ -192,12 +194,7 @@ RESEARCH_RENDERS = CONTAINER.research_renders
 _LOCAL_FOUNDRY_LOCK = threading.Lock()
 _LOCAL_FOUNDRY_CAMPAIGNS: set[str] = set()
 _LOCAL_ANALYSIS_WORKER_ACTIVE = False
-ACTIVE_BUNDLE = profile_bundle_from_resolved(
-    CONTAINER.configuration.resolve(
-        revision_id=FOUNDRY_PROFILE["runtimeBundleRevisionId"]
-    ),
-    root=ROOT,
-)
+ACTIVE_BUNDLE = CONTAINER.runtime_bundle
 LAFFA_LIBRARY = LaffaLibraryServiceV1(
     learning_store=LEARNING_STORE,
     research=RESEARCH,
@@ -327,12 +324,11 @@ _METRICS: dict[tuple[str, str, int], int] = defaultdict(int)
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    initialize_service_subject_ownership()
-    # In-process recovery is deliberately local-only. Distributed deployments
-    # use separately supervised, leased workers so multiple API replicas cannot
-    # execute the same persisted job concurrently.
-    if not DATABASE_URL:
-        _recover_local_foundry_work()
+    if CONTAINER.configuration_error is None:
+        initialize_service_subject_ownership()
+        # Distributed deployments use independently supervised workers.
+        if not DATABASE_URL:
+            _recover_local_foundry_work()
     yield
     # Test clients and short-lived workers must not leak executor threads.
     if os.environ.get("BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT", "false").lower() in {
@@ -351,6 +347,26 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
 )
+app.add_exception_handler(ConfigurationIntegrityError, configuration_integrity_response)
+
+
+if CONTAINER.configuration_error is not None:
+    boot_error = CONTAINER.configuration_error
+
+    def unavailable_configuration(app):
+        async def guarded(scope, receive, send):
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1013})
+                return
+            if scope["type"] == "http" and scope["path"] not in {"/healthz", "/api/v1/health", "/metrics"}:
+                response = await configuration_integrity_response(Request(scope, receive), boot_error)
+                await response(scope, receive, send)
+                return
+            await app(scope, receive, send)
+
+        return guarded
+
+    app.add_middleware(unavailable_configuration)
 
 
 @app.exception_handler(SearchTimeBudgetExceeded)

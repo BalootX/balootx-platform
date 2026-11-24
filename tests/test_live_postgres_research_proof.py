@@ -1914,7 +1914,7 @@ def test_configuration_v25_schema_probe_is_exact_and_fail_closed(
                     )
                 )
             if "FROM pg_trigger" in sql:
-                return Result(rows=proof.CONFIGURATION_V25_TRIGGERS)
+                return Result(rows=proof.CONFIGURATION_V25_TRIGGERS | proof.CONFIGURATION_V30_TRIGGERS)
             if "FROM pg_policies" in sql:
                 rows = [
                     (*value, "PERMISSIVE") for value in proof.CONFIGURATION_V25_POLICIES
@@ -1950,14 +1950,14 @@ def test_configuration_v25_schema_probe_is_exact_and_fail_closed(
                     "rlsRelations": sorted(proof.CONFIGURATION_V25_RLS_RELATIONS),
                     "triggers": [
                         list(value)
-                        for value in sorted(proof.CONFIGURATION_V25_TRIGGERS)
+                        for value in sorted(proof.CONFIGURATION_V25_TRIGGERS | proof.CONFIGURATION_V30_TRIGGERS)
                     ],
                 }
             )
         ),
         "rolloutPercentageNumeric": True,
         "validatedConstraintCount": 6,
-        "immutabilityTriggerCount": 2,
+        "immutabilityTriggerCount": 4,
         "policyCount": 6,
         "forcedRlsRelationCount": 3,
         "invalidationEpochPresent": True,

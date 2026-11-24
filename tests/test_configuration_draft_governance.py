@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import copy
+import os
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,7 +30,11 @@ from baloot_platform.identity import IdentityService, SQLiteIdentityStore
 from baloot_platform.security import AuthorizationPolicy
 import baloot_platform.service.container as container_module
 from baloot_platform.service.container import build_container
-from baloot_platform.service.routes.configuration import build_configuration_router
+from baloot_platform.service.routes.configuration import (
+    build_configuration_router,
+    configuration_integrity_response,
+)
+from baloot_platform.configuration.schedule import ConfigurationIntegrityError
 from baloot_platform.storage.request_context import (
     CURRENT_DATABASE_IDENTITY,
     DatabaseIdentityContext,
@@ -396,6 +403,7 @@ def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
     service = _service(root, tmp_path)
     identities = IdentityService(SQLiteIdentityStore(tmp_path / "identity.sqlite3"))
     app = FastAPI()
+    app.add_exception_handler(ConfigurationIntegrityError, configuration_integrity_response)
 
     @app.middleware("http")
     async def mark_api_key(request: Request, call_next):
@@ -518,10 +526,60 @@ def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
             "UPDATE configuration_profile_revisions SET effective_from=? WHERE revision_id=?",
             ("2026-07-01T15:00:00+00:00", profile["revisionId"]),
         )
-    with pytest.raises(ValueError, match=r"localSchedule\.effectiveFrom maps to a different UTC instant"):
-        service.resolve_profile(
-            family="performance", profile_id=profile["profileId"], revision_id=profile["revisionId"],
+    fault = client.get(
+        legacy_resolution,
+        headers=headers,
+        params={"family": "performance", "profileId": profile["profileId"],
+                "atTime": "2026-07-01T16:01:00Z"},
+    )
+    assert fault.status_code == 503, fault.text
+    assert profile["revisionId"] in fault.json()["detail"]
+    assert "localSchedule.effectiveFrom maps to a different UTC instant" in fault.json()["detail"]
+
+    bundle = bundle_response.json()
+    with service.store._connect() as connection:
+        connection.execute(
+            "UPDATE configuration_bundle_revisions SET effective_from=? WHERE revision_id=?",
+            ("2026-07-01T15:00:00+00:00", bundle["revisionId"]),
         )
+    fault = client.get(
+        f"/api/v1/configuration-registry/bundles/{bundle['revisionId']}:resolve",
+        headers=headers, params={"allowDraft": "true"},
+    )
+    assert fault.status_code == 503, fault.text
+    assert bundle["revisionId"] in fault.json()["detail"]
+
+
+def test_api_starts_when_the_runtime_schedule_fails_integrity(root: Path, tmp_path: Path) -> None:
+    service = _service(root, tmp_path)
+    original = service.resolve()["bundle"]
+    scheduled = service.create_bundle(
+        bundle_id=original["bundleId"], version=original["version"], mode=original["mode"],
+        component_revisions=original["componentRevisions"], created_by="TEST", publish=True,
+        local_schedule={"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00:00"},
+    )
+    with service.store._connect() as connection:
+        connection.execute(
+            "UPDATE configuration_bundle_revisions SET effective_from=? WHERE revision_id=?",
+            ("2026-07-01T15:00:00+00:00", scheduled["revisionId"]),
+        )
+
+    probe = subprocess.run(
+        [sys.executable, "-c",
+         "from fastapi.testclient import TestClient\n"
+         "from baloot_platform.service.api import app\n"
+         "with TestClient(app) as client:\n"
+         "    assert client.get('/healthz').status_code == 200\n"
+         "    for path in ('/readyz', '/api/v1/options'):\n"
+         "        response = client.get(path)\n"
+         "        assert response.status_code == 503, response.text\n"
+         "        assert 'the saved schedule cannot be verified' in response.json()['detail']\n"],
+        env={**os.environ, "BALOOT_ROOT": str(root), "BALOOT_DATA_DIR": str(tmp_path),
+             "BALOOT_RUNTIME": str(tmp_path), "BALOOT_OUTPUTS": str(tmp_path / "outputs"),
+             "BALOOT_DATABASE_URL": "", "BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT": "true"},
+        capture_output=True, text=True, check=False,
+    )
+    assert probe.returncode == 0, probe.stderr
 
 
 def test_foundry_rules_operator_flow_is_api_backed_and_coverage_gated(

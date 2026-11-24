@@ -7,7 +7,7 @@ const studio = readFileSync(
   "utf8",
 );
 
-function loadDraftForm() {
+function loadDraftForm(refusal?: { msg: string }[]) {
   const controls = new Map();
   const control = (id: string) => {
     if (!controls.has(id)) {
@@ -15,7 +15,7 @@ function loadDraftForm() {
         value: "",
         required: false,
         style: {},
-        focus() {},
+        focus: vi.fn(),
         classList: { contains: () => false },
         addEventListener(_event: string, callback: () => void) {
           Object.assign(this, { input: callback });
@@ -24,11 +24,14 @@ function loadDraftForm() {
     }
     return controls.get(id);
   };
-  const fetch = vi.fn((_path: string, options: { method?: string; body?: string }) =>
-    options.method === "POST"
-      ? Promise.resolve({ ok: true, json: async () => ({ revisionId: "CPR-TEST" }) })
-      : new Promise(() => {}),
-  );
+  const fetch = vi.fn((_path: string, options: { method?: string; body?: string }) => {
+    if (options.method !== "POST") return new Promise(() => {});
+    return Promise.resolve({
+      ok: !refusal,
+      statusText: refusal ? "Unprocessable Content" : "Created",
+      json: async () => refusal ? { detail: refusal } : { revisionId: "CPR-TEST" },
+    });
+  });
   const script = studio.split("<script>")[1].split("</script>")[0];
   runInNewContext(script, {
     document: { getElementById: control, querySelectorAll: () => [] },
@@ -72,4 +75,18 @@ test("a draft with both time fields cleared omits the schedule", async () => {
   control("effectiveUntil").input();
   expect(control("timeZone").required).toBe(false);
   expect(await submit()).not.toHaveProperty("localSchedule");
+});
+
+test("a refused schedule shows and focuses the server's validation messages", async () => {
+  const message = "localSchedule.effectiveFrom is ambiguous in this time zone";
+  const nextStep = "Choose a different local time";
+  const { control, submit } = loadDraftForm([{ msg: message }, { msg: nextStep }]);
+  control("effectiveFrom").value = "2026-11-01T01:30";
+  control("timeZone").value = "America/New_York";
+  await submit();
+  const error = control("draftError");
+  expect(error.hidden).toBe(false);
+  expect(error.textContent).toBe(`${message} · ${nextStep}`);
+  expect(error.focus).toHaveBeenCalledOnce();
+  expect(control("effectiveFrom").value).toBe("2026-11-01T01:30");
 });

@@ -130,7 +130,7 @@ jobs:
       - run: python -m pip install '.[dev,postgres]'
       - env:
           BALOOT_TEST_POSTGRES_URL: postgresql://baloot_test@127.0.0.1:${{ job.services.postgres.ports[5432] }}/baloot_test
-        run: python -m pytest -q -s tests/postgres_configuration_schedule.py tests/test_configuration_store_core.py
+        run: python -m pytest -q -s tests/postgres_configuration_schedule.py
 
   foundry:
     needs: [plan, python-wheelhouse]

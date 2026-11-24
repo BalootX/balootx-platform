@@ -1171,5 +1171,5 @@ class VersionedConfigurationService:
             if existing_bundle.status == RevisionStatus.PUBLISHED.value:
                 rid = existing_bundle.revision_id
             else:
-                return self.resolve(bundle_id=bundle_id)
+                return self.resolve(bundle_id=bundle_id, tenant_id=tenant_id, environment=environment)
         return self.resolve(revision_id=rid)

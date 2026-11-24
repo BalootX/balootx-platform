@@ -163,6 +163,8 @@ def test_postgres_uses_migration_columns_named_rows_and_utc_timestamps() -> None
     ("instant", "local", "message"),
     [
         ("2026-07-01T12:00", None, "effectiveFrom requires an explicit UTC offset"),
+        ("2026-07-01 12:00Z", None, "effectiveFrom must be a valid ISO date-time"),
+        (None, {"timeZone": "America/New_York", "effectiveFrom": "2026-07-01 12:00"}, r"localSchedule\.effectiveFrom must be a valid local ISO date-time"),
         (None, {"effectiveFrom": "2026-07-01T12:00"}, r"localSchedule\.timeZone"),
         (None, {"timeZone": "Mars/Olympus", "effectiveFrom": "2026-07-01T12:00"}, r"localSchedule\.timeZone"),
         (None, {"timeZone": "localtime", "effectiveFrom": "2026-07-01T12:00"}, r"localSchedule\.timeZone"),
@@ -227,6 +229,13 @@ def test_sqlite_round_trips_local_schedule_and_preserves_older_rows(tmp_path: Pa
     with store._connect() as connection:
         connection.execute("DROP TRIGGER trg_configuration_profile_local_schedule_immutable")
         connection.execute("DROP TRIGGER trg_configuration_bundle_local_schedule_immutable")
+        connection.execute("DROP INDEX uq_configuration_profile_schedule")
+        connection.execute(
+            """CREATE UNIQUE INDEX uq_configuration_profile_content_v20
+               ON configuration_profile_revisions(
+                 family,scope,scope_key,COALESCE(tenant_id,''),COALESCE(environment,''),payload_sha256
+               )"""
+        )
         connection.execute("ALTER TABLE configuration_profile_revisions DROP COLUMN local_schedule")
         connection.execute("ALTER TABLE configuration_bundle_revisions DROP COLUMN local_schedule")
         connection.execute(
@@ -241,14 +250,25 @@ def test_sqlite_round_trips_local_schedule_and_preserves_older_rows(tmp_path: Pa
     profile_args.update(profile_id="scheduled", payload={"scheduled": True})
     profile = reopened.create_profile(**profile_args, local_schedule=local)
     assert reopened.create_profile(**profile_args, local_schedule=local) == profile
-    with pytest.raises(ValueError, match="localSchedule differs from existing revision"):
-        reopened.create_profile(**profile_args, effective_from="2026-07-01T16:00Z")
-    bundle = reopened.create_bundle(
+    alternate_args = {**profile_args, "status": "draft", "effective_from": "2026-07-01T16:00Z"}
+    alternate_profile = reopened.create_profile(**alternate_args)
+    assert alternate_profile.revision_id != profile.revision_id
+    assert alternate_profile.payload_sha256 == profile.payload_sha256
+    assert reopened.create_profile(**alternate_args) == alternate_profile
+    assert reopened.create_profile(**profile_args, local_schedule=local) == profile
+    bundle_args = dict(
         bundle_id="scheduled", version="1.0.0", mode="full", scope="global",
         tenant_id=None, component_revisions={"rules": profile.revision_id},
         status="draft", created_by="TEST", local_schedule=local,
+    )
+    bundle = reopened.create_bundle(
+        **bundle_args,
         effective_until="2026-07-01T13:00-04:00",
     )
+    alternate_bundle = reopened.create_bundle(**bundle_args)
+    assert alternate_bundle.revision_id != bundle.revision_id
+    assert alternate_bundle.content_sha256 == bundle.content_sha256
+    assert reopened.create_bundle(**bundle_args) == alternate_bundle
     cold = SQLiteConfigurationStore(path)
     assert cold.get_profile(profile.revision_id) == profile
     assert cold.get_bundle(bundle.revision_id) == bundle

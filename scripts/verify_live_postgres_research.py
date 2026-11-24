@@ -75,7 +75,7 @@ REQUIRED_MIGRATION_HASHES = {
         "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"
     ),
     "030_configuration_local_schedule.sql": (
-        "314fde4a8203348f10791f2494933b7cba7b0b57e36f0914c57d7a0177b3acf6"
+        "ed6c9bacec07461693344c3cf4d63cca9f51900a48e202b1544440784d9be371"
     ),
 }
 CONFIGURATION_V25_CONSTRAINTS = frozenset(
@@ -103,6 +103,15 @@ CONFIGURATION_V25_TRIGGERS = frozenset(
             "O",
         ),
     }
+)
+CONFIGURATION_V30_TRIGGERS = frozenset(
+    (
+        f"{kind}_revisions",
+        f"trg_configuration_{kind}_local_schedule_immutable",
+        "guard_local_schedule",
+        "O",
+    )
+    for kind in ("bundle", "profile")
 )
 CONFIGURATION_V25_POLICIES = frozenset(
     {
@@ -3636,10 +3645,7 @@ def _prove_configuration_v25_schema(database_url: str) -> dict[str, Any]:
                  ON function_row.oid=trigger_row.tgfoid
                WHERE namespace.nspname='configuration'
                  AND NOT trigger_row.tgisinternal
-                 AND trigger_row.tgname IN (
-                   'trg_configuration_profile_immutable',
-                   'trg_configuration_bundle_immutable'
-                 )
+                 AND trigger_row.tgname LIKE 'trg_configuration_%_immutable'
                ORDER BY 1,2"""
         ).fetchall()
         policy_rows = connection.execute(
@@ -3678,10 +3684,11 @@ def _prove_configuration_v25_schema(database_url: str) -> dict[str, Any]:
         row[2] is not True for row in constraint_rows
     ):
         raise ProofError("configuration v25 validated constraints drifted")
+    expected_triggers = CONFIGURATION_V25_TRIGGERS | CONFIGURATION_V30_TRIGGERS
     if {
         (str(row[0]), str(row[1]), str(row[2]), str(row[3])) for row in trigger_rows
-    } != CONFIGURATION_V25_TRIGGERS:
-        raise ProofError("configuration v25 immutable triggers drifted")
+    } != expected_triggers:
+        raise ProofError("configuration immutable triggers drifted")
     if {
         (str(row[0]), str(row[1]), str(row[2])) for row in policy_rows
     } != CONFIGURATION_V25_POLICIES or any(
@@ -3700,13 +3707,13 @@ def _prove_configuration_v25_schema(database_url: str) -> dict[str, Any]:
         "constraints": [list(value) for value in sorted(CONFIGURATION_V25_CONSTRAINTS)],
         "policies": [list(value) for value in sorted(CONFIGURATION_V25_POLICIES)],
         "rlsRelations": sorted(CONFIGURATION_V25_RLS_RELATIONS),
-        "triggers": [list(value) for value in sorted(CONFIGURATION_V25_TRIGGERS)],
+        "triggers": [list(value) for value in sorted(expected_triggers)],
     }
     return {
         "contractSha256": _sha256_text(_canonical_json(contract)),
         "rolloutPercentageNumeric": True,
         "validatedConstraintCount": len(CONFIGURATION_V25_CONSTRAINTS),
-        "immutabilityTriggerCount": len(CONFIGURATION_V25_TRIGGERS),
+        "immutabilityTriggerCount": len(expected_triggers),
         "policyCount": len(CONFIGURATION_V25_POLICIES),
         "forcedRlsRelationCount": len(CONFIGURATION_V25_RLS_RELATIONS),
         "invalidationEpochPresent": True,
@@ -3781,14 +3788,29 @@ def _prove_configuration_schedule(store: Any, components: dict[str, str]) -> Non
         "status": "draft", "created_by": "LIVE-POSTGRES-CONFIGURATION-PROOF",
         "local_schedule": local,
     }
-    profile = store.create_profile(
-        family="rules", profile_id="schedule_proof",
-        payload={"profile": {"id": "schedule_proof", "version": "1.0.0"}},
-        **kwargs,
-    )
-    bundle = store.create_bundle(
-        bundle_id="schedule_proof", mode="full", component_revisions=components, **kwargs
-    )
+    profile_args = {
+        **kwargs, "family": "rules", "profile_id": "schedule_proof",
+        "payload": {"profile": {"id": "schedule_proof", "version": "1.0.0"}},
+    }
+    bundle_args = {
+        **kwargs, "bundle_id": "schedule_proof", "mode": "full", "component_revisions": components,
+    }
+    profile = store.create_profile(**profile_args)
+    bundle = store.create_bundle(**bundle_args)
+    reschedule = {**local, "effectiveFrom": "2026-07-02T12:00:00"}
+    for create, args, original in (
+        (store.create_profile, profile_args, profile),
+        (store.create_bundle, bundle_args, bundle),
+    ):
+        revised_args = {**args, "local_schedule": reschedule}
+        revised = create(**revised_args)
+        if (
+            revised.revision_id == original.revision_id
+            or revised.effective_from != "2026-07-02T16:00:00+00:00"
+            or create(**revised_args) != revised
+            or create(**args) != original
+        ):
+            raise ProofError("PostgreSQL schedule variants did not create distinct, idempotent revisions")
     for relation, revision, saved in (
         ("profile_revisions", profile, store.get_profile(profile.revision_id)),
         ("bundle_revisions", bundle, store.get_bundle(bundle.revision_id)),
