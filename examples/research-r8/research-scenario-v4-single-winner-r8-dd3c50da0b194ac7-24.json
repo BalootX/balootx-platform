@@ -1,0 +1,241 @@
+{
+  "construction": {
+    "method": "seeded_shuffle_and_legal_play",
+    "seed": 15941705678404012743
+  },
+  "exactTracePrefix": {
+    "auctionActions": [
+      {
+        "action": "pass",
+        "actor": "north"
+      },
+      {
+        "action": "pass",
+        "actor": "west"
+      },
+      {
+        "action": "sun",
+        "actor": "south"
+      },
+      {
+        "action": "pass",
+        "actor": "west"
+      },
+      {
+        "action": "pass",
+        "actor": "north"
+      }
+    ],
+    "dealer": "east",
+    "deckOrder": [
+      26,
+      30,
+      12,
+      6,
+      20,
+      2,
+      22,
+      29,
+      24,
+      1,
+      28,
+      8,
+      5,
+      31,
+      13,
+      25,
+      18,
+      10,
+      9,
+      3,
+      11,
+      17,
+      21,
+      7,
+      4,
+      14,
+      0,
+      15,
+      19,
+      27,
+      16,
+      23
+    ],
+    "matchScore": [
+      0,
+      0
+    ],
+    "playActions": [
+      {
+        "actor": "north",
+        "card": "D8"
+      },
+      {
+        "actor": "west",
+        "card": "DJ"
+      },
+      {
+        "actor": "south",
+        "card": "D9"
+      },
+      {
+        "actor": "east",
+        "card": "DA"
+      },
+      {
+        "actor": "east",
+        "card": "H7"
+      },
+      {
+        "actor": "north",
+        "card": "HJ"
+      },
+      {
+        "actor": "west",
+        "card": "HQ"
+      },
+      {
+        "actor": "south",
+        "card": "H10"
+      },
+      {
+        "actor": "south",
+        "card": "C7"
+      },
+      {
+        "actor": "east",
+        "card": "CJ"
+      },
+      {
+        "actor": "north",
+        "card": "C9"
+      },
+      {
+        "actor": "west",
+        "card": "C8"
+      },
+      {
+        "actor": "east",
+        "card": "D7"
+      },
+      {
+        "actor": "north",
+        "card": "DQ"
+      },
+      {
+        "actor": "west",
+        "card": "S7"
+      },
+      {
+        "actor": "south",
+        "card": "DK"
+      },
+      {
+        "actor": "south",
+        "card": "H9"
+      },
+      {
+        "actor": "east",
+        "card": "H8"
+      },
+      {
+        "actor": "north",
+        "card": "SQ"
+      },
+      {
+        "actor": "west",
+        "card": "HK"
+      },
+      {
+        "actor": "west",
+        "card": "S9"
+      },
+      {
+        "actor": "south",
+        "card": "CQ"
+      },
+      {
+        "actor": "east",
+        "card": "S8"
+      },
+      {
+        "actor": "north",
+        "card": "SA"
+      }
+    ],
+    "projectDeclarations": [],
+    "roundNumber": 1,
+    "schemaVersion": 1
+  },
+  "expected": {
+    "actingSeat": "north",
+    "buyer": "south",
+    "claimSatisfied": true,
+    "completionStatus": "exact_complete",
+    "contract": "sun",
+    "legalRootActions": [
+      "CK",
+      "CA"
+    ],
+    "phase": "playing",
+    "principalVariation": [
+      "CA",
+      "SJ",
+      "HA",
+      "C10",
+      "CK",
+      "SK",
+      "D10",
+      "S10"
+    ],
+    "rootValues": {
+      "CA": 1,
+      "CK": -1
+    },
+    "roundScore": {
+      "awardedPoints": [
+        22,
+        4
+      ],
+      "balootPoints": [
+        0,
+        0
+      ],
+      "cardGamePoints": [
+        22,
+        4
+      ],
+      "projectPoints": [
+        0,
+        0
+      ],
+      "winner": "north_south"
+    },
+    "selectedAction": "CA",
+    "winningRootActionCount": 1
+  },
+  "proof": {
+    "budgetProfile": "late_game_exact_v1",
+    "claim": "selected_action_is_unique_winner",
+    "lineUniverse": "all_legal",
+    "mode": "exact",
+    "schemaVersion": 1,
+    "selectedAction": "CA",
+    "successThreshold": 1,
+    "targetTeam": "north_south",
+    "utility": "round_win",
+    "visibility": "complete_state"
+  },
+  "rulesMeaning": {
+    "actingSeat": "north",
+    "buyer": "south",
+    "contract": "sun",
+    "mechanism": "LEAD",
+    "successMeaning": "north_south wins the round",
+    "successThreshold": 1
+  },
+  "scenarioFamily": "lead-cash-two-top-cards-in-order",
+  "scenarioId": "sun-single-winner-r8-dd3c50da0b194ac7-24-v1",
+  "schemaVersion": 1,
+  "titleAr": "وش تلعب؟"
+}

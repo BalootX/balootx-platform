@@ -1,0 +1,278 @@
+{
+  "construction": {
+    "method": "seeded_shuffle_and_legal_play",
+    "seed": 261224105
+  },
+  "exactTracePrefix": {
+    "auctionActions": [
+      {
+        "action": "pass",
+        "actor": "north"
+      },
+      {
+        "action": "pass",
+        "actor": "west"
+      },
+      {
+        "action": "hokum",
+        "actor": "south",
+        "trumpSuit": "hearts"
+      },
+      {
+        "action": "pass",
+        "actor": "east"
+      },
+      {
+        "action": "pass",
+        "actor": "west"
+      },
+      {
+        "action": "pass",
+        "actor": "north"
+      }
+    ],
+    "dealer": "east",
+    "deckOrder": [
+      27,
+      2,
+      25,
+      22,
+      23,
+      0,
+      31,
+      19,
+      14,
+      17,
+      7,
+      26,
+      3,
+      9,
+      10,
+      8,
+      6,
+      28,
+      4,
+      16,
+      11,
+      18,
+      12,
+      29,
+      1,
+      15,
+      20,
+      21,
+      5,
+      13,
+      30,
+      24
+    ],
+    "matchScore": [
+      0,
+      0
+    ],
+    "playActions": [
+      {
+        "actor": "north",
+        "card": "CQ",
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": "HA",
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": "CA",
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": "C7",
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": "DK",
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": "D10",
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": "D8",
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": "D9",
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": "H10",
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": "HQ",
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": "H8",
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": "H9",
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": "S8",
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": "SK",
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": "SJ",
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": "S10",
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": "HJ",
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": "H7",
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": "HK",
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": "SA",
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": "C8",
+        "ekka": false
+      },
+      {
+        "actor": "west",
+        "card": "S7",
+        "ekka": false
+      },
+      {
+        "actor": "south",
+        "card": "CJ",
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": "CK",
+        "ekka": false
+      },
+      {
+        "actor": "east",
+        "card": "D7",
+        "ekka": false
+      },
+      {
+        "actor": "north",
+        "card": "C10",
+        "ekka": false
+      }
+    ],
+    "projectDeclarations": [],
+    "roundNumber": 1,
+    "schemaVersion": 1
+  },
+  "expected": {
+    "actingSeat": "west",
+    "buyer": "south",
+    "claimSatisfied": true,
+    "completionStatus": "exact_complete",
+    "contract": "hokum",
+    "legalRootActions": [
+      "DJ",
+      "DA"
+    ],
+    "phase": "playing",
+    "principalVariation": [
+      "DA",
+      "DQ",
+      "DJ",
+      "SQ",
+      "C9",
+      "S9"
+    ],
+    "rootValues": {
+      "DA": 1,
+      "DJ": -1
+    },
+    "roundScore": {
+      "awardedPoints": [
+        0,
+        16
+      ],
+      "balootPoints": [
+        0,
+        0
+      ],
+      "cardGamePoints": [
+        6,
+        10
+      ],
+      "projectPoints": [
+        0,
+        0
+      ],
+      "winner": "west_east"
+    },
+    "selectedAction": "DA",
+    "winningRootActionCount": 1
+  },
+  "proof": {
+    "budgetProfile": "late_game_exact_v1",
+    "claim": "selected_action_is_unique_winner",
+    "lineUniverse": "all_legal",
+    "mode": "exact",
+    "schemaVersion": 1,
+    "selectedAction": "DA",
+    "successThreshold": 1,
+    "targetTeam": "west_east",
+    "utility": "round_win",
+    "visibility": "complete_state"
+  },
+  "rulesMeaning": {
+    "actingSeat": "west",
+    "buyer": "south",
+    "contract": "hokum",
+    "mechanism": "FOLLOW_SUIT_CAPTURE",
+    "successMeaning": "west_east wins the round",
+    "successThreshold": 1
+  },
+  "scenarioFamily": "capture-with-ace-establish-jack-exit",
+  "scenarioId": "hokum-single-winner-r8-261224105-26-v1",
+  "schemaVersion": 1,
+  "titleAr": "وش تلعب؟"
+}
