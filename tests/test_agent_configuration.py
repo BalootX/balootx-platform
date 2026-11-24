@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from baloot_platform.agents.profiles import (
     AdaptivePlayStrategy,
@@ -15,11 +16,93 @@ from baloot_platform.agents.profiles import (
 from baloot_platform.agents.qualification import (
     validate_finalist_analysis_compatibility,
 )
-from baloot_platform.config import build_bundle
-from baloot_platform.config import _validate_research_agent_bindings
+from baloot_platform import config
+from baloot_platform.config import _validate_research_agent_bindings, build_bundle
 from baloot_platform.core.engine import BalootEngine
 from baloot_platform.core.enums import Contract, Seat
 from baloot_platform.native.accelerator import NativeAccelerator
+
+
+@pytest.fixture(params=["adaptive_lineup_v1.yaml", "default.yaml"])
+def standalone_agent_profile(root, tmp_path, request):
+    source = root / "configs/agents" / request.param
+    return tmp_path / source.name, yaml.safe_load(source.read_text(encoding="utf-8"))
+
+
+def test_standalone_agent_profile_loads_from_working_directory(
+    standalone_agent_profile, monkeypatch
+):
+    path, data = standalone_agent_profile
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    monkeypatch.chdir(path.parent)
+
+    registry = AgentProfileRegistry.from_yaml(path.name)
+
+    assert registry.default_lineup == data["default_lineup"]
+    assert registry.get().id == data["default_profile"]
+    expert = registry.get("expert")
+    assert expert.play_search_mode == "paired_information_set"
+    assert expert.play_search_samples == data["profiles"]["expert"].get(
+        "play_search_samples", 16
+    )
+
+
+@pytest.mark.parametrize(
+    ("patch", "removed", "error"),
+    [
+        ({}, ("skill",), "'skill' is a required property"),
+        ({"skil": 0.75}, (), "'skil' was unexpected"),
+        ({"skill": "0.75"}, (), "is not of type 'number'"),
+    ],
+)
+def test_standalone_agent_profile_rejects_malformed_row(
+    standalone_agent_profile, patch, removed, error
+):
+    path, data = standalone_agent_profile
+    row = data["profiles"]["strong"]
+    for field in removed:
+        del row[field]
+    row.update(patch)
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    with pytest.raises(ValueError) as caught:
+        AgentProfileRegistry.from_yaml(path)
+
+    assert f"{path}: profiles.strong:" in str(caught.value)
+    assert error in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("mode", "error"),
+    [
+        (None, "'play_search_mode' is a required property"),
+        ("invalid", "unsupported play search mode invalid"),
+    ],
+)
+def test_bundled_agent_profile_rejects_invalid_search_tuning(
+    root, monkeypatch, mode, error
+):
+    load_yaml = config._load_yaml
+    source = root / "configs/agents/default.yaml"
+
+    def load_with_invalid_row(path):
+        data = load_yaml(path)
+        if path == source:
+            row = data["profiles"]["strong"]
+            if mode is None:
+                del row["play_search_mode"]
+            else:
+                row["play_search_mode"] = mode
+        return data
+
+    monkeypatch.setattr(config, "_load_yaml", load_with_invalid_row)
+    with pytest.raises(ValueError) as caught:
+        AgentProfileRegistry.from_bundle(root)
+
+    assert "configs/agents/default.yaml: profiles.strong:" in str(
+        caught.value
+    ).replace("\\", "/")
+    assert error in str(caught.value)
 
 
 def test_active_agent_profile_is_v2_and_snapshot_round_trips(root: Path):

@@ -8,8 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-import yaml
-
 from baloot_platform.analysis.bidding import BidChoice, analyze_bid, legal_bid_choices
 from baloot_platform.analysis.belief_v7 import BeliefPolicy
 from baloot_platform.analysis.decision_scores import (
@@ -715,20 +713,29 @@ class AgentProfileRegistry:
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "AgentProfileRegistry":
-        data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-        return cls.from_mapping(data)
+        from baloot_platform.config import load_profile_payload
+
+        source = Path(path).absolute()
+        return cls.from_mapping(load_profile_payload("agents", source), source=source)
 
     @classmethod
     def from_mapping(
         cls,
         data: Mapping[str, Any],
+        *,
+        source: str | Path | None = None,
     ) -> "AgentProfileRegistry":
         if not isinstance(data, dict) or not isinstance(data.get("profiles"), dict):
             raise ValueError("agent profile file must define a profiles mapping")
-        profiles = {
-            str(identifier): AgentProfile.from_mapping(str(identifier), value)
-            for identifier, value in data["profiles"].items()
-        }
+        profiles: dict[str, AgentProfile] = {}
+        for identifier, value in data["profiles"].items():
+            key = str(identifier)
+            try:
+                profiles[key] = AgentProfile.from_mapping(key, value)
+            except ValueError as exc:
+                if source is None:
+                    raise
+                raise ValueError(f"invalid profile {source}: profiles.{key}: {exc}") from exc
         return cls(
             profiles,
             default_profile=str(data.get("default_profile", "strong")),
@@ -742,11 +749,10 @@ class AgentProfileRegistry:
     ) -> "AgentProfileRegistry":
         from baloot_platform.config import build_bundle
 
-        return cls.from_mapping(
-            build_bundle(
-                Path(root) if root is not None else None
-            ).component("agents")
-        )
+        component = build_bundle(
+            Path(root) if root is not None else None
+        ).components["agents"]
+        return cls.from_mapping(component.data, source=component.path)
 
     def get(self, identifier: str | None = None) -> AgentProfile:
         key = identifier or self.default_profile
