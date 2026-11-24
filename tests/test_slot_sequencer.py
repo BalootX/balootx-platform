@@ -270,22 +270,8 @@ def r7():
     return sequencer.load_gate(script, script.parents[1] / "RELEASE-GATE-POLICY.md")
 
 
-@pytest.mark.parametrize(
-    ("index", "latest_tiktok", "eligible"),
-    [(6, 2, False), (5, 2, True), (4, 2, True), (13, 2, False), (5, 5, False)],
-    ids=[
-        "seven-later",
-        "eight-later",
-        "nine-later",
-        "cross-platform-consecutive",
-        "latest-tiktok",
-    ],
-)
-def test_r7_caption_window(r7, tmp_path, index, latest_tiktok, eligible):
-    caption_sha = r7.sha_text("Synthetic caption for the planned clip.")
-    inputs = r7.Inputs()
-    fixture = tmp_path / "fixture.json"
-    fixture.write_bytes(b"{}")
+@pytest.fixture
+def r7_history(r7):
     rows = []
     for i, card in enumerate(
         (
@@ -314,7 +300,7 @@ def test_r7_caption_window(r7, tmp_path, index, latest_tiktok, eligible):
         opener["sha256"] = r7.opener_hash(opener)
         instant = datetime(2030, 1, 1, tzinfo=UTC) + timedelta(minutes=i)
         post_id = f"{100 + i:019d}"
-        tiktok = i in (0, 1, latest_tiktok)
+        tiktok = i < 3
         rows.append(
             {
                 "id": post_id,
@@ -326,9 +312,7 @@ def test_r7_caption_window(r7, tmp_path, index, latest_tiktok, eligible):
                 "exactStateId": f"state-{i}",
                 "dealHash": r7.sha_text(f"deal-{i}"),
                 "artifactSha256": r7.sha_text(f"media-{i}"),
-                "captionSha256": caption_sha
-                if i == index
-                else r7.sha_text(f"Synthetic caption {i}."),
+                "captionSha256": r7.sha_text(f"Synthetic caption {i}."),
                 "visibleOpener": opener,
                 "visibleOpenerSha256": opener["sha256"],
                 "visibleFingerprintSha256": opener["sha256"],
@@ -338,6 +322,28 @@ def test_r7_caption_window(r7, tmp_path, index, latest_tiktok, eligible):
                 "trickBand": "1-8",
             }
         )
+    return rows
+
+
+@pytest.mark.parametrize(
+    ("index", "latest_tiktok", "eligible"),
+    [(6, 2, False), (5, 2, True), (4, 2, True), (13, 2, False), (5, 5, False)],
+    ids=[
+        "seven-later",
+        "eight-later",
+        "nine-later",
+        "cross-platform-consecutive",
+        "latest-tiktok",
+    ],
+)
+def test_r7_caption_window(r7, r7_history, tmp_path, index, latest_tiktok, eligible):
+    rows = r7_history
+    caption_sha = rows[index]["captionSha256"]
+    inputs = r7.Inputs()
+    fixture = tmp_path / "fixture.json"
+    fixture.write_bytes(b"{}")
+    rows[2].update(platform="Instagram", status="REMOVED_ON_OWNER_WORD")
+    rows[latest_tiktok].update(platform="TikTok", status=r7.CONFIRMED)
     previous = rows[latest_tiktok]
     opener = {
         "hand": ["SA"],
@@ -375,3 +381,126 @@ def test_r7_caption_window(r7, tmp_path, index, latest_tiktok, eligible):
         r7, inputs, {"schemaVersion": 1, "records": rows}, candidate, r7.utc(SLOTS[0])
     )
     assert (rank is not None) is eligible
+
+
+def test_r7_builds_four_slots_with_valid_primary_and_fallback(
+    r7, r7_history, monkeypatch, tmp_path
+):
+    def write(name, value):
+        path = tmp_path / name
+        data = json.dumps(value).encode()
+        path.write_bytes(data)
+        return path, sha256(data).hexdigest()
+
+    ledger, _ = write("ledger.json", {"schemaVersion": 1, "records": r7_history})
+    fixture, fixture_sha = write("fixture.json", {})
+    captions = [f"Synthetic example {i}." for i in range(8)]
+    pool_data = {
+        **dict.fromkeys(
+            "status recordedAtUtcDateU ownerVerbatim source derivedFromApprovals rules".split()
+        ),
+        "transform": '"retired phrase" to "replacement phrase"',
+        "captions": [
+            {"text": caption, "sha256": r7.sha_text(caption)} for caption in captions
+        ],
+    }
+    private_data = {
+        **dict.fromkeys(
+            "LICENSE_only_allow_input_ids common_generic_synthetic_pool_not_denied old_ID_hash_prefix_policy".split()
+        ),
+        "entries": [
+            dict(input_id="synthetic", origins=[], value="excluded phrase", variants=[])
+        ],
+    }
+    pool, pool_sha = write("pool.json", pool_data)
+    private, private_sha = write("private.json", private_data)
+    evidence, evidence_sha = write("evidence.json", {"scope": "STANDING_TIKTOK"})
+    buffer, buffer_sha = write("buffer.json", {})
+    monkeypatch.setattr(r7, "LEDGER", ledger)
+    monkeypatch.setattr(r7, "CAPTION_POOL_SHA", pool_sha)
+    monkeypatch.setattr(r7, "PRIVATE", private)
+    monkeypatch.setattr(r7, "PRIVATE_SHA", private_sha)
+
+    lead, capture = MECHANISMS
+    underplay = "FOLLOW_SUIT_UNDERPLAY"
+    pairs = [
+        (lead, underplay),
+        (underplay, lead),
+        (capture, underplay),
+        (lead, capture),
+    ]
+    inventory = []
+    cards = ("H7", "H8", "H9", "H10", "HJ", "HQ", "HK", "HA")
+    known_ids = [row["id"] for row in r7_history]
+    for i, (slot, pair) in enumerate(zip(SLOTS, pairs, strict=True)):
+        for j, mechanism in enumerate(pair):
+            label = f"{i}-{j}"
+            opener = {
+                "hand": [cards[2 * i + j]],
+                "table": [],
+                "mechanism": mechanism,
+                "family": f"new-family-{label}",
+            }
+            opener["sha256"] = r7.opener_hash(opener)
+            inventory.append(
+                route(
+                    slot,
+                    mechanism,
+                    label,
+                    {
+                        "deal": label,
+                        "dealHash": r7.sha_text(f"deal {label}"),
+                        "mediaSha256": r7.sha_text(f"media {label}"),
+                        "captionSha256": r7.sha_text(captions[2 * i + j]),
+                        "opener": opener,
+                        "contract": "hokum",
+                        "trickBand": "9-16",
+                        "knownMinimumIds": known_ids,
+                        "familyCases": [],
+                    },
+                )
+            )
+
+    previous = r7_history[2]
+    predecessors = [(previous["deal"], previous["visibleOpener"])]
+    for primary, fallback in zip(inventory[::2], inventory[1::2], strict=True):
+        for option in (primary, fallback):
+            option.binding["familyCases"].extend(
+                {
+                    "deal": deal,
+                    "visibleFingerprintSha256": opener["sha256"],
+                    "family": opener["family"],
+                    "mechanism": opener["mechanism"],
+                    "visibleOpener": opener,
+                    "fixture": {"path": str(fixture), "sha256": fixture_sha},
+                }
+                for deal, opener in predecessors
+            )
+        predecessors.append((primary.binding["deal"], primary.binding["opener"]))
+
+    # Isolate released-media intake. Planning, history and scoring use the verified r7 module.
+    monkeypatch.setattr(sequencer, "released_routes", lambda *args: inventory)
+    args = SimpleNamespace(
+        ledger=ledger,
+        buffer=buffer,
+        buffer_sha=buffer_sha,
+        evidence=evidence,
+        evidence_sha=evidence_sha,
+        caption_pool=pool,
+        gate=Path(r7.__file__),
+        policy=r7.POLICY,
+        output=tmp_path / "plan.json",
+        slots=SLOTS,
+        account="synthetic-user",
+    )
+    report, plan = sequencer.build_plan(args, r7)
+    assert report["status"] == "PLAN_READY"
+    assert report["plannedSlots"] == len(plan["slots"]) == 4
+    assert (
+        report["gatePolicySha256"] == plan["gatePolicySha256"] == sequencer.POLICY_SHA
+    )
+    for i, slot in enumerate(plan["slots"]):
+        for j, mode in enumerate(("primary", "fallback")):
+            candidate = inventory[2 * i + j]
+            assert slot[mode] == sequencer.gate_args(args, candidate)
+            assert r7.check_caption(captions[2 * i + j], private_data, pool_data) == []
