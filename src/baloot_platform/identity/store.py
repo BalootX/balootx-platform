@@ -87,7 +87,7 @@ class _IdentityLists:
         self, subject_id: str, *, limit: int | None = None, after: tuple[str, ...] = ()
     ) -> list[dict[str, Any]]:
         p = self.placeholder
-        fields = "request_id,sender_id,recipient_id,status,created_at,responded_at"
+        fields = "request_id,sender_id,recipient_id,status,created_at"
         order = f"ORDER BY created_at DESC,request_id DESC LIMIT {p}"
         if limit is None:
             requests = (
@@ -370,8 +370,6 @@ class PostgresIdentityStore(_IdentityLists):
         for row in rows:
             if "created_at" in row:
                 row["created_at"] = row["created_at"].astimezone(timezone.utc).isoformat()
-            # The PostgreSQL pending-request response omits the response timestamp.
-            row.pop("responded_at", None)
         return rows
 
     def upgrade_guest(self, *, subject_id: str, username: str, display_name: str,

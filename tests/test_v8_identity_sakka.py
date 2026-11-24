@@ -234,13 +234,12 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
             monkeypatch.setattr(service, "resolve", lambda token: (
                 (auth[token], {}) if token in auth else (None, None)
             ))
+            pagination = IdentityPaginationConfig(
+                default_page_size=13, maximum_page_size=21,
+                minimum_search_query_length=3, maximum_search_results=64,
+            )
             app = FastAPI()
-            app.include_router(build_auth_router(
-                service, pagination=IdentityPaginationConfig(
-                    default_page_size=13, maximum_page_size=21,
-                    minimum_search_query_length=3, maximum_search_results=64,
-                ),
-            ))
+            app.include_router(build_auth_router(service, pagination=pagination))
 
             with TestClient(app) as client:
                 def collect(path, key, *, query=None):
@@ -275,6 +274,16 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 client.headers["Authorization"] = "Bearer fixture-guest"
                 assert client.get(friends_path).status_code == 200
                 assert client.get(search_path, params={"query": "Page Fixture"}).status_code == 403
+                guest_app = FastAPI()
+                guest_app.include_router(build_auth_router(
+                    service, pagination=pagination.model_copy(update={"allow_guest_search": True}),
+                ))
+                with TestClient(guest_app) as guest_client:
+                    guest_search = guest_client.get(
+                        search_path, params={"query": "Page Fixture"}, headers=client.headers,
+                    )
+                    assert guest_search.status_code == 200
+                    assert len(guest_search.json()["items"]) == pagination.default_page_size
 
                 client.headers["Authorization"] = "Bearer fixture-owner"
                 friends, friend_cursor = collect(friends_path, "subjectId")
@@ -289,8 +298,25 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 pending, request_cursor = collect(requests_path, "request_id")
                 assert pending == [key for _, key in sorted(request_keys, reverse=True)]
                 request_item = client.get(requests_path, params={"limit": 1}).json()["items"][0]
-                assert ("responded_at" in request_item) == (not postgres)
-                assert len(client.get("/api/v1/friends/requests").json()["items"]) == len(request_keys)
+                request_keys_expected = {
+                    "request_id", "sender_id", "recipient_id", "status", "created_at",
+                    "sender_display_name", "sender_username",
+                }
+                assert set(request_item) == request_keys_expected
+                unpaged_requests = client.get("/api/v1/friends/requests").json()["items"]
+                assert len(unpaged_requests) == len(request_keys)
+                assert all(set(item) == request_keys_expected for item in unpaged_requests)
+                if postgres:
+                    sqlite_store = SQLiteIdentityStore(database)
+                    for subject_id in (candidates[0], owner):
+                        sqlite_store.insert_subject(
+                            subject_id=subject_id, kind="local", username=None, display_name="Synthetic",
+                            password_salt=None, password_hash=None, created_at=started,
+                        )
+                    sqlite_store.create_friend_request(
+                        request_id=request_keys[0][1], sender_id=candidates[0], recipient_id=owner, created_at=started,
+                    )
+                    assert set(sqlite_store.list_friend_requests(owner, limit=1)[0]) == set(request_item)
 
                 users, search_cursor = collect(search_path, "subjectId", query="Page Fixture")
                 assert users == candidates[:64]
@@ -303,7 +329,10 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 assert client.get(search_path, params={"query": "Page Fixture", "cursor": outside_cap}).json() == {
                     "items": [], "nextCursor": None,
                 }
-                for invalid in ("", "  ", "%", "_", "%__%", "ab"):
+                wildcard_only = client.get(search_path, params={"query": "%__%"})
+                assert wildcard_only.status_code == 200
+                assert wildcard_only.json() == {"items": [], "nextCursor": None}
+                for invalid in ("", "  ", "%", "_", "ab"):
                     rejection = client.get(search_path, params={"query": invalid})
                     assert rejection.status_code == 422
                     assert "at least 3 characters" in rejection.json()["detail"][0]["msg"]

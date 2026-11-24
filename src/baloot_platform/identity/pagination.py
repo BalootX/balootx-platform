@@ -21,6 +21,7 @@ class IdentityPaginationConfig(BaseModel):
     maximum_page_size: int = Field(gt=0, strict=True)
     minimum_search_query_length: int = Field(gt=0, strict=True)
     maximum_search_results: int = Field(gt=0, strict=True)
+    allow_guest_search: bool = Field(default=False, strict=True)
 
     @model_validator(mode="after")
     def validate_page_sizes(self) -> Self:

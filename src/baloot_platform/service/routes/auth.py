@@ -178,14 +178,14 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
         cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
     ):
         identity, _ = require_identity(request, service)
-        if identity.is_guest:
+        if identity.is_guest and not pagination.allow_guest_search:
             raise HTTPException(403, "sign in to search for users")
         query = query.strip()
         minimum = pagination.minimum_search_query_length
-        if "\0" in query or len(query) < minimum or not query.strip("%_"):
+        if "\0" in query or len(query) < minimum:
             raise HTTPException(422, [{
                 "loc": ["query", "query"],
-                "msg": f"search query must contain at least {minimum} characters, with no nulls and at least one non-wildcard character",
+                "msg": f"search query must contain at least {minimum} characters and no nulls",
                 "type": "value_error",
             }])
         return page(partial(service.search, maximum_results=pagination.maximum_search_results), query, limit, cursor)
