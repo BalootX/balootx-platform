@@ -311,14 +311,51 @@ def test_notice_selectors_require_public_in_main_and_cli(monkeypatch, capsys, se
     assert "require --public" in capsys.readouterr().err
 
 
-def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monkeypatch, approved_layout_bytes):
+@pytest.mark.parametrize("stale", [None, "image", "source", "lockfile", "dependencies"])
+def test_notice_selected_main_reaches_gates_with_selected_fixture(
+    tmp_path, monkeypatch, approved_layout_bytes, stale
+):
     selection = notice.select_deal(notice.DEAL_SOURCES[1][0])
     expected_trace = json.loads(selection["fixture"].read_text(encoding="utf-8"))["exactTracePrefix"]
+    design = notice.notice_profile(public=True)["approved_design"]
+    root = tmp_path / "source"
+    renderer_root = root / "src/baloot_platform/video/remotion"
+    dependency = renderer_root / "node_modules/renderer/package.json"
+    dependency.parent.mkdir(parents=True)
+    dependency.write_text(
+        json.dumps({"version": "1.0.0" if stale == "dependencies" else "2.0.0"}),
+        encoding="utf-8",
+    )
+    lockfile = renderer_root / "package-lock.json"
+    lockfile.write_text(
+        '{"lockfileVersion":3,"packages":{"node_modules/renderer":{"version":"2.0.0"}}}',
+        encoding="utf-8",
+    )
+    lock_digest = notice._sha256(lockfile)
+    stamp = tmp_path / ".lock-sha256"
+    stamp_digest = "0" * 64 if stale == "lockfile" else lock_digest
+    stamp.write_bytes(f"{stamp_digest}  package-lock.json\n".encode("ascii"))
+    image_id = "sha256:" + "3" * 64
+    build_receipt = tmp_path / "BUILD-RECEIPT.json"
+    build_receipt.write_text(
+        json.dumps({
+            "status": "PASSED",
+            "target": "video-worker",
+            "sourceHead": "c" * 40 if stale == "source" else "a" * 40,
+            "sourceTree": "b" * 40,
+            "imageId": image_id,
+            "packageLockSha256": lock_digest,
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(notice, "ROOT", root)
+    monkeypatch.setattr(notice, "WORKER_LOCK_STAMP", stamp)
+    monkeypatch.setattr(notice, "select_deal", lambda *_: selection)
+    monkeypatch.setenv("BALOOT_RENDER_BUILD_RECEIPT", str(build_receipt))
+    monkeypatch.setenv("BALOOT_RENDER_IMAGE_ID", "sha256:" + "4" * 64 if stale == "image" else image_id)
     output = tmp_path / "output"
-    output.mkdir()
     events = []
     monkeypatch.setattr(notice, "RuleBook", SimpleNamespace(load=lambda path: object()))
-    design = notice.notice_profile(public=True)["approved_design"]
     monkeypatch.setattr(notice, "notice_profile", lambda *, public=False: events.append("design") or {"approved_design": design})
 
     bundle = SimpleNamespace(
@@ -370,7 +407,7 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monk
 
     class FakeRenderer:
         def __init__(self, *args, **kwargs):
-            pass
+            self.renderer_root = renderer_root
 
         def execute(self, bundle, *, output_dir, **kwargs):
             events.append("ffprobe")
@@ -405,16 +442,28 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(tmp_path, monk
 
     monkeypatch.setattr(notice, "_write_provenance_notice", provenance)
 
-    notice.main(
+    inputs = dict(
         output_dir=output,
         public=True,
         deal_id=selection["identifier"],
         source_head="a" * 40,
         source_tree="b" * 40,
     )
+    if stale:
+        with pytest.raises(ValueError, match=rf"public render (build )?{stale} .*\b(does|do) not match"):
+            notice.main(**inputs)
+        assert events == ["design"]
+        assert not output.exists()
+        return
+
+    notice.main(**inputs)
 
     assert events == ["design", "build", "engine", "validation", "ffprobe", "provenance"]
     receipt = json.loads((output / "owner-approval.json").read_text(encoding="utf-8"))
+    provenance_receipt = json.loads((output / "provenance-notice.json").read_text(encoding="utf-8"))
+    for document in (receipt, provenance_receipt):
+        assert document["imageId"] == image_id
+        assert document["packageLockSha256"] == lock_digest
     assert receipt["dealIdentifier"] == selection["identifier"]
     assert receipt["fixture"] == selection["source"]
     assert receipt["publicResearchNoticeShown"] is True
