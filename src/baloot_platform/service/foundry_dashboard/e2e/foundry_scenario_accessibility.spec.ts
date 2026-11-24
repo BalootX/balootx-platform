@@ -319,6 +319,17 @@ test('distinct performance metrics follow the selected governed copy capability'
   await expect(distinctMetrics).toHaveCount(3);
 });
 
+test('readiness details open after a failed startup load', async ({page}) => {
+  await page.route('**/api/v2/foundry-profile', (route) => route.fulfill({status: 503, json: {detail: 'profile unavailable'}}));
+  await page.goto('/foundry?section=overview');
+  const trigger = readinessTrigger(page);
+  await expect(trigger).toBeEnabled();
+  await trigger.click();
+  const dialog = page.locator('dialog.drawer-layer');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAccessibleName(readinessLabel);
+});
+
 test('@mobile touch opens and closes the drawer with a full-size control', async ({page}) => {
   expect(await page.evaluate(() => navigator.maxTouchPoints)).toBeGreaterThan(0);
   let releaseProfile!: () => void;

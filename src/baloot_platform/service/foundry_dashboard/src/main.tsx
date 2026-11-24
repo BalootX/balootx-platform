@@ -1243,7 +1243,6 @@ function App() {
     setRenderJob((current) => current
       ? renderPage.items.find((item) => item.jobId === current.jobId) || null
       : renderPage.items.find((item) => ['queued', 'running'].includes(item.status)) || null);
-    setReadinessLoaded(true);
   }, [view]);
 
   useEffect(() => researchRecipeController.subscribe(() => {
@@ -1292,7 +1291,8 @@ function App() {
     }
   };
 
-  useEffect(() => { refresh().catch((error: Error) => setMessage(error.message)); }, [refresh]);
+  // A failed startup load still settles the layout, so readiness details must not stay disabled.
+  useEffect(() => { refresh().catch((error: Error) => setMessage(error.message)).finally(() => setReadinessLoaded(true)); }, [refresh]);
   useEffect(() => {
     if ((view !== 'overview' && view !== 'research') || !researchRuns.length) return;
     api<ResearchStats>('/api/v2/research-stats').then(setResearchStats).catch((error: Error) => {
