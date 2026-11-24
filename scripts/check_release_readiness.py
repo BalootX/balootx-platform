@@ -33,7 +33,8 @@ from baloot_platform.release_scope import (
     SOURCE_SCOPE,
     source_pathspecs,
 )
-from baloot_platform.video.media_validation import validate_release_loudness_target
+from baloot_platform.video.media_validation import validate_loudness
+
 try:
     from scripts.run_verifier_container import verify_receipt as verify_verifier_receipt
 except ModuleNotFoundError:
@@ -282,7 +283,7 @@ def _evidence_artifact(root: Path, relative: str) -> dict[str, Any]:
             for item in media:
                 if not isinstance(item, dict):
                     raise ValueError("media probe entry must be an object")
-                validate_release_loudness_target(item.get("loudness"))
+                validate_loudness(item.get("loudness"))
             valid = value.get("status") == "passed"
         else:
             valid = value.get("status") == "passed"
@@ -759,6 +760,10 @@ def _variant_handoff(
         raise ValueError(
             f"variant {variant_id} video is not bound to its qualified result"
         )
+    audio_finishing = manifest.get("audioFinishing")
+    validate_loudness(
+        audio_finishing.get("loudness") if isinstance(audio_finishing, dict) else None
+    )
     seen_ids.add(variant_id)
     seen_results.add(result_hash)
     seen_videos.add(video_artifact["sha256"])

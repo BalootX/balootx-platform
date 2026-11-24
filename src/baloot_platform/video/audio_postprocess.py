@@ -460,6 +460,7 @@ def finish_remotion_audio(
     ffmpeg = media_tool(root, "ffmpeg")
     ffprobe = media_tool(root, "ffprobe")
     plan = build_audio_cue_plan(bundle)
+    # Keep the profile's mix calibration and use the release target for encoded corrections.
     release_plan = {**plan, "targetLufs": RELEASE_TARGET_LUFS}
     render = bundle.value["render"]
     expected_frames = int(bundle.value["timeline"]["totalFrames"])

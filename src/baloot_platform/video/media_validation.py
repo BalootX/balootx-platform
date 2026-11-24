@@ -157,8 +157,12 @@ def validate_release_loudness_target(evidence: object) -> None:
 
 def validate_loudness(evidence: Mapping[str, Any]) -> None:
     validate_release_loudness_target(evidence)
-    if not loudness_within_limits(evidence):
-        raise ValueError(f"governed audio loudness validation failed at {RELEASE_TARGET_LUFS} LUFS: {evidence}")
+    try:
+        within_limits = loudness_within_limits(evidence)
+    except (KeyError, OverflowError, TypeError, ValueError):
+        raise ValueError("release loudness requires numeric integratedLufs and truePeakDbtp") from None
+    if not within_limits:
+        raise ValueError(f"governed audio loudness validation failed at {RELEASE_TARGET_LUFS} LUFS")
 
 
 def compare_images(source: Path, encoded: Path) -> dict[str, float | int | str]:

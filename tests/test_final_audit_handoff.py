@@ -30,7 +30,9 @@ def _ref(root: Path, path: Path) -> dict[str, str]:
     }
 
 
-def _fixture(root: Path) -> tuple[dict[str, Any], dict[str, Path]]:
+def _fixture(
+    root: Path, *, true_peak_dbtp: float = -1.5
+) -> tuple[dict[str, Any], dict[str, Path]]:
     root.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
     tracked = root / "source.txt"
@@ -144,6 +146,14 @@ def _fixture(root: Path) -> tuple[dict[str, Any], dict[str, Path]]:
                 "auditOnly": False,
             },
             "files": {"video": {"name": video.name, "sha256": video_sha}},
+            "audioFinishing": {
+                "status": "passed",
+                "loudness": {
+                    "targetLufs": -19.4,
+                    "integratedLufs": -20.9,
+                    "truePeakDbtp": true_peak_dbtp,
+                },
+            },
         }
         manifest_value["manifestSha256"] = handoff.canonical_sha256(manifest_value)
         _write_json(manifest, manifest_value)
@@ -513,4 +523,14 @@ def test_final_handoff_requires_variant_bytes_in_frozen_archive(
     specification["variants"][0]["result"] = _ref(tmp_path, outside)
 
     with pytest.raises(ValueError, match="not bound into the frozen source archive"):
+        handoff.build_final_audit_handoff(tmp_path, specification)
+
+
+def test_final_handoff_rejects_variant_loudness_outside_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _admit_fixture_results(monkeypatch)
+    specification, _ = _fixture(tmp_path, true_peak_dbtp=-1.49)
+
+    with pytest.raises(ValueError, match="loudness validation failed"):
         handoff.build_final_audit_handoff(tmp_path, specification)
