@@ -10,7 +10,7 @@ import {
 } from '@tanstack/react-table';
 import './styles.css';
 import {researchRunStatusLabel} from './shared/presentation';
-import {configurationEditorArrayOptions, configurationEditorArrayItemSchema, configurationEditorChange, configurationEditorEntries, configurationEditorEnum, configurationEditorEnumTitle, configurationEditorEnumMessageKey, configurationEditorExpressionChoices, configurationEditorExpressionChoice, configurationEditorSelectExpression, configurationEditorObjectArrayAdd, configurationEditorObjectArrayRemove, configurationEditorObjectArraySchema, configurationEditorObjectValue, configurationEditorSchema, configurationPreviewComponents} from './features/configuration/model';
+import {configurationEditorArrayOptions, configurationEditorArrayItemSchema, configurationEditorChange, configurationEditorEntries, configurationEditorEnum, configurationEditorEnumTitle, configurationEditorEnumMessageKey, configurationEditorExpressionChoices, configurationEditorExpressionChoice, configurationEditorSelectExpression, configurationEditorObjectArrayAdd, configurationEditorObjectArrayRemove, configurationEditorObjectArraySchema, configurationEditorObjectValue, configurationEditorSchema, configurationPreviewComponents, openConfigurationRevision} from './features/configuration/model';
 import {
   mergeResearchPatch,
   researchCatalogFieldApplicable,
@@ -2474,6 +2474,8 @@ function ConfigurationWorkspace({runtimeProfile, openHelp, setOpenHelp, setDrawe
   const [family, setFamily] = useState('rules');
   const [selected, setSelected] = useState<ConfigProfile | null>(null);
   const [draft, setDraft] = useState<JsonObject | null>(null);
+  // A mutation's follow-up read keeps the intent that started the mutation.
+  const profileIntent = useRef(0);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState('');
   const [adminKey, setAdminKey] = useState('');
@@ -2500,14 +2502,22 @@ function ConfigurationWorkspace({runtimeProfile, openHelp, setOpenHelp, setDrawe
   }, [family, setMessage]);
   const families = useMemo(() => [...new Set(profiles.map((item) => item.family))].sort((a,b) => (familyMeta[a]?.label || a).localeCompare(familyMeta[b]?.label || b, 'ar')), [profiles]);
   const latest = useMemo(() => profiles.filter((item) => item.family === family && item.status === 'published').sort((a,b) => b.sequence - a.sequence)[0] || profiles.find((item) => item.family === family), [profiles, family]);
-  useEffect(() => { if (!selected || selected.family !== family) setSelected(null); }, [family, selected]);
-  const openProfile = async (item: ConfigProfile) => {
-    try {
-      const full = await api<ConfigProfile>(`/api/v1/configuration-registry/profiles/${item.revisionId}`);
-      setSelected(full); setDraft(copyJson(full.payload || {})); setProfileValidation(null); setProfileCompilation(null); setProfileCompilationError(''); setPreviewBundle(null);
-    } catch (error) { setMessage((error as Error).message); }
+  useEffect(() => () => { ++profileIntent.current; }, []);
+  const selectFamily = (nextFamily: string) => {
+    if (nextFamily === family && !selected) return;
+    ++profileIntent.current;
+    setFamily(nextFamily); setSelected(null); setDraft(null);
   };
-  useEffect(() => { if (latest && !selected) openProfile(latest); }, [latest, selected]);
+  const openProfile = useCallback((item: ConfigProfile, intent?: number) => openConfigurationRevision(
+    profileIntent,
+    () => api<ConfigProfile>(`/api/v1/configuration-registry/profiles/${item.revisionId}`),
+    (full, nextDraft) => {
+      setSelected(full); setDraft(nextDraft); setProfileValidation(null); setProfileCompilation(null); setProfileCompilationError(''); setPreviewBundle(null);
+    },
+    setMessage,
+    intent,
+  ), [setMessage]);
+  useEffect(() => { if (latest && !selected) openProfile(latest); }, [latest, selected, openProfile]);
   const siblingRevisions = useMemo(() => profiles.filter((item) => selected && item.family === selected.family && item.profileId === selected.profileId && item.revisionId !== selected.revisionId).sort((a,b) => b.sequence - a.sequence), [profiles, selected]);
   const visibleSiblingRevisions = showAllRevisions ? siblingRevisions : siblingRevisions.slice(0, 12);
   useEffect(() => { setCompareRevision(siblingRevisions[0]?.revisionId || ''); }, [selected?.revisionId, siblingRevisions[0]?.revisionId]);
@@ -2524,21 +2534,25 @@ function ConfigurationWorkspace({runtimeProfile, openHelp, setOpenHelp, setDrawe
   const changed = useMemo(() => diffPaths((selected?.payload || {}) as JsonValue, (draft || {}) as JsonValue), [selected, draft]);
   const saveDraft = async () => {
     if (!selected || selected.status !== 'draft' || !draft || !changed.length) return; setSaving(true);
+    const intent = ++profileIntent.current;
     try {
       const result = await api<ConfigProfile>(`/api/v2/configuration/profiles/${selected.revisionId}`, {method:'PATCH', headers:adminHeaders(), body:JSON.stringify({payload:draft, expectedEtag:selected.etag})});
-      setMessage(t("settings.m_257862e1d0ee")); await load(); await openProfile(result);
-    } catch (error) { setMessage((error as Error).message); } finally { setSaving(false); }
+      if (intent === profileIntent.current) setMessage(t("settings.m_257862e1d0ee"));
+      await load(); await openProfile(result, intent);
+    } catch (error) { if (intent === profileIntent.current) setMessage((error as Error).message); } finally { setSaving(false); }
   };
   const adminHeaders = () => ({'x-baloot-role':'admin', ...(adminKey ? {'x-api-key':adminKey} : {})});
   const cloneDraft = async () => {
     if (!selected?.payload) return; setSaving(true);
+    const intent = ++profileIntent.current;
     try {
       const payload=copyJson(selected.payload); const profile=payload.profile as JsonObject | undefined;
       // Revision identity changes independently; cloning cannot invent support for a new contract version.
       if(profile) profile.status='draft';
       const result=await api<ConfigProfile>('/api/v2/configuration/profiles', {method:'POST', headers:adminHeaders(), body:JSON.stringify({family:selected.family,payload,scope:selected.scope,scopeKey:selected.scopeKey==='*'?null:selected.scopeKey,rolloutPercentage:100,rolloutSeed:'default',supersedesRevisionId:selected.revisionId,publish:false})});
-      setMessage(t("settings.rules_clone_ready")); await load(); await openProfile(result);
-    } catch(error) { setMessage((error as Error).message); } finally { setSaving(false); }
+      if (intent === profileIntent.current) setMessage(t("settings.rules_clone_ready"));
+      await load(); await openProfile(result, intent);
+    } catch(error) { if (intent === profileIntent.current) setMessage((error as Error).message); } finally { setSaving(false); }
   };
   const validateDraft = async () => {
     if (!selected || selected.status !== 'draft' || changed.length) return; setSaving(true);
@@ -2558,12 +2572,16 @@ function ConfigurationWorkspace({runtimeProfile, openHelp, setOpenHelp, setDrawe
     if (!selected) return;
     if (action !== 'publish' && transitionReason.trim().length < 2) { setMessage(t("settings.m_5c725248e82f")); return; }
     setSaving(true);
+    const intent = ++profileIntent.current;
     try {
       const body = action === 'publish' ? {expectedEtag:selected.etag} : {expectedEtag:selected.etag, reason:transitionReason.trim()};
       const result = await api<ConfigProfile>(`/api/v1/configuration-registry/profiles/${selected.revisionId}:${action}`, {method:'POST', headers:adminHeaders(), body:JSON.stringify(body)});
-      setMessage(action === 'publish' ? t("settings.m_d3cf2f94e36e") : action === 'reject' ? t("settings.m_eabf58cbd764") : t("settings.m_054f2c46d23f"));
-      setTransitionReason(''); await load(); await openProfile(result);
-    } catch (error) { setMessage((error as Error).message); } finally { setSaving(false); }
+      if (intent === profileIntent.current) {
+        setMessage(action === 'publish' ? t("settings.m_d3cf2f94e36e") : action === 'reject' ? t("settings.m_eabf58cbd764") : t("settings.m_054f2c46d23f"));
+        setTransitionReason('');
+      }
+      await load(); await openProfile(result, intent);
+    } catch (error) { if (intent === profileIntent.current) setMessage((error as Error).message); } finally { setSaving(false); }
   };
   const filteredFamilies = families.filter((item) => `${familyMeta[item]?.label || item} ${familyMeta[item]?.description || ''}`.includes(query));
   const runtimeBundle = bundles.find((item) => item.revisionId === runtimeProfile?.runtimeBundleRevisionId);
@@ -2641,8 +2659,8 @@ function ConfigurationWorkspace({runtimeProfile, openHelp, setOpenHelp, setDrawe
     <aside className="settings-sidebar panel">
       <PanelTitle kicker={t("settings.m_d817347b32c4")} title={t("settings.m_3988d2354c99")} help={t("settings.m_8f3cb700222e")} example={t("settings.m_925d63afaf43")} openHelp={openHelp} setOpenHelp={setOpenHelp} />
       <label className="search-box"><span>{t("settings.m_f7a9f4607a42")}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("settings.m_6c744321c488")} /></label>
-      <label className="family-select"><span>{t("settings.label_family_picker")}</span><select value={family} onChange={(event) => {setFamily(event.target.value); setSelected(null); setDraft(null);}}>{filteredFamilies.map((item) => <option key={item} value={item}>{familyMeta[item]?.label || t("settings.m_f224d86b5a90")}</option>)}</select></label>
-      <div className="family-nav">{filteredFamilies.map((item) => <button key={item} className={family === item ? 'active' : ''} onClick={() => {setFamily(item); setSelected(null); setDraft(null);}}><span>{familyMeta[item]?.label || t("settings.m_f224d86b5a90")}</span><small>{familyMeta[item]?.description || t("settings.m_097648632423")}</small></button>)}</div>
+      <label className="family-select"><span>{t("settings.label_family_picker")}</span><select value={family} onChange={(event) => selectFamily(event.target.value)}>{filteredFamilies.map((item) => <option key={item} value={item}>{familyMeta[item]?.label || t("settings.m_f224d86b5a90")}</option>)}</select></label>
+      <div className="family-nav">{filteredFamilies.map((item) => <button key={item} className={family === item ? 'active' : ''} onClick={() => selectFamily(item)}><span>{familyMeta[item]?.label || t("settings.m_f224d86b5a90")}</span><small>{familyMeta[item]?.description || t("settings.m_097648632423")}</small></button>)}</div>
     </aside>
     <section className="settings-main">
       <article className="panel bundle-summary">
