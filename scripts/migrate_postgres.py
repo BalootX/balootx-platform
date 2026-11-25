@@ -13,6 +13,14 @@ _SQL_TOKEN = re.compile(
 )
 _COMMENT_END = re.compile(r"/\*|\*/")
 _TRANSACTION_COMMANDS = {"ABORT", "BEGIN", "COMMIT", "END", "RELEASE", "ROLLBACK", "SAVEPOINT", "START"}
+_ROUTINE_HEADER = {
+    ("CREATE", "OR"): "CREATE OR",
+    ("CREATE OR", "REPLACE"): "CREATE OR REPLACE",
+    ("CREATE", "FUNCTION"): "ROUTINE",
+    ("CREATE", "PROCEDURE"): "ROUTINE",
+    ("CREATE OR REPLACE", "FUNCTION"): "ROUTINE",
+    ("CREATE OR REPLACE", "PROCEDURE"): "ROUTINE",
+}
 
 
 def _migration_sql(source: bytes, name: str) -> str:
@@ -23,6 +31,7 @@ def _migration_sql(source: bytes, name: str) -> str:
 
     position = 0
     command = None
+    atomic_depth = 0
     while token := _SQL_TOKEN.search(sql, position):
         position = token.end()
         if token.lastgroup == "line":
@@ -45,13 +54,26 @@ def _migration_sql(source: bytes, name: str) -> str:
         if word == ";":
             command = None
         elif command is None:
-            if word in _TRANSACTION_COMMANDS:
+            # A routine's END follows a complete statement. CASE ... END is part of one.
+            if atomic_depth and word == "END":
+                atomic_depth -= 1
+            elif not atomic_depth and word in _TRANSACTION_COMMANDS:
                 raise ValueError(f"Unexpected transaction control in {name}: {word}")
             command = word
         elif command == "PREPARE":
-            if word == "TRANSACTION":
+            if not atomic_depth and word == "TRANSACTION":
                 raise ValueError(f"Unexpected transaction control in {name}: PREPARE TRANSACTION")
             command = ""
+        elif command in ("CREATE", "CREATE OR", "CREATE OR REPLACE"):
+            command = _ROUTINE_HEADER.get((command, word), "")
+        elif command in ("ROUTINE", "ROUTINE BEGIN"):
+            if command == "ROUTINE BEGIN" and word == "ATOMIC":
+                atomic_depth += 1
+                command = None
+            else:
+                command = "ROUTINE BEGIN" if word == "BEGIN" else "ROUTINE"
+    if atomic_depth:
+        raise ValueError(f"Unterminated SQL BEGIN ATOMIC body in {name}")
     return sql
 
 

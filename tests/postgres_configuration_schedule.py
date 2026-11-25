@@ -58,10 +58,17 @@ def _prove_previous_release(migrator_dsn: str, app_dsn: str, postgres_ids: tuple
     )
     subprocess.run(
         [sys.executable, "-c", """
+import os
 import sys
+from pathlib import Path
+
+import baloot_platform
 from baloot_platform.configuration import PostgresConfigurationStore, SQLiteConfigurationStore
 from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
 
+previous_root = Path(os.environ["BALOOT_PREVIOUS_ROOT"]).resolve()
+module_path = Path(baloot_platform.__file__).resolve()
+assert module_path.is_relative_to(previous_root / "src"), "Previous-release package came from another checkout"
 app_dsn, sqlite_path, postgres_profile_id, postgres_bundle_id, sqlite_profile_id, sqlite_bundle_id = sys.argv[1:]
 CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id="TEST", role="service"))
 for store, profile_id, bundle_id in (
@@ -74,6 +81,7 @@ for store, profile_id, bundle_id in (
         assert profile.effective_from == bundle.effective_from == "2026-07-01T16:00:00+00:00"
     finally:
         store.close()
+print(f"previousReleaseConfigurationModule: {module_path.relative_to(previous_root).as_posix()}")
 """, app_dsn, str(path), *postgres_ids, profile.revision_id, bundle.revision_id],
         cwd=previous, env=old_env, check=True,
     )

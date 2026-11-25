@@ -184,6 +184,25 @@ def test_migration_runner_ignores_transaction_words_inside_sql_literals() -> Non
     assert migrate_postgres._migration_sql(b"BEGIN; " + inner + b" COMMIT;", "test.sql").strip().encode() == inner
 
 
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        b"CREATE FUNCTION schedule_test() RETURNS integer",
+        b"CREATE OR REPLACE PROCEDURE schedule_test()",
+    ],
+)
+def test_migration_runner_accepts_sql_routine_bodies_and_checks_following_statements(
+    declaration: bytes,
+) -> None:
+    routine = (
+        declaration
+        + b" LANGUAGE SQL BEGIN /* body */ ATOMIC SELECT CASE WHEN true THEN 1 ELSE 0 END; END;"
+    )
+    assert migrate_postgres._migration_sql(routine, "test.sql").encode() == routine
+    with pytest.raises(ValueError, match="Unexpected transaction control in test.sql: COMMIT"):
+        migrate_postgres._migration_sql(routine + b" COMMIT;", "test.sql")
+
+
 def test_v25_is_forward_only_and_schema_idempotent_by_construction(root: Path) -> None:
     _, sql = _migration(root)
     normalized = _normalized(sql)
