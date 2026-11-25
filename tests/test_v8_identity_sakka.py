@@ -224,7 +224,7 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                         else:
                             assert indexes[fetch.__name__] not in plan, plan
 
-        token = SERVICE_SUBJECT_OWNER.set((owner, legacy))
+        ownership_context = SERVICE_SUBJECT_OWNER.set((owner, legacy))
         try:
             plans("baseline")
             if postgres:
@@ -319,11 +319,11 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                     signed = client.get(path, headers={**selected_owner, "Authorization": "Bearer fixture-read"})
                     assert signed.status_code == 200
                     assert signed.json() == empty_result
-                    for token in ("fixture-no-read", "fixture-unknown-role"):
-                        assert client.get(path, headers={"Authorization": f"Bearer {token}"}).status_code == 403
-                for token in ("fixture-no-read", "fixture-unknown-role"):
+                    for denied_token in ("fixture-no-read", "fixture-unknown-role"):
+                        assert client.get(path, headers={"Authorization": f"Bearer {denied_token}"}).status_code == 403
+                for denied_token in ("fixture-no-read", "fixture-unknown-role"):
                     assert client.get(search_path, params={"query": "Page-Fixture"}, headers={
-                        "Authorization": f"Bearer {token}",
+                        "Authorization": f"Bearer {denied_token}",
                     }).status_code == 403
 
                 client.headers["Authorization"] = "Bearer fixture-guest"
@@ -416,7 +416,7 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 service.respond_friend(pending[12], owner, accept=False)
                 assert service.request_page(owner, limit=17, cursor=request_cursor)["items"][0]["request_id"] == pending[13]
         finally:
-            SERVICE_SUBJECT_OWNER.reset(token)
+            SERVICE_SUBJECT_OWNER.reset(ownership_context)
     finally:
         if postgres:
             store.pool.close()
