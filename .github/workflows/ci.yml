@@ -70,7 +70,7 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install 'pytest>=8.3' 'PyYAML>=6.0' 'ruff>=0.11'
       - run: |
-          ruff check --select E9,F63,F7,F82 src scripts sdk/python tests
+          ruff check --select E9,F63,F7,F82 src scripts sdk/python tests ci/critical_review.py
           python -m compileall -q src scripts sdk/python
           python -m pytest -q tests/test_ci_hosted_contract.py tests/test_repository_structure.py tests/test_media_render_artifact.py
 
@@ -855,8 +855,32 @@ jobs:
     if: ${{ always() && !inputs.viewer-seat-proof }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - *checkout
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require an independent verdict on critical changes
+        if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'merge_group'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          [[ "$REVIEW_BASE" =~ ^[0-9a-f]{40}$ ]]
+          base_files=$(git ls-tree --name-only "$REVIEW_BASE" -- ci/critical_review.py ci/critical-paths.json)
+          if [[ -z "$base_files" ]]; then
+            # The first installation is reviewed before these files become the base policy.
+            installed_files=$(git ls-tree --name-only HEAD -- ci/critical_review.py ci/critical-paths.json)
+            test "$installed_files" = $'ci/critical-paths.json\nci/critical_review.py'
+            exit 0
+          fi
+          test "$base_files" = $'ci/critical-paths.json\nci/critical_review.py'
+          git show "$REVIEW_BASE:ci/critical_review.py" > "$RUNNER_TEMP/critical-review.py"
+          python3 -I "$RUNNER_TEMP/critical-review.py"
       - env:
           CI_RESULTS: ${{ toJSON(needs) }}
           IS_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}

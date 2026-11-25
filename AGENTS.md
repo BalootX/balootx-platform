@@ -58,14 +58,14 @@ Run the Python commands at the repository root and npm commands in the named pac
 
 ## Critical paths
 
-Apply the [independent review procedure](DELIVERY.md#merge) only when a change affects one of these controls. Paths show where the controls live in this repo. All other changes merge on green required CI.
+Apply the [independent review procedure](DELIVERY.md#merge) only when a change affects one of these controls. The [critical path configuration](ci/critical-paths.json) maps them to repository paths. All other changes merge on green required CI.
 
-- **Production** includes deploys, production configuration and production data. The production image uses `Dockerfile` and `.dockerignore`. Runtime configuration lives in `configs/runtime/docker_v1.yaml` and its packaged copy.
-- **Secrets and credentials** include how tokens and keys are read, scoped, stored and rotated. Repo controls include workflow secrets and token permissions in `.github/workflows/`, secret scanning in `.gitleaks.toml`, and credential handling in `src/baloot_platform/{identity,security}/`, `configs/{identity,security}/` and their packaged mirrors.
-- **Real people's or customer data** includes migrations, deletion, retention, audit history, backups, restore and access to personal or restricted records. Data controls include `migrations/` and its packaged copy, `scripts/migrate_{postgres,to_canonical_v17}.py`, `src/baloot_platform/{history,storage,configuration,adjudication}/`, and authorization and response fields in `src/baloot_platform/service/`, `src/baloot_platform/shared/access.py` and `api/`. Uncovered safety-critical rules also require review.
-- **Making anything public** includes the posting controller, publication ledger writer, caption and media release steps, and any transition from `NEVER_POST` to posting. Repo inputs include `scripts/{pick_nightly_candidates,build_nightly_shadow_day,render_research_notice}.py`, `src/baloot_platform/challenge/publication_service.py`, `src/baloot_platform/research/slot_sequencer.py` and `src/baloot_platform/video/{captions,render_projection}.py`.
-- **Hosts, networks and firewalls** include runner and render-host configuration, network access and firewall rules. Repo controls include runner selection in `.github/workflows/`, the video-worker image in `Dockerfile`, and network policy in `configs/{runtime/docker_v1,security/local_secure_v1}.yaml` and their packaged copies.
-- **Repo settings, branch protection and release gates** include rulesets, required checks, the privacy deny check, and removing, skipping or weakening a test or the test-file guard. Repo controls include `.github/workflows/`, `scripts/ci_scope.py`, `release/`, `scripts/{check_release_readiness,verify_release}.py`, `src/baloot_platform/release_scope.py` and clip admission checks in `src/baloot_platform/video/`. The clip release gate's r8 revision requires its one independent review.
+- **Production** includes deploys, production configuration and production data.
+- **Secrets and credentials** include how tokens and keys are read, scoped, stored and rotated, including workflow secrets, token permissions, secret scanning and credential handling.
+- **Real people's or customer data** includes migrations, deletion, retention, audit history, backups, restore and access to personal or restricted records. Uncovered safety-critical rules also require review.
+- **Making anything public** includes the posting controller, publication ledger writer, caption and media release steps, and any transition from `NEVER_POST` to posting.
+- **Hosts, networks and firewalls** include runner and render-host configuration, network access and firewall rules.
+- **Repo settings, branch protection and release gates** include rulesets, required checks, the privacy deny check, clip admission checks, and removing, skipping or weakening a test or the test-file guard. The clip release gate's r8 revision requires its one independent review.
 
 Once end-to-end tests cover every BalootX safety rule and this section records each rule and its test, changes to covered rules merge on green CI. A new safety rule needs one review until its test lands.
 
