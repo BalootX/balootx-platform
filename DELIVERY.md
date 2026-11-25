@@ -16,6 +16,8 @@ Follows engineering standard v1.26.
 
 The required **ci-gate** check compares the producer results to the plan and fails on missing, failed, cancelled or unexpectedly skipped work. See [the current limits in the workflow](.github/workflows/ci.yml) and the [historical timing samples](ci/TIMINGS.md).
 
+The [FFmpeg runtime profile](src/baloot_platform/video/remotion/scripts/ffmpeg-runtime.json) caps codec and filter threads for Remotion rendering and Python media verification on every host. The renderer fingerprint includes the profile.
+
 The `docker-constraints` job dry-runs pip with the Python base image, exact constraints and extras shared by the Docker test and verifier stages. It runs when its Docker, dependency or CI inputs change on a PR, when CI cannot resolve the diff, and on main and merge groups.
 
 The address-sanitizer job requires both verifier pytest nodes to pass against its own build. The Windows job uses a [CPU fixture](ci/windows-ci-local-cpu.json) for its four-vCPU checkout and runs the inherited-limit test through the capped launcher. Both jobs require passing phase receipts for every selected node.
