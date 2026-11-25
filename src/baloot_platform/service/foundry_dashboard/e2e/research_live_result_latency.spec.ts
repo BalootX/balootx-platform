@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test';
+import {expect, test, type Page} from '@playwright/test';
 import {mkdir, writeFile} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {performance} from 'node:perf_hooks';
@@ -295,4 +295,125 @@ test('reconciles a completed run when the event stream stays open but silent', a
   await expect(runDialog.locator('.drawer > header').getByText('مكتمل', {exact: true})).toBeVisible({timeout: 10_000});
   releaseTerminalStats?.();
   await expect(runDialog.getByRole('button', {name: 'أوقف البحث'})).toHaveCount(0);
+});
+
+const staleRunCode = 'RUN-STALE-DRAWER-A';
+const currentRunCode = 'RUN-STALE-DRAWER-B';
+
+// The first run's details stay unanswered until released, so each test decides what happens before they arrive.
+async function holdFirstRunDetails(page: Page) {
+  const recipeCode = 'RCP-STALE-DRAWER';
+  const baseStats = await (await page.request.get('/api/v2/research-stats')).json();
+  let currentRunTerminal = false;
+  let releaseStaleDetails!: () => void;
+  let releaseEvents!: () => void;
+  const staleDetailsGate = new Promise<void>((resolve) => { releaseStaleDetails = resolve; });
+  const eventsGate = new Promise<void>((resolve) => { releaseEvents = resolve; });
+  const run = (runCode: string) => ({
+    runCode,
+    recipeCode,
+    status: runCode === currentRunCode && currentRunTerminal ? 'completed' : 'running',
+    progress: 0.5,
+    resultCount: 0,
+    qualifiedCount: 0,
+    quarantineCount: 0,
+  });
+  const staleStatsPath = `/api/v2/research-runs/${staleRunCode}/stats`;
+
+  await page.route((url) => url.pathname === '/api/v2/research-runs', async (route) => {
+    await route.fulfill({json: {items: [run(staleRunCode), run(currentRunCode)]}});
+  });
+  for (const runCode of [staleRunCode, currentRunCode]) {
+    await page.route((url) => url.pathname === `/api/v2/research-runs/${runCode}`, async (route) => {
+      await route.fulfill({json: run(runCode)});
+    });
+    await page.route((url) => url.pathname === `/api/v2/research-runs/${runCode}/stats`, async (route) => {
+      if (runCode === staleRunCode) await staleDetailsGate;
+      await route.fulfill({json: baseStats});
+    });
+    await page.route((url) => url.pathname === `/api/v2/research-runs/${runCode}/events`, async (route) => {
+      await eventsGate;
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: 'id: 1\nevent: progress\ndata: {"status":"running"}\n\n',
+      });
+    });
+  }
+  await page.route((url) => url.pathname === `/api/v2/research-recipes/${recipeCode}`, async (route) => {
+    await route.fulfill({json: {
+      schemaVersion: 4,
+      code: recipeCode,
+      sha256: 'a'.repeat(64),
+      lifecycleStatus: 'published',
+      status: 'published',
+      configuration: {bundleVersion: '24.0.0'},
+    }});
+  });
+
+  await page.goto('/foundry?section=research');
+  const bundle = page.locator('#research-bundle-select');
+  await bundle.selectOption(await nativeResearchBundleRevision(page, bundle));
+  await expect(page.locator('#scenario-studio-title')).toBeVisible();
+
+  const drawers = page.locator('dialog.drawer-layer');
+  const currentDialog = page.getByRole('dialog', {name: `تفاصيل عملية البحث · ${currentRunCode}`});
+  return {
+    drawers,
+    currentDialog,
+    async openStaleRunAndDismiss() {
+      const requested = page.waitForRequest((request) => new URL(request.url()).pathname === staleStatsPath);
+      await page.locator('button.list-item').filter({hasText: staleRunCode}).click();
+      await requested;
+      const staleDialog = page.getByRole('dialog', {name: `تفاصيل عملية البحث · ${staleRunCode}`});
+      await expect(staleDialog).toBeVisible();
+      await staleDialog.locator('header button').click();
+      await expect(drawers).toHaveCount(0);
+    },
+    async openCurrentRun() {
+      await page.locator('button.list-item').filter({hasText: currentRunCode}).click();
+      await expect(currentDialog.locator('section.research-run-events')).toBeVisible();
+    },
+    async deliverStaleDetails() {
+      const answered = page.waitForResponse((response) => new URL(response.url()).pathname === staleStatsPath);
+      releaseStaleDetails();
+      await (await answered).finished();
+    },
+    completeCurrentRun() {
+      currentRunTerminal = true;
+      releaseEvents();
+    },
+    release() {
+      releaseStaleDetails();
+      releaseEvents();
+    },
+  };
+}
+
+test('keeps the run drawer closed when its details arrive after dismissal', async ({page}) => {
+  const held = await holdFirstRunDetails(page);
+  try {
+    await held.openStaleRunAndDismiss();
+    await held.deliverStaleDetails();
+    await expect(held.drawers).toHaveCount(0);
+    await held.openCurrentRun();
+    await expect(held.drawers).toHaveCount(1);
+  } finally {
+    held.release();
+  }
+});
+
+test('keeps the selected run drawer when an earlier run answers last', async ({page}) => {
+  const held = await holdFirstRunDetails(page);
+  try {
+    await held.openStaleRunAndDismiss();
+    await held.openCurrentRun();
+    await held.deliverStaleDetails();
+    held.completeCurrentRun();
+    await expect(held.currentDialog.locator('.drawer > header').getByText('مكتمل', {exact: true})).toBeVisible();
+    await expect(held.currentDialog.getByRole('button', {name: 'أوقف البحث'})).toHaveCount(0);
+    await expect(held.drawers).toHaveCount(1);
+  } finally {
+    held.release();
+  }
 });
