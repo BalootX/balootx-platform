@@ -147,8 +147,12 @@ def test_ci_shards_receive_builds_and_required_node_dependencies(root: Path) -> 
                if "download-artifact@" in step.get("uses", ""))
     foundry = jobs["foundry"]["steps"]
     assert any(step.get("run", "").startswith("npm run test:research -- ") for step in foundry)
-    assert any(step.get("run", "").startswith("npm run test:operator-e2e -- ") for step in foundry)
+    e2e, = (step for step in foundry if step.get("run", "").startswith("npm run test:operator-e2e -- "))
     assert any(step.get("with", {}).get("name") == "foundry-test-receipts" for step in foundry)
+    diagnostics, = (step for step in foundry
+                    if step.get("with", {}).get("name") == "foundry-playwright-failure-diagnostics")
+    assert diagnostics["with"]["path"] == e2e["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+    assert f"steps.{e2e['id']}.outcome == 'failure'" in diagnostics["if"]
     assert installs <= {step.get("working-directory") for step in foundry
                         if step.get("run", "").startswith("npm ci ")}
     assert jobs["media-render"]["strategy"]["matrix"]["shard"] == ["flagship", "decision", "companion", "parity"]
