@@ -7,9 +7,25 @@ import sys
 from pathlib import Path
 
 import psycopg
+import pytest
+from fastapi import FastAPI, Request
+from fastapi.testclient import TestClient
 from psycopg.conninfo import make_conninfo
 
-from baloot_platform.configuration import PostgresConfigurationStore, SQLiteConfigurationStore
+from baloot_platform.config import build_bundle
+from baloot_platform.configuration import (
+    PostgresConfigurationStore,
+    SQLiteConfigurationStore,
+    VersionedConfigurationService,
+    store as configuration_store,
+)
+from baloot_platform.configuration.schedule import ConfigurationScheduleConflict
+from baloot_platform.identity import IdentityService, SQLiteIdentityStore
+from baloot_platform.security import AuthorizationPolicy
+from baloot_platform.service.routes.configuration import (
+    build_configuration_router,
+    configuration_schedule_conflict_response,
+)
 from baloot_platform.storage.request_context import (
     CURRENT_DATABASE_IDENTITY,
     DatabaseIdentityContext,
@@ -67,9 +83,8 @@ for store, profile_id, bundle_id in (
     print("previousReleaseConfigurationCompatible: true")
 
 
-def test_configuration_schedule_migrates_populated_postgres_and_round_trips(
-    root: Path, tmp_path: Path,
-):
+@pytest.fixture(scope="module")
+def migrated_postgres(root: Path, tmp_path_factory: pytest.TempPathFactory) -> tuple[str, str]:
     dsn = os.environ["BALOOT_TEST_POSTGRES_URL"]
     migration = root / "migrations/030_configuration_local_schedule.sql"
     with psycopg.connect(dsn, autocommit=True) as connection:
@@ -79,10 +94,11 @@ def test_configuration_schedule_migrates_populated_postgres_and_round_trips(
         connection.execute("GRANT USAGE, CREATE ON SCHEMA public TO configuration_migrator")
 
     migrator_dsn = make_conninfo(dsn, user="configuration_migrator")
+    predecessor_directory = tmp_path_factory.mktemp("pre-schedule-migrations")
     for predecessor in sorted(migration.parent.glob("*.sql")):
         if predecessor.name < migration.name:
-            shutil.copyfile(predecessor, tmp_path / predecessor.name)
-    apply_migrations(migrator_dsn, tmp_path)
+            shutil.copyfile(predecessor, predecessor_directory / predecessor.name)
+    apply_migrations(migrator_dsn, predecessor_directory)
     with psycopg.connect(migrator_dsn) as connection:
         connection.execute("SELECT set_config('app.role', 'service', true)")
         connection.execute(
@@ -105,9 +121,16 @@ def test_configuration_schedule_migrates_populated_postgres_and_round_trips(
         connection.execute("GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA configuration TO configuration_app")
 
     apply_migrations(migrator_dsn, migration.parent)
+    return migrator_dsn, make_conninfo(dsn, user="configuration_app")
+
+
+def test_configuration_schedule_migrates_populated_postgres_and_round_trips(
+    root: Path, tmp_path: Path, migrated_postgres: tuple[str, str],
+) -> None:
+    migrator_dsn, app_dsn = migrated_postgres
+    migration = root / "migrations/030_configuration_local_schedule.sql"
     schema_proof = _prove_configuration_v25_schema(migrator_dsn)
     assert schema_proof["immutabilityTriggerCount"] == 4
-    app_dsn = make_conninfo(dsn, user="configuration_app")
     store = PostgresConfigurationStore(app_dsn)
     try:
         with store.pool.connection() as connection:
@@ -140,3 +163,74 @@ def test_configuration_schedule_migrates_populated_postgres_and_round_trips(
     assert _prove_configuration_v25_schema(migrator_dsn) == schema_proof
     print(f"migration 030 sha256 {hashlib.sha256(migration.read_bytes()).hexdigest()}")
     print("configurationLocalScheduleRoundTrip: true")
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "postgres"])
+@pytest.mark.parametrize("schedule_kind", ["utc", "local"])
+def test_rollback_publishes_new_revision_without_target_schedule(
+    root: Path,
+    tmp_path: Path,
+    migrated_postgres: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    backend: str,
+    schedule_kind: str,
+) -> None:
+    monkeypatch.setattr(configuration_store, "utc_now", lambda: "2026-07-01T16:30:00+00:00")
+    store = (
+        PostgresConfigurationStore(migrated_postgres[1])
+        if backend == "postgres"
+        else SQLiteConfigurationStore(tmp_path / "rollback.sqlite3")
+    )
+    identity = DatabaseIdentityContext(subject_id="TEST", role="service")
+    token = CURRENT_DATABASE_IDENTITY.set(identity)
+    try:
+        profile = build_bundle(root).component("configuration")
+        service = VersionedConfigurationService(store, root=root, profile=profile)
+        components = service.bootstrap_packaged_bundle(actor_id="TEST")["bundle"]["componentRevisions"]
+        schedule = (
+            {"local_schedule": {"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00"}}
+            if schedule_kind == "local"
+            else {"effective_from": "2026-07-01T16:00Z"}
+        )
+        target = service.create_bundle(
+            bundle_id=f"scheduled-rollback-{schedule_kind}", version="1.0.0",
+            mode="full", component_revisions=components, created_by="TEST",
+            effective_until="2026-07-01T17:00Z", publish=True, **schedule,
+        )
+        identities = IdentityService(SQLiteIdentityStore(tmp_path / "identity.sqlite3"))
+        app = FastAPI()
+        app.add_exception_handler(ConfigurationScheduleConflict, configuration_schedule_conflict_response)
+        app.include_router(build_configuration_router(service, identities, AuthorizationPolicy(), profile, {}))
+
+        @app.middleware("http")
+        async def service_request(request: Request, call_next):
+            request.state.api_key_valid = True
+            request_token = CURRENT_DATABASE_IDENTITY.set(identity)
+            try:
+                return await call_next(request)
+            finally:
+                CURRENT_DATABASE_IDENTITY.reset(request_token)
+
+        with TestClient(app) as client:
+            response = client.post(
+                f"/api/v1/configuration-registry/bundles/{target['revisionId']}:rollback",
+                headers={"x-baloot-role": "admin", "x-baloot-subject-id": "TEST"},
+                json={"newVersion": "1.0.1"},
+            )
+        assert response.status_code == 201, response.text
+        restored = response.json()
+        assert restored["revisionId"] != target["revisionId"]
+        assert restored["status"] == "published"
+        assert restored["supersedesRevisionId"] == target["revisionId"]
+        assert restored["contentSha256"] == target["contentSha256"]
+        assert restored["componentRevisions"] == target["componentRevisions"]
+        assert restored["effectiveFrom"] is None
+        assert restored["effectiveUntil"] is None
+        assert "localSchedule" not in restored
+        previous = store.get_bundle(target["revisionId"]).to_dict()
+        for field in ("effectiveFrom", "effectiveUntil", "localSchedule"):
+            assert previous.get(field) == target.get(field)
+        assert store.events("bundle", restored["revisionId"])[-1]["eventType"] == "rollback_created"
+    finally:
+        CURRENT_DATABASE_IDENTITY.reset(token)
+        store.close()
