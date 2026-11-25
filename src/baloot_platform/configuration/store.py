@@ -1089,17 +1089,18 @@ class SQLiteConfigurationStore:
                 component_revisions,
                 allowed_statuses=tuple(sorted(set(allowed_component_statuses))),
             )
-            existing = conn.execute(
-                "SELECT * FROM configuration_bundle_revisions "
-                "WHERE bundle_id=? AND scope=? AND scope_key=? AND tenant_id IS ? "
-                "AND environment IS ? AND content_sha256=? "
-                "ORDER BY sequence DESC,revision_id",
-                (bundle_id, scope, scope_key, tenant_id, environment, content_hash),
-            ).fetchall()
-            result = _find_matching_schedule(map(self._bundle, existing), schedule)
-            if result is not None and not force_new_revision:
-                conn.execute("COMMIT")
-                return result
+            if not force_new_revision:
+                existing = conn.execute(
+                    "SELECT * FROM configuration_bundle_revisions "
+                    "WHERE bundle_id=? AND scope=? AND scope_key=? AND tenant_id IS ? "
+                    "AND environment IS ? AND content_sha256=? "
+                    "ORDER BY sequence DESC,revision_id",
+                    (bundle_id, scope, scope_key, tenant_id, environment, content_hash),
+                ).fetchall()
+                result = _find_matching_schedule(map(self._bundle, existing), schedule)
+                if result is not None:
+                    conn.execute("COMMIT")
+                    return result
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) FROM configuration_bundle_revisions "
                 "WHERE bundle_id=? AND scope=? AND scope_key=? "
@@ -2232,18 +2233,19 @@ class PostgresConfigurationStore:
                 ),
             )
             self._lock_head(conn, "bundle_content", content_identity)
-            existing = conn.execute(
-                f"SELECT {_POSTGRES_BUNDLE_COLUMNS} "
-                "FROM configuration.bundle_revisions "
-                "WHERE bundle_id=%s AND scope=%s AND scope_key=%s "
-                "AND tenant_id IS NOT DISTINCT FROM %s "
-                "AND environment IS NOT DISTINCT FROM %s AND content_sha256=%s "
-                "ORDER BY sequence DESC,revision_id",
-                (bundle_id, scope, scope_key, tenant_id, environment, content_hash),
-            ).fetchall()
-            result = _find_matching_schedule(map(self._bundle, existing), schedule)
-            if result is not None and not kwargs.get("force_new_revision"):
-                return result
+            if not kwargs.get("force_new_revision"):
+                existing = conn.execute(
+                    f"SELECT {_POSTGRES_BUNDLE_COLUMNS} "
+                    "FROM configuration.bundle_revisions "
+                    "WHERE bundle_id=%s AND scope=%s AND scope_key=%s "
+                    "AND tenant_id IS NOT DISTINCT FROM %s "
+                    "AND environment IS NOT DISTINCT FROM %s AND content_sha256=%s "
+                    "ORDER BY sequence DESC,revision_id",
+                    (bundle_id, scope, scope_key, tenant_id, environment, content_hash),
+                ).fetchall()
+                result = _find_matching_schedule(map(self._bundle, existing), schedule)
+                if result is not None:
+                    return result
             self._lock_head(conn, "bundle", logical_identity)
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) AS max_sequence "
