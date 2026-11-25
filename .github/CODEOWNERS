@@ -11,6 +11,7 @@
 /scripts/run_isolated_pytest.py @BalootX/maintainers
 /scripts/run_heavy_pytest.py @BalootX/maintainers
 /scripts/run_required_pytest.py @BalootX/maintainers
+/scripts/verify_qa_journey.py @BalootX/maintainers
 /scripts/run_local_capped.ps1 @BalootX/maintainers
 /scripts/remotion_image_parity.py @BalootX/maintainers
 /tests/conftest.py @BalootX/maintainers

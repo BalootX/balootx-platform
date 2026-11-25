@@ -840,6 +840,7 @@ jobs:
         shell: bash
     env:
       QA_JOURNEY: ${{ inputs.qa-journey }}
+      FOUNDRY_JOURNEY_SCREENSHOTS: ${{ runner.temp }}/qa-journey-playwright/*/alternate-first-result-*.png
     steps:
       - name: Validate the dispatch choice
         shell: python
@@ -901,8 +902,9 @@ jobs:
           cache: false
       - name: Exercise Go SDK
         if: inputs.qa-journey == 'api-sdk'
-        working-directory: sdk/go
-        run: go test -json ./... 2>&1 | tee "$RUNNER_TEMP/qa-journey/go.jsonl"
+        run: |
+          (cd sdk/go && go test -count=1 -json ./...) | tee "$RUNNER_TEMP/qa-journey/go.jsonl"
+          python -P scripts/verify_qa_journey.py go "$RUNNER_TEMP/qa-journey/go.jsonl"
       - name: Exercise Foundry authoring and research on desktop and mobile
         if: inputs.qa-journey == 'foundry'
         id: foundry-journey
@@ -920,8 +922,9 @@ jobs:
             --grep 'the disclosed target-wins-trick-6 alternative diagnoses its first result$' \
             --project=desktop-chrome --project=mobile-touch-chrome --workers=1 \
             --reporter=list,junit --output "$RUNNER_TEMP/qa-journey-playwright"
-          test -s "$PLAYWRIGHT_JUNIT_OUTPUT_FILE"
-          test "$(find "$RUNNER_TEMP/qa-journey-playwright" -name 'alternate-first-result-*.png' | wc -l)" -eq 6
+      - name: Verify Foundry journey evidence
+        if: inputs.qa-journey == 'foundry'
+        run: python -P scripts/verify_qa_journey.py foundry "$RUNNER_TEMP/qa-journey/foundry.xml" "$FOUNDRY_JOURNEY_SCREENSHOTS"
       - name: Upload QA journey results
         if: ${{ !cancelled() && steps.source.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -935,8 +938,8 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qa-journey-foundry-screenshots
-          path: ${{ runner.temp }}/qa-journey-playwright/*/alternate-first-result-*.png
-          if-no-files-found: warn
+          path: ${{ env.FOUNDRY_JOURNEY_SCREENSHOTS }}
+          if-no-files-found: error
           retention-days: 7
 
   ci-gate:

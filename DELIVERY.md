@@ -10,7 +10,7 @@ Follows engineering standard v1.26.
 | --- | --- |
 | Ready pull request | Preflight, dependency review and Python version smoke. [The CI selector](scripts/ci_scope.py) adds affected Python, SDK, Foundry and worker checks. Unrecognized paths or an unresolved diff select the full profile. |
 | Main push and merge group | Full profile with the Python wheelhouse, native build and sanitizers, Windows-only pytest nodes, fast, backend and heavy Python shards with exact coverage verification, SDK and Foundry checks, Remotion and video-worker parity, media rendering and release smoke. The merge group verifies its event head before running the profile. |
-| Manual dispatch | Full diagnostics under `CI diagnostic result`, or the dedicated viewer-seat proof cohort when selected. |
+| Manual dispatch | Full diagnostics under `CI diagnostic result`, the [viewer-seat proof cohort](.github/workflows/viewer-seat-proof.yml), or one [hosted QA journey](ci/TIMINGS.md#hosted-qa-journeys) with its listed coverage and retained evidence. |
 | [Nightly at 00:17 UTC or manual trigger](.github/workflows/nightly-candidates.yml) | Generates and proves synthetic deals on GitHub-hosted runners. A successful run seals at least 14 fully checked clips across at least three mechanisms and retains the pool for three days. The [viewer-seat proof cohort](.github/workflows/viewer-seat-proof.yml) also runs and retains one receipt per pinned fixture for 30 days. Run live variety and caption checks on a server runner. |
 | Media verification | The full profile builds the governed inputs, renders shards, checks repeatability and playback parity, decodes the sample media, and generates media and supply-chain evidence. |
 
@@ -84,7 +84,7 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 
 | Rule | BalootX reason | Review date |
 | --- | --- | --- |
-| `ci-gate` runs without a skip condition | The job skips the manual viewer-seat proof lane, which runs its own proof checks. | 2026-12-22 |
+| `ci-gate` runs without a skip condition | The manual viewer-seat proof and QA journey lanes run their own proof checks. | 2026-12-22 |
 | Measured per-job limits in `.github/ci-timings.json` | Per-job p95 is still pending. The timing samples above cover earlier workflow runs. | 2026-12-04 |
 | Release tags and GitHub Releases | The first milestone release tag and GitHub Release are pending. Clips follow the [media release path](#media-release). | 2026-12-22 |
 | GitHub deployment environments | No GitHub environments are configured. The [clip release path](#media-release) runs outside GitHub. | 2026-12-22 |

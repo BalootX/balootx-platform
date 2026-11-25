@@ -6,12 +6,14 @@ from pathlib import Path
 import re
 import subprocess
 from types import SimpleNamespace
+from xml.etree import ElementTree
 
 import pytest
 import yaml
 
 from scripts import ci_scope
 from scripts import run_required_pytest
+from scripts import verify_qa_journey
 import test_v20_asan_verifier_portability as asan_portability
 
 
@@ -196,6 +198,13 @@ def test_qa_journey_dispatch_rejects_unknown_and_conflicting_choices(root, monke
     assert job["if"] == (
         "${{ github.event_name == 'workflow_dispatch' && inputs.qa-journey && inputs.qa-journey != 'none' }}"
     )
+    steps = {step.get("name"): step for step in job["steps"]}
+    assert "go test -count=1 -json ./..." in steps["Exercise Go SDK"]["run"]
+    assert 'verify_qa_journey.py go "$RUNNER_TEMP/qa-journey/go.jsonl"' in steps["Exercise Go SDK"]["run"]
+    assert '"$FOUNDRY_JOURNEY_SCREENSHOTS"' in steps["Verify Foundry journey evidence"]["run"]
+    screenshots = steps["Upload Foundry journey screenshots"]["with"]
+    assert screenshots["path"] == "${{ env.FOUNDRY_JOURNEY_SCREENSHOTS }}"
+    assert screenshots["if-no-files-found"] == "error"
     validation = job["steps"][0]
     assert validation["shell"] == "python"
     validate = compile(validation["run"], "QA journey dispatch validation", "exec")
@@ -211,6 +220,78 @@ def test_qa_journey_dispatch_rejects_unknown_and_conflicting_choices(root, monke
     monkeypatch.setenv("VIEWER_SEAT_PROOF", "true")
     with pytest.raises(SystemExit, match="Turn off viewer-seat-proof"):
         exec(validate, {})
+
+
+@pytest.mark.parametrize("defect", [None, "skipped", "failed", "missing", "repeated", "no-package-pass", "cached"])
+def test_go_qa_journey_requires_complete_uncached_test_and_package_results(tmp_path, defect):
+    verifier = verify_qa_journey
+    rows = [{"Action": "start"}]
+    for name in verifier.GO_TESTS[1:]:
+        rows.extend({"Action": action, "Test": name} for action in ("run", "pass"))
+    phases = {
+        "skipped": ("run", "skip"), "failed": ("run", "fail"), "missing": (),
+        "repeated": ("run", "pass", "run", "pass"),
+    }.get(defect, ("run", "pass"))
+    rows.extend({"Action": action, "Test": verifier.GO_TESTS[0]} for action in phases)
+    if defect == "cached":
+        rows.append({"Action": "output", "Output": f"ok  \t{verifier.GO_PACKAGE}\t(cached)\n"})
+    if defect != "no-package-pass":
+        rows.append({"Action": "pass"})
+    receipt = tmp_path / "go.jsonl"
+    receipt.write_text("\n".join(json.dumps({"Package": verifier.GO_PACKAGE, **row}) for row in rows))
+    if defect is None:
+        verifier.verify_go(receipt)
+    else:
+        with pytest.raises(ValueError, match="Go SDK"):
+            verifier.verify_go(receipt)
+
+
+@pytest.mark.parametrize("defect,message", [
+    (None, ""),
+    ("skipped", "complete passing browser results"),
+    ("failure", "incomplete browser result"),
+    ("error", "incomplete browser result"),
+    ("missing-project", "one suite for each journey project"),
+    ("wrong-test", "requires the named journey"),
+    ("missing-screenshot", "three screenshots per browser project"),
+    ("wrong-view", "screenshot set differs"),
+    ("wrong-project", "screenshot set differs"),
+])
+def test_foundry_qa_journey_requires_the_named_test_and_screenshot_set(tmp_path, defect, message):
+    verifier = verify_qa_journey
+    counts = {"errors": "0", "failures": "0", "skipped": "0"}
+    report = ElementTree.Element("testsuites", tests="2", **counts)
+    for project in sorted(verifier.FOUNDRY_PROJECTS):
+        suite = ElementTree.SubElement(report, "testsuite", hostname=project, tests="1", **counts)
+        case = ElementTree.SubElement(suite, "testcase", name=verifier.FOUNDRY_TEST, classname=verifier.FOUNDRY_SPEC)
+        directory = tmp_path / f"operator-journey-{project}"
+        directory.mkdir()
+        for name in sorted(verifier.FOUNDRY_SCREENSHOTS):
+            screenshot = directory / name
+            screenshot.write_bytes(verifier.PNG_SIGNATURE + b"synthetic")
+    if defect == "skipped":
+        suite.set("skipped", "1")
+        ElementTree.SubElement(case, "skipped")
+    elif defect in {"failure", "error"}:
+        ElementTree.SubElement(case, defect)
+    elif defect == "missing-project":
+        report.remove(suite)
+    elif defect == "wrong-test":
+        case.set("name", "different browser case")
+    elif defect == "missing-screenshot":
+        screenshot.unlink()
+    elif defect == "wrong-view":
+        screenshot.rename(directory / "alternate-first-result-other.png")
+    elif defect == "wrong-project":
+        directory.rename(tmp_path / "operator-journey-wrong-chrome")
+    receipt = tmp_path / "foundry.xml"
+    ElementTree.ElementTree(report).write(receipt, encoding="utf-8")
+    screenshot_glob = str(tmp_path / "*" / "alternate-first-result-*.png")
+    if defect is None:
+        verifier.verify_foundry(receipt, screenshot_glob)
+    else:
+        with pytest.raises(ValueError, match=message):
+            verifier.verify_foundry(receipt, screenshot_glob)
 
 
 def test_ci_check_names_have_single_producers(root):

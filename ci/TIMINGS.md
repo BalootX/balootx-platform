@@ -44,7 +44,7 @@ In Actions, open the [ci workflow](../.github/workflows/ci.yml), choose **Run wo
 | `replay-adjudication` | Replay audit, restricted referee evidence in a temporary store, and observer-safe projection. | Reviewer and observer UI coverage remains open. |
 | `clip-render-bundle` | Deterministic observer-safe bundles, rejection of mixed perspectives, and synthetic player names and Arabic RTL scene metadata. | Pixel rendering and playback are exercised by the full CI media jobs. |
 
-Each `qa-journey-<choice>-results` artifact retains the dispatched commit and tree and the selected test reports or logs. `qa-journey-foundry-screenshots` retains the estimate, terminal run and terminal result in both viewports. Artifacts are retained for seven days. Inspect the run conclusion before treating its artifacts as passing evidence.
+Each `qa-journey-<choice>-results` artifact retains the dispatched commit and tree and the selected test reports or logs. The SDK lane verifies fresh Go test and package outcomes from its JSON event stream. The Foundry lane requires a passing named case per project and validates the exact six PNGs retained in `qa-journey-foundry-screenshots`. Artifacts are retained for seven days. Inspect the run conclusion before treating its artifacts as passing evidence.
 
 The render host preflight checks deployed images for staleness. Compare the worker's `/opt/baloot-remotion/.lock-sha256` with the SHA-256 of the Remotion lockfile for the source being rendered. Run `python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules <lockfile>` with that same lockfile.
 
