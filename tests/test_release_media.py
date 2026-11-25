@@ -431,8 +431,13 @@ def test_plugin_parity_renderer_uses_the_release_timeout(
     }
 
 
-def test_release_renderer_runs_every_governed_media_stage_in_order(monkeypatch) -> None:
+def test_release_renderer_runs_every_governed_media_stage_in_order(
+    monkeypatch, tmp_path: Path
+) -> None:
     events: list[tuple[object, ...]] = []
+    render_directories: list[Path] = []
+    monkeypatch.setattr(render_release, "ROOT", tmp_path)
+    monkeypatch.setattr(render_release, "_new_render_evidence_dir", lambda: tmp_path)
     monkeypatch.setattr(render_release, "release_render_lock", nullcontext)
     monkeypatch.setattr(
         render_release,
@@ -451,8 +456,16 @@ def test_release_renderer_runs_every_governed_media_stage_in_order(monkeypatch) 
         cwd: Path = render_release.ROOT,
         timeout: int | None = None,
         environment: dict[str, str] | None = None,
+        stage: str,
         **_evidence,
     ) -> None:
+        if environment and "BALOOTX_RENDER_OUTPUT" in environment:
+            environment = dict(environment)
+            rendered = Path(environment.pop("BALOOTX_RENDER_OUTPUT"))
+            rendered.mkdir()
+            render_directories.append(rendered)
+            (rendered / f"{stage}.txt").write_text(stage, encoding="utf-8")
+            environment = environment or None
         events.append(("run", tuple(command), cwd, environment, timeout))
 
     monkeypatch.setattr(render_release, "_run", run)
@@ -465,6 +478,13 @@ def test_release_renderer_runs_every_governed_media_stage_in_order(monkeypatch) 
 
     render_release.main()
 
+    assert len(set(render_directories)) == 3
+    assert all(not directory.exists() for directory in render_directories)
+    outputs = tmp_path / "outputs"
+    flagship = outputs / "professional-video-flagship"
+    decision = outputs / "professional-video-decision"
+    assert {file.name for file in flagship.iterdir()} == {"flagship.txt", "collection.txt"}
+    assert (decision / "decision.txt").read_text(encoding="utf-8") == "decision"
     assert events == [
         ("generate",),
         ("run", ("node", "render-prototypes.mjs"), render_release.REMOTION, None, None),
@@ -552,9 +572,11 @@ def test_release_renderer_runs_every_governed_media_stage_in_order(monkeypatch) 
 
 @pytest.mark.parametrize("failing_stage", ["prototypes", "collection"])
 def test_release_renderer_stops_when_a_new_media_stage_fails(
-    monkeypatch, failing_stage: str
+    monkeypatch, failing_stage: str, tmp_path: Path
 ) -> None:
     events: list[str] = []
+    monkeypatch.setattr(render_release, "ROOT", tmp_path)
+    monkeypatch.setattr(render_release, "_new_render_evidence_dir", lambda: tmp_path)
     monkeypatch.setattr(render_release, "release_render_lock", nullcontext)
     monkeypatch.setattr(render_release, "generate", lambda: events.append("generate"))
     monkeypatch.setattr(
@@ -574,7 +596,7 @@ def test_release_renderer_stops_when_a_new_media_stage_fails(
         del cwd, timeout
         stage = (
             "collection"
-            if environment == {"BALOOTX_COLLECTION_ONLY": "1"}
+            if (environment or {}).get("BALOOTX_COLLECTION_ONLY") == "1"
             else "prototypes"
             if command[-1] == "render-prototypes.mjs"
             else str(command[-1])
@@ -582,6 +604,8 @@ def test_release_renderer_stops_when_a_new_media_stage_fails(
         events.append(stage)
         if stage == failing_stage:
             raise subprocess.TimeoutExpired(command, 1200)
+        if environment and "BALOOTX_RENDER_OUTPUT" in environment:
+            Path(environment["BALOOTX_RENDER_OUTPUT"]).mkdir()
 
     monkeypatch.setattr(render_release, "_run", run)
     monkeypatch.setattr(
@@ -607,6 +631,7 @@ def test_release_renderer_stops_when_a_new_media_stage_fails(
 
 
 def test_ci_companion_fails_when_collection_render_fails(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(render_release, "ROOT", tmp_path)
     monkeypatch.setattr(render_release, "_new_render_evidence_dir", lambda: tmp_path)
 
     def run(command, *, stage, **_kwargs):
