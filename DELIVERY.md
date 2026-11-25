@@ -20,6 +20,8 @@ The `docker-constraints` job dry-runs pip with the Python base image, exact cons
 
 The full profile includes `postgres-configuration`. It applies the configuration schedule migration to populated synthetic data in a disposable PostgreSQL service and verifies the store's UTC and local-time round trip and immutability. It then runs the previous revision's PostgreSQL migrator and reads the new rows with both previous stores. The backend shards start after this check, within the shared runner capacity.
 
+The same job tests the governed rollback endpoint on SQLite and PostgreSQL. Rolling back to a time-windowed bundle publishes a new revision with the target's content and no effective bounds or local schedule. The target retains its original schedule in revision history.
+
 The address-sanitizer job requires both verifier pytest nodes to pass against its own build. The Windows job uses a [CPU fixture](ci/windows-ci-local-cpu.json) for its four-vCPU checkout and runs the inherited-limit test through the capped launcher. Both jobs require passing phase receipts for every selected node.
 
 The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples.
