@@ -108,10 +108,12 @@ from baloot_platform.service.routes import (
     build_foundry_admin_v2_router,
 )
 from baloot_platform.service.container import PlatformContainer, build_container
-from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER, owns_subject
+from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER
 from baloot_platform.security import Scope
 from baloot_platform.service.authorization import (
     DEFAULT_TENANT,
+    HISTORY_GAME_AUDIT_PATH,
+    HISTORY_GAME_REOPEN_PATH,
     PUBLIC_HTTP_BOOTSTRAP,
     credentials,
     history_without_media,
@@ -126,6 +128,7 @@ from baloot_platform.service.client_identity import (
 from baloot_platform.service.routes.auth import request_token, require_identity
 from baloot_platform.shared import (
     SharedDecisionAccessError,
+    SharedGameNotFound,
     project_shared_decision,
     resolve_shared_decision_access,
     resolve_shared_game_access,
@@ -276,15 +279,20 @@ def _archive_reader(request: Request) -> str | None:
     return identity.subject_id
 
 
-def _require_completed_shared_game_access(game_id: str, subject_id: str | None = None) -> None:
+def _require_completed_shared_game_access(
+    game_id: str,
+    subject_id: str | None = None,
+    *,
+    not_found_detail: str = "archived game not found",
+) -> None:
     try:
-        access = resolve_shared_game_access(SAKKA.store, game_id)
+        access = resolve_shared_game_access(SAKKA.store, game_id, subject_id=subject_id)
+    except SharedGameNotFound as exc:
+        raise HTTPException(404, not_found_detail) from exc
     except SharedDecisionAccessError as exc:
         raise HTTPException(403, str(exc)) from exc
     if access is not None and not access.completed:
         raise HTTPException(403, "aggregate game analysis is unavailable during an active shared run")
-    if subject_id is not None and (access is None or not owns_subject(subject_id, access.owner_subject_id)):
-        raise HTTPException(404, "archived game not found")
 
 
 def _require_private_history_game(identifier: str, subject_id: str | None = None) -> dict[str, Any]:
@@ -8053,7 +8061,7 @@ def verify_history_game(identifier: str, request: Request):
     return result
 
 
-@app.post("/api/v1/history/games/{identifier}:reopen", status_code=201)
+@app.post(HISTORY_GAME_REOPEN_PATH, status_code=201)
 def reopen_history_game(identifier: str, branch: bool = False):
     _require_private_history_game(identifier)
     try:
@@ -8229,7 +8237,7 @@ def render_history_decision(
     return {"jobId": job_id, "challengeId": challenge_id, "status": "queued"}
 
 
-@app.post("/api/v1/history/games/{identifier}:audit")
+@app.post(HISTORY_GAME_AUDIT_PATH)
 def audit_history_game(identifier: str, request: ReplayAuditRequest):
     _require_private_history_game(identifier)
     try:
@@ -8268,7 +8276,9 @@ def get_replay_audit(audit_id: str, request: Request):
     if decision_id:
         _require_private_decision_access(decision_id, request)
     else:
-        _require_completed_shared_game_access(str(value.get("gameId") or ""), _archive_reader(request))
+        _require_completed_shared_game_access(
+            str(value.get("gameId") or ""), _archive_reader(request), not_found_detail="audit not found"
+        )
         _require_completed_shared_analysis_decisions(value)
     return value
 

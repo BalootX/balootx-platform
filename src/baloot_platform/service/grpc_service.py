@@ -21,7 +21,7 @@ from baloot_platform.config import data_root, platform_root
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER, owns_subject
 from baloot_platform.security import Scope
 from baloot_platform.service.authorization import (
-    DEFAULT_TENANT, PUBLIC_RPC, Credentials, claims_identity, credentials, history_without_media, rpc_scope,
+    DEFAULT_TENANT, Credentials, claims_identity, credentials, history_without_media, rpc_scope,
     tenant_job_rpc,
 )
 from baloot_platform.service.client_identity import (
@@ -79,6 +79,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
     from baloot_platform.service.game import GameManager
     from baloot_platform.shared import (
         SharedDecisionAccessError,
+        SharedGameNotFound,
         observer_relation,
         private_decision_review_allowed,
         resolve_shared_decision_access,
@@ -131,14 +132,16 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         if game is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "archived game not found")
         try:
-            access = resolve_shared_game_access(SAKKA.store, str(game.get("gameId") or ""))
+            access = resolve_shared_game_access(
+                SAKKA.store, str(game.get("gameId") or ""), subject_id=subject_id,
+            )
+        except SharedGameNotFound:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "archived game not found")
         except SharedDecisionAccessError as exc:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
         if access is not None and not access.completed:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED,
                                 "aggregate game analysis is unavailable during an active shared run")
-        if subject_id is not None and (access is None or not owns_subject(subject_id, access.owner_subject_id)):
-            await context.abort(grpc.StatusCode.NOT_FOUND, "archived game not found")
         for item in game.get("decisions") or []:
             decision = LEARNING_STORE.get_decision(str(item.get("decisionId") or ""))
             if decision is None:
@@ -1680,19 +1683,25 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         async def intercept_service(self, continuation, handler_call_details):
             handler = await continuation(handler_call_details)
             method = handler_call_details.method
-            if handler is None or method in PUBLIC_RPC:
-                return handler
-            if handler.unary_unary is None:
+            if handler is None or handler.unary_unary is None:
                 return None
 
             async def invoke(request, context):
+                try:
+                    scope = rpc_scope(method)
+                except KeyError:
+                    return await context.abort(
+                        grpc.StatusCode.PERMISSION_DENIED, "RPC authorization policy is unavailable",
+                    )
+                if scope is None:
+                    return await handler.unary_unary(request, context)
                 metadata = _metadata(context)
                 authorization = metadata.get("authorization", "")
                 token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else None
                 auth = credentials(metadata, token, IDENTITY, ACCESS_TOKENS)
                 if not auth.authenticated:
                     await context.abort(grpc.StatusCode.UNAUTHENTICATED, "authentication required")
-                denial = auth.denial(AUTHORIZATION_POLICY, rpc_scope(method), tenant_job=tenant_job_rpc(method))
+                denial = auth.denial(AUTHORIZATION_POLICY, scope, tenant_job=tenant_job_rpc(method))
                 if denial is not None:
                     await context.abort(grpc.StatusCode.PERMISSION_DENIED, denial)
                 auth_token = authenticated_rpc.set(auth)

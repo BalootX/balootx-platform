@@ -35,31 +35,13 @@ PUBLIC_CHALLENGE_READ = re.compile(
     r"/c/[^/]+|/api/v2/challenge-locators/[^/:]+(?:/attempt)?"
 )
 
-PUBLIC_RPC = frozenset({
-    "/baloot.v2.BalootPlatform/HealthCheck",
-    "/baloot.v17.BalootOperations/HealthCheck",
-    "/baloot.v17.BalootOperations/SecurityCapabilities",
-    "/baloot.v18.HumanLearning/HealthCheck",
-})
+HISTORY_GAME_REOPEN_PATH = "/api/v1/history/games/{identifier}:reopen"
+HISTORY_GAME_AUDIT_PATH = "/api/v1/history/games/{identifier}:audit"
 _JOB_HTTP = re.compile(r"/api/v1/(?:jobs/[^/:]+|video-jobs/[^/:]+(?:/events)?)")
 _ARCHIVE_HTTP_READ = re.compile(
     r"/api/v1/history/games/[^/:]+(?:/(?:replay|audits|verification))?"
 )
 _JOB_RPC = "/baloot.v2.BalootPlatform/GetJob"
-_PLATFORM_OPERATOR_RPC = frozenset({
-    "CreateVideo", "CreateRenderBatch", "GetRenderBatch", "CancelRenderBatch",
-    "GetVideoRecord", "GetVideoTimeline", "GetVideoAuditMap", "RenderGameReplay",
-})
-_CONFIG_OPERATOR_RPC = frozenset({
-    "CreateProfile", "PublishProfile", "RejectProfile", "RetireProfile",
-    "CreateBundle", "PublishBundle", "RejectBundle", "RetireBundle",
-    "RollbackBundle", "RunPerformanceQuick", "VerifyCertificationCandidate",
-    "EvaluateIntelligenceBenchmark",
-})
-_MODEL_OPERATOR_RPC = frozenset({
-    "RecordChallengerEvaluation", "AcceptTrainingCandidate", "EvaluateImprovement",
-    "ApproveImprovement", "FinalizeImprovement", "RenderReviewClip",
-})
 
 
 def public_http(method: str, path: str) -> bool:
@@ -97,19 +79,144 @@ def http_scope(method: str, path: str) -> Scope:
     return Scope.READ if method in {"GET", "HEAD", "OPTIONS"} else Scope.PLAY
 
 
-def rpc_scope(path: str) -> Scope:
+# None marks an explicitly public method. A missing entry has no policy.
+RPC_POLICY: dict[str, dict[str, Scope | None]] = {
+    "/baloot.v2.BalootPlatform": {
+        "HealthCheck": None,
+        "CreateGame": Scope.PLAY,
+        "GetGame": Scope.READ,
+        "SubmitBid": Scope.PLAY,
+        "PlayCard": Scope.PLAY,
+        "ValidateContext": Scope.PLAY,
+        "ContinueContext": Scope.PLAY,
+        "Analyze": Scope.PLAY,
+        "CreateVideo": Scope.CONFIG_ADMIN,
+        "GetJob": Scope.CONFIG_ADMIN,
+        "GetReplay": Scope.READ,
+        "ReopenGame": http_scope("POST", HISTORY_GAME_REOPEN_PATH),
+        "ForkDecision": Scope.PLAY,
+        "AuditGame": http_scope("POST", HISTORY_GAME_AUDIT_PATH),
+        "ExplainDecision": Scope.PLAY,
+        "CompareDecision": Scope.READ,
+        "GetDecisionDifficulty": Scope.READ,
+        "RecordDecisionAttempt": Scope.PLAY,
+        "GetChallengeDifficulty": Scope.READ,
+        "RecordChallengeAttempt": Scope.PLAY,
+        "GetAdaptiveChallenge": Scope.READ,
+        "GetVideoRecord": Scope.CONFIG_ADMIN,
+        "GetVideoTimeline": Scope.CONFIG_ADMIN,
+        "GetVideoAuditMap": Scope.CONFIG_ADMIN,
+        "RenderGameReplay": Scope.CONFIG_ADMIN,
+        "CreateRenderBatch": Scope.CONFIG_ADMIN,
+        "GetRenderBatch": Scope.CONFIG_ADMIN,
+        "CancelRenderBatch": Scope.CONFIG_ADMIN,
+    },
+    "/baloot.v8.SakkaPlatform": {
+        "ListBoards": Scope.READ,
+        "CreateBoard": Scope.PLAY,
+        "GetBoard": Scope.READ,
+        "VerifyBoard": Scope.READ,
+        "CreateRoom": Scope.PLAY,
+        "GetRoom": Scope.READ,
+        "JoinRoom": Scope.PLAY,
+        "StartRun": Scope.PLAY,
+        "GetRun": Scope.READ,
+        "VerifyRun": Scope.READ,
+        "PlayAction": Scope.PLAY,
+        "AuditRun": Scope.PLAY,
+        "ShareDecision": Scope.PLAY,
+        "RecordFeedback": Scope.PLAY,
+        "GetLeaderboard": Scope.READ,
+        "CompareRuns": Scope.READ,
+    },
+    "/baloot.v9.SharedPlatform": {
+        "ListBoards": Scope.READ,
+        "CreateBoard": Scope.PLAY,
+        "GetBoard": Scope.READ,
+        "VerifyBoard": Scope.READ,
+        "CreateRoom": Scope.PLAY,
+        "GetRoom": Scope.READ,
+        "JoinRoom": Scope.PLAY,
+        "StartRun": Scope.PLAY,
+        "GetRun": Scope.READ,
+        "VerifyRun": Scope.READ,
+        "PlayAction": Scope.PLAY,
+        "GetRunReview": Scope.READ,
+        "ExplainDecision": Scope.PLAY,
+        "GetDecisionReviews": Scope.READ,
+        "SubmitDecisionReview": Scope.PLAY,
+        "ShareDecision": Scope.PLAY,
+        "GetLeaderboard": Scope.READ,
+        "CompareRuns": Scope.READ,
+    },
+    "/baloot.v17.BalootOperations": {
+        "HealthCheck": None,
+        "CreateLiveRoom": Scope.PLAY,
+        "GetLiveRoom": Scope.READ,
+        "ClaimLiveSeat": Scope.PLAY,
+        "SetLiveReady": Scope.PLAY,
+        "StartLiveTable": Scope.PLAY,
+        "SubmitLiveAction": Scope.PLAY,
+        "VerifyLiveRoom": Scope.READ,
+        "OpenAdjudicationCase": Scope.PLAY,
+        "GetAdjudicationCase": Scope.READ,
+        "ListAdjudicationCases": Scope.READ,
+        "RecommendAdjudicationRuling": Scope.PLAY,
+        "SecurityCapabilities": None,
+    },
+    "/baloot.v18.HumanLearning": {
+        "HealthCheck": None,
+        "Profile": Scope.READ,
+        "ListCases": Scope.READ,
+        "CreateCase": Scope.PLAY,
+        "GetCase": Scope.READ,
+        "AssignBlindReview": Scope.PLAY,
+        "SubmitReview": Scope.PLAY,
+        "ComputeConsensus": Scope.PLAY,
+        "SetConsent": Scope.PLAY,
+        "GetConsent": Scope.READ,
+        "CreateTrainingCandidate": Scope.PLAY,
+        "RecordChallengerEvaluation": Scope.MODEL_ADMIN,
+        "AcceptTrainingCandidate": Scope.MODEL_ADMIN,
+        "CreateImprovementProposal": Scope.PLAY,
+        "EvaluateImprovement": Scope.MODEL_ADMIN,
+        "ApproveImprovement": Scope.MODEL_ADMIN,
+        "FinalizeImprovement": Scope.MODEL_ADMIN,
+        "RenderReviewClip": Scope.MODEL_ADMIN,
+    },
+    "/baloot.v19.ConfigurationControl": {
+        "GetCapabilities": Scope.READ,
+        "ListProfiles": Scope.READ,
+        "CreateProfile": Scope.CONFIG_ADMIN,
+        "PublishProfile": Scope.CONFIG_ADMIN,
+        "RejectProfile": Scope.CONFIG_ADMIN,
+        "RetireProfile": Scope.CONFIG_ADMIN,
+        "ResolveProfile": Scope.READ,
+        "CompareProfiles": Scope.READ,
+        "ListBundles": Scope.READ,
+        "CreateBundle": Scope.CONFIG_ADMIN,
+        "PublishBundle": Scope.CONFIG_ADMIN,
+        "RejectBundle": Scope.CONFIG_ADMIN,
+        "RetireBundle": Scope.CONFIG_ADMIN,
+        "ResolveBundle": Scope.READ,
+        "ResolveEffectiveRuntimeConfigV2": Scope.READ,
+        "RollbackBundle": Scope.CONFIG_ADMIN,
+        "ListPlugins": Scope.READ,
+        "GetPerformanceProfile": Scope.READ,
+        "RunPerformanceQuick": Scope.CONFIG_ADMIN,
+        "GetCapabilityMatrix": Scope.READ,
+        "GetCertificationProfile": Scope.READ,
+        "VerifyCertificationCandidate": Scope.CONFIG_ADMIN,
+        "GetBenchmarkProfile": Scope.READ,
+        "EvaluateIntelligenceBenchmark": Scope.CONFIG_ADMIN,
+        "GetOperationsProfile": Scope.READ,
+    },
+}
+
+
+def rpc_scope(path: str) -> Scope | None:
     service, _, method = path.rpartition("/")
-    if (
-        path == _JOB_RPC
-        or service == "/baloot.v2.BalootPlatform" and method in _PLATFORM_OPERATOR_RPC
-        or service == "/baloot.v19.ConfigurationControl" and method in _CONFIG_OPERATOR_RPC
-    ):
-        return Scope.CONFIG_ADMIN
-    if service == "/baloot.v18.HumanLearning" and method in _MODEL_OPERATOR_RPC:
-        return Scope.MODEL_ADMIN
-    if method == "Profile" or method.startswith(("Get", "List", "Verify", "Resolve", "Compare")):
-        return Scope.READ
-    return Scope.PLAY
+    return RPC_POLICY[service][method]
 
 
 def tenant_job_http(method: str, path: str) -> bool:

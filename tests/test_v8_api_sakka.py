@@ -211,6 +211,25 @@ def _grpc_probe(tmp_path, monkeypatch, probe, *, stub_type=None):
     asyncio.run(run())
 
 
+def test_grpc_policy_covers_every_descriptor_method():
+    from importlib import import_module
+    from pkgutil import iter_modules
+
+    from baloot_platform import generated
+    from baloot_platform.service.authorization import RPC_POLICY
+
+    declared = {
+        (f"/{service.full_name}", method.name)
+        for module in iter_modules(generated.__path__, f"{generated.__name__}.")
+        if module.name.endswith("_pb2")
+        for service in import_module(module.name).DESCRIPTOR.services_by_name.values()
+        for method in service.methods
+    }
+    assert declared == {
+        (service, method) for service, methods in RPC_POLICY.items() for method in methods
+    }
+
+
 def test_api_key_reads_real_legacy_board_and_run_over_http_and_grpc(
     legacy_service_records, tmp_path, monkeypatch,
 ):
@@ -469,7 +488,7 @@ def test_grpc_archived_replay_preserves_completion_ownership_and_media_scopes(tm
     decision = {"decisionId": "decision", "gameId": "game", "videoRecords": videos}
     game = {"gameId": "game", "gameHash": "hash", "decisions": [decision], "videoRecords": videos}
     learning_store = SimpleNamespace(
-        get_game=lambda _: game,
+        get_game=lambda identifier: game if identifier == "hash" else None,
         get_decision=lambda _: decision,
         verify_game=lambda _: {"valid": True},
         list_game_audits=lambda *_, **__: [],
@@ -490,13 +509,16 @@ def test_grpc_archived_replay_preserves_completion_ownership_and_media_scopes(tm
     async def probe(grpc, stub):
         ref = platform_pb2.Identifier(value="hash")
 
-        async def denied(credentials, code):
+        async def denied(credentials, code, request=ref):
             with pytest.raises(grpc.aio.AioRpcError) as error:
-                await stub.GetReplay(ref, metadata=credentials, timeout=5)
+                await stub.GetReplay(request, metadata=credentials, timeout=5)
             assert error.value.code() == code
+            return error.value.details()
 
         await denied((), grpc.StatusCode.UNAUTHENTICATED)
-        await denied(owner, grpc.StatusCode.PERMISSION_DENIED)
+        assert "active shared run" in await denied(owner, grpc.StatusCode.PERMISSION_DENIED)
+        missing = await denied(viewer, grpc.StatusCode.NOT_FOUND, platform_pb2.Identifier(value="missing"))
+        assert await denied(viewer, grpc.StatusCode.NOT_FOUND) == missing
         run.status = "completed"
         await denied(viewer, grpc.StatusCode.NOT_FOUND)
         await denied(foreign, grpc.StatusCode.PERMISSION_DENIED)
@@ -505,6 +527,54 @@ def test_grpc_archived_replay_preserves_completion_ownership_and_media_scopes(tm
         assert "videoRecords" not in replay["decisions"][0]
         replay = json.loads((await stub.GetReplay(ref, metadata=operator, timeout=5)).canonical_json)
         assert replay["videos"] == replay["game"]["videoRecords"] == videos
+
+    _grpc_probe(tmp_path, monkeypatch, probe, stub_type=platform_pb2_grpc.BalootPlatformStub)
+
+
+def test_grpc_reopen_and_audit_require_operator(root, tmp_path, monkeypatch):
+    from baloot_platform.audit import ReplayAuditService
+    from baloot_platform.core.enums import Seat
+    from baloot_platform.generated import platform_pb2, platform_pb2_grpc
+    from baloot_platform.learning.service import LearningService
+    from baloot_platform.service import api
+    from baloot_platform.service.game import GameManager
+    from baloot_platform.storage.game_store import SQLiteGameStore
+
+    game_store = SQLiteGameStore(tmp_path / "games.sqlite3")
+    manager = GameManager(root, game_store)
+    learning = LearningService(root, tmp_path, game_manager=manager)
+    store = learning.store
+    session = GameManager(root).create(seed=6051, dealer=Seat.EAST)
+    identifier = learning.archive_session(session, status="manual_archive")["gameHash"]
+    archived = store.get_game(identifier)
+    monkeypatch.setattr(api, "LEARNING_STORE", store)
+    monkeypatch.setattr(api, "LEARNING", learning)
+    monkeypatch.setattr(api, "AUDIT", ReplayAuditService(root, store, learning))
+    monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
+
+    guest = api.IDENTITY.create_guest("Archive guest")
+    player = api.IDENTITY.register(f"archive_{uuid.uuid4().hex[:12]}", "synthetic-password", "Archive player")
+    operator = (("x-api-key", _SERVICE_KEY),)
+
+    async def probe(grpc, stub):
+        reopen = platform_pb2.ReopenGameRequest(identifier=identifier)
+        audit = platform_pb2.ReplayAuditRequest(identifier=identifier, mode="observer_safe")
+        for identity in (guest, player):
+            metadata = (("authorization", f"Bearer {identity['session']['token']}"),)
+            for method, request in ((stub.ReopenGame, reopen), (stub.AuditGame, audit)):
+                with pytest.raises(grpc.aio.AioRpcError) as error:
+                    await method(request, metadata=metadata, timeout=5)
+                assert error.value.code() == grpc.StatusCode.PERMISSION_DENIED
+                assert store.get_game(identifier) == archived
+                assert game_store.load(session.id) is None
+                assert store.list_game_audits(identifier) == []
+
+        reopened = await stub.ReopenGame(reopen, metadata=operator, timeout=5)
+        assert reopened.game_id == session.id
+        assert game_store.load(session.id).id == session.id
+        report = await stub.AuditGame(audit, metadata=operator, timeout=5)
+        assert report.audit_id
+        assert store.get_game_audit(report.audit_id)["gameHash"] == identifier
 
     _grpc_probe(tmp_path, monkeypatch, probe, stub_type=platform_pb2_grpc.BalootPlatformStub)
 

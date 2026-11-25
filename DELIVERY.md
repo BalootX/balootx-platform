@@ -54,7 +54,7 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 
 ## Service credentials
 
-[The service authorization policy](src/baloot_platform/service/authorization.py) defines public HTTP and gRPC entry points. Protected requests use a Baloot session, a scoped Baloot access token, or the configured service API key. Give the Foundry operator UI a same-origin authenticated gateway for its API, event, and media requests. Keep the service credential on the gateway.
+[The service authorization policy](src/baloot_platform/service/authorization.py) defines public HTTP entry points and an explicit rule for each gRPC method. gRPC requires a policy entry before dispatch. Protected requests use a Baloot session, a scoped Baloot access token, or the configured service API key. Give the Foundry operator UI a same-origin authenticated gateway for its API, event, and media requests. Keep the service credential on the gateway.
 
 Durable job reads are restricted to operators in the job's tenant. Signed token claims select the tenant. Installation-wide render outputs and video records are available to default-tenant operators. The trusted-context setting or key adds a separate requirement for operations that use complete hands.
 

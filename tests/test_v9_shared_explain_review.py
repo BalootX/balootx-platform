@@ -19,6 +19,7 @@ from baloot_platform.service.game import GameManager
 from baloot_platform.shared import (
     SharedDecisionAccessError,
     SharedDecisionAccessV1,
+    SharedGameNotFound,
     SharedScope,
     project_shared_decision,
     public_shared_environment,
@@ -246,6 +247,7 @@ def test_grpc_aggregate_methods_deny_active_shared_game(root: Path):
         "resolve_shared_game_access": resolve_shared_game_access,
         "resolve_shared_decision_access": resolve_shared_decision_access,
         "SharedDecisionAccessError": SharedDecisionAccessError,
+        "SharedGameNotFound": SharedGameNotFound,
         "grpc": SimpleNamespace(StatusCode=SimpleNamespace(NOT_FOUND=404, PERMISSION_DENIED=403)),
     }
     exec(compile(ast.Module(body=[guard, *methods], type_ignores=[]), str(source), "exec"), namespace)
@@ -565,11 +567,22 @@ def test_canonical_shared_api_and_decision_workbench(monkeypatch):
             f"/api/v1/history/games/{archive['gameHash']}",
             f"/api/v1/history/games/{archive['gameHash']}/replay",
             f"/api/v1/history/games/{archive['gameHash']}/audits",
+            f"/api/v1/history/games/{archive['gameHash']}/verification",
             f"/api/v1/audits/{aggregate_audit['auditId']}",
         )
         for path in aggregate_paths:
             denied = client.get(path)
             assert denied.status_code == 403, (path, denied.text)
+            assert "active shared run" in denied.json()["detail"]
+        with TestClient(app) as other:
+            assert other.post("/api/v1/auth/guest", json={"displayName": "Other player"}).status_code == 201
+            for path in aggregate_paths:
+                unknown_path = path.replace(archive["gameHash"], "missing")
+                unknown_path = unknown_path.replace(aggregate_audit["auditId"], "missing")
+                missing = other.get(unknown_path)
+                denied = other.get(path)
+                assert denied.status_code == missing.status_code == 404
+                assert denied.json() == missing.json()
         game_rows = client.get(f"/api/v1/games/{game_id}/decisions")
         assert game_rows.status_code == 200, game_rows.text
         projected = next(
