@@ -507,7 +507,8 @@ jobs:
         if: matrix.shard == 1 && github.job == 'python-fast-run'
         run: |
           python -P scripts/sync_package_resources.py
-          python -P scripts/generate_openapi.py --check
+          python -P scripts/generate_openapi.py
+          git diff --exit-code -- api/openapi.json
       - name: Run isolated Python shard
         if: '!cancelled()'
         env:
