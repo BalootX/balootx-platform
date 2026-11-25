@@ -61,7 +61,7 @@ def run(
     baseline = json.loads((output / "pod-preflight.json").read_text())
     command = [sys.executable, "-B"]
     if public:
-        command += ["scripts/render_research_notice.py", "--public", "--output", str(output)]
+        command += ["scripts/render_research_notice.py", "--output", str(output)]
         if deal_id is not None:
             command += ["--deal-id", deal_id]
         elif seed is not None:

@@ -12,7 +12,7 @@ from scripts import pick_nightly_candidates as picker
 @pytest.fixture(scope="module")
 def sample(rules, tmp_path_factory):
     engine = nightly.BalootEngine(rules)
-    profile = nightly.notice.notice_profile(public=True)
+    profile = nightly.notice.notice_profile()
     profile["identity"] = nightly.synthetic_identity()
     source = "a" * 40
     seed = 140250512009021371
@@ -199,7 +199,7 @@ def batch(tmp_path, monkeypatch, rules):
     monkeypatch.delenv("BALOOT_NIGHTLY_JOB_DEADLINE", raising=False)
     monkeypatch.setattr(nightly, "signal", SimpleNamespace())
     monkeypatch.setattr(nightly.RuleBook, "load", lambda path: rules)
-    monkeypatch.setattr(nightly.notice, "notice_profile", lambda **kwargs: {})
+    monkeypatch.setattr(nightly.notice, "notice_profile", lambda: {})
     monkeypatch.setattr(
         nightly.UnifiedScenarioProofServiceV1, "from_repository", lambda path: None
     )
@@ -294,7 +294,7 @@ def test_r8_synthetic_fixtures_replay_to_the_exact_expected_scores(rules):
     fixture_dir = nightly.notice.ROOT / "examples" / "research-r8"
     fixtures = sorted(fixture_dir.glob("*.json"))
     assert len(fixtures) == 10
-    profile = nightly.notice.notice_profile(public=True)
+    profile = nightly.notice.notice_profile()
     normalizer = nightly.ExactStateNormalizerV1(rules)
     deal_hashes = set()
     families = set()
@@ -328,9 +328,7 @@ def test_r8_synthetic_fixtures_replay_to_the_exact_expected_scores(rules):
         bundle = nightly.notice.build_notice_bundle(
             rules, profile, fixture=fixture, golden=data["scenarioId"]
         )
-        nightly.notice.validate_notice_bundle(
-            bundle, final, public=True, fixture=fixture
-        )
+        nightly.notice.validate_notice_bundle(bundle, final, fixture=fixture)
 
     assert len(deal_hashes) == len(families) == len(fixtures)
 
@@ -528,7 +526,7 @@ def test_shadow_checks_approved_names_and_notice(monkeypatch):
     bundle = {
         "identity": {"gameSerial": seed, "players": names},
         "localizations": {
-            "video.notice.sentence": nightly.notice.notice_profile(public=True)[
+            "video.notice.sentence": nightly.notice.notice_profile()[
                 "localizations"
             ]["video.notice.sentence"]
         },

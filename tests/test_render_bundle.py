@@ -650,7 +650,7 @@ def test_public_notice_identity_and_five_visible_voice_phrases(
     from scripts import render_research_notice as notice
 
     rules = notice.RuleBook.load(root / "configs/rules/saudi_common_v1.yaml")
-    profile = notice.notice_profile(public=True)
+    profile = notice.notice_profile()
     if legacy_profile:
         # Recover the pre-guard profile without copying a second justification transcript.
         profile["audio"].update(_RETIRED_VOICE_DEFAULTS, voice_callouts=True, spoken_voice_pack=True)
@@ -693,7 +693,7 @@ def test_public_notice_identity_follows_the_deal_and_name_pool(root: Path) -> No
     from scripts.render_research_scenario_v4_goldens import _fixture_result_code
 
     rules = notice.RuleBook.load(root / "configs/rules/saudi_common_v1.yaml")
-    profile = notice.notice_profile(public=True)
+    profile = notice.notice_profile()
     profile["identity"]["player_name_pool"] = list("ABCD")
     identity = notice.build_notice_bundle(rules, profile).value["identity"]
     assert identity["gameSerial"] == "LAF-98FBED199A"

@@ -442,7 +442,7 @@ def test_renderer_provenance_changes_leave_foley_and_identity_unchanged(
 
     def capture() -> dict:
         bundles = {
-            "notice": notice.build_notice_bundle(rules, notice.notice_profile(public=True)),
+            "notice": notice.build_notice_bundle(rules, notice.notice_profile()),
             "v7-decision": renderer.build_render_request(episode, export_preset="decision_clip"),
             "flagship": renderer.build_render_request(episode, export_preset="hooked_flagship"),
         }
