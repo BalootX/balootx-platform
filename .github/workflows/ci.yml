@@ -205,7 +205,7 @@ jobs:
             ${{ runner.temp }}/foundry-vitest.xml
             ${{ runner.temp }}/foundry-playwright.xml
             ${{ runner.temp }}/foundry-live-result-latency.json
-            output/playwright/acc19/**/audit-*.png
+            ${{ runner.temp }}/foundry-playwright-output/**/audit-*.png
           if-no-files-found: error
       - name: Upload Foundry Playwright failure diagnostics
         if: ${{ !cancelled() && steps.foundry-playwright.outcome == 'failure' }}
