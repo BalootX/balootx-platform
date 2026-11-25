@@ -25,7 +25,7 @@ module.exports = defineConfig({
     {name: 'desktop-chrome', grepInvert: /@(mobile|reduced-motion|zoom)/},
     {
       name: 'mobile-touch-chrome',
-      grep: /@mobile/,
+      grep: process.env.BALOOT_FOUNDRY_QA_JOURNEY === '1' ? undefined : /@mobile/,
       use: {viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true},
     },
     {

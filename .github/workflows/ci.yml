@@ -7,6 +7,16 @@ on:
         description: Run the viewer-seat proof cohort
         type: boolean
         default: false
+      qa-journey:
+        description: Run one synthetic QA journey
+        type: choice
+        default: 'none'
+        options:
+          - 'none'
+          - foundry
+          - api-sdk
+          - replay-adjudication
+          - clip-render-bundle
   push:
     branches: [main]
   pull_request:
@@ -33,7 +43,9 @@ env:
 
 jobs:
   plan:
-    if: ${{ !inputs.viewer-seat-proof && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: >-
+      ${{ !inputs.viewer-seat-proof && (!inputs.qa-journey || inputs.qa-journey == 'none') &&
+          (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -56,7 +68,7 @@ jobs:
         run: python3 -P scripts/ci_scope.py plan
 
   preflight:
-    if: ${{ !inputs.viewer-seat-proof }}
+    if: ${{ !inputs.viewer-seat-proof && (!inputs.qa-journey || inputs.qa-journey == 'none') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
@@ -815,13 +827,122 @@ jobs:
           python -P scripts/generate_platform_evidence.py
 
   viewer-seat-proof:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof && (!inputs.qa-journey || inputs.qa-journey == 'none') }}
     uses: ./.github/workflows/viewer-seat-proof.yml
+
+  qa-journey:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.qa-journey && inputs.qa-journey != 'none' }}
+    name: QA journey (${{ inputs.qa-journey }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    env:
+      QA_JOURNEY: ${{ inputs.qa-journey }}
+    steps:
+      - name: Validate the dispatch choice
+        shell: python
+        env:
+          VIEWER_SEAT_PROOF: ${{ inputs.viewer-seat-proof }}
+        run: |
+          import os
+
+          if os.environ['QA_JOURNEY'] not in ('foundry', 'api-sdk', 'replay-adjudication', 'clip-render-bundle'):
+              raise SystemExit('Select a declared QA journey.')
+          if os.environ['VIEWER_SEAT_PROOF'] != 'false':
+              raise SystemExit('Turn off viewer-seat-proof when dispatching a QA journey.')
+      - *checkout
+      - name: Bind evidence to the dispatched source
+        id: source
+        run: |
+          head=$(git rev-parse HEAD)
+          tree=$(git rev-parse 'HEAD^{tree}')
+          test "$head" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/qa-journey"
+          printf 'journey=%s\nhead=%s\ntree=%s\n' "$QA_JOURNEY" "$head" "$tree" > "$RUNNER_TEMP/qa-journey/source.txt"
+      - *py313
+      - run: python -m pip install -e '.[dev,grpc,security]'
+      - name: Run selected Python checks
+        run: |
+          case "$QA_JOURNEY" in
+            foundry)
+              nodes=(tests/test_research_foundry.py::test_research_auction_is_compiled_and_replayed_without_buyer_assumption) ;;
+            api-sdk)
+              nodes=(
+                tests/test_research_foundry.py::test_research_api_is_connected_to_the_governed_runtime
+                tests/test_v2_research_sdk_contracts.py::test_python_sdk_recipe_mutations_and_pagination_preserve_compatibility
+                tests/test_research_operator_audit_sdk_contracts.py::test_python_sdk_retrieves_the_typed_operator_audit
+              ) ;;
+            replay-adjudication)
+              nodes=(
+                tests/test_v6_replay_audit_difficulty_video.py::test_replay_audit_separates_effect_from_human_intent
+                tests/test_adjudication_research_boundary_v1.py::test_adjudication_event_evidence_is_deterministic_and_observer_safe
+                tests/test_observer_information_projection.py::test_projection_contains_governed_public_state_without_hidden_cards
+              ) ;;
+            clip-render-bundle)
+              nodes=(
+                tests/test_render_bundle.py::test_render_bundle_is_deterministic_observer_safe_and_self_verifying
+                tests/test_render_bundle.py::test_render_bundle_rejects_mixed_private_perspectives
+                'tests/test_render_bundle.py::test_public_notice_identity_and_five_visible_voice_phrases[voice-off-profile]'
+              ) ;;
+            *) exit 1 ;;
+          esac
+          python -m scripts.run_required_pytest "${nodes[@]}" 2>&1 | tee "$RUNNER_TEMP/qa-journey/pytest.log"
+      - *node
+      - name: Check TypeScript SDK
+        if: inputs.qa-journey == 'api-sdk'
+        run: |
+          npx --yes --package typescript@5.8.3 tsc -p sdk/typescript/tsconfig.json --noEmit 2>&1 | tee "$RUNNER_TEMP/qa-journey/typescript.log"
+      - if: inputs.qa-journey == 'api-sdk'
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: '1.23'
+          cache: false
+      - name: Exercise Go SDK
+        if: inputs.qa-journey == 'api-sdk'
+        working-directory: sdk/go
+        run: go test -json ./... 2>&1 | tee "$RUNNER_TEMP/qa-journey/go.jsonl"
+      - name: Exercise Foundry authoring and research on desktop and mobile
+        if: inputs.qa-journey == 'foundry'
+        id: foundry-journey
+        working-directory: src/baloot_platform/service/foundry_dashboard
+        env:
+          BALOOT_FOUNDRY_QA_JOURNEY: '1'
+          BALOOT_OPERATOR_E2E_FOUNDRY_DIR: ${{ runner.temp }}/foundry-dashboard
+          BALOOT_REUSE_OPERATOR_E2E_SERVER: '0'
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/qa-journey/foundry.xml
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build -- --outDir "$BALOOT_OPERATOR_E2E_FOUNDRY_DIR"
+          ./node_modules/.bin/playwright install --with-deps chromium
+          npm run test:operator-e2e -- foundry_ortools_operator.spec.ts \
+            --grep 'the disclosed target-wins-trick-6 alternative diagnoses its first result$' \
+            --project=desktop-chrome --project=mobile-touch-chrome --workers=1 \
+            --reporter=list,junit --output "$RUNNER_TEMP/qa-journey-playwright"
+          test -s "$PLAYWRIGHT_JUNIT_OUTPUT_FILE"
+          test "$(find "$RUNNER_TEMP/qa-journey-playwright" -name 'alternate-first-result-*.png' | wc -l)" -eq 6
+      - name: Upload QA journey results
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qa-journey-${{ inputs.qa-journey }}-results
+          path: ${{ runner.temp }}/qa-journey/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload Foundry journey screenshots
+        if: ${{ !cancelled() && inputs.qa-journey == 'foundry' && steps.foundry-journey.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qa-journey-foundry-screenshots
+          path: ${{ runner.temp }}/qa-journey-playwright/*/alternate-first-result-*.png
+          if-no-files-found: warn
+          retention-days: 7
 
   ci-gate:
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}
     needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-windows, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
-    if: ${{ always() && !inputs.viewer-seat-proof }}
+    if: ${{ always() && !inputs.viewer-seat-proof && (!inputs.qa-journey || inputs.qa-journey == 'none') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

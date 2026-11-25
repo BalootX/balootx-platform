@@ -15,6 +15,9 @@ from scripts import run_required_pytest
 import test_v20_asan_verifier_portability as asan_portability
 
 
+NO_QA_JOURNEY = "(!inputs.qa-journey || inputs.qa-journey == 'none')"
+
+
 @pytest.fixture
 def codeowners_rules(root):
     text = (root / ".github/CODEOWNERS").read_text(encoding="utf-8")
@@ -126,8 +129,9 @@ def test_hosted_ci_contract(root):
                     assert condition.startswith(main_push) and "||" not in condition, name
             assert not step.get("continue-on-error")
     assert jobs["ci-gate"]["name"] == "${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}"
-    assert jobs["plan"]["if"] == (
-        "${{ !inputs.viewer-seat-proof && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}"
+    assert " ".join(jobs["plan"]["if"].split()) == (
+        "${{ !inputs.viewer-seat-proof && " + NO_QA_JOURNEY +
+        " && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}"
     )
     assert jobs["plan"]["steps"][0]["with"]["fetch-depth"] == 2
     assert jobs["plan"]["steps"][-1]["env"] == {
@@ -154,9 +158,9 @@ def test_hosted_ci_contract(root):
         "plan", "preflight", "dependency-review", "python-version-smoke", "python-affected",
     }
     assert set(jobs["ci-gate"]["needs"]) == expected_producers == jobs.keys() - {
-        "ci-gate", "viewer-seat-proof",
+        "ci-gate", "viewer-seat-proof", "qa-journey",
     }
-    assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof }}"
+    assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof && " + NO_QA_JOURNEY + " }}"
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
         "media-inputs", "media-render", "media-release-smoke", "remotion-image-parity",
@@ -180,6 +184,33 @@ def _assert_single_ci_check_producers(workflows):
     for check, producers in expected.items():
         actual = [source for source, name in names.items() if check in name]
         assert actual == producers, f"{check} producers: expected {producers}, found {actual}"
+
+
+def test_qa_journey_dispatch_rejects_unknown_and_conflicting_choices(root, monkeypatch):
+    workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
+    option = workflow[True]["workflow_dispatch"]["inputs"]["qa-journey"]
+    journeys = ["foundry", "api-sdk", "replay-adjudication", "clip-render-bundle"]
+    assert option["type"] == "choice" and option["default"] == "none"
+    assert option["options"] == ["none", *journeys]
+    job = workflow["jobs"]["qa-journey"]
+    assert job["if"] == (
+        "${{ github.event_name == 'workflow_dispatch' && inputs.qa-journey && inputs.qa-journey != 'none' }}"
+    )
+    validation = job["steps"][0]
+    assert validation["shell"] == "python"
+    validate = compile(validation["run"], "QA journey dispatch validation", "exec")
+    monkeypatch.setenv("VIEWER_SEAT_PROOF", "false")
+    for journey in journeys:
+        monkeypatch.setenv("QA_JOURNEY", journey)
+        exec(validate, {})
+    for journey in ("", "none", "unknown", "foundry; exit 0"):
+        monkeypatch.setenv("QA_JOURNEY", journey)
+        with pytest.raises(SystemExit, match="Select a declared QA journey"):
+            exec(validate, {})
+    monkeypatch.setenv("QA_JOURNEY", "foundry")
+    monkeypatch.setenv("VIEWER_SEAT_PROOF", "true")
+    with pytest.raises(SystemExit, match="Turn off viewer-seat-proof"):
+        exec(validate, {})
 
 
 def test_ci_check_names_have_single_producers(root):
@@ -353,14 +384,14 @@ def test_viewer_seat_proof_dispatch_and_nightly_use_the_same_pinned_cohort(root)
     option = workflow[True]["workflow_dispatch"]["inputs"]["viewer-seat-proof"]
     assert option["type"] == "boolean" and option["default"] is False
     jobs = workflow["jobs"]
-    assert jobs["preflight"]["if"] == "${{ !inputs.viewer-seat-proof }}"
+    assert jobs["preflight"]["if"] == "${{ !inputs.viewer-seat-proof && " + NO_QA_JOURNEY + " }}"
     workflow_call = {"uses": "./.github/workflows/viewer-seat-proof.yml"}
     assert jobs["viewer-seat-proof"] == {
         **workflow_call,
-        "if": "${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof }}",
+        "if": "${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof && " + NO_QA_JOURNEY + " }}",
     }
     assert {name for name, job in jobs.items() if "needs" not in job} == {
-        "plan", "preflight", "dependency-review", "viewer-seat-proof",
+        "plan", "preflight", "dependency-review", "viewer-seat-proof", "qa-journey",
     }
     nightly = yaml.safe_load((root / ".github/workflows/nightly-candidates.yml").read_bytes())
     assert nightly["jobs"]["viewer-seat-proof"] == workflow_call
@@ -709,7 +740,7 @@ def test_one_run_never_holds_more_than_twenty_hosted_jobs(root):
         if all(name not in before[other] and other not in before[name] for other in chosen):
             best = max(best, width(jobs[name], is_pr) + peak(index + 1, chosen | {name}, names, is_pr))
         return best
-    full = jobs.keys() - {"python-affected", "viewer-seat-proof"}
+    full = jobs.keys() - {"python-affected", "viewer-seat-proof", "qa-journey"}
     assert peak(0, frozenset(), sorted(full), True) <= 20
     assert peak(0, frozenset(), sorted(full - {"dependency-review", "python-version-smoke"}), False) <= 20
 
