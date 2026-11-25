@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from baloot_platform.identity import Identity, IdentityService
-from baloot_platform.security import AccessClaims, Scope, SignedAccessTokenService
+from baloot_platform.security import AccessClaims, AuthorizationPolicy, Scope, SignedAccessTokenService
 
 DEFAULT_TENANT = "default"
 
@@ -41,12 +41,14 @@ PUBLIC_RPC = frozenset({
     "/baloot.v17.BalootOperations/SecurityCapabilities",
     "/baloot.v18.HumanLearning/HealthCheck",
 })
-_JOB_HTTP = re.compile(r"/api/v1/(?:video-)?jobs/[^/:]+")
+_JOB_HTTP = re.compile(r"/api/v1/(?:jobs/[^/:]+|video-jobs/[^/:]+(?:/events)?)")
+_ARCHIVE_HTTP_READ = re.compile(
+    r"/api/v1/history/games/[^/:]+(?:/(?:replay|audits|verification))?"
+)
 _JOB_RPC = "/baloot.v2.BalootPlatform/GetJob"
 _PLATFORM_OPERATOR_RPC = frozenset({
     "CreateVideo", "CreateRenderBatch", "GetRenderBatch", "CancelRenderBatch",
     "GetVideoRecord", "GetVideoTimeline", "GetVideoAuditMap", "RenderGameReplay",
-    "GetReplay",
 })
 _CONFIG_OPERATOR_RPC = frozenset({
     "CreateProfile", "PublishProfile", "RejectProfile", "RetireProfile",
@@ -71,6 +73,8 @@ def public_http(method: str, path: str) -> bool:
 
 
 def http_scope(method: str, path: str) -> Scope:
+    if method in {"GET", "HEAD"} and _ARCHIVE_HTTP_READ.fullmatch(path):
+        return Scope.READ
     if path.startswith("/api/v1/hitl/") and path.endswith("/review-clip"):
         return Scope.MODEL_ADMIN
     if (
@@ -116,6 +120,17 @@ def tenant_job_rpc(path: str) -> bool:
     return path == _JOB_RPC
 
 
+def history_without_media(game: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **game,
+        "videoRecords": [],
+        "decisions": [
+            {key: value for key, value in decision.items() if key != "videoRecords"}
+            for decision in game.get("decisions") or []
+        ],
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class Credentials:
     identity: Identity | None
@@ -128,6 +143,16 @@ class Credentials:
     @property
     def authenticated(self) -> bool:
         return self.identity is not None or self.claims is not None or self.api_key_valid
+
+    def has_scope(self, policy: AuthorizationPolicy, scope: Scope) -> bool:
+        return scope in policy.effective_scopes(role=self.role, claims=self.claims)
+
+    def denial(self, policy: AuthorizationPolicy, scope: Scope, *, tenant_job: bool) -> str | None:
+        if not self.has_scope(policy, scope):
+            return f"missing required scope: {scope.value}"
+        if self.tenant_id != DEFAULT_TENANT and not tenant_job:
+            return "the request is outside the tenant scope"
+        return None
 
 
 def claims_identity(claims: AccessClaims, display_name: str) -> Identity:

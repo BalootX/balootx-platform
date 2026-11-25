@@ -21,7 +21,7 @@ from baloot_platform.config import data_root, platform_root
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER, owns_subject
 from baloot_platform.security import Scope
 from baloot_platform.service.authorization import (
-    DEFAULT_TENANT, PUBLIC_RPC, Credentials, claims_identity, credentials, rpc_scope,
+    DEFAULT_TENANT, PUBLIC_RPC, Credentials, claims_identity, credentials, history_without_media, rpc_scope,
     tenant_job_rpc,
 )
 from baloot_platform.service.client_identity import (
@@ -126,7 +126,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 )
         return decision
 
-    async def _require_private_game(context, identifier: str) -> dict[str, Any]:
+    async def _require_private_game(context, identifier: str, subject_id: str | None = None) -> dict[str, Any]:
         game = LEARNING_STORE.get_game(identifier)
         if game is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "archived game not found")
@@ -137,6 +137,8 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         if access is not None and not access.completed:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED,
                                 "aggregate game analysis is unavailable during an active shared run")
+        if subject_id is not None and (access is None or not owns_subject(subject_id, access.owner_subject_id)):
+            await context.abort(grpc.StatusCode.NOT_FOUND, "archived game not found")
         for item in game.get("decisions") or []:
             decision = LEARNING_STORE.get_decision(str(item.get("decisionId") or ""))
             if decision is None:
@@ -404,14 +406,20 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def GetReplay(self, request, context):
-            game = await _require_private_game(context, request.value)
+            operator = authenticated_rpc.get().has_scope(AUTHORIZATION_POLICY, Scope.CONFIG_ADMIN)
+            reader = None if operator else (await _identity(context)).subject_id
+            game = await _require_private_game(context, request.value, reader)
             game_hash = game.get("gameHash")
+            decisions = game.get("decisions") or LEARNING_STORE.list_decisions(game_hash or game.get("gameId"))
+            if not operator:
+                game = history_without_media({**game, "decisions": decisions})
+                decisions = game["decisions"]
             package = {
                 "game": game,
                 "verification": LEARNING_STORE.verify_game(request.value),
                 "audits": LEARNING_STORE.list_game_audits(game_hash or game.get("gameId"), limit=50),
-                "videos": LEARNING_STORE.list_video_records(game_hash=game_hash, limit=100) if game_hash else [],
-                "decisions": game.get("decisions") or LEARNING_STORE.list_decisions(game_hash or game.get("gameId")),
+                "videos": LEARNING_STORE.list_video_records(game_hash=game_hash, limit=100) if operator and game_hash else [],
+                "decisions": decisions,
             }
             return platform_pb2.ReplayPackage(
                 canonical_json=_json_bytes(package),
@@ -1684,14 +1692,9 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 auth = credentials(metadata, token, IDENTITY, ACCESS_TOKENS)
                 if not auth.authenticated:
                     await context.abort(grpc.StatusCode.UNAUTHENTICATED, "authentication required")
-                try:
-                    AUTHORIZATION_POLICY.require(
-                        role=auth.role, required=rpc_scope(method), claims=auth.claims,
-                    )
-                    if auth.tenant_id != DEFAULT_TENANT and not tenant_job_rpc(method):
-                        raise PermissionError("the request is outside the tenant scope")
-                except PermissionError as exc:
-                    await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
+                denial = auth.denial(AUTHORIZATION_POLICY, rpc_scope(method), tenant_job=tenant_job_rpc(method))
+                if denial is not None:
+                    await context.abort(grpc.StatusCode.PERMISSION_DENIED, denial)
                 auth_token = authenticated_rpc.set(auth)
                 ownership_token = SERVICE_SUBJECT_OWNER.set(
                     service_subject_ownership(metadata, configured_key=os.environ.get("BALOOT_API_KEY"))

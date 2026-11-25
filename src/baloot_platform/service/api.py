@@ -108,12 +108,13 @@ from baloot_platform.service.routes import (
     build_foundry_admin_v2_router,
 )
 from baloot_platform.service.container import PlatformContainer, build_container
-from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER
+from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER, owns_subject
 from baloot_platform.security import Scope
 from baloot_platform.service.authorization import (
     DEFAULT_TENANT,
     PUBLIC_HTTP_BOOTSTRAP,
     credentials,
+    history_without_media,
     http_scope,
     public_http,
     tenant_job_http,
@@ -268,20 +269,29 @@ def _require_private_decision_access(
     return decision
 
 
-def _require_completed_shared_game_access(game_id: str) -> None:
+def _archive_reader(request: Request) -> str | None:
+    if request.state.auth.has_scope(AUTHORIZATION_POLICY, Scope.CONFIG_ADMIN):
+        return None
+    identity, _ = require_identity(request, IDENTITY)
+    return identity.subject_id
+
+
+def _require_completed_shared_game_access(game_id: str, subject_id: str | None = None) -> None:
     try:
         access = resolve_shared_game_access(SAKKA.store, game_id)
     except SharedDecisionAccessError as exc:
         raise HTTPException(403, str(exc)) from exc
     if access is not None and not access.completed:
         raise HTTPException(403, "aggregate game analysis is unavailable during an active shared run")
+    if subject_id is not None and (access is None or not owns_subject(subject_id, access.owner_subject_id)):
+        raise HTTPException(404, "archived game not found")
 
 
-def _require_private_history_game(identifier: str) -> dict[str, Any]:
+def _require_private_history_game(identifier: str, subject_id: str | None = None) -> dict[str, Any]:
     game = LEARNING_STORE.get_game(identifier)
     if game is None:
         raise HTTPException(404, "archived game not found")
-    _require_completed_shared_game_access(str(game.get("gameId") or ""))
+    _require_completed_shared_game_access(str(game.get("gameId") or ""), subject_id)
     _require_completed_shared_analysis_decisions(game)
     return game
 
@@ -724,6 +734,7 @@ async def platform_security(request: Request, call_next):
         response.headers["retry-after"] = str(retry_after)
         return response
     auth = credentials(request.headers, request_token(request), IDENTITY, ACCESS_TOKENS)
+    request.state.auth = auth
     identity, identity_session = auth.identity, auth.session
     access_claims = auth.claims
     request.state.identity = identity
@@ -745,15 +756,13 @@ async def platform_security(request: Request, call_next):
                 {"detail": "authentication required", "requestId": request_id},
                 status_code=401,
             )
-        try:
-            AUTHORIZATION_POLICY.require(
-                role=auth.role, required=http_scope(request.method, path), claims=access_claims,
-            )
-            if auth.tenant_id != DEFAULT_TENANT and not tenant_job_http(request.method, path):
-                raise PermissionError("the request is outside the tenant scope")
-        except PermissionError as exc:
+        denial = auth.denial(
+            AUTHORIZATION_POLICY, http_scope(request.method, path),
+            tenant_job=tenant_job_http(request.method, path),
+        )
+        if denial is not None:
             return JSONResponse(
-                {"detail": str(exc), "requestId": request_id}, status_code=403,
+                {"detail": denial, "requestId": request_id}, status_code=403,
             )
     enforce_csrf = _truthy("BALOOT_ENFORCE_SESSION_CSRF") or (
         os.environ.get("BALOOT_ENV", "development").lower() == "production"
@@ -7833,7 +7842,7 @@ def video_job_events(job_id: str, request: Request):
             content={"jobId": job_id, "events": STORE.events(job_id)},
             headers={"Deprecation": "true"},
         )
-    if not job_id.startswith("RUN-"):
+    if not job_id.startswith("RUN-") or request.state.tenant_id != DEFAULT_TENANT:
         raise HTTPException(404, "job not found")
     _require_trusted(request)
     try:
@@ -7987,24 +7996,33 @@ def history_games(search: str = "", limit: int = 100):
 
 
 @app.get("/api/v1/history/games/{identifier}")
-def history_game(identifier: str):
-    return _require_private_history_game(identifier)
+def history_game(identifier: str, request: Request):
+    reader = _archive_reader(request)
+    game = _require_private_history_game(identifier, reader)
+    return game if reader is None else history_without_media(game)
 
 
 @app.get("/api/v1/history/games/{identifier}/replay")
-def replay_history_package(identifier: str):
-    game = _require_private_history_game(identifier)
+def replay_history_package(identifier: str, request: Request):
+    reader = _archive_reader(request)
+    game = _require_private_history_game(identifier, reader)
     game_hash = game.get("gameHash")
     game_id = game.get("gameId")
+    decisions = game.get("decisions") or LEARNING_STORE.list_decisions(game_hash or game_id)
+    videos = []
+    if reader is not None:
+        game = history_without_media({**game, "decisions": decisions})
+        decisions = game["decisions"]
+    elif game_hash:
+        videos = LEARNING_STORE.list_video_records(game_hash=game_hash, limit=100)
+    else:
+        videos = LEARNING_STORE.list_video_records("game", str(game_id), limit=100)
     return {
         "game": game,
         "verification": LEARNING_STORE.verify_game(identifier),
         "audits": LEARNING_STORE.list_game_audits(game_hash or game_id, limit=50),
-        "videos": LEARNING_STORE.list_video_records(game_hash=game_hash, limit=100)
-        if game_hash
-        else LEARNING_STORE.list_video_records("game", str(game_id), limit=100),
-        "decisions": game.get("decisions")
-        or LEARNING_STORE.list_decisions(game_hash or game_id),
+        "videos": videos,
+        "decisions": decisions,
         "bundle": {
             "hash": game.get("bundleHash"),
             "engineVersion": game.get("engineVersion"),
@@ -8027,8 +8045,8 @@ def history_game_video_records(identifier: str):
 
 
 @app.get("/api/v1/history/games/{identifier}/verification")
-def verify_history_game(identifier: str):
-    _require_private_history_game(identifier)
+def verify_history_game(identifier: str, request: Request):
+    _require_private_history_game(identifier, _archive_reader(request))
     result = LEARNING_STORE.verify_game(identifier)
     if result.get("error") == "not found":
         raise HTTPException(404, "archived game not found")
@@ -8236,8 +8254,8 @@ def audit_history_game(identifier: str, request: ReplayAuditRequest):
 
 
 @app.get("/api/v1/history/games/{identifier}/audits")
-def list_history_game_audits(identifier: str, limit: int = 50):
-    _require_private_history_game(identifier)
+def list_history_game_audits(identifier: str, request: Request, limit: int = 50):
+    _require_private_history_game(identifier, _archive_reader(request))
     return {"audits": LEARNING_STORE.list_game_audits(identifier, limit=limit)}
 
 
@@ -8250,7 +8268,7 @@ def get_replay_audit(audit_id: str, request: Request):
     if decision_id:
         _require_private_decision_access(decision_id, request)
     else:
-        _require_completed_shared_game_access(str(value.get("gameId") or ""))
+        _require_completed_shared_game_access(str(value.get("gameId") or ""), _archive_reader(request))
         _require_completed_shared_analysis_decisions(value)
     return value
 

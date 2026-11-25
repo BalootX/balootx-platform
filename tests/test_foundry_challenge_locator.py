@@ -837,6 +837,8 @@ def test_locator_api_creates_and_resolves_exact_public_state(root, tmp_path, mon
         assert restored.json()["attemptId"] == attempt_payload["attemptId"]
         assert restored.json()["statistics"]["totalAttempts"] == 1
         assert "decisionId" not in restored.text
-        revoked = client.post(f"/api/v2/challenge-locators/{code}:revoke")
-        assert revoked.status_code == 200
+        revoke_path = f"/api/v2/challenge-locators/{code}:revoke"
+        assert client.post(revoke_path).status_code == 403
+        revoked = client.post(revoke_path, headers={"x-api-key": os.environ["BALOOT_API_KEY"]})
+        assert revoked.status_code == 200, revoked.text
         assert client.get(f"/api/v2/challenge-locators/{code}").status_code == 410

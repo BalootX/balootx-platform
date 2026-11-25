@@ -4,7 +4,10 @@ import asyncio
 import hashlib
 import json
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -312,19 +315,60 @@ def test_grpc_requires_a_real_credential_without_configured_service_key(tmp_path
     _grpc_probe(tmp_path, monkeypatch, probe)
 
 
-def test_operator_jobs_and_media_require_role_and_tenant_over_http_and_grpc(tmp_path, monkeypatch):
+@pytest.fixture(params=["sqlite", "postgres"])
+def tenant_jobs(request, tmp_path):
+    from baloot_platform.storage.jobs import JobStore
+    from baloot_platform.storage.postgres import PostgresJobStore
+
+    tenants = {"job-home": "default", "job-other": "tenant-other"}
+    if request.param == "sqlite":
+        store = JobStore(tmp_path / "jobs.sqlite3")
+        for job_id, tenant in tenants.items():
+            store.create(job_id, {"fixture": True}, tenant_id=tenant)
+        return store
+
+    # Exercise the production PostgreSQL queries and row mapping at the pool boundary.
+    store = object.__new__(PostgresJobStore)
+    store.pool = MagicMock()
+    connection = store.pool.connection.return_value.__enter__.return_value
+    created = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    def execute(sql, params):
+        if "FROM job_events" in sql:
+            return SimpleNamespace(fetchall=lambda: [("queued", {}, created)])
+        if "ORDER BY created_at" in sql:
+            assert "WHERE tenant_id=%s" in sql
+            tenant, limit = params
+            rows = [(job_id,) for job_id, owner in tenants.items() if owner == tenant][:limit]
+            return SimpleNamespace(fetchall=lambda: rows)
+        assert "WHERE job_id=%s AND tenant_id=%s" in sql
+        job_id, tenant = params
+        row = None
+        if tenants.get(job_id) == tenant:
+            row = (job_id, tenant, "video", "queued", 100, 0, {}, None, None,
+                   0, 3, None, None, False, created, created)
+        return SimpleNamespace(fetchone=lambda: row)
+
+    connection.execute.side_effect = execute
+    return store
+
+
+def test_operator_jobs_and_media_require_role_and_tenant_over_http_and_grpc(tmp_path, monkeypatch, tenant_jobs):
     from fastapi.staticfiles import StaticFiles
 
     from baloot_platform.generated import platform_pb2, platform_pb2_grpc
     from baloot_platform.learning.store import LearningStore
     from baloot_platform.security import Scope
     from baloot_platform.service import api
-    from baloot_platform.storage.jobs import JobStore
+    from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
 
-    jobs = JobStore(tmp_path / "jobs.sqlite3")
-    jobs.create("job-home", {"seed": 7})
-    jobs.create("job-other", {"seed": 11}, tenant_id="tenant-other")
-    monkeypatch.setattr(api, "STORE", jobs)
+    monkeypatch.setattr(api, "STORE", tenant_jobs)
+    for job_id, tenant in (("job-home", "default"), ("job-other", "tenant-other")):
+        identity_context = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(tenant_id=tenant))
+        try:
+            assert [job["jobId"] for job in tenant_jobs.list_jobs()] == [job_id]
+        finally:
+            CURRENT_DATABASE_IDENTITY.reset(identity_context)
     videos = LearningStore(tmp_path / "learning.sqlite3")
     video = videos.put_video_record({
         "ownerKind": "challenge", "ownerId": "demo", "episodeHash": "fixture",
@@ -346,8 +390,11 @@ def test_operator_jobs_and_media_require_role_and_tenant_over_http_and_grpc(tmp_
     other = bearer("admin", Scope.CONFIG_ADMIN, "tenant-other")
     unscoped_admin = bearer("admin", Scope.READ)
     player = {**bearer("player", Scope.READ), "x-baloot-role": "admin"}
+    guest = bearer("guest", Scope.READ)
+    expert = bearer("expert", Scope.READ)
     referee = bearer("referee", Scope.HIDDEN_READ)
-    denied_roles = (unscoped_admin, player, referee)
+    service = bearer("service", Scope.CONFIG_ADMIN)
+    denied_roles = (unscoped_admin, guest, player, expert, referee)
     job_path = "/api/v1/jobs"
     with TestClient(app) as client:
         assert client.get("/healthz").status_code == 200
@@ -362,9 +409,13 @@ def test_operator_jobs_and_media_require_role_and_tenant_over_http_and_grpc(tmp_
             for headers in denied_roles:
                 assert client.get(path, headers=headers).status_code == 403
             assert client.get(path, headers=admin).status_code == 200
+        assert client.get(f"{job_path}/job-home", headers=service).status_code == 200
         assert client.get(f"{job_path}/job-home", headers=other).status_code == 404
         assert client.get(f"{job_path}/job-other", headers=admin).status_code == 404
         assert client.get(f"{job_path}/job-other", headers=other).status_code == 200
+        assert client.get("/api/v1/video-jobs/job-other", headers=other).status_code == 200
+        assert client.get("/api/v1/video-jobs/job-other/events", headers=other).status_code == 200
+        assert client.get("/api/v1/video-jobs/job-home/events", headers=other).status_code == 404
         assert client.get(f"/api/v1/videos/{video_id}", headers=other).status_code == 403
         assert client.get("/outputs/demo.mp4", headers=other).status_code == 403
         ranged = client.get("/outputs/demo.mp4", headers={**admin, "range": "bytes=0-3"})
@@ -394,8 +445,66 @@ def test_operator_jobs_and_media_require_role_and_tenant_over_http_and_grpc(tmp_
 
         await rejected(stub.GetJob, home_job, other, grpc.StatusCode.NOT_FOUND)
         await rejected(stub.GetJob, other_job, admin, grpc.StatusCode.NOT_FOUND)
+        assert (await call(stub.GetJob, home_job, service)).job.job_id == "job-home"
         assert (await call(stub.GetJob, other_job, other)).job.job_id == "job-other"
         await rejected(stub.GetVideoRecord, video_ref, other, grpc.StatusCode.PERMISSION_DENIED)
+
+    _grpc_probe(tmp_path, monkeypatch, probe, stub_type=platform_pb2_grpc.BalootPlatformStub)
+
+
+def test_grpc_archived_replay_preserves_completion_ownership_and_media_scopes(tmp_path, monkeypatch):
+    from baloot_platform.core.enums import Seat
+    from baloot_platform.generated import platform_pb2, platform_pb2_grpc
+    from baloot_platform.security import Scope
+    from baloot_platform.service import api
+
+    run = SimpleNamespace(run_id="run", status="active", subject_id="archive-owner", board_id="board")
+    board = SimpleNamespace(observer_seat=Seat.SOUTH)
+    shared_store = SimpleNamespace(
+        get_run_for_game=lambda _: (run, b""),
+        get_run_for_decision=lambda _: (run, b""),
+        get_board=lambda _: (board, b""),
+    )
+    videos = [{"videoId": "archive-video"}]
+    decision = {"decisionId": "decision", "gameId": "game", "videoRecords": videos}
+    game = {"gameId": "game", "gameHash": "hash", "decisions": [decision], "videoRecords": videos}
+    learning_store = SimpleNamespace(
+        get_game=lambda _: game,
+        get_decision=lambda _: decision,
+        verify_game=lambda _: {"valid": True},
+        list_game_audits=lambda *_, **__: [],
+        list_video_records=lambda *_, **__: videos,
+    )
+    monkeypatch.setattr(api, "SAKKA", SimpleNamespace(store=shared_store))
+    monkeypatch.setattr(api, "LEARNING_STORE", learning_store)
+
+    def metadata(subject, role, *scopes, tenant=None):
+        token = api.ACCESS_TOKENS.issue(subject_id=subject, role=role, scopes=scopes, tenant_id=tenant)
+        return (("authorization", f"Bearer {token}"),)
+
+    owner = metadata("archive-owner", "guest", Scope.READ)
+    viewer = metadata("archive-viewer", "player", Scope.READ)
+    operator = metadata("archive-operator", "admin", Scope.READ, Scope.CONFIG_ADMIN)
+    foreign = metadata("archive-owner", "player", Scope.READ, tenant="tenant-other")
+
+    async def probe(grpc, stub):
+        ref = platform_pb2.Identifier(value="hash")
+
+        async def denied(credentials, code):
+            with pytest.raises(grpc.aio.AioRpcError) as error:
+                await stub.GetReplay(ref, metadata=credentials, timeout=5)
+            assert error.value.code() == code
+
+        await denied((), grpc.StatusCode.UNAUTHENTICATED)
+        await denied(owner, grpc.StatusCode.PERMISSION_DENIED)
+        run.status = "completed"
+        await denied(viewer, grpc.StatusCode.NOT_FOUND)
+        await denied(foreign, grpc.StatusCode.PERMISSION_DENIED)
+        replay = json.loads((await stub.GetReplay(ref, metadata=owner, timeout=5)).canonical_json)
+        assert replay["videos"] == replay["game"]["videoRecords"] == []
+        assert "videoRecords" not in replay["decisions"][0]
+        replay = json.loads((await stub.GetReplay(ref, metadata=operator, timeout=5)).canonical_json)
+        assert replay["videos"] == replay["game"]["videoRecords"] == videos
 
     _grpc_probe(tmp_path, monkeypatch, probe, stub_type=platform_pb2_grpc.BalootPlatformStub)
 

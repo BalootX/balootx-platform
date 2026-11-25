@@ -143,6 +143,7 @@ def test_shared_decision_access_fails_closed_for_unknown_identity_and_run_state(
 def test_aggregate_history_access_uses_shared_run_completion(monkeypatch):
     from fastapi import HTTPException
     from baloot_platform.service import api
+    from baloot_platform.service.authorization import DEFAULT_TENANT, Credentials
 
     run = SimpleNamespace(run_id="RUN-AGG", status="active", subject_id="USR-A", board_id="BOARD-AGG")
     board = SimpleNamespace(observer_seat=Seat.SOUTH)
@@ -163,17 +164,19 @@ def test_aggregate_history_access_uses_shared_run_completion(monkeypatch):
     )
     monkeypatch.setattr(api, "SAKKA", SimpleNamespace(store=shared_store))
     monkeypatch.setattr(api, "LEARNING_STORE", learning_store)
+    operator = Credentials(None, None, None, True, "service", DEFAULT_TENANT)
+    request = SimpleNamespace(state=SimpleNamespace(auth=operator))
     calls = (
-        lambda: api.history_game("HASH-AGG"),
-        lambda: api.replay_history_package("HASH-AGG"),
+        lambda: api.history_game("HASH-AGG", request),
+        lambda: api.replay_history_package("HASH-AGG", request),
         lambda: api.history_game_video_records("HASH-AGG"),
-        lambda: api.verify_history_game("HASH-AGG"),
+        lambda: api.verify_history_game("HASH-AGG", request),
         lambda: api.reopen_history_game("HASH-AGG"),
         lambda: api.history_game_videos("HASH-AGG"),
         lambda: api.render_history_game("HASH-AGG", api.HistoricalReplayRenderRequest()),
         lambda: api.audit_history_game("HASH-AGG", api.ReplayAuditRequest()),
-        lambda: api.list_history_game_audits("HASH-AGG"),
-        lambda: api.get_replay_audit("AUD-AGG", None),
+        lambda: api.list_history_game_audits("HASH-AGG", request),
+        lambda: api.get_replay_audit("AUD-AGG", request),
     )
     for call in calls:
         with pytest.raises(HTTPException) as denied:
@@ -183,20 +186,20 @@ def test_aggregate_history_access_uses_shared_run_completion(monkeypatch):
     # A completed archive inside an active match is not completed-run authority.
     game["status"] = "completed"
     with pytest.raises(HTTPException):
-        api.history_game("HASH-AGG")
+        api.history_game("HASH-AGG", request)
     run.status = "completed"
-    assert api.history_game("HASH-AGG") == game
-    assert api.replay_history_package("HASH-AGG")["decisions"] == game["decisions"]
-    assert api.get_replay_audit("AUD-AGG", None) == report
+    assert api.history_game("HASH-AGG", request) == game
+    assert api.replay_history_package("HASH-AGG", request)["decisions"] == game["decisions"]
+    assert api.get_replay_audit("AUD-AGG", request) == report
     run.status = "active"
     shared_store.get_run_for_game = lambda _: None
     shared_store.get_run_for_decision = lambda _: (run, b"")
     with pytest.raises(HTTPException) as nested_denied:
-        api.get_replay_audit("AUD-AGG", None)
+        api.get_replay_audit("AUD-AGG", request)
     assert nested_denied.value.status_code == 403
     shared_store.get_run_for_decision = lambda _: None
-    assert api.history_game("HASH-AGG") == game
-    assert api.get_replay_audit("AUD-AGG", None) == report
+    assert api.history_game("HASH-AGG", request) == game
+    assert api.get_replay_audit("AUD-AGG", request) == report
 
 
 def test_aggregate_shared_game_access_fails_closed_for_broken_links():
@@ -233,6 +236,9 @@ def test_grpc_aggregate_methods_deny_active_shared_game(root: Path):
         raise PermissionError(detail)
     namespace = {
         "Any": object, "_require_api": allow_api,
+        "Scope": SimpleNamespace(CONFIG_ADMIN="operator"),
+        "AUTHORIZATION_POLICY": None,
+        "authenticated_rpc": SimpleNamespace(get=lambda: SimpleNamespace(has_scope=lambda *_: True)),
         "LEARNING_STORE": SimpleNamespace(get_game=lambda _: {"gameId": "GAME-1"}),
         "SAKKA": SimpleNamespace(store=SimpleNamespace(
             get_run_for_game=lambda _: (run, b""),
@@ -600,6 +606,13 @@ def test_canonical_shared_api_and_decision_workbench(monkeypatch):
         for path in aggregate_paths:
             allowed = client.get(path)
             assert allowed.status_code == 200, (path, allowed.text)
+        assert client.get(aggregate_paths[1]).json()["videos"] == []
+        with TestClient(app) as other:
+            for path in aggregate_paths:
+                assert other.get(path).status_code == 401
+            assert other.post("/api/v1/auth/guest", json={"displayName": "Other player"}).status_code == 201
+            for path in aggregate_paths:
+                assert other.get(path).status_code == 404
         workbench = client.get("/decision-workbench", follow_redirects=False)
         assert workbench.status_code == 307
         assert workbench.headers["location"] == "/foundry"

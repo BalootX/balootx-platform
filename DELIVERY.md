@@ -58,6 +58,8 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 
 Durable job reads are restricted to operators in the job's tenant. Signed token claims select the tenant. Installation-wide render outputs and video records are available to default-tenant operators. The trusted-context setting or key adds a separate requirement for operations that use complete hands.
 
+Shared-run owners can read the archived game and replay after the run completes. Render records within those responses require operator access.
+
 ## Merge
 
 - The `main` merge queue is the only path to trunk and uses squash merges only. Workers push their own short-lived branches without rewriting history and open PRs under the project's App identity. Merge, split or close an open PR within two days of its first push. The ruleset requires zero human approvals.
