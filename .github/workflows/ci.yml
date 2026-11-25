@@ -112,7 +112,7 @@ jobs:
   postgres-configuration:
     # Let preflight release its hosted runner slot before starting the database job.
     needs: [plan, preflight]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.full == 'true' }}
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     services:
