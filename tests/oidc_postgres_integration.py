@@ -323,7 +323,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
             ).fetchone() == (login, login, True, True, can_migrate, can_migrate, False)
     with psycopg.connect(migration_dsn) as conn:
         assert not conn.execute(
-            "SELECT has_table_privilege('identity.sessions', 'INSERT')"
+            "SELECT has_schema_privilege('identity', 'USAGE')"
         ).fetchone()[0]
     legacy = "https://signin.example/"
     canonical = "https://signin.example"
@@ -494,6 +494,17 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         stack.callback(identity_store.pool.close)
         identities = IdentityService(identity_store)
         identities.create_external(kind="oidc", subject_id="local-existing", display_name="Existing fixture")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with psycopg.connect(migration_dsn) as conn:
+                identity_store.insert_session({
+                    "session_id": "SES-refused-migrator",
+                    "subject_id": "local-existing",
+                    "token_hash": "fixture-migrator-token-hash",
+                    "csrf_token": "fixture-migrator-csrf",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "expires_at": "2026-01-01T01:00:00Z",
+                    "last_seen_at": "2026-01-01T00:00:00Z",
+                }, connection=conn)
         legacy_provider = old_oidc.OidcProviderConfig(
             provider_id="default", jwks_uri=keys_uri,
             **{name.lower(): value for name, value in legacy_metadata.items()},

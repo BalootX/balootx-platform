@@ -61,7 +61,7 @@ The issuer migration login needs usage on the `configuration` and `security` sch
 | `configuration.events` | `SELECT`, `INSERT` |
 | `security.external_identities` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` |
 
-Reserve `UPDATE` on `security.oidc_issuer_transitions` for the issuer migration login. The identity policy uses this grant to distinguish it from the HTTP application login.
+Reserve `UPDATE` on `security.oidc_issuer_transitions` for the issuer migration login. The identity policy uses this grant to distinguish it from the HTTP application login. Leave the `identity` schema and its session tables accessible only to the application and other roles that serve identity operations. The issuer migration command does its work in `configuration` and `security`.
 
 For SQLite, stop the previous process before opening the databases with the new release. Keep the identity and security databases and their SQLite journals together on a local filesystem. Preserve the existing provider key and copy its issuer byte for byte, including any trailing slash. Issuer changes for linked providers require the PostgreSQL procedure below. For an unchanged issuer, keep the same databases and the previous release's provider configuration for rollback.
 
