@@ -14,7 +14,7 @@ from baloot_platform.identity.pagination import (
     IdentityPaginationConfig,
     InvalidIdentityCursor,
 )
-from baloot_platform.security.access import ROLE_SCOPES, Scope
+from baloot_platform.security import AuthorizationPolicy, Scope
 from baloot_platform.service.client_identity import service_client_identity
 
 COOKIE_NAME = "baloot_session"
@@ -106,23 +106,7 @@ def require_identity(request: Request, service: IdentityService) -> tuple[Identi
     if identity is not None and session is not None:
         return identity, session
     if bool(getattr(request.state, "api_key_valid", False)):
-        return service_client_identity(request.headers, "API Client"), {"csrf_token": ""}
-    raise HTTPException(401, "ابدأ كضيف أو سجّل الدخول")
-
-
-def require_identity_list_actor(request: Request, service: IdentityService) -> Identity:
-    identity, session = current_identity(request, service)
-    if identity is not None and session is not None:
-        claims = session.get("access_claims")
-        if claims is not None and (
-            Scope.READ not in ROLE_SCOPES.get(claims.role, ()) or Scope.READ not in claims.scopes
-        ):
-            raise HTTPException(403, "identity lists require the baloot.read scope")
-        return identity
-    if getattr(request.state, "api_key_valid", False):
-        if request.headers.get("x-baloot-subject-id", "").strip():
-            raise HTTPException(403, "use a session or access token to read a subject's identity lists")
-        return service_client_identity(request.headers, "API Client")
+        return service_client_identity(request.headers, "API Client"), {"csrf_token": "", "service_key": True}
     raise HTTPException(401, "ابدأ كضيف أو سجّل الدخول")
 
 
@@ -144,9 +128,21 @@ def apply_session_cookie(response: Response, request: Request, result: dict[str,
     )
 
 
-def build_auth_router(service: IdentityService, *, pagination: IdentityPaginationConfig) -> APIRouter:
+def build_auth_router(
+    service: IdentityService, *, pagination: IdentityPaginationConfig, policy: AuthorizationPolicy
+) -> APIRouter:
     router = APIRouter(prefix="/api/v1", tags=["identity"])
     paged_router = APIRouter(prefix="/api/v2", tags=["identity"])
+
+    def actor(request: Request, scope: Scope, *, require_signed_scope: bool = False) -> Identity:
+        identity, session = require_identity(request, service)
+        claims = session.get("access_claims")
+        if session.get("service_key") or (require_signed_scope and claims is not None):
+            try:
+                policy.require(role=identity.kind, required=scope, claims=claims)
+            except PermissionError as exc:
+                raise HTTPException(403, str(exc)) from exc
+        return identity
 
     def page(fetch: Callable[..., dict[str, Any]], value: str, limit: int | None, cursor: str | None):
         page_size = min(limit, pagination.maximum_page_size) if limit is not None else pagination.default_page_size
@@ -219,7 +215,7 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
         request: Request, query: str, limit: int | None = Query(default=None, ge=1),
         cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
     ):
-        identity = require_identity_list_actor(request, service)
+        identity = actor(request, Scope.READ)
         if identity.is_guest and not pagination.allow_guest_search:
             raise HTTPException(403, "sign in to search for users")
         maximum = pagination.maximum_search_query_length
@@ -240,12 +236,12 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
 
     @router.get("/friends")
     def friends(request: Request):
-        identity = require_identity_list_actor(request, service)
+        identity = actor(request, Scope.READ)
         return {"items": service.friends(identity.subject_id)}
 
     @router.get("/friends/requests")
     def friend_requests(request: Request):
-        identity = require_identity_list_actor(request, service)
+        identity = actor(request, Scope.READ)
         return {"items": service.requests(identity.subject_id)}
 
     @paged_router.get("/friends", response_model=IdentityPage)
@@ -253,7 +249,7 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
         request: Request, limit: int | None = Query(default=None, ge=1),
         cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
     ):
-        identity = require_identity_list_actor(request, service)
+        identity = actor(request, Scope.READ, require_signed_scope=True)
         return page(service.friend_page, identity.subject_id, limit, cursor)
 
     @paged_router.get("/friends/requests", response_model=PendingRequestPage)
@@ -261,12 +257,12 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
         request: Request, limit: int | None = Query(default=None, ge=1),
         cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
     ):
-        identity = require_identity_list_actor(request, service)
+        identity = actor(request, Scope.READ, require_signed_scope=True)
         return page(service.request_page, identity.subject_id, limit, cursor)
 
     @router.post("/friends/requests", status_code=201)
     def create_friend_request(body: FriendRequestBody, request: Request):
-        identity, _ = require_identity(request, service)
+        identity = actor(request, Scope.PLAY)
         try:
             return service.request_friend(identity.subject_id, body.recipientId)
         except KeyError as exc:
@@ -276,7 +272,7 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
 
     @router.post("/friends/requests/{request_id}:respond")
     def respond_friend_request(request_id: str, body: FriendResponseBody, request: Request):
-        identity, _ = require_identity(request, service)
+        identity = actor(request, Scope.PLAY)
         try:
             return service.respond_friend(request_id, identity.subject_id, accept=body.accept)
         except KeyError as exc:

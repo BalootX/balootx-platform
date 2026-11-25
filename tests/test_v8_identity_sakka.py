@@ -7,7 +7,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from hypothesis import given, strategies as st
 
@@ -24,7 +24,7 @@ from baloot_platform.identity.pagination import (
 )
 from baloot_platform.learning.store import LearningStore
 from baloot_platform.sakka import SakkaService, SQLiteSakkaStore
-from baloot_platform.security.access import AccessClaims, Scope
+from baloot_platform.security import AuthorizationPolicy, Scope, SignedAccessTokenService
 from baloot_platform.service.game import GameManager
 from baloot_platform.service.routes.auth import PendingRequestItem, build_auth_router
 from baloot_platform.storage.game_store import SQLiteGameStore
@@ -102,6 +102,69 @@ def test_python_sdk_forwards_identity_pagination_options():
         ("/api/v2/friends/requests", {"cursor": "encoded-_", "limit": "5"}),
         ("/api/v1/users:search", {"query": "Fixture + sample", "cursor": "encoded-_", "limit": "7"}),
     ]
+
+
+def test_friend_routes_preserve_service_delegation_and_apply_v2_read_scope(tmp_path, monkeypatch):
+    from baloot_platform.service import api
+    from baloot_platform.service.client_identity import service_subject_ownership
+
+    key = "synthetic-service-key"
+    monkeypatch.setenv("BALOOT_API_KEY", key)
+    store = SQLiteIdentityStore(tmp_path / "transport-identity.sqlite3")
+    service = IdentityService(store)
+    tokens = SignedAccessTokenService(b"synthetic-identity-transport-signing-key")
+    monkeypatch.setattr(api, "IDENTITY", service)
+    monkeypatch.setattr(api, "ACCESS_TOKENS", tokens)
+    _, legacy = service_subject_ownership({}, configured_key=key)
+    for subject_id in (legacy, "SUB-DELEGATED", "SUB-FRIEND", "SUB-SENDER"):
+        store.insert_subject(
+            subject_id=subject_id, kind="local", username=None, display_name=subject_id,
+            password_salt=None, password_hash=None, created_at="2026-01-01T00:00:00+00:00",
+        )
+    for owner in (legacy, "SUB-DELEGATED"):
+        friendship = service.request_friend("SUB-FRIEND", owner)
+        service.respond_friend(friendship["requestId"], owner, accept=True)
+        service.request_friend("SUB-SENDER", owner)
+
+    app = FastAPI()
+    app.middleware("http")(api.platform_security)
+    app.include_router(build_auth_router(api.IDENTITY, pagination=api.CONTAINER.identity_pagination, policy=api.AUTHORIZATION_POLICY))
+    delegated = {"x-api-key": key, "x-baloot-subject-id": "SUB-DELEGATED"}
+
+    def bearer(role, scope):
+        return {"Authorization": "Bearer " + tokens.issue(subject_id="SUB-DELEGATED", role=role, scopes=[scope])}
+
+    with TestClient(app) as client:
+        for version in ("v1", "v2"):
+            for resource in ("friends", "friends/requests"):
+                path = f"/api/{version}/{resource}"
+                assert client.get(path).status_code == 401
+                assert client.get(path, headers={**delegated, "x-api-key": "invalid"}).status_code == 401
+                for headers, owner in (({"x-api-key": key}, legacy), (delegated, "SUB-DELEGATED")):
+                    response = client.get(path, headers=headers)
+                    assert response.status_code == 200
+                    row, = response.json()["items"]
+                    if resource == "friends":
+                        assert row["subjectId"] == "SUB-FRIEND"
+                    elif version == "v1":
+                        assert row["recipient_id"] == owner
+                        assert row["responded_at"] is None
+                    else:
+                        assert row["recipientId"] == owner
+                for role in ("guest", "player", "expert", "referee", "admin", "service"):
+                    allowed = client.get(path, headers=bearer(role, Scope.READ))
+                    assert allowed.status_code == 200
+                    assert len(allowed.json()["items"]) == 1
+                    assert client.get(path, headers=bearer(role, Scope.PLAY)).status_code == (200 if version == "v1" else 403)
+                assert client.get(path, headers=bearer("unknown", Scope.READ)).status_code == (200 if version == "v1" else 403)
+
+        outgoing = client.post("/api/v1/friends/requests", json={"recipientId": "SUB-SENDER"}, headers=delegated)
+        assert outgoing.status_code == 201
+        assert outgoing.json()["senderId"] == "SUB-DELEGATED"
+        pending, = client.get("/api/v1/friends/requests", headers=delegated).json()["items"]
+        response = client.post(f"/api/v1/friends/requests/{pending['request_id']}:respond", json={"accept": False}, headers=delegated)
+        assert response.status_code == 200
+        assert client.get("/api/v1/friends/requests", headers=delegated).json() == {"items": []}
 
 
 def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
@@ -265,18 +328,8 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 allow_guest_search=False,
             )
             app = FastAPI()
-            app.include_router(build_auth_router(service, pagination=pagination))
-
-            @app.middleware("http")
-            async def authenticated_transport(request: Request, call_next):
-                request.state.api_key_valid = request.headers.get("x-api-key") == "fixture-key"
-                token = request.headers.get("authorization")
-                if token in {"Bearer fixture-read", "Bearer fixture-no-read", "Bearer fixture-unknown-role"}:
-                    request.state.access_claims = AccessClaims(
-                        "SUB-USERNAME", "fixture", "fixture", () if token == "Bearer fixture-no-read" else (Scope.READ,),
-                        0, 60, "fixture", role="unknown" if token == "Bearer fixture-unknown-role" else "player",
-                    )
-                return await call_next(request)
+            policy = AuthorizationPolicy()
+            app.include_router(build_auth_router(service, pagination=pagination, policy=policy))
 
             with TestClient(app) as client:
                 def collect(path, key, *, query=None):
@@ -308,30 +361,12 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 assert client.get(friends_path).status_code == 401
                 assert client.get(requests_path).status_code == 401
                 assert client.get(search_path, params={"query": "Page-Fixture"}).status_code == 401
-                selected_owner = {"x-baloot-subject-id": owner}
-                unpaged = {"items": []}
-                paged = {**unpaged, "nextCursor": None}
-                for path, empty_result in (
-                    ("/api/v1/friends", unpaged), ("/api/v1/friends/requests", unpaged),
-                    (friends_path, paged), (requests_path, paged),
-                ):
-                    assert client.get(path, headers={**selected_owner, "x-api-key": "fixture-key"}).status_code == 403
-                    signed = client.get(path, headers={**selected_owner, "Authorization": "Bearer fixture-read"})
-                    assert signed.status_code == 200
-                    assert signed.json() == empty_result
-                    for denied_token in ("fixture-no-read", "fixture-unknown-role"):
-                        assert client.get(path, headers={"Authorization": f"Bearer {denied_token}"}).status_code == 403
-                for denied_token in ("fixture-no-read", "fixture-unknown-role"):
-                    assert client.get(search_path, params={"query": "Page-Fixture"}, headers={
-                        "Authorization": f"Bearer {denied_token}",
-                    }).status_code == 403
-
                 client.headers["Authorization"] = "Bearer fixture-guest"
                 assert client.get(friends_path).status_code == 200
                 assert client.get(search_path, params={"query": "Page-Fixture"}).status_code == 403
                 guest_app = FastAPI()
                 guest_app.include_router(build_auth_router(
-                    service, pagination=pagination.model_copy(update={"allow_guest_search": True}),
+                    service, pagination=pagination.model_copy(update={"allow_guest_search": True}), policy=policy,
                 ))
                 with TestClient(guest_app) as guest_client:
                     guest_search = guest_client.get(
@@ -361,6 +396,8 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                     "request_id", "sender_id", "recipient_id", "status", "created_at",
                     "sender_display_name", "sender_username",
                 }
+                if not postgres:
+                    legacy_keys_expected.add("responded_at")
                 assert set(request_item) == request_keys_expected
                 unpaged_requests = client.get("/api/v1/friends/requests").json()["items"]
                 assert len(unpaged_requests) == len(request_keys)

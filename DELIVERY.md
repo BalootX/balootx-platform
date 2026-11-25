@@ -20,7 +20,7 @@ The `docker-constraints` job dry-runs pip with the Python base image, exact cons
 
 The full profile includes `identity-postgres`, which applies and replays the migrations using the [PostgreSQL proof's pinned image](scripts/verify_live_postgres_research.py) and the driver versions in [the Docker constraints](requirements-docker.txt). It verifies paging and query plans with an ICU collation. The [identity migration notes](docs/IDENTITY_PAGINATION.md#migration-notes) cover deployment and reversal.
 
-An active identity profile must declare its pagination policy. Before activating a custom bundle, validate its identity revision against the [identity profile schema](schemas/profiles/identity.schema.json). Signed access tokens need `baloot.read` for identity list reads. A service API key uses its derived service identity. Reading a specific account's friends or pending requests requires that account's session or signed access token.
+An active identity profile must declare its pagination policy. Before activating a custom bundle, validate its identity revision against the [identity profile schema](schemas/profiles/identity.schema.json). The [identity pagination release note](docs/IDENTITY_PAGINATION.md#release-note) defines the v1 compatibility contract and the v2 read scope.
 
 The address-sanitizer job requires both verifier pytest nodes to pass against its own build. The Windows job uses a [CPU fixture](ci/windows-ci-local-cpu.json) for its four-vCPU checkout and runs the inherited-limit test through the capped launcher. Both jobs require passing phase receipts for every selected node.
 

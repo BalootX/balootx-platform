@@ -15,6 +15,7 @@ class _IdentityLists:
     requests: str
     placeholder: str
     like: str
+    legacy_pending_request_fields = ""
 
     def _read_page_rows(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
         raise NotImplementedError
@@ -99,7 +100,7 @@ class _IdentityLists:
         order = f"ORDER BY created_at DESC,request_id DESC LIMIT {p}"
         if limit is None:
             requests = (
-                f"SELECT {fields} FROM {self.requests} "
+                f"SELECT {fields}{self.legacy_pending_request_fields} FROM {self.requests} "
                 f"WHERE recipient_id IN ({p},{p}) AND status='pending'"
             )
             params = list(ownership_ids(subject_id))
@@ -117,11 +118,12 @@ class _IdentityLists:
                 params.extend((owner, *after, limit))
             requests = " UNION ALL ".join(branches) + f" {order}"
             params.append(limit)
+        request_order = "r.created_at DESC" if limit is None else "r.created_at DESC,r.request_id DESC"
         return self._read_page_rows(
             f"""SELECT r.*,u.display_name AS sender_display_name,u.username AS sender_username
                 FROM ({requests}) AS r
                 JOIN {self.subjects} u ON u.subject_id=r.sender_id
-                ORDER BY r.created_at DESC,r.request_id DESC""",
+                ORDER BY {request_order}""",
             tuple(params),
         )
 
@@ -140,6 +142,7 @@ class SQLiteIdentityStore(_IdentityLists):
     requests = "identity_friend_requests_v8"
     placeholder = "?"
     like = "LIKE"
+    legacy_pending_request_fields = ",responded_at"
 
     def __init__(self, path: str | Path):
         self.path = str(path)

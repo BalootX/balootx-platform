@@ -6,7 +6,7 @@ Omit `limit` to use the default in the [bundled identity profile](../configs/ide
 
 ## Release note
 
-Existing `GET /api/v1/friends` and `GET /api/v1/friends/requests` continue to return the complete list with their existing field names. The v2 friends list sorts by immutable subject ID so renames and guest upgrades cannot move a page boundary. The v2 pending requests use camelCase fields on both engines. Newest requests come first, with request ID breaking timestamp ties.
+Existing `GET /api/v1/friends` and `GET /api/v1/friends/requests` keep their complete responses. SQLite pending requests retain `responded_at`. A valid service key can read its derived service identity or supply `x-baloot-subject-id` as before. V2 accepts the same service credentials and requires `baloot.read` for signed access tokens. The v2 friends list sorts by immutable subject ID so renames and guest upgrades cannot move a page boundary. The v2 pending requests use camelCase fields on both engines. Newest requests come first, with request ID breaking timestamp ties.
 
 `GET /api/v1/users:search` changes in place to limit directory access. Guest requests return HTTP 403 by default, with an explicit opt-in in the bundled identity profile. Queries outside the configured length bounds, invalid cursors and limits below one return HTTP 422. Search returns `nextCursor` and ranks an exact username first inside the result cap. Other matches are ordered by subject ID.
 
