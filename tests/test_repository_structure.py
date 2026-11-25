@@ -152,7 +152,7 @@ def test_ci_shards_receive_builds_and_required_node_dependencies(root: Path) -> 
     diagnostics, = (step for step in foundry
                     if step.get("with", {}).get("name") == "foundry-playwright-failure-diagnostics")
     assert diagnostics["with"]["path"] == e2e["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
-    assert f"steps.{e2e['id']}.outcome == 'failure'" in diagnostics["if"]
+    assert diagnostics["if"] == f"${{{{ !cancelled() && steps.{e2e['id']}.outcome == 'failure' }}}}"
     assert installs <= {step.get("working-directory") for step in foundry
                         if step.get("run", "").startswith("npm ci ")}
     assert jobs["media-render"]["strategy"]["matrix"]["shard"] == ["flagship", "decision", "companion", "parity"]
