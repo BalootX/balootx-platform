@@ -18,6 +18,10 @@ from .store import PostgresIdentityStore, SQLiteIdentityStore
 _USERNAME = re.compile(r"^[A-Za-z0-9_\-.]{3,32}$")
 
 
+def _normalize_username(username: str) -> str:
+    return username.strip().lower()
+
+
 class IdentityService:
     """Optional local identity suitable for guest-first deployments.
 
@@ -88,7 +92,7 @@ class IdentityService:
 
     def register(self, username: str, password: str, display_name: str | None = None,
                  *, user_agent: str | None = None, upgrade_guest_id: str | None = None) -> dict[str, Any]:
-        username = username.strip().lower()
+        username = _normalize_username(username)
         if not _USERNAME.fullmatch(username):
             raise ValueError("username must be 3-32 letters, numbers, dot, dash or underscore")
         if len(password) < self.password_minimum:
@@ -115,7 +119,7 @@ class IdentityService:
         return {"identity": self._identity(self.store.get_subject(subject_id) or {}).to_dict(), "session": session}
 
     def login(self, username: str, password: str, *, user_agent: str | None = None) -> dict[str, Any]:
-        row = self.store.get_subject_by_username(username.strip().lower())
+        row = self.store.get_subject_by_username(_normalize_username(username))
         if not row or row.get("disabled_at") or row.get("kind") != "local":
             raise ValueError("invalid username or password")
         salt = bytes(row["password_salt"])
@@ -190,7 +194,8 @@ class IdentityService:
         self, query: str, *, limit: int, maximum_results: int, cursor: str | None = None
     ) -> dict[str, Any]:
         page = self._page(
-            partial(self.store.search_subjects, maximum_results=maximum_results), query,
+            partial(self.store.search_subjects, exact_username=_normalize_username(query), maximum_results=maximum_results),
+            query.strip(),
             operation="search", keys=("search_rank", "subject_id"), limit=limit, cursor=cursor,
         )
         page["items"] = [self._identity(row).to_dict() for row in page["items"]]

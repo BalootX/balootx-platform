@@ -20,7 +20,7 @@ class _IdentityLists:
         raise NotImplementedError
 
     def search_subjects(
-        self, query: str, *, limit: int, maximum_results: int, after: tuple[str, ...] = ()
+        self, query: str, *, exact_username: str, limit: int, maximum_results: int, after: tuple[str, ...] = ()
     ) -> list[dict[str, Any]]:
         needle = "%" + query.translate(str.maketrans({"!": "!!", "%": "!%", "_": "!_"})) + "%"
         p = self.placeholder
@@ -42,7 +42,7 @@ class _IdentityLists:
                 )
                 SELECT * FROM (SELECT * FROM exact UNION ALL SELECT * FROM matches) AS candidates
                 {seek} ORDER BY search_rank,subject_id LIMIT {p}""",
-            (query.lower(), needle, needle, maximum_results, *after, limit),
+            (exact_username, needle, needle, maximum_results, *after, limit),
         )
 
     def _friend_neighbors(

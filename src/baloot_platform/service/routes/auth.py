@@ -14,6 +14,7 @@ from baloot_platform.identity.pagination import (
     IdentityPaginationConfig,
     InvalidIdentityCursor,
 )
+from baloot_platform.security.access import ROLE_SCOPES, Scope
 from baloot_platform.service.client_identity import service_client_identity
 
 COOKIE_NAME = "baloot_session"
@@ -106,6 +107,22 @@ def require_identity(request: Request, service: IdentityService) -> tuple[Identi
         return identity, session
     if bool(getattr(request.state, "api_key_valid", False)):
         return service_client_identity(request.headers, "API Client"), {"csrf_token": ""}
+    raise HTTPException(401, "ابدأ كضيف أو سجّل الدخول")
+
+
+def require_identity_list_actor(request: Request, service: IdentityService) -> Identity:
+    identity, session = current_identity(request, service)
+    if identity is not None and session is not None:
+        claims = session.get("access_claims")
+        if claims is not None and (
+            Scope.READ not in ROLE_SCOPES.get(claims.role, ()) or Scope.READ not in claims.scopes
+        ):
+            raise HTTPException(403, "identity lists require the baloot.read scope")
+        return identity
+    if getattr(request.state, "api_key_valid", False):
+        if request.headers.get("x-baloot-subject-id", "").strip():
+            raise HTTPException(403, "use a session or access token to read a subject's identity lists")
+        return service_client_identity(request.headers, "API Client")
     raise HTTPException(401, "ابدأ كضيف أو سجّل الدخول")
 
 
@@ -202,7 +219,7 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
         request: Request, query: str, limit: int | None = Query(default=None, ge=1),
         cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
     ):
-        identity, _ = require_identity(request, service)
+        identity = require_identity_list_actor(request, service)
         if identity.is_guest and not pagination.allow_guest_search:
             raise HTTPException(403, "sign in to search for users")
         maximum = pagination.maximum_search_query_length
@@ -212,9 +229,8 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
                 "msg": f"search query must contain at most {maximum} characters",
                 "type": "value_error",
             }])
-        query = query.strip()
         minimum = pagination.minimum_search_query_length
-        if "\0" in query or len(query) < minimum:
+        if "\0" in query or len(query.strip()) < minimum:
             raise HTTPException(422, [{
                 "loc": ["query", "query"],
                 "msg": f"search query must contain at least {minimum} characters and no nulls",
@@ -224,12 +240,12 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
 
     @router.get("/friends")
     def friends(request: Request):
-        identity, _ = require_identity(request, service)
+        identity = require_identity_list_actor(request, service)
         return {"items": service.friends(identity.subject_id)}
 
     @router.get("/friends/requests")
     def friend_requests(request: Request):
-        identity, _ = require_identity(request, service)
+        identity = require_identity_list_actor(request, service)
         return {"items": service.requests(identity.subject_id)}
 
     @paged_router.get("/friends", response_model=IdentityPage)
@@ -237,7 +253,7 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
         request: Request, limit: int | None = Query(default=None, ge=1),
         cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
     ):
-        identity, _ = require_identity(request, service)
+        identity = require_identity_list_actor(request, service)
         return page(service.friend_page, identity.subject_id, limit, cursor)
 
     @paged_router.get("/friends/requests", response_model=PendingRequestPage)
@@ -245,7 +261,7 @@ def build_auth_router(service: IdentityService, *, pagination: IdentityPaginatio
         request: Request, limit: int | None = Query(default=None, ge=1),
         cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
     ):
-        identity, _ = require_identity(request, service)
+        identity = require_identity_list_actor(request, service)
         return page(service.request_page, identity.subject_id, limit, cursor)
 
     @router.post("/friends/requests", status_code=201)

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from hypothesis import given, strategies as st
 
@@ -24,6 +24,7 @@ from baloot_platform.identity.pagination import (
 )
 from baloot_platform.learning.store import LearningStore
 from baloot_platform.sakka import SakkaService, SQLiteSakkaStore
+from baloot_platform.security.access import AccessClaims, Scope
 from baloot_platform.service.game import GameManager
 from baloot_platform.service.routes.auth import PendingRequestItem, build_auth_router
 from baloot_platform.storage.game_store import SQLiteGameStore
@@ -194,7 +195,7 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
             cursor.execute("ANALYZE")
 
         operations = (
-            (store.search_subjects, "Fixture", ("1", candidates[39]), {"maximum_results": 64}),
+            (store.search_subjects, "Fixture", ("1", candidates[39]), {"exact_username": "fixture", "maximum_results": 64}),
             (store.list_friends, owner, (candidates[119],), {}),
             (store.list_friend_requests, owner, (newer, request_keys[119][1]), {}),
         )
@@ -266,6 +267,17 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
             app = FastAPI()
             app.include_router(build_auth_router(service, pagination=pagination))
 
+            @app.middleware("http")
+            async def authenticated_transport(request: Request, call_next):
+                request.state.api_key_valid = request.headers.get("x-api-key") == "fixture-key"
+                token = request.headers.get("authorization")
+                if token in {"Bearer fixture-read", "Bearer fixture-no-read", "Bearer fixture-unknown-role"}:
+                    request.state.access_claims = AccessClaims(
+                        "SUB-USERNAME", "fixture", "fixture", () if token == "Bearer fixture-no-read" else (Scope.READ,),
+                        0, 60, "fixture", role="unknown" if token == "Bearer fixture-unknown-role" else "player",
+                    )
+                return await call_next(request)
+
             with TestClient(app) as client:
                 def collect(path, key, *, query=None):
                     params = {} if query is None else {"query": query}
@@ -294,7 +306,25 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 friends_path = "/api/v2/friends"
                 requests_path = "/api/v2/friends/requests"
                 assert client.get(friends_path).status_code == 401
+                assert client.get(requests_path).status_code == 401
                 assert client.get(search_path, params={"query": "Page-Fixture"}).status_code == 401
+                selected_owner = {"x-baloot-subject-id": owner}
+                unpaged = {"items": []}
+                paged = {**unpaged, "nextCursor": None}
+                for path, empty_result in (
+                    ("/api/v1/friends", unpaged), ("/api/v1/friends/requests", unpaged),
+                    (friends_path, paged), (requests_path, paged),
+                ):
+                    assert client.get(path, headers={**selected_owner, "x-api-key": "fixture-key"}).status_code == 403
+                    signed = client.get(path, headers={**selected_owner, "Authorization": "Bearer fixture-read"})
+                    assert signed.status_code == 200
+                    assert signed.json() == empty_result
+                    for token in ("fixture-no-read", "fixture-unknown-role"):
+                        assert client.get(path, headers={"Authorization": f"Bearer {token}"}).status_code == 403
+                for token in ("fixture-no-read", "fixture-unknown-role"):
+                    assert client.get(search_path, params={"query": "Page-Fixture"}, headers={
+                        "Authorization": f"Bearer {token}",
+                    }).status_code == 403
 
                 client.headers["Authorization"] = "Bearer fixture-guest"
                 assert client.get(friends_path).status_code == 200
@@ -350,6 +380,8 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
 
                 users, search_cursor = collect(search_path, "subjectId", query="Page-Fixture")
                 assert users == ["SUB-USERNAME", *candidates[:63]]
+                exact = service.search("  PAGE-FIXTURE  ", limit=2, maximum_results=64)["items"]
+                assert [row["subjectId"] for row in exact] == ["SUB-USERNAME", candidates[0]]
                 literal = client.get(search_path, params={"query": "Literal %_!"}).json()
                 assert [row["subjectId"] for row in literal["items"]] == ["SUB-LITERAL"]
                 assert client.get(search_path, params={"query": "Absent"}).json() == {
@@ -378,6 +410,8 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 assert client.get(search_path, params={"query": "Page-Fixture"}).status_code == 200
                 assert client.get(friends_path, params={"cursor": friend_cursor}).status_code == 422
                 assert client.get(friends_path).json() == {"items": [], "nextCursor": None}
+                assert client.get(requests_path, params={"cursor": request_cursor}).status_code == 422
+                assert client.get(requests_path).json() == {"items": [], "nextCursor": None}
 
                 service.respond_friend(pending[12], owner, accept=False)
                 assert service.request_page(owner, limit=17, cursor=request_cursor)["items"][0]["request_id"] == pending[13]
