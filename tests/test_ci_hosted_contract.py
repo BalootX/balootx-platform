@@ -2,14 +2,18 @@
 import ast
 from importlib.machinery import BYTECODE_SUFFIXES, EXTENSION_SUFFIXES
 import json
+from pathlib import Path
 import re
 import subprocess
 import tomllib
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
 from scripts import ci_scope
+from scripts import run_required_pytest
+import test_v20_asan_verifier_portability as asan_portability
 
 
 @pytest.fixture
@@ -29,6 +33,7 @@ def test_codeowners_covers_hosted_ci_and_release_controls(root, codeowners_rules
     }
     required = {
         "/.github/", "/ci/", "/scripts/__init__.py", "/scripts/*/", "/scripts/ci_known_failures.py",
+        "/scripts/run_required_pytest.py", "/scripts/run_local_capped.ps1",
         "/tests/conftest.py", "/tests/test_ci_hosted_contract.py",
         "/scripts/remotion_image_parity.py", "/tests/test_remotion_image_parity.py", "/tests/test_remotion_image_parity/",
         "/*.py", "/src/*.py", "/*/__init__.py", "/src/*/__init__.py",
@@ -109,7 +114,7 @@ def test_hosted_ci_contract(root):
     for name, job in jobs.items():
         if name == "viewer-seat-proof":
             continue  # Checked with the nightly caller and shared workflow below.
-        assert job["runs-on"] == "ubuntu-24.04"
+        assert job["runs-on"] == ("windows-latest" if name == "python-windows" else "ubuntu-24.04"), name
         assert job["timeout-minutes"] > 0
         for step in job["steps"]:
             if "uses" in step:
@@ -267,6 +272,86 @@ def test_docker_constraint_job_resolves_the_shared_target(root):
     assert jobs["plan"]["outputs"]["docker_constraints"] == "${{ steps.plan.outputs.docker_constraints }}"
     assert check["steps"][-1]["run"] == "docker build --progress=plain --target docker-constraints ."
     assert "docker-constraints" not in jobs["media-inputs"]["needs"]
+
+
+def test_address_sanitizer_requires_both_verifier_nodes_against_its_build(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    sanitizer = jobs["native-sanitizers"]
+    assert "native-sanitizers" in jobs["ci-gate"]["needs"]
+    build, verify = sanitizer["steps"][-2:]
+    assert 'cmake --build "$SANITIZER_BUILD_DIR"' in build["run"]
+    assert verify["if"] == "matrix.sanitizer == 'address'"
+    assert "continue-on-error" not in verify
+    assert 'BALOOT_ASAN_BUILD_DIR="$SANITIZER_BUILD_DIR" python -m scripts.run_required_pytest' in verify["run"]
+    assert re.findall(r"tests/\S+\.py::\w+", verify["run"]) == [
+        "tests/test_v20_asan_verifier_portability.py::test_generated_asan_ctest_invokes_sanitized_binary_without_preload",
+        "tests/test_v20_asan_verifier_portability.py::test_configured_sanitized_binary_passes_without_preload",
+    ]
+
+
+def test_configured_asan_build_rejects_missing_artifacts(tmp_path, monkeypatch):
+    monkeypatch.setenv("BALOOT_ASAN_BUILD_DIR", str(tmp_path))
+    for filename in ("CTestTestfile.cmake", "baloot_native_tests"):
+        with pytest.raises(pytest.fail.Exception, match="configured ASan build is missing"):
+            asan_portability._asan_artifact(filename, "normal release verifier skip")
+        path = tmp_path / filename
+        path.touch()
+        assert asan_portability._asan_artifact(filename, "normal release verifier skip") == path
+
+
+def test_windows_job_requires_all_platform_nodes_and_the_capped_launcher(root, monkeypatch):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    windows = jobs["python-windows"]
+    assert windows["runs-on"] == "windows-latest"
+    assert windows["if"] == "needs.plan.outputs.full == 'true'"
+    assert "python-windows" in jobs["ci-gate"]["needs"] and "python-windows" in ci_scope.FULL
+    assert "python-windows" in jobs["python-backend-run"]["needs"]
+    configure, verify, capped = windows["steps"][-3:]
+    assert configure["run"] == "Copy-Item -LiteralPath ci/windows-ci-local-cpu.json -Destination configs/runtime/local_cpu.json"
+    assert json.loads((root / "ci/windows-ci-local-cpu.json").read_bytes()) == {"schemaVersion": 1, "cpuPercent": 25}
+    assert "python -m scripts.run_required_pytest @nodes" in verify["run"]
+    assert "./scripts/run_local_capped.ps1" in capped["run"]
+    assert "'scripts.run_required_pytest', $env:CAPPED_PYTEST_NODE" in capped["run"]
+    assert capped["if"] == f"!cancelled() && steps.{configure['id']}.outcome == 'success'"
+    assert all("continue-on-error" not in step for step in (configure, verify, capped))
+    nodes = verify["env"]["WINDOWS_PYTEST_NODES"].splitlines() + [capped["env"]["CAPPED_PYTEST_NODE"]]
+    assert len(nodes) == len(set(nodes)) == 12
+    assert nodes[-1] == "tests/test_local_cpu_launcher.py::test_current_capped_process_has_verified_inherited_limits"
+    paths = {node.split("::")[0] for node in nodes}
+    platform_tests = {
+        f"{path}::{test.name}"
+        for path in paths for test in ast.parse((root / path).read_bytes()).body
+        if isinstance(test, ast.FunctionDef)
+        and any(ast.unparse(mark).startswith("pytest.mark.skipif(os.name != 'nt',") for mark in test.decorator_list)
+    }
+    assert {node.split("[")[0] for node in nodes} == platform_tests
+    for path in paths:
+        monkeypatch.setattr(ci_scope, "changed_paths", lambda *_, path=path: {path})
+        assert ci_scope.current_plan("pull_request")["full"]
+
+
+@pytest.mark.parametrize("outcome", ["passed", "skipped"])
+def test_required_pytest_uses_exact_nodes_and_rejects_skips(monkeypatch, outcome):
+    node = "tests/test_sample.py::test_example"
+    monkeypatch.setattr(run_required_pytest.sys, "argv", ["run_required_pytest", node])
+
+    def run(command, *, env, check):
+        assert command[-1] == node and check is False
+        assert command[command.index("-p") + 1] == "scripts.run_heavy_pytest"
+        receipt = Path(env["BALOOT_CI_NODE_RECEIPT"])
+        receipt.write_text(json.dumps({
+            "exitstatus": 0, "deselected": [], "collectionIssues": [], "collected": [node],
+            "reports": {node: [{"phase": phase, "outcome": outcome, "xfail": False}
+                               for phase in ("setup", "call", "teardown")]},
+        }), encoding="utf-8")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(run_required_pytest.subprocess, "run", run)
+    if outcome == "passed":
+        assert run_required_pytest.main() == 0
+    else:
+        with pytest.raises(ValueError, match="without skipping"):
+            run_required_pytest.main()
 
 
 def test_viewer_seat_proof_dispatch_and_nightly_use_the_same_pinned_cohort(root):

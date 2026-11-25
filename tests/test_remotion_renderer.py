@@ -543,6 +543,9 @@ def test_remotion_plugin_packages_complete_artifacts_from_bundle(
             )
             return
         output = Path(environment["BALOOTX_RENDER_OUTPUT"])
+        bundle_path = Path(environment["BALOOTX_RENDER_BUNDLE"])
+        assert bundle_path.is_file() and bundle_path.parent != output
+        output.mkdir()
         (output / "render.mp4").write_bytes(b"deterministic-test-video")
         for index, name in enumerate(
             (

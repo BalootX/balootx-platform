@@ -7,11 +7,26 @@ import os
 from pathlib import Path
 import tempfile
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 
 _WINDOWS_REPLACE_ATTEMPTS = 40
 _WINDOWS_REPLACE_INITIAL_BACKOFF_SECONDS = 0.002
 _WINDOWS_REPLACE_MAXIMUM_BACKOFF_SECONDS = 0.025
+
+
+@contextmanager
+def staged_render_output(destination: Path) -> Iterator[Path]:
+    """Let a renderer claim a fresh directory before moving its finished files."""
+    destination.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=".baloot-render-", dir=destination
+    ) as temporary:
+        rendered = Path(temporary) / "rendered"
+        yield rendered
+        for artifact in rendered.iterdir():
+            artifact.replace(destination / artifact.name)
 
 
 def _retryable_replace_error(exc: OSError) -> bool:
