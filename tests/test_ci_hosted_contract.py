@@ -599,10 +599,69 @@ def test_plan_runs_selected_tests_on_all_python_versions(root):
     assert strategy.get("matrix", {}).get("python") == list(ci_scope.VERSIONS)
     assert strategy["fail-fast"] is False
     assert affected["if"] == "needs.plan.outputs.tests != '[]'"
-    assert affected["steps"][1]["with"]["python-version"] == "${{ matrix.python }}"
+    assert affected["steps"][2]["with"]["python-version"] == "${{ matrix.python }}"
     assert any(step.get("env", {}).get("AFFECTED_TESTS") == "${{ needs.plan.outputs.tests }}"
                for step in affected["steps"])
     assert "python-affected" in jobs["ci-gate"]["needs"]
+
+
+@pytest.mark.parametrize("phase", ["setup", "call", "teardown"])
+def test_file_receipts_reject_unexpected_skip_xfail_and_xpass(phase):
+    from scripts import run_isolated_pytest as isolated
+
+    node = "tests/test_sample.py::test_case"
+    phases = ["setup", "teardown"] if phase == "setup" else ["setup", "call", "teardown"]
+    events = [{"phase": when, "outcome": "passed", "xfail": False} for when in phases]
+    event = next(row for row in events if row["phase"] == phase)
+    receipt = {"exitstatus": 0, "deselected": [], "collectionIssues": [], "collected": [node],
+               "reports": {node: events}}
+    event.update(outcome="skipped", skipReason="unexpected dependency failure")
+    with pytest.raises(ValueError, match=f"unexpected pytest skip in {phase}"):
+        isolated.validate_execution(receipt, {node: (phase, "requires Windows")})
+    allowed = {node: (phase, event["skipReason"])}
+    if phase == "teardown":
+        with pytest.raises(ValueError, match="unexpected pytest skip in teardown"):
+            isolated.validate_execution(receipt, allowed)
+    else:
+        isolated.validate_execution(receipt, allowed)
+    event["xfail"] = True
+    for outcome in ("skipped", "passed"):
+        event["outcome"] = outcome
+        if phase == "setup" and outcome == "passed":
+            events.insert(1, {"phase": "call", "outcome": "passed", "xfail": False})
+        with pytest.raises(ValueError, match="unexpected pytest xfail/xpass"):
+            isolated.validate_execution(receipt, allowed)
+    receipt["collectionIssues"] = [{"nodeid": "tests/test_sample.py", "outcome": "skipped"}]
+    with pytest.raises(ValueError, match="skipped/failed collection"):
+        isolated.validate_execution(receipt, allowed)
+
+
+def test_python_job_deadline_and_ortools_wheelhouse_follow_the_matrix(root, monkeypatch):
+    from scripts import run_isolated_pytest as isolated
+
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    deadline = jobs["python-fast-run"]["steps"][0]
+    assert '$(date +%s) + BALOOT_PYTEST_JOB_MINUTES * 60 - 60' in deadline["run"]
+    assert '>> "$GITHUB_ENV"' in deadline["run"]
+    for name in ("python-fast-run", "python-backend-run", "python-heavy", "python-affected"):
+        job = jobs[name]
+        assert job["steps"][0] is deadline
+        assert job["env"]["BALOOT_PYTEST_JOB_MINUTES"] == job["timeout-minutes"]
+    monkeypatch.setattr(isolated.time, "time", lambda: 1000)
+    for cutoff, remaining in ((2320, 1320), (1050, 50), (980, 0)):
+        monkeypatch.setenv("BALOOT_PYTEST_DEADLINE", str(cutoff))
+        assert isolated.job_seconds_remaining(900) == remaining
+    wheelhouse, heavy = jobs["python-wheelhouse"], jobs["python-heavy"]
+    assert "python-wheelhouse" in heavy["needs"]
+    assert heavy["strategy"]["matrix"]["python"] == wheelhouse["strategy"]["matrix"]["python"]
+    install, verify = [next(step for step in wheelhouse["steps"] if step.get("name") == name)
+                       for name in ("Build wheels and install the run-local Python runtime",
+                                    "Verify OR-Tools in the installed runtime")]
+    assert "if" not in install and "if" not in verify
+    assert wheelhouse["steps"].index(verify) == wheelhouse["steps"].index(install) + 1
+    assert '"$RUNNER_TEMP/ci-venv/bin/python" -I -c' in verify["run"]
+    assert "from ortools.sat.python import cp_model; cp_model.CpModel()" in verify["run"]
+    assert any(step.get("with", {}).get("name") == "python-runtime-${{ matrix.python }}" for step in heavy["steps"])
 
 
 def test_only_exact_pr_merge_diff_can_select_scoped_work(tmp_path, monkeypatch):
