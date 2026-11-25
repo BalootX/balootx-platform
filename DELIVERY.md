@@ -18,7 +18,7 @@ The required **ci-gate** check compares the producer results to the plan and fai
 
 The `docker-constraints` job dry-runs pip with the Python base image, exact constraints and extras shared by the Docker test and verifier stages. It runs when its Docker, dependency or CI inputs change on a PR, when CI cannot resolve the diff, and on main and merge groups.
 
-The full profile includes `postgres-configuration`. It applies the configuration schedule migration to populated synthetic data in a disposable PostgreSQL service and verifies the store's UTC and local-time round trip and immutability. It then runs the previous revision's PostgreSQL migrator and reads the new rows with both previous stores. The backend shards start after this check, within the shared runner capacity.
+The full profile includes `postgres-configuration`. It applies the configuration schedule migration to populated synthetic data in a disposable PostgreSQL service and verifies the store's UTC and local-time round trip and immutability. It then runs the previous revision's PostgreSQL migrator and reads the new rows with both previous stores. The PostgreSQL job starts after preflight, and the backend shards start after the PostgreSQL check to stay within shared runner capacity.
 
 The same job tests the governed rollback endpoint on SQLite and PostgreSQL. Rolling back to a time-windowed bundle publishes a new revision with the target's content and no effective bounds or local schedule. The target retains its original schedule in revision history.
 

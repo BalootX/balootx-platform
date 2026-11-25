@@ -110,8 +110,9 @@ jobs:
       - run: docker build --progress=plain --target docker-constraints .
 
   postgres-configuration:
-    needs: plan
-    if: needs.plan.outputs.full == 'true'
+    # Let preflight release its hosted runner slot before starting the database job.
+    needs: [plan, preflight]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.full == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     services:
