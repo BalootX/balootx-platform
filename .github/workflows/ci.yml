@@ -146,7 +146,10 @@ jobs:
       run:
         working-directory: src/baloot_platform/service/foundry_dashboard
     steps:
-      - *checkout
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
       - *py313
       - &python-runtime-download
         if: needs.plan.outputs.full == 'true'
@@ -205,6 +208,9 @@ jobs:
         if: ${{ !cancelled() && steps.foundry-build.outcome == 'success' }}
         id: playwright-install
         run: ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Stage the PR base stylesheet for audit screenshots
+        if: ${{ github.event_name == 'pull_request' && steps.playwright-install.outcome == 'success' }}
+        run: git show HEAD^1:src/baloot_platform/service/foundry_dashboard/src/styles.css > "$RUNNER_TEMP/foundry-audit-base.css"
       - name: Run Foundry Playwright suite
         if: ${{ !cancelled() && steps.playwright-install.outcome == 'success' }}
         run: npm run test:operator-e2e -- --reporter=list,junit
@@ -212,6 +218,7 @@ jobs:
           BALOOT_OPERATOR_E2E_FOUNDRY_DIR: ${{ runner.temp }}/foundry-dashboard
           BALOOT_LIVE_RESULT_LATENCY_SAMPLE_OUTPUT: ${{ runner.temp }}/foundry-live-result-latency.json
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/foundry-playwright.xml
+          BALOOT_FOUNDRY_AUDIT_BASE_CSS: ${{ github.event_name == 'pull_request' && format('{0}/foundry-audit-base.css', runner.temp) || '' }}
       - name: Upload Foundry test receipts
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -221,6 +228,7 @@ jobs:
             ${{ runner.temp }}/foundry-vitest.xml
             ${{ runner.temp }}/foundry-playwright.xml
             ${{ runner.temp }}/foundry-live-result-latency.json
+            output/playwright/acc19/**/audit-*.png
           if-no-files-found: error
 
   sdks:
