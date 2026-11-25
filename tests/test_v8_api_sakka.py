@@ -168,7 +168,7 @@ def test_http_oidc_profile_lifecycle_requires_config_admin(monkeypatch):
                 response = client.request(method, prefix + path, json=body, headers={
                     "x-api-key": _SERVICE_KEY, "x-baloot-role": denied,
                 })
-                assert response.status_code == 403, response.text
+                assert response.status_code == (404 if method == "GET" else 403), response.text
             response = client.request(method, prefix + path, json=body, headers={
                 "x-api-key": "wrong-fixture-key", "x-baloot-role": role,
             })
@@ -201,6 +201,90 @@ def test_http_oidc_profile_lifecycle_requires_config_admin(monkeypatch):
             check("POST", path + ":retire", role, body={
                 "expectedEtag": published["etag"], "reason": "Retire revision",
             })
+
+
+def test_http_configuration_revision_readers_share_sqlite_visibility(monkeypatch):
+    from baloot_platform.configuration import SQLiteConfigurationStore
+    from baloot_platform.security import Scope, SignedAccessTokenService
+    from baloot_platform.service import api, mcp_server
+
+    assert isinstance(api.CONFIGURATION.store, SQLiteConfigurationStore)
+    monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
+    monkeypatch.setenv("BALOOT_RATE_LIMIT_PER_MINUTE", "0")
+    monkeypatch.setenv("BALOOT_ALLOW_TRUSTED_CONTEXT", "true")
+    fixture_secret = "synthetic-mcp-reader-secret-" * 2
+    tokens = SignedAccessTokenService(fixture_secret.encode())
+    monkeypatch.setenv("BALOOT_ACCESS_TOKEN_SECRET", fixture_secret)
+    monkeypatch.setenv("BALOOT_MCP_TOKEN_AUDIENCE", tokens.audience)
+    monkeypatch.setenv("BALOOT_TOKEN_ISSUER", tokens.issuer)
+    monkeypatch.delenv("BALOOT_MCP_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("BALOOT_API_URL", "http://testserver")
+    monkeypatch.setattr(api, "ACCESS_TOKENS", tokens)
+    v1 = "/api/v1/configuration-registry/profiles"
+    v2 = "/api/v2/configuration/profiles"
+    profile_id = "oidc-reader-fixture"
+
+    def headers(role):
+        return {"x-api-key": _SERVICE_KEY, "x-baloot-role": role}
+
+    with TestClient(app) as client, TestClient(mcp_server.create_http_app()) as mcp:
+        monkeypatch.setitem(mcp_server._API_CLIENTS, "http://testserver", client)
+        created = client.post(v1, headers=headers("admin"), json={
+            "family": "oidc_providers", "payload": _oidc_test_payload(profile_id), "publish": True,
+        })
+        assert created.status_code == 201, created.text
+        revision = created.json()["revisionId"]
+        public = api.CONFIGURATION.store.list_profiles(limit=1)[0].revision_id
+        listings = (v1, v2, "/api/v2/config-revisions?kind=profile")
+        details = (
+            f"{v1}/{revision}", f"{v2}/{revision}?includePayload=false", f"{v1}/{revision}/events",
+            f"{v1}:compare?left={public}&right={revision}",
+            f"{v1}:resolve?family=oidc_providers&profileId={profile_id}",
+        )
+        for role in ("admin", "service", *_CONFIG_READ_ROLES):
+            authorized = role in {"admin", "service"}
+            for url in listings:
+                response = client.get(url, headers=headers(role))
+                assert response.status_code == 200, response.text
+                ids = {item["revisionId"] for item in response.json()["items"]}
+                assert public in ids
+                assert (revision in ids) is authorized
+            for url in (f"{v1}?family=oidc_providers", f"{v2}?family=oidc_providers"):
+                items = client.get(url, headers=headers(role)).json()["items"]
+                assert any(item["revisionId"] == revision for item in items) is authorized
+                if not authorized:
+                    assert items == []
+            for url in details:
+                assert client.get(url, headers=headers(role)).status_code == (200 if authorized else 404)
+            for base in (v1, v2):
+                response = client.post(f"{base}/{revision}:validate", headers=headers(role))
+                assert response.status_code == (200 if authorized else 404), response.text
+
+            scopes = (Scope.READ, Scope.CONFIG_ADMIN) if authorized else (Scope.READ,)
+            token = tokens.issue(subject_id="fixture-reader", role=role, scopes=scopes)
+            for tool, args in (
+                ("list_configuration_profiles", {"family": "oidc_providers"}),
+                ("resolve_configuration_profile", {"family": "oidc_providers", "profile_id": profile_id}),
+                ("compare_configuration_profiles", {"left": public, "right": revision}),
+            ):
+                response = mcp.post("/mcp", headers={"authorization": f"Bearer {token}"}, json={
+                    "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": args},
+                })
+                assert response.status_code == 200
+                result = response.json()["result"]
+                if tool == "list_configuration_profiles":
+                    assert not result["isError"]
+                    items = result["structuredContent"]["items"]
+                    assert any(item["revisionId"] == revision for item in items) is authorized
+                else:
+                    assert result["isError"] is not authorized
+                    if not authorized:
+                        assert "404 Not Found" in result["content"][0]["text"]
+
+        _guest(client, "Fixture reader")
+        response = client.get(listings[-1], headers={"x-baloot-role": "admin"})
+        assert response.status_code == 200, response.text
+        assert all(item["revisionId"] != revision for item in response.json()["items"])
 
 
 def test_http_database_role_ignores_keyless_role_header(monkeypatch):
@@ -319,11 +403,12 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
         assert error.value.code() == grpc.StatusCode.PERMISSION_DENIED
         monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
 
-        async def check(rpc, request, role, *, tenant=None):
+        async def check(rpc, request, role, *, tenant=None, create=False):
             for denied in _CONFIG_READ_ROLES:
                 with pytest.raises(grpc.aio.AioRpcError) as error:
                     await rpc(request, metadata=(("x-api-key", _SERVICE_KEY), ("x-baloot-role", denied)))
-                assert error.value.code() == grpc.StatusCode.PERMISSION_DENIED
+                expected = grpc.StatusCode.PERMISSION_DENIED if create else grpc.StatusCode.NOT_FOUND
+                assert error.value.code() == expected
             for invalid in ((), (("x-api-key", "wrong-fixture-key"),)):
                 with pytest.raises(grpc.aio.AioRpcError) as error:
                     await rpc(request, metadata=(*invalid, ("x-baloot-role", role)))
@@ -344,7 +429,7 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
                     family="oidc_providers",
                     canonical_json=json.dumps(_oidc_test_payload(profile_id, version)).encode(),
                 )
-                draft = await check(stub.CreateProfile, request, role)
+                draft = await check(stub.CreateProfile, request, role, create=True)
                 if version == "1.0.0":
                     published = await check(stub.PublishProfile, configuration_pb2.Identifier(
                         value=draft["revisionId"], expected_etag=draft["etag"],
@@ -359,6 +444,15 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
             await check(stub.CompareProfiles, configuration_pb2.ProfileCompare(
                 left=published["revisionId"], right=published["revisionId"],
             ), role, tenant="fixture-tenant")
+            for read_role in (role, *_CONFIG_READ_ROLES):
+                for family in ("", "oidc_providers"):
+                    result = await stub.ListProfiles(
+                        configuration_pb2.ProfileQuery(family=family),
+                        metadata=(("x-api-key", _SERVICE_KEY), ("x-baloot-role", read_role)),
+                    )
+                    items = json.loads(result.canonical_json)["items"]
+                    listed = any(item["revisionId"] == published["revisionId"] for item in items)
+                    assert listed is (read_role == role)
             await check(stub.RetireProfile, configuration_pb2.TransitionRequest(
                 value=published["revisionId"], expected_etag=published["etag"], reason="Retire revision",
             ), role)

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 from contextlib import closing, contextmanager, nullcontext
 from dataclasses import replace
 from datetime import datetime, timezone
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -192,13 +194,21 @@ class PostgresSecurityStateStore:
         self.pool=ConnectionPool(dsn,min_size=1,max_size=16,open=True)
 
     def require_oidc_rls(self) -> None:
+        migration = files("baloot_platform.resources").joinpath("migrations", "033_oidc_database_roles.sql")
+        policies = re.findall(
+            r"(?m)^CREATE POLICY ([a-z][a-z0-9_]*) ON security\.external_identities\b",
+            migration.read_text(encoding="utf-8"),
+        )
+        if len(policies) != 1:
+            raise RuntimeError("OIDC identity migration must define one external identity policy")
         with contextual_connection(self.pool) as conn:
             active = conn.execute(
                 "SELECT row_security_active('security.external_identities') "
                 "AND NOT has_table_privilege(session_user, 'security.oidc_issuer_transitions', 'UPDATE') "
                 "AND EXISTS ("
                 "SELECT 1 FROM pg_policies WHERE schemaname='security' AND tablename='external_identities' "
-                "AND policyname='external_identity_authority_v33')"
+                "AND policyname=%s)",
+                (policies[0],),
             ).fetchone()
         if not active or not active[0]:
             raise RuntimeError("OIDC requires the identity policy and an application login subject to row-level security")

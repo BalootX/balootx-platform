@@ -23,6 +23,7 @@ from baloot_platform.security.oidc import (
     OidcProviderProfile,
     validate_oidc_provider_profile,
 )
+from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY
 from baloot_platform.version import PROFILE_VERSION_PATTERN
 
 from .models import (
@@ -162,6 +163,7 @@ class VersionedConfigurationService:
     def _cache_get(self, key: tuple[Any, ...]) -> dict[str, Any] | None:
         if self._cache_entries <= 0 or self._cache_ttl_seconds <= 0:
             return None
+        key = self._resolution_cache_key(key)
         with self._cache_lock:
             value = self._cache.get(key)
             if value is None:
@@ -176,11 +178,20 @@ class VersionedConfigurationService:
     def _cache_put(self, key: tuple[Any, ...], payload: dict[str, Any]) -> None:
         if self._cache_entries <= 0 or self._cache_ttl_seconds <= 0:
             return
+        key = self._resolution_cache_key(key)
         with self._cache_lock:
             self._cache[key] = (time.monotonic(), copy.deepcopy(payload))
             self._cache.move_to_end(key)
             while len(self._cache) > self._cache_entries:
                 self._cache.popitem(last=False)
+
+    @staticmethod
+    def _resolution_cache_key(key: tuple[Any, ...]) -> tuple[Any, ...]:
+        identity = CURRENT_DATABASE_IDENTITY.get()
+        return (
+            *key, identity.role, identity.tenant_id, bool(identity.subject_id),
+            identity.configuration_admin, identity.oidc_registry_read,
+        )
 
     @staticmethod
     def _profile_identity(payload: dict[str, Any]) -> tuple[str, str]:

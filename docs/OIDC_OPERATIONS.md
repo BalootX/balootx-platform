@@ -42,7 +42,7 @@ For PostgreSQL, use an application login subject to row-level security. The API 
 
 Signed-out clients can send JSON POSTs to the OIDC begin and callback routes without a session or API key. Clients presenting a valid session must follow the API's session CSRF policy. An API key or a verified access token follows the same rules as on other routes. A successful callback returns a session token in its response body. It does not set a browser cookie.
 
-PostgreSQL restricts OIDC registry rows and their audit history to the current API's authenticated configuration administrators. The sign-in runtime can resolve the published registry internally. Earlier API binaries cannot read or modify the OIDC registry, including retained revisions. Use the current API for registry administration.
+The current API restricts OIDC registry rows and audit history to authenticated configuration administrators on PostgreSQL and SQLite. Ordinary callers see only accessible profiles in listings. A direct lookup for a restricted revision returns not found. The sign-in runtime can resolve the published registry internally. PostgreSQL also keeps earlier API binaries from reading or modifying OIDC registry rows, including retained revisions. Use the current API for registry administration.
 
 The sign-in path needs schema usage and the following table privileges in addition to any grants for other features.
 

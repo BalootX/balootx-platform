@@ -10,7 +10,7 @@ from email.message import Message
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
-from urllib.request import HTTPSHandler, OpenerDirector
+from urllib.request import HTTPHandler, HTTPSHandler, OpenerDirector
 from urllib.response import addinfourl
 
 import httpx
@@ -19,7 +19,7 @@ import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from hypothesis import given, strategies as st
 
@@ -175,20 +175,72 @@ def _oidc_profile(providers: dict) -> dict:
 
 @pytest.fixture
 def oidc_configuration(tmp_path):
+    from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
+
     root = platform_root()
     config = yaml.safe_load((root / "configs/configuration/control-plane.yaml").read_text(encoding="utf-8"))
     runtime = tmp_path / "data" / "runtime"
     runtime.mkdir(parents=True)
     store = SQLiteConfigurationStore(runtime / "configuration.sqlite3")
+    token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(configuration_admin=True))
     try:
         yield VersionedConfigurationService(store, root=root, profile=config)
     finally:
+        CURRENT_DATABASE_IDENTITY.reset(token)
         store.close()
+
+
+def test_sqlite_profile_visibility_includes_only_published_rows_for_oidc_runtime(oidc_configuration, monkeypatch):
+    from types import SimpleNamespace
+
+    from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
+
+    monkeypatch.setattr("baloot_platform.configuration.service.time", SimpleNamespace(monotonic=lambda: 1.0))
+    published = oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=_oidc_profile({}), created_by="operator", publish=True,
+    )
+    draft_payload = _oidc_profile({})
+    draft_payload["profile"]["version"] = "1.0.1"
+    draft = oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=draft_payload, created_by="operator",
+    )
+    store = oidc_configuration.store
+    published_id, draft_id = published["revisionId"], draft["revisionId"]
+
+    def content_lookup():
+        return store.find_profile_by_content(
+            family=OIDC_PROVIDER_FAMILY, scope="global", tenant_id=None,
+            payload_sha256=published["payloadSha256"],
+        )
+
+    assert content_lookup().revision_id == published_id
+    assert store.get_profile(draft_id).revision_id == draft_id
+    assert store.events("profile", published_id)
+    resolution = {"family": OIDC_PROVIDER_FAMILY, "profile_id": "signin", "at_time": "2026-01-01T00:00:00Z"}
+    assert oidc_configuration.resolve_profile(**resolution)["revisionId"] == published_id
+    for internal in (True, False):
+        token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(oidc_registry_read=internal))
+        try:
+            rows = store.list_profiles(family=OIDC_PROVIDER_FAMILY, limit=1)
+            assert [row.revision_id for row in rows] == ([published_id] if internal else [])
+            assert (store.get_profile(published_id) is not None) is internal
+            assert (content_lookup() is not None) is internal
+            assert store.get_profile(draft_id) is None
+            assert store.events("profile", published_id) == []
+            if internal:
+                assert oidc_configuration.resolve_profile(**resolution)["revisionId"] == published_id
+            else:
+                with pytest.raises(KeyError, match="published configuration profile not found"):
+                    oidc_configuration.resolve_profile(**resolution)
+        finally:
+            CURRENT_DATABASE_IDENTITY.reset(token)
 
 
 def test_v20_oidc_registry_drives_api_and_preserves_audit(
     tmp_path, monkeypatch, caplog, oidc_configuration
 ):
+    from baloot_platform.service.api import platform_security
+
     monkeypatch.setattr(
         "baloot_platform.configuration.store.utc_now", lambda: "2026-01-01T00:00:00+00:00"
     )
@@ -224,14 +276,12 @@ def test_v20_oidc_registry_drives_api_and_preserves_audit(
     assert providers["beta"].trusted_additional_audiences == ("trusted-client",)
     monkeypatch.setenv("BALOOT_OIDC_ISSUER", "https://legacy.example")
     monkeypatch.setenv("BALOOT_OIDC_PROVIDER_ID", "legacy")
+    monkeypatch.setenv("BALOOT_API_KEY", "synthetic-test-key")
     container = build_container(writable_root=tmp_path / "data", database_url="")
     try:
         api = FastAPI()
 
-        @api.middleware("http")
-        async def mark_api_key(request: Request, call_next):
-            request.state.api_key_valid = request.headers.get("x-api-key") == "synthetic-test-key"
-            return await call_next(request)
+        api.middleware("http")(platform_security)
 
         api.include_router(
             build_configuration_router(
@@ -273,10 +323,10 @@ def test_v20_oidc_registry_drives_api_and_preserves_audit(
                 f"{prefix}/profiles:compare?left={revision_id}&right={revision_id}",
             ):
                 headers = {"x-api-key": "synthetic-test-key", "x-baloot-role": "player"}
-                assert client.get(path, headers=headers).status_code == 403
+                assert client.get(path, headers=headers).status_code == 404
                 headers["x-baloot-role"] = "admin"
                 assert client.get(path, headers=headers).status_code == 200
-            assert client.get("/api/v1/security/capabilities").json()["oidcProviders"] == ["alpha", "beta"]
+            assert client.get("/api/v1/security/capabilities", headers=headers).json()["oidcProviders"] == ["alpha", "beta"]
             states = {}
             for key in ("alpha", "beta"):
                 begin = client.post("/api/v1/security/oidc:begin", json={"providerId": key})
@@ -297,7 +347,7 @@ def test_v20_oidc_registry_drives_api_and_preserves_audit(
             replacement_revision = oidc_configuration.create_profile(
                 family=OIDC_PROVIDER_FAMILY, payload=replacement, created_by="operator-1", publish=True,
             )
-            assert client.get("/api/v1/security/capabilities").json()["oidcProviders"] == ["alpha"]
+            assert client.get("/api/v1/security/capabilities", headers=headers).json()["oidcProviders"] == ["alpha"]
             stale = client.post("/api/v1/security/oidc:callback", json={
                 "providerId": "alpha", "state": states["alpha"], "code": "fixture-code",
             })
@@ -308,7 +358,7 @@ def test_v20_oidc_registry_drives_api_and_preserves_audit(
                 replacement_revision["revisionId"], expected_etag=replacement_revision["etag"],
                 actor_id="operator-1", reason="Disable the registry",
             )
-            assert client.get("/api/v1/security/capabilities").json()["oidcProviders"] == []
+            assert client.get("/api/v1/security/capabilities", headers=headers).json()["oidcProviders"] == []
     finally:
         container.shutdown()
 
@@ -574,7 +624,11 @@ def test_v20_oidc_jwks_transport_rejects_redirect(monkeypatch):
         response.msg = "Found"
         return response
 
+    def unexpected_plain_http(_handler, request):
+        pytest.fail(f"JWKS client followed the redirect to {request.full_url}")
+
     monkeypatch.setattr(HTTPSHandler, "https_open", redirect)
+    monkeypatch.setattr(HTTPHandler, "http_open", unexpected_plain_http)
     with pytest.raises(jwt.exceptions.PyJWKClientConnectionError):
         jwt.PyJWKClient(jwks_url).get_signing_key("signing")
     assert requests == [jwks_url]

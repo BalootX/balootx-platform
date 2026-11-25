@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from baloot_platform.configuration import VersionedConfigurationService
 from baloot_platform.identity import IdentityService
 from baloot_platform.security import AuthorizationPolicy, Scope
-from baloot_platform.configuration.service import profile_families_require_admin
 from baloot_platform.service.client_identity import caller_role
 
 from .auth import require_identity
@@ -141,17 +140,11 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                       scope: str | None = None, scopeKey: str | None = None, tenantId: str | None = None,
                       environment: str | None = None, status: str | None = None, limit: int = 200):
         require_identity(request, identities)
-        if family and profile_families_require_admin(family):
-            _admin(request, policy)
         values = service.store.list_profiles(
             family=family, profile_id=profileId, scope=scope, scope_key=scopeKey, tenant_id=tenantId,
             environment=environment, status=status, limit=limit,
         )
-        admin = _has_admin(request, policy)
-        return {"items": [
-            item.to_dict(include_payload=False)
-            for item in values if admin or not profile_families_require_admin(item.family)
-        ]}
+        return {"items": [item.to_dict(include_payload=False) for item in values]}
 
     @router.get("/profile-schemas/{family}")
     def get_profile_schema(family: str, request: Request):
@@ -167,8 +160,6 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                         sharedGameId: str | None = None, videoProfileId: str | None = None,
                         experimentKey: str | None = None, subjectId: str | None = None, atTime: str | None = None):
         require_identity(request, identities)
-        if profile_families_require_admin(family):
-            _admin(request, policy)
         try:
             return service.resolve_profile(family=family, profile_id=profileId, tenant_id=tenantId,
                 environment=environment, room_id=roomId, shared_game_id=sharedGameId,
@@ -186,8 +177,6 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         right_value = service.store.get_profile(right)
         if left_value is None or right_value is None:
             raise HTTPException(404, "configuration profile revision not found")
-        if profile_families_require_admin(left_value.family, right_value.family):
-            _admin(request, policy)
         return {
             "left": left_value.to_dict(include_payload=False),
             "right": right_value.to_dict(include_payload=False),
@@ -215,8 +204,6 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         value = service.store.get_profile(revision_id)
         if value is None:
             raise HTTPException(404, "configuration profile revision not found")
-        if profile_families_require_admin(value.family):
-            _admin(request, policy)
         return value.to_dict(include_payload=includePayload)
 
     @router.patch("/profiles/{revision_id}")
@@ -294,8 +281,6 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         value = service.store.get_profile(revision_id)
         if value is None:
             raise HTTPException(404, "configuration profile revision not found")
-        if profile_families_require_admin(value.family):
-            _admin(request, policy)
         return service.store.events_with_verification("profile", revision_id)
 
     @router.get("/bundles", response_model=ConfigurationBundleListResponse)

@@ -20,6 +20,26 @@ FOUNDRY_NPM = "service/foundry_dashboard"
 REMOTION_NPM = "video/remotion"
 
 
+def test_configuration_revision_tables_are_owned_by_the_store(root):
+    package = root / "src" / "baloot_platform"
+    store = package / "configuration" / "store.py"
+    issuer_migration = package / "security" / "oidc_migration.py"
+    offenders = []
+    for source in package.rglob("*.py"):
+        if source == store:
+            continue
+        text = source.read_text(encoding="utf-8").casefold()
+        if source == issuer_migration:
+            text = text.replace("lock table configuration.profile_revisions,", "")
+            text = text.replace("row_security_active('configuration.profile_revisions')", "")
+        if any(table in text for table in (
+            "configuration_profile_revisions", "configuration.profile_revisions",
+            "configuration_events", "configuration.events",
+        )):
+            offenders.append(source.relative_to(package).as_posix())
+    assert not offenders, f"Read configuration revisions and audit through the store: {offenders}"
+
+
 @pytest.mark.parametrize(
     ("package_dir", "dependency", "first_patched"),
     [

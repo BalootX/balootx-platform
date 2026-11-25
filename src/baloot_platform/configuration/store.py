@@ -8,12 +8,28 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from baloot_platform.storage.request_context import contextual_connection
+from baloot_platform.security.oidc import OIDC_PROVIDER_FAMILY
+from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, contextual_connection
 
 from .models import BundleRevision, ProfileRevision, canonical, digest, utc_now
+from .service import profile_families_require_admin
 
 
 _UNSET = object()
+
+_SQLITE_VISIBLE_PROFILES = (
+    "SELECT * FROM configuration_profile_revisions WHERE configuration_profile_visible(family, status)"
+)
+
+
+def _sqlite_profile_visible(family: str | None, status: str | None) -> bool:
+    identity = CURRENT_DATABASE_IDENTITY.get()
+    return identity.configuration_admin or (
+        family is not None and (
+            not profile_families_require_admin(family)
+            or (identity.oidc_registry_read and family == OIDC_PROVIDER_FAMILY and status == "published")
+        )
+    )
 
 _POSTGRES_PROFILE_COLUMNS = """
 revision_id,family,profile_id,version,scope,scope_key,tenant_id,environment,
@@ -160,6 +176,7 @@ class SQLiteConfigurationStore:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=30, isolation_level=None)
         conn.row_factory = sqlite3.Row
+        conn.create_function("configuration_profile_visible", 2, _sqlite_profile_visible)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
@@ -490,6 +507,9 @@ class SQLiteConfigurationStore:
             "SELECT event_id,aggregate_type,aggregate_id,sequence,event_type,"
             "actor_id,payload_json,previous_hash,event_hash,created_at "
             "FROM configuration_events WHERE aggregate_type=? AND aggregate_id=? "
+            "AND (aggregate_type <> 'profile' OR configuration_profile_visible("
+            " (SELECT family FROM configuration_profile_revisions WHERE revision_id=configuration_events.aggregate_id),"
+            " NULL)) "
             "ORDER BY sequence",
             (aggregate_type, aggregate_id),
         ).fetchall()
@@ -735,7 +755,8 @@ class SQLiteConfigurationStore:
 
     def get_profile(self, revision_id: str) -> ProfileRevision | None:
         with self._connect() as conn:
-            return self._profile(conn.execute("SELECT * FROM configuration_profile_revisions WHERE revision_id=?", (revision_id,)).fetchone())
+            row = conn.execute(_SQLITE_VISIBLE_PROFILES + " AND revision_id=?", (revision_id,)).fetchone()
+            return self._profile(row)
 
     def update_profile_draft(
         self,
@@ -845,8 +866,7 @@ class SQLiteConfigurationStore:
                                 environment: str | None = None) -> ProfileRevision | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM configuration_profile_revisions "
-                "WHERE family=? AND scope=? AND scope_key=? AND tenant_id IS ? "
+                _SQLITE_VISIBLE_PROFILES + " AND family=? AND scope=? AND scope_key=? AND tenant_id IS ? "
                 "AND environment IS ? AND payload_sha256=? "
                 "ORDER BY sequence DESC,revision_id LIMIT 1",
                 (family, scope, scope_key, tenant_id, environment, payload_sha256),
@@ -875,9 +895,9 @@ class SQLiteConfigurationStore:
             if environment is not None:
                 clauses.append("environment=?")
                 args.append(environment)
-        sql = "SELECT * FROM configuration_profile_revisions"
+        sql = _SQLITE_VISIBLE_PROFILES
         if clauses:
-            sql += " WHERE " + " AND ".join(clauses)
+            sql += " AND " + " AND ".join(clauses)
         sql += " ORDER BY sequence DESC,created_at DESC LIMIT ?"
         args.append(max(1, min(1000, int(limit))))
         with self._connect() as conn:
