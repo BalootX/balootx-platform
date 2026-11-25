@@ -840,7 +840,6 @@ jobs:
         shell: bash
     env:
       QA_JOURNEY: ${{ inputs.qa-journey }}
-      FOUNDRY_JOURNEY_SCREENSHOTS: ${{ runner.temp }}/qa-journey-playwright/*/alternate-first-result-*.png
     steps:
       - name: Validate the dispatch choice
         shell: python
@@ -862,6 +861,7 @@ jobs:
           test "$head" = "$GITHUB_SHA"
           mkdir -p "$RUNNER_TEMP/qa-journey"
           printf 'journey=%s\nhead=%s\ntree=%s\n' "$QA_JOURNEY" "$head" "$tree" > "$RUNNER_TEMP/qa-journey/source.txt"
+          printf 'foundry-screenshots=%s/qa-journey-playwright/*/alternate-first-result-*.png\n' "$RUNNER_TEMP" >> "$GITHUB_OUTPUT"
       - *py313
       - run: python -m pip install -e '.[dev,grpc,security]'
       - name: Run selected Python checks
@@ -924,6 +924,8 @@ jobs:
             --reporter=list,junit --output "$RUNNER_TEMP/qa-journey-playwright"
       - name: Verify Foundry journey evidence
         if: inputs.qa-journey == 'foundry'
+        env:
+          FOUNDRY_JOURNEY_SCREENSHOTS: ${{ steps.source.outputs.foundry-screenshots }}
         run: python -P scripts/verify_qa_journey.py foundry "$RUNNER_TEMP/qa-journey/foundry.xml" "$FOUNDRY_JOURNEY_SCREENSHOTS"
       - name: Upload QA journey results
         if: ${{ !cancelled() && steps.source.outcome == 'success' }}
@@ -938,7 +940,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qa-journey-foundry-screenshots
-          path: ${{ env.FOUNDRY_JOURNEY_SCREENSHOTS }}
+          path: ${{ steps.source.outputs.foundry-screenshots }}
           if-no-files-found: error
           retention-days: 7
 

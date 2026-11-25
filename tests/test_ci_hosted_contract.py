@@ -201,9 +201,12 @@ def test_qa_journey_dispatch_rejects_unknown_and_conflicting_choices(root, monke
     steps = {step.get("name"): step for step in job["steps"]}
     assert "go test -count=1 -json ./..." in steps["Exercise Go SDK"]["run"]
     assert 'verify_qa_journey.py go "$RUNNER_TEMP/qa-journey/go.jsonl"' in steps["Exercise Go SDK"]["run"]
-    assert '"$FOUNDRY_JOURNEY_SCREENSHOTS"' in steps["Verify Foundry journey evidence"]["run"]
+    assert all("runner." not in value for value in job["env"].values())
+    assert "foundry-screenshots=%s/qa-journey-playwright/" in steps["Bind evidence to the dispatched source"]["run"]
+    foundry = steps["Verify Foundry journey evidence"]
+    assert '"$FOUNDRY_JOURNEY_SCREENSHOTS"' in foundry["run"]
     screenshots = steps["Upload Foundry journey screenshots"]["with"]
-    assert screenshots["path"] == "${{ env.FOUNDRY_JOURNEY_SCREENSHOTS }}"
+    assert screenshots["path"] == foundry["env"]["FOUNDRY_JOURNEY_SCREENSHOTS"] == "${{ steps.source.outputs.foundry-screenshots }}"
     assert screenshots["if-no-files-found"] == "error"
     validation = job["steps"][0]
     assert validation["shell"] == "python"
