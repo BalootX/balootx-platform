@@ -221,10 +221,47 @@ jobs:
         name: Build dashboard for browser tests
         id: foundry-build
         run: npm run build -- --outDir "$RUNNER_TEMP/foundry-dashboard"
-      - name: Install locked Playwright Chromium
+      - name: Identify the locked Playwright runtime
         if: ${{ !cancelled() && steps.foundry-build.outcome == 'success' }}
+        id: playwright-runtime
+        run: |
+          version=$(node -p "require('./package-lock.json').packages['node_modules/playwright'].version")
+          echo "key=$RUNNER_OS-$RUNNER_ARCH-${ImageVersion:?}-playwright-chromium-$version" >> "$GITHUB_OUTPUT"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/playwright-browsers" >> "$GITHUB_ENV"
+      - if: ${{ !cancelled() && steps.playwright-runtime.outcome == 'success' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: playwright-cache
+        with: &playwright-cache
+          path: |
+            ${{ runner.temp }}/playwright-browsers
+            ${{ runner.temp }}/playwright-debs/*.deb
+          key: ${{ steps.playwright-runtime.outputs.key }}
+      - name: Install locked Playwright Chromium
+        if: ${{ !cancelled() && steps.playwright-cache.outcome == 'success' }}
         id: playwright-install
-        run: ./node_modules/.bin/playwright install --with-deps chromium
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
+        run: |
+          if [[ "$CACHE_HIT" == 'true' ]]; then
+            shopt -s nullglob
+            packages=("$RUNNER_TEMP"/playwright-debs/*.deb)
+            if (( ${#packages[@]} )); then
+              sudo env DEBIAN_FRONTEND=noninteractive dpkg --skip-same-version --install "${packages[@]}"
+            fi
+          else
+            mkdir -p "$RUNNER_TEMP/playwright-debs"
+            # Capture the packages that the locked installer resolves for this runner image.
+            apt_config=$(sudo mktemp /etc/apt/apt.conf.d/99-playwright-archives-XXXXXXXX)
+            trap 'sudo rm -- "$apt_config"' EXIT
+            printf 'Dir::Cache::archives "%s/playwright-debs";\nAPT::Keep-Downloaded-Packages "true";\n' "$RUNNER_TEMP" |
+              sudo tee "$apt_config" > /dev/null
+            ./node_modules/.bin/playwright install --with-deps chromium
+          fi
+          node -e "require('playwright').chromium.launch().then(browser => browser.close())"
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *playwright-cache
       - name: Stage the PR base stylesheet for audit screenshots
         if: ${{ github.event_name == 'pull_request' && steps.playwright-install.outcome == 'success' }}
         run: git show HEAD^1:src/baloot_platform/service/foundry_dashboard/src/styles.css > "$RUNNER_TEMP/foundry-audit-base.css"
