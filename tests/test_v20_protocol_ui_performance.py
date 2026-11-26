@@ -17,6 +17,9 @@ from baloot_platform.observability import EVENT_LOGGER, Telemetry
 from baloot_platform.service.mcp_server import TOOL_DEFINITIONS, create_http_app
 
 
+_REQUEST_LOG_API_KEY = "synthetic-configured-key"
+
+
 def test_v20_mcp_streamable_get_sse_and_tool_annotations(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("BALOOT_ENV", "test"); monkeypatch.setenv("BALOOT_DATA_DIR", str(tmp_path))
     client = TestClient(create_http_app())
@@ -42,28 +45,33 @@ def _events(caplog):
 
 
 @pytest.mark.parametrize(
-    ("method", "path", "status"),
+    ("method", "path", "api_key", "status"),
     [
-        ("GET", "/healthz", 200),
-        ("GET", "/missing/private-name", 404),
-        ("POST", "/api/v1/options", 401),
-        ("POST", "/api/v1/options", 413),
+        ("GET", "/healthz", "private-key", 200),
+        ("GET", "/missing/private-name", None, 401),
+        ("GET", "/missing/private-name", "private-key", 401),
+        ("GET", "/missing/private-name", _REQUEST_LOG_API_KEY, 404),
+        ("POST", "/api/v1/options", "private-key", 401),
+        ("POST", "/api/v1/options", "private-key", 413),
     ],
 )
 def test_http_request_logs_contain_only_server_ids_and_status(
-    monkeypatch, caplog, method, path, status
+    monkeypatch, caplog, method, path, api_key, status
 ):
     from baloot_platform.service import api
 
     monkeypatch.setenv("BALOOT_MAX_BODY_BYTES", "1" if status == 413 else "1024")
-    monkeypatch.setenv("BALOOT_API_KEY", "synthetic-configured-key")
+    monkeypatch.setenv("BALOOT_API_KEY", _REQUEST_LOG_API_KEY)
     monkeypatch.setenv("BALOOT_RATE_LIMIT_PER_MINUTE", "0")
     caplog.set_level(logging.INFO, logger=EVENT_LOGGER.name)
     client = TestClient(api.app)
+    headers = {"x-request-id": "private-caller-id"}
+    if api_key is not None:
+        headers["x-api-key"] = api_key
     response = client.request(
         method,
         f"{path}?ticket=private-query",
-        headers={"x-request-id": "private-caller-id", "x-api-key": "private-key"},
+        headers=headers,
         content=b"private-body" if method == "POST" else None,
     )
 
