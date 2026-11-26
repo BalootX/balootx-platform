@@ -383,6 +383,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         require_identity(request, identities)
         values = service.store.list_bundles(
             bundle_id=bundleId, scope=scope, scope_key=scopeKey, tenant_id=tenantId, environment=environment, status=status, limit=limit,
+            include_scheduled=True,
         )
         return {"items": [item.to_dict() for item in values]}
 

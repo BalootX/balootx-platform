@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, TypeVar
@@ -27,7 +28,7 @@ _POSTGRES_BUNDLE_COLUMNS = """
 revision_id,bundle_id,version,mode,scope,scope_key,tenant_id,environment,
 status,components,content_sha256,sequence,effective_from,effective_until,
 local_schedule,rollout_percentage,rollout_seed,created_by,created_at,updated_at,published_by,
-published_at,supersedes_revision_id,etag,scheduled_predecessor_id
+published_at,supersedes_revision_id,etag,scheduled_predecessor_id,scheduled_successor_id
 """.replace("\n", "")
 
 _POSTGRES_EVENT_COLUMNS = (
@@ -173,6 +174,67 @@ def _validate_component_revisions(
             raise ValueError(f"invalid component revision for {family}: {revision_id}")
         if revision.status not in allowed_statuses:
             raise ValueError(f"component revision is not eligible: {revision_id}")
+
+
+def _bundle_dimensions(revision: BundleRevision) -> tuple[str, str, str, str | None, str | None]:
+    return revision.bundle_id, revision.scope, revision.scope_key, revision.tenant_id, revision.environment
+
+
+def _bundle_registry_status(table: str) -> str:
+    # The previous release reads the stored publication. The registry shows the scheduled head.
+    return (
+        "CASE WHEN status='published' AND scheduled_successor_id IS NOT NULL THEN 'superseded' "
+        f"WHEN status='superseded' AND EXISTS (SELECT 1 FROM {table} AS anchor "
+        f"WHERE anchor.status='published' AND anchor.scheduled_successor_id={table}.revision_id) "
+        "THEN 'published' ELSE status END"
+    )
+
+
+def _require_rollback_target(
+    target: BundleRevision | None,
+    dimensions: tuple[str, str, str, str | None, str | None],
+    component_revisions: Mapping[str, str],
+) -> None:
+    if target is None or _bundle_dimensions(target) != dimensions:
+        raise ValueError("configuration rollback target does not match the bundle scope")
+    if target.status not in {"published", "superseded"} or target.component_revisions != component_revisions:
+        raise ValueError("configuration rollback target is no longer eligible")
+
+
+_SQLITE_BUNDLE_REGISTRY_STATUS = _bundle_registry_status("configuration_bundle_revisions")
+_POSTGRES_BUNDLE_REGISTRY_STATUS = _bundle_registry_status("configuration.bundle_revisions")
+_PUBLISHED_BUNDLE_COMPONENT = """
+    WITH RECURSIVE reachable(revision_id, components, predecessor, successor) AS (
+        SELECT revision_id, {components}, scheduled_predecessor_id, scheduled_successor_id
+        FROM {table} WHERE status='published'
+        UNION
+        SELECT candidate.revision_id, candidate.{components}, candidate.scheduled_predecessor_id, candidate.scheduled_successor_id
+        FROM {table} AS candidate JOIN reachable
+          ON candidate.revision_id IN (reachable.predecessor, reachable.successor)
+    )
+    SELECT 1 FROM reachable JOIN {each}(reachable.components) AS component ON TRUE
+    WHERE component.value={parameter} LIMIT 1
+"""
+_SQLITE_PUBLISHED_BUNDLE_COMPONENT = _PUBLISHED_BUNDLE_COMPONENT.format(
+    table="configuration_bundle_revisions", components="components_json", each="json_each", parameter="?",
+)
+_POSTGRES_PUBLISHED_BUNDLE_COMPONENT = _PUBLISHED_BUNDLE_COMPONENT.format(
+    table="configuration.bundle_revisions", components="components", each="jsonb_each_text", parameter="%s",
+)
+
+
+def _require_profile_unreferenced(conn: Any, sql: str, revision_id: str) -> None:
+    if conn.execute(sql, (revision_id,)).fetchone() is not None:
+        raise ValueError("configuration profile is used by a published bundle. Publish a replacement bundle before retiring it.")
+
+
+def _successor_after_retirement(anchor: BundleRevision, current: BundleRevision) -> str | None:
+    if anchor.revision_id == current.revision_id:
+        raise ValueError("configuration bundle supports a scheduled publication. Retire the schedule or publish a replacement first.")
+    if anchor.scheduled_successor_id != current.revision_id:
+        return anchor.scheduled_successor_id
+    predecessor = current.scheduled_predecessor_id
+    return None if predecessor == anchor.revision_id else predecessor
 
 
 class SQLiteConfigurationStore:
@@ -357,6 +419,13 @@ class SQLiteConfigurationStore:
                 )
                 if kind == "bundle" and "scheduled_predecessor_id" not in columns:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN scheduled_predecessor_id TEXT")
+                if kind == "bundle" and "scheduled_successor_id" not in columns:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN scheduled_successor_id TEXT")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS ix_configuration_scheduled_successor "
+                "ON configuration_bundle_revisions(scheduled_successor_id) "
+                "WHERE status='published' AND scheduled_successor_id IS NOT NULL"
+            )
             conn.execute(
                 "CREATE TRIGGER IF NOT EXISTS trg_configuration_scheduled_predecessor_immutable "
                 "BEFORE UPDATE OF scheduled_predecessor_id ON configuration_bundle_revisions "
@@ -392,7 +461,7 @@ class SQLiteConfigurationStore:
         return BundleRevision(
             revision_id=value["revision_id"], bundle_id=value["bundle_id"], version=value["version"],
             mode=value["mode"], scope=value["scope"], scope_key=value["scope_key"], tenant_id=value["tenant_id"],
-            environment=value["environment"], status=value["status"],
+            environment=value["environment"], status=value.get("registry_status", value["status"]),
             component_revisions=_loads(value["components_json"], {}), content_sha256=value["content_sha256"],
             sequence=int(value["sequence"]), effective_from=_optional_timestamp_text(value["effective_from"]),
             effective_until=_optional_timestamp_text(value["effective_until"]), rollout_percentage=float(value["rollout_percentage"]),
@@ -401,6 +470,7 @@ class SQLiteConfigurationStore:
             supersedes_revision_id=value["supersedes_revision_id"], etag=int(value["etag"]),
             local_schedule=_loads(value["local_schedule"], None),
             scheduled_predecessor_id=value["scheduled_predecessor_id"],
+            scheduled_successor_id=value["scheduled_successor_id"],
         )
 
     @staticmethod
@@ -691,6 +761,22 @@ class SQLiteConfigurationStore:
             )
             changed.append(result.revision_id)
         return changed
+
+    @classmethod
+    def _published_bundle_tx(cls, conn: sqlite3.Connection, dimensions: tuple[Any, ...]) -> BundleRevision | None:
+        return cls._bundle(conn.execute(
+            "SELECT * FROM configuration_bundle_revisions WHERE bundle_id=? AND scope=? AND scope_key=? "
+            "AND tenant_id IS ? AND environment IS ? AND status='published'", dimensions,
+        ).fetchone())
+
+    @staticmethod
+    def _set_scheduled_successor_tx(conn: sqlite3.Connection, anchor_id: str, successor_id: str | None) -> None:
+        updated = conn.execute(
+            "UPDATE configuration_bundle_revisions SET scheduled_successor_id=? "
+            "WHERE revision_id=? AND status='published'", (successor_id, anchor_id),
+        )
+        if updated.rowcount != 1:
+            raise RuntimeError("configuration publication changed")
 
     @classmethod
     def _lock_bundle_components_tx(
@@ -1034,6 +1120,8 @@ class SQLiteConfigurationStore:
             if int(row["etag"]) != int(expected_etag):
                 conn.execute("ROLLBACK")
                 raise RuntimeError("configuration revision etag conflict")
+            if status == "retired":
+                _require_profile_unreferenced(conn, _SQLITE_PUBLISHED_BUNDLE_COMPONENT, revision_id)
             cursor = conn.execute(
                 "UPDATE configuration_profile_revisions "
                 "SET status=?,updated_at=?,etag=etag+1 "
@@ -1090,10 +1178,13 @@ class SQLiteConfigurationStore:
                       rollout_percentage: float = 100.0, rollout_seed: str = "default",
                        supersedes_revision_id: str | None = None,
                        force_new_revision: bool = False,
+                       rollback_target_revision_id: str | None = None,
                        require_matching_schedule: bool = True,
                        allowed_component_statuses: tuple[str, ...] = ("published",)) -> BundleRevision:
         schedule = normalize_schedule(effective_from, effective_until, local_schedule)
         start, end, local = schedule
+        dimensions = (bundle_id, scope, scope_key, tenant_id, environment)
+        published = status == "published"
         content_hash = digest({"mode": mode, "components": component_revisions})
         with self._lock, self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -1102,9 +1193,9 @@ class SQLiteConfigurationStore:
                 component_revisions,
                 allowed_statuses=tuple(sorted(set(allowed_component_statuses))),
             )
-            if not force_new_revision:
+            if not force_new_revision and rollback_target_revision_id is None:
                 existing = conn.execute(
-                    "SELECT * FROM configuration_bundle_revisions "
+                    f"SELECT *, {_SQLITE_BUNDLE_REGISTRY_STATUS} AS registry_status FROM configuration_bundle_revisions "
                     "WHERE bundle_id=? AND scope=? AND scope_key=? AND tenant_id IS ? "
                     "AND environment IS ? AND content_sha256=? "
                     "ORDER BY sequence DESC,revision_id",
@@ -1114,9 +1205,16 @@ class SQLiteConfigurationStore:
                 if result is not None:
                     conn.execute("COMMIT")
                     return result
-            if status == "published":
+            if published:
                 for profile in profiles:
                     verify_revision_schedule(profile)
+            anchor = self._published_bundle_tx(conn, dimensions) if published and (start or end or rollback_target_revision_id) else None
+            if rollback_target_revision_id is not None:
+                target = self._bundle(conn.execute(
+                    "SELECT * FROM configuration_bundle_revisions WHERE revision_id=?", (rollback_target_revision_id,),
+                ).fetchone())
+                _require_rollback_target(target, dimensions, component_revisions)
+                supersedes_revision_id = (anchor.scheduled_successor_id or anchor.revision_id) if anchor else None
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) FROM configuration_bundle_revisions "
                 "WHERE bundle_id=? AND scope=? AND scope_key=? "
@@ -1137,9 +1235,10 @@ class SQLiteConfigurationStore:
                         "sequence": sequence}
             revision_id = f"CBR-{digest(identity)[:24].upper()}"
             now = utc_now()
-            superseded = []
-            if status == "published":
-                superseded = self._supersede_published_bundles_tx(
+            scheduled = anchor is not None and bool(start or end)
+            predecessor = (anchor.scheduled_successor_id or anchor.revision_id) if scheduled else None
+            if published and not scheduled:
+                self._supersede_published_bundles_tx(
                     conn,
                     bundle_id=bundle_id,
                     scope=scope,
@@ -1155,40 +1254,53 @@ class SQLiteConfigurationStore:
                    components_json,content_sha256,sequence,effective_from,effective_until,local_schedule,rollout_percentage,rollout_seed,
                    created_by,created_at,updated_at,published_by,published_at,supersedes_revision_id,scheduled_predecessor_id,etag)
                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)""",
-                (revision_id, bundle_id, version, mode, scope, scope_key, tenant_id, environment, status,
+                (revision_id, bundle_id, version, mode, scope, scope_key, tenant_id, environment,
+                 "superseded" if scheduled else status,
                  canonical(component_revisions), content_hash, sequence, start, end, canonical(local) if local is not None else None,
                  float(rollout_percentage), rollout_seed, created_by, now, now,
-                 created_by if status == "published" else None, now if status == "published" else None,
-                 supersedes_revision_id, superseded[0] if superseded and (start or end) else None),
+                 created_by if published else None, now if published else None,
+                 supersedes_revision_id, predecessor),
             )
             row = conn.execute("SELECT * FROM configuration_bundle_revisions WHERE revision_id=?", (revision_id,)).fetchone()
             result = self._bundle(row)
             assert result is not None
+            if scheduled:
+                self._set_scheduled_successor_tx(conn, anchor.revision_id, result.revision_id)
+                result = replace(result, status="published")
             self._append_event_tx(
                 conn, "bundle", revision_id, "created", created_by, result.to_dict()
             )
-            if status == "published":
+            if published:
                 self._append_event_tx(
                     conn,
                     "bundle",
                     revision_id,
                     "published",
                     created_by,
-                    {"contentSha256": content_hash},
+                    {"contentSha256": content_hash, **({"scheduledPredecessorId": predecessor} if scheduled else {})},
                 )
+            if rollback_target_revision_id is not None:
+                self._append_event_tx(conn, "bundle", revision_id, "rollback_created", created_by, {
+                    "targetRevisionId": rollback_target_revision_id,
+                    "replacedRevisionId": supersedes_revision_id,
+                    "previousPublishedRevisionId": anchor.revision_id if anchor else None,
+                })
             self._bump_invalidation_epoch_tx(conn)
             conn.execute("COMMIT")
         return result
 
     def get_bundle(self, revision_id: str) -> BundleRevision | None:
         with self._connect() as conn:
-            return self._bundle(conn.execute("SELECT * FROM configuration_bundle_revisions WHERE revision_id=?", (revision_id,)).fetchone())
+            return self._bundle(conn.execute(
+                f"SELECT *, {_SQLITE_BUNDLE_REGISTRY_STATUS} AS registry_status FROM configuration_bundle_revisions "
+                "WHERE revision_id=?", (revision_id,),
+            ).fetchone())
 
     def find_bundle_by_content(self, *, bundle_id: str, scope: str, tenant_id: str | None, content_sha256: str,
                                scope_key: str = "*", environment: str | None = None) -> BundleRevision | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM configuration_bundle_revisions "
+                f"SELECT *, {_SQLITE_BUNDLE_REGISTRY_STATUS} AS registry_status FROM configuration_bundle_revisions "
                 "WHERE bundle_id=? AND scope=? AND scope_key=? AND tenant_id IS ? "
                 "AND environment IS ? AND content_sha256=? "
                 "ORDER BY sequence DESC,revision_id LIMIT 1",
@@ -1199,10 +1311,12 @@ class SQLiteConfigurationStore:
     def list_bundles(self, *, bundle_id: str | None = None, scope: str | None = None,
                      scope_key: str | None = None, tenant_id: str | None = None,
                      environment: str | None = None, status: str | None = None,
-                     limit: int = 200, exact_dimensions: bool = False) -> list[BundleRevision]:
+                     limit: int = 200, exact_dimensions: bool = False,
+                     include_scheduled: bool = False) -> list[BundleRevision]:
         clauses: list[str] = []
         args: list[Any] = []
-        for column, value in (("bundle_id", bundle_id), ("scope", scope), ("scope_key", scope_key), ("status", status)):
+        status_expression = _SQLITE_BUNDLE_REGISTRY_STATUS if include_scheduled else "status"
+        for column, value in (("bundle_id", bundle_id), ("scope", scope), ("scope_key", scope_key), (status_expression, status)):
             if value is not None:
                 clauses.append(f"{column}=?")
                 args.append(value)
@@ -1216,7 +1330,7 @@ class SQLiteConfigurationStore:
             if environment is not None:
                 clauses.append("environment=?")
                 args.append(environment)
-        sql = "SELECT * FROM configuration_bundle_revisions"
+        sql = f"SELECT *, {status_expression} AS registry_status FROM configuration_bundle_revisions"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY sequence DESC,created_at DESC LIMIT ?"
@@ -1250,24 +1364,24 @@ class SQLiteConfigurationStore:
             )
             for profile in profiles:
                 verify_revision_schedule(profile)
-            superseded = self._supersede_published_bundles_tx(
-                conn,
-                bundle_id=row["bundle_id"],
-                scope=row["scope"],
-                scope_key=row["scope_key"],
-                tenant_id=row["tenant_id"],
-                environment=row["environment"],
-                except_revision_id=revision_id,
-                actor_id=actor_id,
+            anchor = (
+                self._published_bundle_tx(conn, _bundle_dimensions(current))
+                if current.effective_from or current.effective_until else None
             )
+            predecessor = (anchor.scheduled_successor_id or anchor.revision_id) if anchor else None
+            if anchor is None:
+                self._supersede_published_bundles_tx(
+                    conn, bundle_id=current.bundle_id, scope=current.scope, scope_key=current.scope_key,
+                    tenant_id=current.tenant_id, environment=current.environment,
+                    except_revision_id=revision_id, actor_id=actor_id,
+                )
             cursor = conn.execute(
                 "UPDATE configuration_bundle_revisions "
-                "SET status='published',updated_at=?,etag=etag+1,"
+                "SET status=?,updated_at=?,etag=etag+1,"
                 "published_by=?,published_at=?,scheduled_predecessor_id=? "
                 "WHERE revision_id=? AND etag=? AND status='draft'",
-                (now, actor_id, now,
-                 superseded[0] if superseded and (current.effective_from or current.effective_until) else None,
-                 revision_id, expected_etag),
+                ("superseded" if anchor else "published", now, actor_id, now,
+                 predecessor, revision_id, expected_etag),
             )
             if cursor.rowcount != 1:
                 conn.execute("ROLLBACK")
@@ -1275,13 +1389,17 @@ class SQLiteConfigurationStore:
             updated = conn.execute("SELECT * FROM configuration_bundle_revisions WHERE revision_id=?", (revision_id,)).fetchone()
             result = self._bundle(updated)
             assert result is not None
+            if anchor is not None:
+                self._set_scheduled_successor_tx(conn, anchor.revision_id, result.revision_id)
+                result = replace(result, status="published")
             self._append_event_tx(
                 conn,
                 "bundle",
                 revision_id,
                 "published",
                 actor_id,
-                {"etag": result.etag, "status": result.status},
+                {"etag": result.etag, "status": result.status,
+                 **({"scheduledPredecessorId": predecessor} if anchor else {})},
             )
             self._bump_invalidation_epoch_tx(conn)
             conn.execute("COMMIT")
@@ -1312,6 +1430,14 @@ class SQLiteConfigurationStore:
             if int(row["etag"]) != int(expected_etag):
                 conn.execute("ROLLBACK")
                 raise RuntimeError("configuration revision etag conflict")
+            if status == "retired":
+                current = self._bundle(row)
+                assert current is not None
+                anchor = self._published_bundle_tx(conn, _bundle_dimensions(current))
+                if anchor is not None and anchor.scheduled_successor_id is not None:
+                    successor = _successor_after_retirement(anchor, current)
+                    if successor != anchor.scheduled_successor_id:
+                        self._set_scheduled_successor_tx(conn, anchor.revision_id, successor)
             cursor = conn.execute(
                 "UPDATE configuration_bundle_revisions "
                 "SET status=?,updated_at=?,etag=etag+1 "
@@ -1411,7 +1537,7 @@ class PostgresConfigurationStore:
         return BundleRevision(
             revision_id=d["revision_id"], bundle_id=d["bundle_id"], version=d["version"], mode=d["mode"],
             scope=d["scope"], scope_key=d["scope_key"], tenant_id=d.get("tenant_id"), environment=d.get("environment"),
-            status=d["status"], component_revisions=_loads(d["components"], {}),
+            status=d.get("registry_status", d["status"]), component_revisions=_loads(d["components"], {}),
             content_sha256=d["content_sha256"], sequence=int(d["sequence"]),
             effective_from=_optional_timestamp_text(d.get("effective_from")),
             effective_until=_optional_timestamp_text(d.get("effective_until")),
@@ -1421,6 +1547,7 @@ class PostgresConfigurationStore:
             supersedes_revision_id=d.get("supersedes_revision_id"), etag=int(d["etag"]),
             local_schedule=_loads(d.get("local_schedule"), None),
             scheduled_predecessor_id=d.get("scheduled_predecessor_id"),
+            scheduled_successor_id=d.get("scheduled_successor_id"),
         )
 
     @staticmethod
@@ -1746,6 +1873,37 @@ class PostgresConfigurationStore:
             )
             changed.append(result.revision_id)
         return changed
+
+    @classmethod
+    def _published_bundle_tx(cls, conn: Any, dimensions: tuple[Any, ...]) -> BundleRevision | None:
+        return cls._bundle(conn.execute(
+            f"SELECT {_POSTGRES_BUNDLE_COLUMNS} FROM configuration.bundle_revisions "
+            "WHERE bundle_id=%s AND scope=%s AND scope_key=%s AND tenant_id IS NOT DISTINCT FROM %s "
+            "AND environment IS NOT DISTINCT FROM %s AND status='published' FOR UPDATE", dimensions,
+        ).fetchone())
+
+    def _lock_bundle_revision_tx(self, conn: Any, revision_id: str, *, lock_scope: bool = False) -> BundleRevision:
+        select = f"SELECT {_POSTGRES_BUNDLE_COLUMNS} FROM configuration.bundle_revisions WHERE revision_id=%s"
+        if lock_scope:
+            current = self._bundle(conn.execute(select, (revision_id,)).fetchone())
+            if current is None:
+                raise KeyError(revision_id)
+            if current.status == "draft":
+                raise ValueError("only published bundle revisions can be retired")
+            self._lock_head(conn, "bundle", _aggregate_identity(_bundle_dimensions(current)))
+        current = self._bundle(conn.execute(select + " FOR UPDATE", (revision_id,)).fetchone())
+        if current is None:
+            raise KeyError(revision_id)
+        return current
+
+    @staticmethod
+    def _set_scheduled_successor_tx(conn: Any, anchor_id: str, successor_id: str | None) -> None:
+        updated = conn.execute(
+            "UPDATE configuration.bundle_revisions SET scheduled_successor_id=%s "
+            "WHERE revision_id=%s AND status='published'", (successor_id, anchor_id),
+        )
+        if updated.rowcount != 1:
+            raise RuntimeError("configuration publication changed")
 
     @classmethod
     def _lock_bundle_components_tx(
@@ -2181,6 +2339,8 @@ class PostgresConfigurationStore:
             assert current is not None
             if current.etag != int(expected_etag):
                 raise RuntimeError("configuration revision etag conflict")
+            if status == "retired":
+                _require_profile_unreferenced(conn, _POSTGRES_PUBLISHED_BUNDLE_COMPONENT, revision_id)
             updated = conn.execute(
                 "UPDATE configuration.profile_revisions "
                 "SET status=%s,updated_at=%s::timestamptz,etag=etag+1 "
@@ -2242,12 +2402,14 @@ class PostgresConfigurationStore:
         scope_key = str(kwargs.get("scope_key", "*"))
         tenant_id = kwargs.get("tenant_id")
         environment = kwargs.get("environment")
+        dimensions = (bundle_id, scope, scope_key, tenant_id, environment)
+        status = kwargs["status"]
+        published = status == "published"
+        rollback_target = kwargs.get("rollback_target_revision_id")
         content_hash = digest(
             {"mode": kwargs["mode"], "components": kwargs["component_revisions"]}
         )
-        logical_identity = _aggregate_identity(
-            (bundle_id, scope, scope_key, tenant_id, environment)
-        )
+        logical_identity = _aggregate_identity(dimensions)
         content_identity = _aggregate_identity(
             (bundle_id, scope, scope_key, tenant_id, environment, content_hash)
         )
@@ -2260,9 +2422,9 @@ class PostgresConfigurationStore:
                 ),
             )
             self._lock_head(conn, "bundle_content", content_identity)
-            if not kwargs.get("force_new_revision"):
+            if not kwargs.get("force_new_revision") and rollback_target is None:
                 existing = conn.execute(
-                    f"SELECT {_POSTGRES_BUNDLE_COLUMNS} "
+                    f"SELECT {_POSTGRES_BUNDLE_COLUMNS}, {_POSTGRES_BUNDLE_REGISTRY_STATUS} AS registry_status "
                     "FROM configuration.bundle_revisions "
                     "WHERE bundle_id=%s AND scope=%s AND scope_key=%s "
                     "AND tenant_id IS NOT DISTINCT FROM %s "
@@ -2275,10 +2437,19 @@ class PostgresConfigurationStore:
                 )
                 if result is not None:
                     return result
-            if kwargs["status"] == "published":
+            if published:
                 for profile in profiles:
                     verify_revision_schedule(profile)
             self._lock_head(conn, "bundle", logical_identity)
+            anchor = self._published_bundle_tx(conn, dimensions) if published and (start or end or rollback_target) else None
+            supersedes_revision_id = kwargs.get("supersedes_revision_id")
+            if rollback_target is not None:
+                target = self._bundle(conn.execute(
+                    f"SELECT {_POSTGRES_BUNDLE_COLUMNS} FROM configuration.bundle_revisions WHERE revision_id=%s FOR SHARE",
+                    (rollback_target,),
+                ).fetchone())
+                _require_rollback_target(target, dimensions, kwargs["component_revisions"])
+                supersedes_revision_id = (anchor.scheduled_successor_id or anchor.revision_id) if anchor else None
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) AS max_sequence "
                 "FROM configuration.bundle_revisions "
@@ -2307,9 +2478,10 @@ class PostgresConfigurationStore:
             }
             revision_id = f"CBR-{digest(identity)[:24].upper()}"
             now = utc_now()
-            superseded = []
-            if kwargs["status"] == "published":
-                superseded = self._supersede_published_bundles_tx(
+            scheduled = anchor is not None and bool(start or end)
+            predecessor = (anchor.scheduled_successor_id or anchor.revision_id) if scheduled else None
+            if published and not scheduled:
+                self._supersede_published_bundles_tx(
                     conn,
                     bundle_id=bundle_id,
                     scope=scope,
@@ -2338,7 +2510,7 @@ class PostgresConfigurationStore:
                     scope_key,
                     tenant_id,
                     environment,
-                    kwargs["status"],
+                    "superseded" if scheduled else status,
                     canonical(kwargs["component_revisions"]),
                     content_hash,
                     sequence,
@@ -2350,33 +2522,42 @@ class PostgresConfigurationStore:
                     kwargs["created_by"],
                     now,
                     now,
-                    kwargs["created_by"] if kwargs["status"] == "published" else None,
-                    now if kwargs["status"] == "published" else None,
-                    kwargs.get("supersedes_revision_id"),
-                    superseded[0] if superseded and (start or end) else None,
+                    kwargs["created_by"] if published else None,
+                    now if published else None,
+                    supersedes_revision_id,
+                    predecessor,
                 ),
             ).fetchone()
             result = self._bundle(row)
             assert result is not None
+            if scheduled:
+                self._set_scheduled_successor_tx(conn, anchor.revision_id, result.revision_id)
+                result = replace(result, status="published")
             self._append_event_tx(
                 conn, "bundle", revision_id, "created", kwargs["created_by"], result.to_dict()
             )
-            if kwargs["status"] == "published":
+            if published:
                 self._append_event_tx(
                     conn,
                     "bundle",
                     revision_id,
                     "published",
                     kwargs["created_by"],
-                    {"contentSha256": content_hash},
+                    {"contentSha256": content_hash, **({"scheduledPredecessorId": predecessor} if scheduled else {})},
                 )
+            if rollback_target is not None:
+                self._append_event_tx(conn, "bundle", revision_id, "rollback_created", kwargs["created_by"], {
+                    "targetRevisionId": rollback_target,
+                    "replacedRevisionId": supersedes_revision_id,
+                    "previousPublishedRevisionId": anchor.revision_id if anchor else None,
+                })
             self._bump_invalidation_epoch_tx(conn)
             return result
 
     def get_bundle(self, revision_id: str) -> BundleRevision | None:
         with contextual_connection(self.pool) as conn:
             row = conn.execute(
-                f"SELECT {_POSTGRES_BUNDLE_COLUMNS} "
+                f"SELECT {_POSTGRES_BUNDLE_COLUMNS}, {_POSTGRES_BUNDLE_REGISTRY_STATUS} AS registry_status "
                 "FROM configuration.bundle_revisions WHERE revision_id=%s",
                 (revision_id,),
             ).fetchone()
@@ -2394,7 +2575,7 @@ class PostgresConfigurationStore:
     ) -> BundleRevision | None:
         with contextual_connection(self.pool) as conn:
             row = conn.execute(
-                f"SELECT {_POSTGRES_BUNDLE_COLUMNS} "
+                f"SELECT {_POSTGRES_BUNDLE_COLUMNS}, {_POSTGRES_BUNDLE_REGISTRY_STATUS} AS registry_status "
                 "FROM configuration.bundle_revisions "
                 "WHERE bundle_id=%s AND scope=%s AND scope_key=%s "
                 "AND tenant_id IS NOT DISTINCT FROM %s "
@@ -2422,14 +2603,16 @@ class PostgresConfigurationStore:
         status: str | None = None,
         limit: int = 200,
         exact_dimensions: bool = False,
+        include_scheduled: bool = False,
     ) -> list[BundleRevision]:
         clauses: list[str] = []
         args: list[Any] = []
+        status_expression = _POSTGRES_BUNDLE_REGISTRY_STATUS if include_scheduled else "status"
         for column, value in (
             ("bundle_id", bundle_id),
             ("scope", scope),
             ("scope_key", scope_key),
-            ("status", status),
+            (status_expression, status),
         ):
             if value is not None:
                 clauses.append(f"{column}=%s")
@@ -2449,7 +2632,7 @@ class PostgresConfigurationStore:
             if environment is not None:
                 clauses.append("environment=%s")
                 args.append(environment)
-        sql = f"SELECT {_POSTGRES_BUNDLE_COLUMNS} FROM configuration.bundle_revisions"
+        sql = f"SELECT {_POSTGRES_BUNDLE_COLUMNS}, {status_expression} AS registry_status FROM configuration.bundle_revisions"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY sequence DESC,created_at DESC,revision_id LIMIT %s"
@@ -2462,16 +2645,7 @@ class PostgresConfigurationStore:
         self, revision_id: str, *, expected_etag: int, actor_id: str
     ) -> BundleRevision:
         with contextual_connection(self.pool) as conn:
-            row = conn.execute(
-                f"SELECT {_POSTGRES_BUNDLE_COLUMNS} "
-                "FROM configuration.bundle_revisions "
-                "WHERE revision_id=%s FOR UPDATE",
-                (revision_id,),
-            ).fetchone()
-            if row is None:
-                raise KeyError(revision_id)
-            current = self._bundle(row)
-            assert current is not None
+            current = self._lock_bundle_revision_tx(conn, revision_id)
             if current.etag != int(expected_etag):
                 raise RuntimeError("configuration revision etag conflict")
             if current.status != "draft":
@@ -2484,47 +2658,42 @@ class PostgresConfigurationStore:
             )
             for profile in profiles:
                 verify_revision_schedule(profile)
-            logical_identity = _aggregate_identity(
-                (
-                    current.bundle_id,
-                    current.scope,
-                    current.scope_key,
-                    current.tenant_id,
-                    current.environment,
+            self._lock_head(conn, "bundle", _aggregate_identity(_bundle_dimensions(current)))
+            anchor = (
+                self._published_bundle_tx(conn, _bundle_dimensions(current))
+                if current.effective_from or current.effective_until else None
+            )
+            predecessor = (anchor.scheduled_successor_id or anchor.revision_id) if anchor else None
+            if anchor is None:
+                self._supersede_published_bundles_tx(
+                    conn, bundle_id=current.bundle_id, scope=current.scope, scope_key=current.scope_key,
+                    tenant_id=current.tenant_id, environment=current.environment,
+                    except_revision_id=revision_id, actor_id=actor_id,
                 )
-            )
-            self._lock_head(conn, "bundle", logical_identity)
-            superseded = self._supersede_published_bundles_tx(
-                conn,
-                bundle_id=current.bundle_id,
-                scope=current.scope,
-                scope_key=current.scope_key,
-                tenant_id=current.tenant_id,
-                environment=current.environment,
-                except_revision_id=revision_id,
-                actor_id=actor_id,
-            )
             now = utc_now()
             updated = conn.execute(
                 "UPDATE configuration.bundle_revisions "
-                "SET status='published',updated_at=%s::timestamptz,etag=etag+1,"
+                "SET status=%s,updated_at=%s::timestamptz,etag=etag+1,"
                 "published_by=%s,published_at=%s::timestamptz,scheduled_predecessor_id=%s "
                 "WHERE revision_id=%s AND etag=%s AND status='draft' "
                 f"RETURNING {_POSTGRES_BUNDLE_COLUMNS}",
-                (now, actor_id, now,
-                 superseded[0] if superseded and (current.effective_from or current.effective_until) else None,
-                 revision_id, expected_etag),
+                ("superseded" if anchor else "published", now, actor_id, now,
+                 predecessor, revision_id, expected_etag),
             ).fetchone()
             result = self._bundle(updated)
             if result is None:
                 raise RuntimeError("configuration revision etag conflict")
+            if anchor is not None:
+                self._set_scheduled_successor_tx(conn, anchor.revision_id, result.revision_id)
+                result = replace(result, status="published")
             self._append_event_tx(
                 conn,
                 "bundle",
                 revision_id,
                 "published",
                 actor_id,
-                {"etag": result.etag, "status": result.status},
+                {"etag": result.etag, "status": result.status,
+                 **({"scheduledPredecessorId": predecessor} if anchor else {})},
             )
             self._bump_invalidation_epoch_tx(conn)
             return result
@@ -2542,18 +2711,15 @@ class PostgresConfigurationStore:
                 revision_id, expected_etag=expected_etag, actor_id=actor_id
             )
         with contextual_connection(self.pool) as conn:
-            row = conn.execute(
-                f"SELECT {_POSTGRES_BUNDLE_COLUMNS} "
-                "FROM configuration.bundle_revisions "
-                "WHERE revision_id=%s FOR UPDATE",
-                (revision_id,),
-            ).fetchone()
-            if row is None:
-                raise KeyError(revision_id)
-            current = self._bundle(row)
-            assert current is not None
+            current = self._lock_bundle_revision_tx(conn, revision_id, lock_scope=status == "retired")
             if current.etag != int(expected_etag):
                 raise RuntimeError("configuration revision etag conflict")
+            if status == "retired":
+                anchor = self._published_bundle_tx(conn, _bundle_dimensions(current))
+                if anchor is not None and anchor.scheduled_successor_id is not None:
+                    successor = _successor_after_retirement(anchor, current)
+                    if successor != anchor.scheduled_successor_id:
+                        self._set_scheduled_successor_tx(conn, anchor.revision_id, successor)
             updated = conn.execute(
                 "UPDATE configuration.bundle_revisions "
                 "SET status=%s,updated_at=%s::timestamptz,etag=etag+1 "

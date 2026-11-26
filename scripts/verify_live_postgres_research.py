@@ -84,7 +84,7 @@ REQUIRED_MIGRATION_HASHES = {
         "314fde4a8203348f10791f2494933b7cba7b0b57e36f0914c57d7a0177b3acf6"
     ),
     "034_configuration_schedule_handoff.sql": (
-        "f7255a3ef28fc777339ab34e1a260dcd76a5c5e87998d1cbf950513c9f16cf74"
+        "b7e43662710ba7a56c5c7f23734c9343067ab5fbc37032f769f1956534e2bc36"
     ),
 }
 CONFIGURATION_V25_CONSTRAINTS = frozenset(
@@ -4231,6 +4231,18 @@ def _publish_live_ortools_bundle(
     return resolved
 
 
+def _synthetic_runtime_environment(root: Path, runtime: Path, outputs: Path) -> dict[str, str]:
+    return {
+        "BALOOT_ROOT": str(root),
+        "BALOOT_DATA_DIR": str(runtime),
+        "BALOOT_RUNTIME": str(runtime),
+        "BALOOT_OUTPUTS": str(outputs),
+        "BALOOT_ENV": "development",
+        "BALOOT_CHALLENGE_LOCATOR_KEY": secrets.token_urlsafe(48),
+        "BALOOT_CURATED_SAKKA_SIGNING_KEY": secrets.token_urlsafe(48),
+    }
+
+
 def _prove_full_wiring(
     database_url: str,
     proof_root: Path,
@@ -4251,15 +4263,7 @@ def _prove_full_wiring(
     )
 
     runtime = proof_root / "runtime"
-    values = {
-        "BALOOT_ROOT": str(ROOT),
-        "BALOOT_DATA_DIR": str(runtime),
-        "BALOOT_RUNTIME": str(runtime),
-        "BALOOT_OUTPUTS": str(proof_root / "outputs"),
-        "BALOOT_ENV": "development",
-        "BALOOT_CHALLENGE_LOCATOR_KEY": secrets.token_urlsafe(48),
-        "BALOOT_CURATED_SAKKA_SIGNING_KEY": secrets.token_urlsafe(48),
-    }
+    values = _synthetic_runtime_environment(ROOT, runtime, proof_root / "outputs")
     schema = _prove_configuration_v25_schema(database_url)
     with _temporary_environment(values):
         container = build_container(

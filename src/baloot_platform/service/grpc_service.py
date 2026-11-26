@@ -1534,6 +1534,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             values = CONFIGURATION.store.list_bundles(
                 tenant_id=request.tenant_id or self._tenant(context), bundle_id=request.bundle_id or None,
                 status=request.status or None, scope=request.scope or None, limit=request.limit or 200,
+                include_scheduled=True,
             )
             return self._result({"items": [item.to_dict() for item in values]})
 

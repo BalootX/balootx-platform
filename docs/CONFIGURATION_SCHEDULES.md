@@ -25,15 +25,15 @@ Nonexistent and ambiguous local times are rejected with the field name. For a
 repeated hour, choose an unambiguous wall time or specify the intended instant
 with its explicit offset.
 
-A bounded bundle publication records the revision it replaces in the same
-scope. Before the window opens and after it expires, resolution checks the
-recorded predecessors in order and uses the first one whose window includes the
-requested instant. An immediate, unscheduled publication ends that handoff.
-The selected revision remains subject to its rollout policy. The registry
-preserves revision history, while effective resolution reports the
-selected predecessor as published for the time it remains in use. Processes
-load a verified runtime bundle at startup. Restart them at a scheduled boundary
-to load the newly effective bundle.
+A bounded bundle publication keeps the existing publication for the previous
+release and records the scheduled revision in the same scope. The current
+release checks the scheduled revision and its predecessors in publication
+order and uses the first one whose window includes the requested instant.
+The selected revision remains subject to its rollout policy. An immediate,
+unscheduled publication ends the schedule. The previous release continues to
+use the underlying publication before, during and after a scheduled window.
+Processes load a verified runtime bundle at startup. Restart them at a
+scheduled boundary to load the newly effective bundle.
 
 New revisions retain the wall times and zone in `localSchedule` and continue
 returning UTC instants in `effectiveFrom` and `effectiveUntil`. Identical
@@ -66,9 +66,12 @@ To recover, authenticate as a configuration administrator and inspect
 the v1 registry or v2 configuration create routes with `publish: true` to
 publish a currently effective replacement bundle with verified component
 revisions. A refused publication leaves the active revision and audit history
-intact. To restore known-good content, use the v1 registry's
+intact. Replace any published bundle that uses a component before retiring
+that component. This includes the underlying and reachable scheduled revisions.
+To restore known-good content, use the v1 registry's
 `POST /bundles/{revisionId}:rollback`
-with a new version. It publishes a fresh, unscheduled revision.
+with a new version. It publishes a fresh, unscheduled revision and records the
+target and replaced publication in the same transaction.
 Restart affected processes after publishing and verify readiness.
 
 Apply PostgreSQL migrations 033 and 034 with the current migration runner before
@@ -84,3 +87,5 @@ window has no effective bundle.
 The schema retains content-only uniqueness. The PostgreSQL CI job writes
 schedules with the new code, runs the previous revision's migration runner,
 and opens both databases with the previous stores to verify their UTC reads.
+It also starts both service releases before, during and after a scheduled
+window on each store.

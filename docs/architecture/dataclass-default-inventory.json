@@ -389,6 +389,14 @@
       "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
     },
     {
+      "key": "src/baloot_platform/configuration/models.py:BundleRevision.scheduled_successor_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:BundleRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
       "key": "src/baloot_platform/configuration/models.py:BundleRevision.supersedes_revision_id",
       "default": "None",
       "classification": "protocol_or_mathematical_invariant",
@@ -1686,7 +1694,7 @@
     }
   ],
   "summary": {
-    "total": 209,
+    "total": 210,
     "migrationRequired": 0
   }
 }
