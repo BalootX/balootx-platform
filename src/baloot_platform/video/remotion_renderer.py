@@ -17,6 +17,7 @@ import signal
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import time
 from collections.abc import Mapping
@@ -64,6 +65,7 @@ _CARD_LABEL = re.compile(r"(?:10|[2-9JQKA])[♠♥♦♣]")
 _LTR_ISOLATE = "\u2066"
 _POP_DIRECTIONAL_ISOLATE = "\u2069"
 _LAYOUT_PHASES = ("hook", "question", "reveal")
+WORKER_RENDERER_ROOT = Path(sysconfig.get_path("purelib")) / "baloot_platform/video/remotion"
 
 
 def _localized_template_value(value: object) -> str:
@@ -314,6 +316,7 @@ class RemotionProfessionalRenderer:
         *,
         repository_root: str | Path | None = None,
         timeout_seconds: int | None = None,
+        use_worker_renderer: bool = False,
     ):
         if timeout_seconds is not None:
             if (
@@ -335,9 +338,11 @@ class RemotionProfessionalRenderer:
         )
         source_renderer = self.repository_root / "src/baloot_platform/video/remotion"
         packaged_renderer = Path(__file__).resolve().parent / "remotion"
-        self.renderer_root = (
-            source_renderer if source_renderer.is_dir() else packaged_renderer
-        )
+        self.use_worker_renderer = use_worker_renderer
+        if use_worker_renderer:
+            self.renderer_root = WORKER_RENDERER_ROOT
+        else:
+            self.renderer_root = source_renderer if source_renderer.is_dir() else packaged_renderer
         if not (self.renderer_root / "scripts/render-flagship.mjs").is_file():
             raise FileNotFoundError("Remotion renderer package is missing")
         self.ffprobe: Path | None = None
@@ -830,6 +835,8 @@ class RemotionProfessionalRenderer:
         cancel_event: Event | None,
     ) -> None:
         process_environment = {**os.environ, "BALOOTX_PYTHON": sys.executable, **environment}
+        if self.use_worker_renderer:
+            process_environment["BALOOTX_DISABLE_BUNDLE_CACHE"] = "1"
         render_temp = os.environ.get("BALOOT_RENDER_TEMP", "").strip()
         temp_root = None
         if render_temp:

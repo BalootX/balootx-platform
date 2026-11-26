@@ -1,7 +1,7 @@
 """Render the approved public v4 research notice from a governed synthetic deal.
 
-Requires the selected video-worker build receipt (BALOOT_RENDER_BUILD_RECEIPT)
-and the launcher-observed image ID (BALOOT_RENDER_IMAGE_ID).
+Requires BALOOT_RENDER_BUILD_RECEIPT, BALOOT_RENDER_IMAGE_ID and
+BALOOT_RENDER_KICKOFF_RECEIPT from the launcher for the pinned Git checkout.
 
 Structure (owner spec v4): pause on the decision with the question, replay the
 recorded round from the bidding (the dealer's أول/ثاني round calls) up to that
@@ -39,6 +39,7 @@ from baloot_platform.video.render_bundle import (
 from baloot_platform.video.typography import FONT_BODY_BOLD
 from baloot_platform.video.visual_qa import assert_text_supported, text_bbox
 from scripts.remotion_image_parity import check_parity
+from scripts.render_kickoff import require_kickoff_receipt, verify_worker_build
 from scripts.render_release import render_timeout_seconds
 from scripts.render_research_scenario_v4_goldens import build_golden_bundle
 
@@ -82,7 +83,6 @@ TARGET_SECONDS = 44
 STAGES = ("hook", "rewind", "setup", "replay", "question", "reveal", "continuation", "outcome")
 PHASES = ("hook", "setup", "replay", "question", "reveal", "continuation", "outcome")
 STYLE = ROOT / "src/baloot_platform/video/remotion/src/style.css"
-SOURCE_SHA = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 WORKER_LOCK_STAMP = Path("/opt/baloot-remotion/.lock-sha256")
 
 
@@ -466,36 +466,6 @@ def _release_layout(manifest: dict, video: Path, bundle_sha256: str) -> tuple[di
     return geometry, paths
 
 
-def _source_identity(
-    source_head: str | None = None, source_tree: str | None = None
-) -> tuple[str, str]:
-    """Read the pinned source identity from the archive's retained manifest."""
-    if source_head is not None or source_tree is not None:
-        if not all(
-            isinstance(value, str) and SOURCE_SHA.fullmatch(value)
-            for value in (source_head, source_tree)
-        ):
-            raise ValueError("explicit source identity is invalid")
-        return source_head, source_tree
-    if (ROOT / ".git").exists():
-        raise ValueError("explicit source identity is required for a git checkout")
-    try:
-        manifest = json.loads(
-            (ROOT / "release/source-manifest.json").read_text(encoding="utf-8")
-        )
-        source = manifest["source"]
-        revision = source["revision"]
-        tree = source["tree"]
-    except (KeyError, TypeError, OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ValueError("release source manifest identity is invalid") from exc
-    if not all(
-        isinstance(value, str) and SOURCE_SHA.fullmatch(value)
-        for value in (revision, tree)
-    ):
-        raise ValueError("release source manifest identity is invalid")
-    return revision, tree
-
-
 def _write_provenance_notice(
     output: Path,
     *,
@@ -518,56 +488,56 @@ def _write_provenance_notice(
 def _verify_public_renderer(
     renderer_root: Path, source_head: str, source_tree: str
 ) -> dict[str, str]:
-    """Verify the selected build receipt against the launcher-observed image ID."""
+    """Bind the build and kickoff receipts to the checkout and worker image."""
     receipt_path = os.environ.get("BALOOT_RENDER_BUILD_RECEIPT")
     image_id = os.environ.get("BALOOT_RENDER_IMAGE_ID", "")
-    if not receipt_path or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+    if not receipt_path:
         raise ValueError("public render requires a selected build receipt and executing image ID")
-    try:
-        build = json.loads(Path(receipt_path).read_bytes())
-    except (OSError, ValueError) as exc:
-        raise ValueError("public render build receipt is unreadable") from exc
-    if (
-        not isinstance(build, dict)
-        or build.get("status") != "PASSED"
-        or build.get("target") != "video-worker"
-    ):
-        raise ValueError("public render requires a passed video-worker build receipt")
-    if (build.get("sourceHead"), build.get("sourceTree")) != (source_head, source_tree):
-        raise ValueError("public render build source does not match the selected source")
-    if build.get("imageId") != image_id:
-        raise ValueError("public render image does not match the selected build")
+    lock_digest = verify_worker_build(Path(receipt_path), source_head, source_tree, image_id)
+    kickoff_path = os.environ.get("BALOOT_RENDER_KICKOFF_RECEIPT")
+    if not kickoff_path:
+        raise ValueError("public render requires a passed render kickoff receipt")
+    main_head, checked_at = require_kickoff_receipt(
+        Path(kickoff_path), source_head, source_tree, image_id, lock_digest, checkout=ROOT
+    )
 
     lockfile = ROOT / "src/baloot_platform/video/remotion/package-lock.json"
     digest = _sha256(lockfile)
     if (
-        build.get("packageLockSha256") != digest
+        lock_digest != digest
         or WORKER_LOCK_STAMP.read_bytes() != f"{digest}  package-lock.json\n".encode("ascii")
         or _sha256(renderer_root / "package-lock.json") != digest
     ):
         raise ValueError("public render lockfile does not match the selected build")
-    if check_parity(renderer_root / "node_modules", lockfile):
+    dependencies = renderer_root / "node_modules"
+    if (
+        dependencies.resolve() != WORKER_LOCK_STAMP.with_name("node_modules").resolve()
+        or check_parity(dependencies, lockfile)
+    ):
         raise ValueError("public render dependencies do not match the selected lockfile")
-    return {"imageId": image_id, "packageLockSha256": digest}
+    return {
+        "imageId": image_id, "packageLockSha256": digest,
+        "kickoffMainHead": main_head, "checkedAt": checked_at,
+    }
 
 
 def main(
     copy_to: Path | None = None,
     *,
+    source_head: str,
+    source_tree: str,
     output_dir: Path | None = None,
-    source_head: str | None = None,
-    source_tree: str | None = None,
     deal_id: str | None = None,
     seed: str | int | None = None,
 ) -> None:
     selection = select_deal(deal_id, seed)
     fixture = selection["fixture"]
     golden = selection["golden"]
-    source_head, source_tree = _source_identity(source_head, source_tree)
     rules = RuleBook.load(ROOT / "configs/rules/saudi_common_v1.yaml")
     profile = notice_profile()
     renderer = RemotionProfessionalRenderer(
         profile, repository_root=ROOT, timeout_seconds=render_timeout_seconds(),
+        use_worker_renderer=True,
     )
     renderer_provenance = _verify_public_renderer(
         renderer.renderer_root, source_head, source_tree
@@ -668,8 +638,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--copy-to", type=Path, help="Also copy the deliverables to this directory.")
     parser.add_argument("--output", type=Path, help="Write the render and evidence into this directory.")
-    parser.add_argument("--source-head", help="Pinned source commit SHA for archive execution.")
-    parser.add_argument("--source-tree", help="Pinned source tree SHA for archive execution.")
+    parser.add_argument("--source-head", required=True, help="Pinned source checkout commit SHA.")
+    parser.add_argument("--source-tree", required=True, help="Pinned source checkout tree SHA.")
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument(
         "--deal-id", "--deal-identifier", dest="deal_id",

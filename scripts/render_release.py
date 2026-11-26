@@ -339,18 +339,13 @@ def main(*, research_notice: bool = False) -> None:
 
     with release_render_lock():
         if research_notice:
-            command = [sys.executable, "-B", "-P", "-m", "scripts.render_research_notice"]
-            if (ROOT / ".git").exists():
-                command += [
-                    "--source-head",
-                    subprocess.check_output(
-                        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-                    ).strip(),
-                    "--source-tree",
-                    subprocess.check_output(
-                        ["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT, text=True
-                    ).strip(),
-                ]
+            source_head, source_tree = subprocess.check_output(
+                ["git", "rev-parse", "HEAD", "HEAD^{tree}"], cwd=ROOT, text=True
+            ).splitlines()
+            command = [
+                sys.executable, "-B", "-P", "-m", "scripts.render_research_notice",
+                "--source-head", source_head, "--source-tree", source_tree,
+            ]
             pythonpath = os.pathsep.join(filter(None, (str(ROOT), str(ROOT / "src"), os.getenv("PYTHONPATH"))))
             run("approved-v4-public", command, environment={"PYTHONPATH": pythonpath})
             return

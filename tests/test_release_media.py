@@ -718,23 +718,17 @@ def test_release_renderer_help_never_starts_a_render() -> None:
     assert "outputs/professional-video" not in result.stdout
 
 
-@pytest.mark.parametrize("checkout", [False, True], ids=["archive", "checkout"])
-def test_research_notice_launches_in_safe_path_mode(tmp_path, monkeypatch, checkout) -> None:
+def test_research_notice_launches_pinned_checkout_in_safe_path_mode(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("PYTHONPATH", raising=False)
     monkeypatch.setattr(render_release, "ROOT", tmp_path)
     monkeypatch.setattr(render_release, "_new_render_evidence_dir", lambda: tmp_path)
     monkeypatch.setattr(render_release, "release_render_lock", nullcontext)
-    if checkout:
-        (tmp_path / ".git").write_text("gitdir: unavailable", encoding="utf-8")
+    def rev_parse(command, *, cwd, text):
+        assert command == ["git", "rev-parse", "HEAD", "HEAD^{tree}"]
+        assert cwd == tmp_path and text
+        return "a" * 40 + "\n" + "b" * 40 + "\n"
 
-        def rev_parse(command, *, cwd, text):
-            assert cwd == tmp_path and text
-            return {
-                "HEAD": "a" * 40 + "\n",
-                "HEAD^{tree}": "b" * 40 + "\n",
-            }[command[2]]
-
-        monkeypatch.setattr(render_release.subprocess, "check_output", rev_parse)
+    monkeypatch.setattr(render_release.subprocess, "check_output", rev_parse)
     calls = []
     monkeypatch.setattr(render_release, "_run", lambda *args, **kwargs: calls.append((args, kwargs)))
 
@@ -742,10 +736,10 @@ def test_research_notice_launches_in_safe_path_mode(tmp_path, monkeypatch, check
 
     assert len(calls) == 1
     (command,), options = calls[0]
-    expected = [render_release.sys.executable, "-B", "-P", "-m", "scripts.render_research_notice"]
-    if checkout:
-        expected += ["--source-head", "a" * 40, "--source-tree", "b" * 40]
-    assert command == expected
+    assert command == [
+        render_release.sys.executable, "-B", "-P", "-m", "scripts.render_research_notice",
+        "--source-head", "a" * 40, "--source-tree", "b" * 40,
+    ]
     assert options["stage"] == "approved-v4-public"
     assert options["environment"]["PYTHONPATH"].split(os.pathsep) == [str(tmp_path), str(tmp_path / "src")]
 
