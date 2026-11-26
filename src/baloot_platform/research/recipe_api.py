@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import base64
 import copy
 import hashlib
-import json
 import re
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping
+
+from baloot_platform.storage.cursors import decode_cursor_payload, encode_cursor_payload
 
 from .result_library import normalize_timestamp
 from .serialization import encode_json
@@ -134,8 +134,7 @@ class RecipeListCursorV1:
             "recipeCode": self.recipe_code,
             "status": self.status,
         }
-        raw = encode_json(payload).encode("utf-8")
-        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+        return encode_cursor_payload(payload)
 
     @classmethod
     def decode(
@@ -144,21 +143,10 @@ class RecipeListCursorV1:
         *,
         status: RecipeLifecycleStatus | None,
     ) -> "RecipeListCursorV1":
-        if not isinstance(value, str):
-            raise ValueError("research recipe cursor is malformed")
         cursor = value
-        if not cursor or len(cursor) > RECIPE_LIST_CURSOR_MAX_LENGTH:
-            raise ValueError("research recipe cursor is malformed")
-        if re.fullmatch(r"[A-Za-z0-9_-]+", cursor) is None:
-            raise ValueError("research recipe cursor is malformed")
         try:
-            raw = base64.b64decode(
-                cursor + "=" * (-len(cursor) % 4),
-                altchars=b"-_",
-                validate=True,
-            )
-            payload = json.loads(raw.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            payload = decode_cursor_payload(cursor, maximum_length=RECIPE_LIST_CURSOR_MAX_LENGTH)
+        except (ValueError, RecursionError) as exc:
             raise ValueError("research recipe cursor is malformed") from exc
         if not isinstance(payload, dict) or set(payload) != _CURSOR_KEYS:
             raise ValueError("research recipe cursor is malformed")
