@@ -474,7 +474,7 @@ def qualify(
         bundle = notice.build_notice_bundle(
             engine.rules, profile, fixture=fixture_path, golden=row["id"]
         )
-        notice.validate_notice_bundle(bundle, final, public=True, fixture=fixture_path)
+        notice.validate_notice_bundle(bundle, final, fixture=fixture_path)
         check_names(bundle.value["identity"])
         bundle_file = directory / "bundle.json"
         row["bundle"] = write_json(bundle_file, bundle.to_dict())
@@ -557,7 +557,7 @@ def generate(output, *, run_id, source, tree, library, rounds, target, shard=0):
             with search_deadline(budget_seconds()) as deadline:
                 rules = RuleBook.load(viewer.RULES_PATH)
                 engine = BalootEngine(rules)
-                profile = notice.notice_profile(public=True)
+                profile = notice.notice_profile()
                 profile["identity"] = synthetic_identity()
                 proof_service = UnifiedScenarioProofServiceV1.from_repository(
                     notice.ROOT

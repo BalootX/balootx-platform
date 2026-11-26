@@ -822,7 +822,7 @@ jobs:
                   "BALOOT_RENDER_BUILD_RECEIPT": f"/receipts/{case}-build.json",
                   "BALOOT_RENDER_KICKOFF_RECEIPT": f"/receipts/{case}-kickoff.json",
               }):
-                  notice.main(public=True, source_head=head, source_tree=tree)
+                  notice.main(source_head=head, source_tree=tree)
 
           source_head, source_tree = sys.argv[1:]
           assert not (notice.STYLE.parents[1] / "node_modules").exists()
@@ -930,10 +930,10 @@ jobs:
           from scripts.nightly_candidates import synthetic_identity
 
           rules = RuleBook.load(notice.ROOT / "configs/rules/saudi_common_v1.yaml")
-          profile = notice.notice_profile(public=True)
+          profile = notice.notice_profile()
           profile["identity"] = synthetic_identity()
           bundle = notice.build_notice_bundle(rules, profile)
-          notice.validate_notice_bundle(bundle, notice.engine_round_result(rules), public=True)
+          notice.validate_notice_bundle(bundle, notice.engine_round_result(rules))
           Path(sys.argv[1]).write_text(json.dumps(bundle.to_dict(), ensure_ascii=False), encoding="utf-8")
           PY
           cd src/baloot_platform/video/remotion

@@ -420,7 +420,7 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert "target=/checkout,readonly" in check_checkout["run"]
     assert "target=/receipts,readonly" in check_checkout["run"]
     assert 'test "$(id -u)" -eq 10001' in check_checkout["run"]
-    assert "notice.main(public=True, source_head=head, source_tree=tree)" in check_checkout["run"]
+    assert "notice.main(source_head=head, source_tree=tree)" in check_checkout["run"]
     assert 'run_producer("wrong", source_tree, source_tree)' in check_checkout["run"]
     assert 'notice.STYLE.parents[1] / "node_modules"' in check_checkout["run"]
     assert "safe.directory" not in check_checkout["run"]

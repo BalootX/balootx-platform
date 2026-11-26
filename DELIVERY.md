@@ -96,6 +96,7 @@ Every listed critical changed path must exist at the PR base or head. The review
 ## Media release
 
 - The flagship and decision Remotion commands claim a new output directory for each invocation. An existing directory fails immediately. The Python drivers stage each render separately and move its completed files to the expected artifact paths.
+- Standalone research-notice renders use the approved public v4 producer and require [manual render kickoff](#manual-render-kickoff). The producer writes `balootx-approved-v4-public` media and evidence. Its default output directory is `outputs/approved-v4-public` on a writable checkout. See the [rendered clip design](DESIGN.md#rendered-clips) for the presentation requirements.
 - Live clip publication requires individual release approval until the clip release gate is approved. Once approved, the gate can admit clips for publication. A production deploy requires the project owner's explicit approval.
 - The `nightly-synthetic-candidates` artifact contains synthetic render evidence. Check `SHA256SUMS.txt` for the complete pool and use `candidate-index.json` to bind the exact source tree and qualified media. Each render uses the checkout's locked renderer and the [shared synthetic name pool](examples/synthetic-clip-identity.json). The hosted pool is marked `NEVER_POST` and carries no posting ledger or caption pool.
 - On a server runner, run `python -B -m scripts.pick_nightly_candidates` from the checkout with the package installed. Pass `--ledger`, `--caption-pool`, `--gate`, `--policy`, and `--output` from the existing private release configuration. Set `GH_TOKEN` only for this process using the repository-scoped, Actions-read App token. The picker verifies the newest successful scheduled pool from main, uses the pinned release gate against the live ledger, and writes a private two-day pick with distinct reserves. For manual evidence, pass a downloaded pool directory with `--artifact` from a current checkout with complete Git history. The picker binds the sealed tree to its source commit and applies the [render kickoff source comparison](#manual-render-kickoff). For a stale pool or source tree mismatch, generate and seal a pool from current `main`. If the check is unavailable, update the checkout and restore access to public `main` before retrying. Both paths produce `NEVER_POST` picks, which the next stage must validate against its own receiving rules.
@@ -136,7 +137,7 @@ docker run --rm --pull=never --network none --read-only --user 10001 \
   --env BALOOT_RENDER_BUILD_RECEIPT=/build-receipt.json \
   --env BALOOT_RENDER_KICKOFF_RECEIPT=/kickoff-receipt.json \
   --env "BALOOT_RENDER_IMAGE_ID=$IMAGE_ID" \
-  "$IMAGE_ID" python -B -m scripts.render_research_notice --public \
+  "$IMAGE_ID" python -B -m scripts.render_research_notice \
     --source-head "$SOURCE_HEAD" --source-tree "$SOURCE_TREE" --output /output
 ```
 

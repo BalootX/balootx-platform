@@ -205,6 +205,7 @@ def test_first_clip_run_exports_repo_root_for_direct_script_import(tmp_path, mon
             return self.returncode
 
     def popen(command, **kwargs):
+        captured["command"] = command
         captured.update(kwargs)
         return CompletedProcess()
 
@@ -215,6 +216,10 @@ def test_first_clip_run_exports_repo_root_for_direct_script_import(tmp_path, mon
     monkeypatch.setattr(module.os, "getpgid", lambda _pid: 0, raising=False)
     module.run(output, public=True, source_head="a" * 40, source_tree="b" * 40)
 
+    assert captured["command"] == [
+        module.sys.executable, "-B", "scripts/render_research_notice.py",
+        "--output", str(output), "--source-head", "a" * 40, "--source-tree", "b" * 40,
+    ]
     entries = captured["env"]["PYTHONPATH"].split(os.pathsep)
     assert entries[:2] == [str(module.ROOT), str(module.ROOT / "src")]
     assert entries[2:] == ["src"]
@@ -713,11 +718,17 @@ def test_release_renderer_help_never_starts_a_render() -> None:
     assert "outputs/professional-video" not in result.stdout
 
 
-def test_research_notice_launches_in_safe_path_mode(tmp_path, monkeypatch) -> None:
+def test_research_notice_launches_pinned_checkout_in_safe_path_mode(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("PYTHONPATH", raising=False)
     monkeypatch.setattr(render_release, "ROOT", tmp_path)
     monkeypatch.setattr(render_release, "_new_render_evidence_dir", lambda: tmp_path)
     monkeypatch.setattr(render_release, "release_render_lock", nullcontext)
+    def rev_parse(command, *, cwd, text):
+        assert command == ["git", "rev-parse", "HEAD", "HEAD^{tree}"]
+        assert cwd == tmp_path and text
+        return "a" * 40 + "\n" + "b" * 40 + "\n"
+
+    monkeypatch.setattr(render_release.subprocess, "check_output", rev_parse)
     calls = []
     monkeypatch.setattr(render_release, "_run", lambda *args, **kwargs: calls.append((args, kwargs)))
 
@@ -725,7 +736,11 @@ def test_research_notice_launches_in_safe_path_mode(tmp_path, monkeypatch) -> No
 
     assert len(calls) == 1
     (command,), options = calls[0]
-    assert command == [render_release.sys.executable, "-B", "-P", "-m", "scripts.render_research_notice"]
+    assert command == [
+        render_release.sys.executable, "-B", "-P", "-m", "scripts.render_research_notice",
+        "--source-head", "a" * 40, "--source-tree", "b" * 40,
+    ]
+    assert options["stage"] == "approved-v4-public"
     assert options["environment"]["PYTHONPATH"].split(os.pathsep) == [str(tmp_path), str(tmp_path / "src")]
 
 
