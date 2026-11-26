@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 from baloot_platform.core.rules import RuleBook
 from baloot_platform.research.exact_state import ExactStateNormalizerV1
 from baloot_platform.research.scenario_contracts import canonical_sha256
-from baloot_platform.video.media_validation import APPROVED_LAYOUT_TABLE_SHA256
+from baloot_platform.video.media_validation import approved_layout_table_sha256
 from baloot_platform.video.remotion_renderer import (
     RemotionProfessionalRenderer,
     _json_write,
@@ -437,7 +437,8 @@ def _release_layout(manifest: dict, video: Path, bundle_sha256: str) -> tuple[di
     geometry = manifest.get("layoutGeometry") or {}
     if geometry.get("mode") == "measurement" or geometry.get("disposition") == "NEVER_POST":
         raise ValueError("layout measurement MP4 is permanently NEVER_POST")
-    if geometry.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256:
+    approved_sha256 = approved_layout_table_sha256()
+    if geometry.get("tableSha256") != approved_sha256:
         raise ValueError("release requires the approved layout table SHA-256")
     video_sha256 = _sha256(video)
     if (
@@ -451,7 +452,7 @@ def _release_layout(manifest: dict, video: Path, bundle_sha256: str) -> tuple[di
     files = manifest["files"]
     paths = []
     for key, pin in (
-        ("layoutTable", APPROVED_LAYOUT_TABLE_SHA256),
+        ("layoutTable", approved_sha256),
         ("layoutGeometry", geometry["evidenceSha256"]),
         *((f"layout:{phase}", files.get(f"layout:{phase}", {}).get("sha256")) for phase in geometry["phases"]),
     ):
@@ -475,7 +476,7 @@ def _release_layout(manifest: dict, video: Path, bundle_sha256: str) -> tuple[di
         evidence.get("status") != "passed"
         or binding.get("mode") != "qualification"
         or binding.get("bundleSha256") != bundle_sha256
-        or binding.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256
+        or binding.get("tableSha256") != approved_sha256
         or evidence.get("videoSha256") != geometry["rendererVideoSha256"]
     ):
         raise ValueError("release layout checkpoint evidence does not match the qualification receipt")

@@ -36,7 +36,7 @@ from baloot_platform.research.scenario_contracts import (
     canonical_sha256,
 )
 from baloot_platform.video.media_validation import (
-    APPROVED_LAYOUT_TABLE_SHA256,
+    approved_layout_table_sha256,
     media_tool,
     run_media_command,
 )
@@ -342,7 +342,7 @@ def check_hook(bundle_file, bundle_sha, output):
         and binding["bundleFileSha256"] == notice._sha256(bundle_file)
         and binding["tableSha256"]
         == notice._sha256(table)
-        == APPROVED_LAYOUT_TABLE_SHA256
+        == approved_layout_table_sha256()
         and hook["phase"] == "hook"
         and hook["validation"]["status"] == "passed"
         and hook["source"] == png.name

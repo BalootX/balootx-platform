@@ -170,7 +170,7 @@ def test_hook_check_requires_the_receipt_for_the_exact_bundle(tmp_path, monkeypa
             "mode": "qualification",
             "bundleSha256": "a" * 64,
             "bundleFileSha256": nightly.file_receipt(bundle)["sha256"],
-            "tableSha256": nightly.APPROVED_LAYOUT_TABLE_SHA256,
+            "tableSha256": nightly.file_receipt(table)["sha256"],
         },
     }
 
