@@ -465,11 +465,14 @@ def test_picker_applies_live_variety_before_filling_two_days():
     assert len({item["id"] for item in picks + fallbacks}) == len(picks + fallbacks)
 
 
-def test_sealed_pool_binds_media_and_exact_run(tmp_path):
-    shards = tmp_path / "shards"
-    shard = shards / "nightly-candidate-shard-0"
+@pytest.fixture
+def pool_binding():
+    return {"source": "a" * 40, "tree": "b" * 40, "run_id": 123}
+
+
+def write_pool_shard(shard, indices, *, source, tree, run_id):
     rows = []
-    for i in range(nightly.MINIMUM_POOL_SIZE):
+    for i in indices:
         key = f"candidate-{i:016x}-24"
         folder = shard / key
         folder.mkdir(parents=True)
@@ -480,6 +483,15 @@ def test_sealed_pool_binds_media_and_exact_run(tmp_path):
                 "id": key,
                 "status": "passed",
                 "video": nightly.file_receipt(video),
+                "scorecard": {
+                    "score": 70.0,
+                    "parts": {
+                        "D": 25, "R": 9, "S": 10, "K": 5, "C": 6, "B": 0, "V": 15
+                    },
+                    "difficultyPrior": 50,
+                    "mechanismFrequency": None,
+                    "exactStateId": str(i),
+                },
                 "scoreInputs": {
                     "mechanism": i % 3,
                     **{
@@ -494,31 +506,117 @@ def test_sealed_pool_binds_media_and_exact_run(tmp_path):
                 },
             }
         )
-    source, tree, run_id = "a" * 40, "b" * 40, 123
-    nightly.write_json(
-        shard / "candidate-index.json",
-        {
-            "status": "passed",
-            "postingAuthorized": False,
-            "sourceCommit": source,
-            "sourceTree": tree,
-            "runId": run_id,
-            "qualified": [row["id"] for row in rows],
-            "candidates": rows,
-        },
+    index = {
+        "status": "passed",
+        "postingAuthorized": False,
+        "sourceCommit": source,
+        "sourceTree": tree,
+        "runId": run_id,
+        "qualified": [row["id"] for row in rows],
+        "candidates": rows,
+    }
+    nightly.write_json(shard / "candidate-index.json", index)
+    return index
+
+
+def test_sealed_pool_binds_media_and_exact_run(tmp_path, pool_binding):
+    shards = tmp_path / "shards"
+    shard = write_pool_shard(
+        shards / "nightly-candidate-shard-0",
+        range(nightly.MINIMUM_POOL_SIZE),
+        **pool_binding,
     )
     output = tmp_path / "pool"
-    nightly.seal_pool(shards, output, source=source, tree=tree, run_id=run_id)
-    index, seal = picker.verified_pool(
-        output, {"databaseId": run_id, "headSha": source}
-    )
+    nightly.seal_pool(shards, output, **pool_binding)
+    run = {"databaseId": pool_binding["run_id"], "headSha": pool_binding["source"]}
+    index, seal = picker.verified_pool(output, run)
     assert index["status"] == "NEVER_POST" and len(index["qualified"]) == 14
     assert len(seal) == 64
     with pytest.raises(picker.PlanError, match="POOL_RUN_BINDING_MISMATCH"):
-        picker.verified_pool(output, {"databaseId": run_id + 1, "headSha": source})
-    (output / rows[0]["id"] / "candidate.mp4").write_bytes(b"tampered")
+        picker.verified_pool(output, {**run, "databaseId": run["databaseId"] + 1})
+    (output / shard["qualified"][0] / "candidate.mp4").write_bytes(b"tampered")
     with pytest.raises(picker.PlanError, match="POOL_HASH_MISMATCH"):
         picker.verified_pool(output)
+
+
+@pytest.mark.parametrize(
+    ("field", "tied_score"),
+    [
+        ("visibleOpenerSha256", False),
+        ("visibleOpenerSha256", True),
+        ("exactStateId", False),
+        ("dealHash", False),
+        ("scenarioFamily", False),
+    ],
+)
+def test_sealed_pool_excludes_cross_shard_repeats(
+    tmp_path, pool_binding, capsys, field, tied_score
+):
+    shards = tmp_path / "shards"
+    first_shard, second_shard = shards / "shard-0", shards / "shard-1"
+    first = write_pool_shard(first_shard, range(14), **pool_binding)["candidates"][0]
+    second = write_pool_shard(second_shard, [14], **pool_binding)
+    (duplicate,) = second["candidates"]
+    duplicate["scoreInputs"][field] = first["scoreInputs"][field]
+    if field == "exactStateId":
+        duplicate["scorecard"][field] = first["scorecard"][field]
+    parts = duplicate["scorecard"]["parts"]
+    if tied_score:
+        parts["S"] += 1
+        parts["K"] -= 1
+    else:
+        parts["R"] += 0.01
+    nightly.write_json(second_shard / "candidate-index.json", second)
+    winner, excluded = (first, duplicate) if tied_score else (duplicate, first)
+
+    output = tmp_path / "pool"
+    nightly.seal_pool(shards, output, **pool_binding)
+    index, seal = picker.verified_pool(output)
+    reason = f"repeat_{field}"
+    assert index["exclusions"] == [
+        {"id": excluded["id"], "reason": reason, "repeatsId": winner["id"]}
+    ]
+    assert len(index["qualified"]) == 14 and index["qualified"][0] == winner["id"]
+    assert excluded["id"] not in index["qualified"]
+    assert {path.name for path in output.iterdir() if path.is_dir()} == set(
+        index["qualified"]
+    )
+    assert f"{reason} {excluded['id']} repeats {winner['id']}" in capsys.readouterr().out
+
+    first_shard.rename(shards / "shard-2")
+    reversed_output = tmp_path / "reversed-pool"
+    nightly.seal_pool(shards, reversed_output, **pool_binding)
+    assert picker.verified_pool(reversed_output) == (index, seal)
+
+
+@pytest.mark.parametrize(
+    ("count", "mechanisms", "shortfall"), [(14, 3, "size"), (15, 2, "mechanisms")]
+)
+def test_sealed_pool_checks_minimums_after_exclusion(
+    tmp_path, pool_binding, capsys, count, mechanisms, shortfall
+):
+    shards = tmp_path / "shards"
+    shard = shards / "shard-0"
+    index = write_pool_shard(shard, range(count), **pool_binding)
+    rows = index["candidates"]
+    first, duplicate = rows[0], rows[-1]
+    for i, row in enumerate(rows[:-1]):
+        row["scoreInputs"]["mechanism"] = i % mechanisms
+    duplicate["scoreInputs"]["visibleOpenerSha256"] = first["scoreInputs"][
+        "visibleOpenerSha256"
+    ]
+    nightly.write_json(shard / "candidate-index.json", index)
+
+    output = tmp_path / "pool"
+    with pytest.raises(nightly.Rejected, match=f"^pool_{shortfall}_below_minimum$"):
+        nightly.seal_pool(shards, output, **pool_binding)
+    log = capsys.readouterr().out
+    assert (
+        f"qualified={count} admitted={count - 1} excluded=1 mechanisms={mechanisms}"
+        in log
+    )
+    assert f"repeat_visibleOpenerSha256 {duplicate['id']} repeats {first['id']}" in log
+    assert not output.exists()
 
 
 def test_shadow_checks_approved_names_and_notice(monkeypatch):
