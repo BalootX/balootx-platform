@@ -770,12 +770,6 @@ jobs:
       - name: Check synthetic hook layouts
         if: matrix.shard == 'decision'
         run: node tests/hook-layout.integration.mjs ../../../../outputs/professional-video-prototypes/render-bundle-decision.json
-      - name: Check synthetic transition layouts
-        if: matrix.shard == 'decision'
-        run: |
-          node tests/transition-layout.integration.mjs \
-            ../../../../outputs/professional-video-prototypes/render-bundle-decision.json \
-            "$RUNNER_TEMP/media-stage-logs/transition-layout"
       - name: Render the governed media shard
         working-directory: .
         env:
@@ -803,6 +797,29 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
+      - name: Check synthetic transition layouts
+        if: matrix.shard == 'decision'
+        working-directory: .
+        run: |
+          bundle="$RUNNER_TEMP/transition-layout-bundle.json"
+          PYTHONPATH="$PWD:$PWD/src" python -P - "$bundle" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          from baloot_platform.core.rules import RuleBook
+          from scripts import render_research_notice as notice
+          from scripts.nightly_candidates import synthetic_identity
+
+          rules = RuleBook.load(notice.ROOT / "configs/rules/saudi_common_v1.yaml")
+          profile = notice.notice_profile(public=True)
+          profile["identity"] = synthetic_identity()
+          bundle = notice.build_notice_bundle(rules, profile)
+          notice.validate_notice_bundle(bundle, notice.engine_round_result(rules), public=True)
+          Path(sys.argv[1]).write_text(json.dumps(bundle.to_dict(), ensure_ascii=False), encoding="utf-8")
+          PY
+          cd src/baloot_platform/video/remotion
+          node tests/transition-layout.integration.mjs "$bundle" "$RUNNER_TEMP/media-stage-logs/transition-layout"
       - name: Retain render stage logs
         if: '!cancelled()'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

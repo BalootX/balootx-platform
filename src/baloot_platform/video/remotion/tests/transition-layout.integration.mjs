@@ -4,32 +4,29 @@ import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {bundle} from "@remotion/bundler";
 import {openBrowser, renderStill, selectComposition} from "@remotion/renderer";
-import {canonical, checkLayoutGeometry, layoutFrames, loadLayoutTable, pngHash, propsSha256, sha256} from "../scripts/layout-gate.mjs";
+import {checkLayoutGeometry, layoutFrames, loadLayoutTable, pngHash, propsSha256, sha256} from "../scripts/layout-gate.mjs";
 import {parseValidatedRenderBundle} from "../scripts/render-options.mjs";
 import {createRenderOutput, writeRenderEvidence} from "../scripts/render-output.mjs";
-import {questionTimer} from "../src/playback-state.ts";
 
 const [inputPath, output] = process.argv.slice(2);
 const repository = fileURLToPath(new URL("../../../../../", import.meta.url));
-const {bundleSha256: _, ...fixture} = JSON.parse(await readFile(inputPath, "utf8"));
-const names = JSON.parse(await readFile(path.join(repository, "examples/synthetic-clip-identity.json"), "utf8"));
-fixture.identity.players = names.default_player_names;
-fixture.presentation.majlis.research_notice = true;
-fixture.presentation.presentation.show_justification_text = false;
-fixture.audioCues = [];
-const bytes = Buffer.from(JSON.stringify({...fixture, bundleSha256: sha256(JSON.stringify(canonical(fixture)))}));
+const bytes = await readFile(inputPath);
 const bundleData = parseValidatedRenderBundle(bytes);
 const table = await loadLayoutTable();
 const {width, height, fps} = bundleData.render;
-const {decisionKind = "play"} = bundleData.scenes.find(({stage}) => stage === "reveal")
+const {decisionKind, selectedAction} = bundleData.scenes.find(({stage}) => stage === "reveal")
   .layers.find(({id}) => id === "analysis").content;
+assert.equal(bundleData.exportPreset, "decision_clip");
 assert.equal(decisionKind, "play");
+assert.ok(selectedAction, "fixture requires a proved reveal action");
 
 const steady = layoutFrames(bundleData);
 const checkpoints = new Map(steady.map(row => [row.frame, {...row, samples: ["steady"]}]));
-function addFrame(phase, frame, sample) {
+function addFrame(phase, frame, sample, expectedCountdown) {
   if (!checkpoints.has(frame)) checkpoints.set(frame, {phase, frame, samples: []});
-  checkpoints.get(frame).samples.push(sample);
+  const checkpoint = checkpoints.get(frame);
+  checkpoint.samples.push(sample);
+  if (expectedCountdown !== undefined) checkpoint.expectedCountdown = String(expectedCountdown);
 }
 let overlapFrame;
 for (const {phase} of steady) {
@@ -37,11 +34,11 @@ for (const {phase} of steady) {
   addFrame(phase, startFrame, "phase-entry");
   addFrame(phase, startFrame + durationFrames - 1, "phase-exit");
   if (phase !== "question") continue;
-  for (let offset = 1; offset < durationFrames; offset++) {
-    if (questionTimer(durationFrames, offset, fps) === questionTimer(durationFrames, offset - 1, fps)) continue;
-    const frame = startFrame + offset;
-    addFrame(phase, frame - 1, "before-countdown-change");
-    addFrame(phase, frame, "countdown-change");
+  const endFrame = startFrame + durationFrames;
+  for (let frame = startFrame + (durationFrames % fps || fps); frame < endFrame; frame += fps) {
+    const secondsLeft = (endFrame - frame) / fps;
+    addFrame(phase, frame - 1, "before-countdown-change", secondsLeft + 1);
+    addFrame(phase, frame, "countdown-change", secondsLeft);
     overlapFrame ??= frame;
   }
 }
@@ -88,10 +85,14 @@ async function measure(name, frames, motionFrame) {
           chromiumOptions, puppeteerInstance: browser,
           onArtifact: ({filename, content}) => {
             if (filename === "layout-geometry.json") geometry = JSON.parse(String(content));
+            if (filename === "countdown.txt") row.countdownText = String(content);
           },
         });
         Object.assign(row, {geometry, pngSha256: pngHash(await readFile(stillPath), width, height)});
-        row.validation = checkLayoutGeometry(geometry, {...checkpoint, width, height, playDecision: true, binding}, table);
+        if (checkpoint.expectedCountdown !== undefined) {
+          assert.equal(row.countdownText, checkpoint.expectedCountdown, `rendered countdown at frame ${frame}`);
+        }
+        row.validation = checkLayoutGeometry(geometry, {...checkpoint, width, height, playDecision: decisionKind === "play", binding}, table);
       } catch (error) {
         row.validation = error.validation ?? {status: "failed", error: String(error)};
       }

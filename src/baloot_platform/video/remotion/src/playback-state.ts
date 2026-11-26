@@ -28,9 +28,6 @@ export type PlaybackState = {
 
 const seats: Seat[] = ["north", "west", "south", "east"];
 
-export const questionTimer = (duration: number, frameInQuestion: number, fps: number): string =>
-  String(Math.max(1, Math.ceil((duration - frameInQuestion) / fps)));
-
 // Zero opacity is not visible even though the collected cards remain in the DOM.
 export const collectionOpacity = (progress: number): number =>
   progress <= 0.72 ? 1 : Math.max(0, 1 - (progress - 0.72) / 0.28);
