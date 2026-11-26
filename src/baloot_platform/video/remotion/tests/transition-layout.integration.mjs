@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {mkdir, readFile} from "node:fs/promises";
+import {readFile} from "node:fs/promises";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {bundle} from "@remotion/bundler";
@@ -56,7 +56,6 @@ const layoutBinding = {
   tableSha256: table.tableSha256,
 };
 const binding = {...layoutBinding, propsSha256: propsSha256(bundleData)};
-await mkdir(path.dirname(output), {recursive: true});
 await createRenderOutput(output, "synthetic-transition");
 await writeRenderEvidence(path.join(output, "bundle.json"), bytes);
 await writeRenderEvidence(path.join(output, "layout-table.json"), table.bytes);
@@ -105,6 +104,8 @@ async function measure(name, frames, motionFrame) {
 }
 
 try {
+  const decisionFrames = [...checkpoints.values()].sort((first, second) => first.frame - second.frame);
+  const decisionRows = await measure("decision-clip", decisionFrames);
   const oldFrames = steady.map(({frame}) => checkpoints.get(frame));
   const measured = await measure(
     "moving-overlap", [...oldFrames, checkpoints.get(overlapFrame)], overlapFrame,
@@ -112,16 +113,14 @@ try {
   const baseline = measured.slice(0, -1);
   const transition = measured.at(-1);
   assert.ok(baseline.every(row => row.validation.status === "passed"), JSON.stringify(baseline));
+  console.log(`Moving overlap: steady sampling passed at frames ${baseline.map(({frame}) => frame).join(", ")}.`);
   assert.equal(transition.validation.status, "failed");
   assert.deepEqual(transition.validation.disallowedIntersections?.map(({first, second}) => [first, second]),
     [["promptPill:0", "researchNotice:0"]]);
-  console.log("Moving overlap: steady sampling passed; transition sampling detected prompt/notice contact.");
+  console.log(`Moving overlap: transition sampling rejected frame ${transition.frame} for prompt/notice contact.`);
 
-  const decisionFrames = [...checkpoints.values()].sort((first, second) => first.frame - second.frame);
-  const decisionRows = await measure("decision-clip", decisionFrames);
-  assert.deepEqual(decisionRows.filter(({validation}) => validation.status !== "passed")
-    .map(({phase, frame, validation}) => ({phase, frame, validation})), [],
-  "decision-clip geometry failed; see decision-clip-layout-evidence.json");
+  assert.deepEqual(decisionRows.filter(({validation}) => validation.status !== "passed"), [],
+    "decision-clip geometry failed; see decision-clip-layout-evidence.json");
 } finally {
   await browser.close({silent: true});
 }
