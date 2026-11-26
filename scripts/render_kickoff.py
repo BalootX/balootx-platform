@@ -75,6 +75,10 @@ class RenderContentMismatch(ValueError):
     pass
 
 
+class RenderSourceTreeMismatch(ValueError):
+    pass
+
+
 def git(checkout: Path, *args: str, timeout: int, outside_repository: bool = False) -> str:
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
     env.update(
@@ -124,6 +128,81 @@ def new_verdict(source_head: str = "", source_tree: str = "", image_id: str = ""
     }
 
 
+def verify_source_freshness(
+    checkout: Path, source_head: str, source_tree: str, policy: dict, verdict: dict
+) -> None:
+    """Apply the public-main source comparison for both renderer and manual pool inputs."""
+    if not isinstance(source_head, str) or not SOURCE_SHA.fullmatch(source_head):
+        raise ValueError("render source requires a full commit ID")
+    if not isinstance(source_tree, str) or not SOURCE_SHA.fullmatch(source_tree):
+        raise RenderSourceTreeMismatch("render source requires a full tree ID")
+    timeouts = policy["gitTimeoutSeconds"]
+    paths = [".", *(f":(exclude,top,literal){path}" for path in policy["excludedPaths"])]
+    remote = policy["publicRemote"]
+    main_ref = policy["mainRef"]
+    local_git = partial(git, checkout, timeout=timeouts["local"])
+    if local_git("rev-parse", "--is-shallow-repository") != "false":
+        raise ValueError("render kickoff requires a complete Git history")
+    checked_at = utc_now().isoformat(timespec="seconds").replace("+00:00", "Z")
+    with TemporaryDirectory() as directory:
+        main, separator, ref = git(
+            Path(directory), "ls-remote", "--exit-code", remote, main_ref,
+            timeout=timeouts["discovery"], outside_repository=True,
+        ).partition("\t")
+    if not separator or ref != main_ref or not SOURCE_SHA.fullmatch(main):
+        raise ValueError("public main did not resolve to one commit")
+    verdict["mainHead"] = main
+    verdict["checkedAt"] = checked_at
+    try:
+        local_git("cat-file", "-e", f"{main}^{{commit}}")
+    except ValueError:
+        git(
+            checkout, "fetch", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance",
+            "--no-recurse-submodules", remote, main, timeout=timeouts["fetch"],
+        )
+
+    commit, tree = local_git(
+        "rev-parse", f"{source_head}^{{commit}}", f"{source_head}^{{tree}}"
+    ).splitlines()
+    if commit != source_head:
+        raise ValueError("render source requires a full commit ID")
+    if tree != source_tree:
+        raise RenderSourceTreeMismatch("render tree does not match the source commit")
+
+    script = TRUSTED_ROOT / "scripts/render_kickoff.py"
+    for path in (script, POLICY, POLICY_SCHEMA):
+        relative = path.relative_to(TRUSTED_ROOT).as_posix()
+        try:
+            expected = local_git("rev-parse", "--verify", f"{main}:{relative}")
+        except ValueError as exc:
+            raise ValueError(f"public main does not contain kickoff authority {relative}") from exc
+        if local_git("hash-object", "--no-filters", "--", str(path)) != expected:
+            raise ValueError(f"kickoff authority {relative} differs from public main; update the kickoff checkout")
+
+    if main != source_head:
+        try:
+            local_git(
+                "diff", "--quiet", "--no-ext-diff", "--no-textconv", f"{main}..{source_head}", "--", *paths,
+            )
+        except RenderContentMismatch as exc:
+            content_mismatch = exc
+        else:
+            content_mismatch = None
+        common = local_git("merge-base", source_head, main)
+        if content_mismatch is not None or common not in (main, source_head):
+            missing = local_git(
+                "log", "--full-history", "--diff-merges=first-parent",
+                "--format=%H", "--max-count=1", f"{source_head}..{main}", "--", *paths,
+            )
+            if missing:
+                verdict["missingRendererCommit"] = missing
+                raise RenderContentMismatch(
+                "render source is missing a merged renderer commit; repin and rebuild"
+            ) from None
+        if content_mismatch is not None:
+            raise content_mismatch
+
+
 def verify_kickoff(
     checkout: Path, source_head: str, source_tree: str, receipt_path: Path, image_id: str
 ) -> dict:
@@ -133,62 +212,8 @@ def verify_kickoff(
             receipt_path, source_head, source_tree, image_id
         )
         policy = load_policy()
-        timeouts = policy["gitTimeoutSeconds"]
-        paths = [".", *(f":(exclude,top,literal){path}" for path in policy["excludedPaths"])]
-        remote = policy["publicRemote"]
-        main_ref = policy["mainRef"]
-        local_git = partial(git, checkout, timeout=timeouts["local"])
-        verify_checkout(checkout, source_head, source_tree, timeout=timeouts["local"])
-        if local_git("rev-parse", "--is-shallow-repository") != "false":
-            raise ValueError("render kickoff requires a complete Git history")
-        checked_at = utc_now().isoformat(timespec="seconds").replace("+00:00", "Z")
-        with TemporaryDirectory() as directory:
-            main, separator, ref = git(
-                Path(directory), "ls-remote", "--exit-code", remote, main_ref,
-                timeout=timeouts["discovery"], outside_repository=True,
-            ).partition("\t")
-        if not separator or ref != main_ref or not SOURCE_SHA.fullmatch(main):
-            raise ValueError("public main did not resolve to one commit")
-        verdict["mainHead"] = main
-        verdict["checkedAt"] = checked_at
-        try:
-            local_git("cat-file", "-e", f"{main}^{{commit}}")
-        except ValueError:
-            git(
-                checkout, "fetch", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance",
-                "--no-recurse-submodules", remote, main, timeout=timeouts["fetch"],
-            )
-
-        script = TRUSTED_ROOT / "scripts/render_kickoff.py"
-        for path in (script, POLICY, POLICY_SCHEMA):
-            relative = path.relative_to(TRUSTED_ROOT).as_posix()
-            try:
-                expected = local_git("rev-parse", "--verify", f"{main}:{relative}")
-            except ValueError as exc:
-                raise ValueError(f"public main does not contain kickoff authority {relative}") from exc
-            if local_git("hash-object", "--no-filters", "--", str(path)) != expected:
-                raise ValueError(f"kickoff authority {relative} differs from public main; update the kickoff checkout")
-
-        if main != source_head:
-            try:
-                local_git(
-                    "diff", "--quiet", "--no-ext-diff", "--no-textconv", f"{main}..{source_head}", "--", *paths,
-                )
-            except RenderContentMismatch as exc:
-                content_mismatch = exc
-            else:
-                content_mismatch = None
-            common = local_git("merge-base", source_head, main)
-            if content_mismatch is not None or common not in (main, source_head):
-                missing = local_git(
-                    "log", "--full-history", "--diff-merges=first-parent",
-                    "--format=%H", "--max-count=1", f"{source_head}..{main}", "--", *paths,
-                )
-                if missing:
-                    verdict["missingRendererCommit"] = missing
-                    raise ValueError("render source is missing a merged renderer commit; repin and rebuild") from None
-            if content_mismatch is not None:
-                raise content_mismatch
+        verify_checkout(checkout, source_head, source_tree, timeout=policy["gitTimeoutSeconds"]["local"])
+        verify_source_freshness(checkout, source_head, source_tree, policy, verdict)
     except ValueError as exc:
         verdict["reason"] = str(exc)
     except (Exception, KeyboardInterrupt):
