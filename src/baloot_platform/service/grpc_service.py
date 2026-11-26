@@ -1279,12 +1279,23 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             except KeyError: await context.abort(grpc.StatusCode.NOT_FOUND, "proposal not found")
 
         async def ApproveImprovement(self, request, context):
-            identity = await _identity(context); data = _payload(request.canonical_json)
-            try: return await self._result(HITL.approve_improvement(str(data["proposalId"]), approved_by=identity.subject_id,
-                role=str(data.get("role") or identity.kind)))
-            except KeyError: await context.abort(grpc.StatusCode.NOT_FOUND, "proposal not found")
-            except PermissionError as exc: await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
-            except ValueError as exc: await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            identity = await _identity(context)
+            auth = authenticated_rpc.get()
+            data = _payload(request.canonical_json)
+            role = identity.kind.strip().lower()
+            if auth.api_key_valid and auth.identity is None and auth.claims is None:
+                # Key-only callers retain the legacy delegated-role contract.
+                role = str(data.get("role") or identity.kind)
+            try:
+                return await self._result(HITL.approve_improvement(
+                    str(data["proposalId"]), approved_by=identity.subject_id, role=role,
+                ))
+            except KeyError:
+                await context.abort(grpc.StatusCode.NOT_FOUND, "proposal not found")
+            except PermissionError as exc:
+                await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
+            except ValueError as exc:
+                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def FinalizeImprovement(self, request, context):
             identity = await _identity(context); data = _payload(request.canonical_json)

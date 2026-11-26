@@ -488,11 +488,14 @@ def _matched_http_scope(method: str, route_path: str, path: str) -> Scope | None
     return scope
 
 
-# These game mutations require a service key until they enforce game ownership.
+# These mutations require a service key until they bind the resource or actor.
 RPC_SERVICE_KEY_METHODS = frozenset({
     "/baloot.v2.BalootPlatform/CreateGame",
-    "/baloot.v2.BalootPlatform/SubmitBid",
+    "/baloot.v2.BalootPlatform/ForkDecision",
     "/baloot.v2.BalootPlatform/PlayCard",
+    "/baloot.v2.BalootPlatform/RecordChallengeAttempt",
+    "/baloot.v2.BalootPlatform/RecordDecisionAttempt",
+    "/baloot.v2.BalootPlatform/SubmitBid",
 })
 
 

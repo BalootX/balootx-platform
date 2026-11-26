@@ -455,18 +455,28 @@ def test_grpc_requires_a_real_credential_without_configured_service_key(tmp_path
     _grpc_probe(tmp_path, monkeypatch, probe)
 
 
-def test_grpc_game_mutations_require_a_configured_service_key(tmp_path, monkeypatch):
+def test_grpc_unbound_mutations_require_a_configured_service_key(tmp_path, monkeypatch):
     from baloot_platform.generated import platform_pb2, platform_pb2_grpc
     from baloot_platform.security import Scope
     from baloot_platform.service.api import ACCESS_TOKENS, IDENTITY
 
+    mutations = (
+        ("CreateGame", platform_pb2.CreateGameRequest, platform_pb2.GameState),
+        ("SubmitBid", platform_pb2.BidAction, platform_pb2.GameState),
+        ("PlayCard", platform_pb2.PlayAction, platform_pb2.GameState),
+        ("ForkDecision", platform_pb2.ForkDecisionRequest, platform_pb2.HistoryOperationResult),
+        ("RecordDecisionAttempt", platform_pb2.DifficultyAttempt, platform_pb2.DifficultyResult),
+        ("RecordChallengeAttempt", platform_pb2.ChallengeAttempt, platform_pb2.DifficultyResult),
+    )
     register = platform_pb2_grpc.add_BalootPlatformServicer_to_server
-
-    async def inert_mutation(_request, _context):
-        return platform_pb2.GameState(phase="fixture")
+    fixture_payload = b'{"fixture":true}'
 
     def register_fixture(servicer, server):
-        servicer.CreateGame = servicer.SubmitBid = servicer.PlayCard = inert_mutation
+        for method, _, response_type in mutations:
+            async def inert_mutation(_request, _context, response_type=response_type):
+                return response_type(canonical_json=fixture_payload)
+
+            setattr(servicer, method, inert_mutation)
         register(servicer, server)
 
     monkeypatch.setattr(platform_pb2_grpc, "add_BalootPlatformServicer_to_server", register_fixture)
@@ -482,25 +492,73 @@ def test_grpc_game_mutations_require_a_configured_service_key(tmp_path, monkeypa
     )
 
     async def probe(grpc, stub):
-        mutations = (
-            (stub.CreateGame, platform_pb2.CreateGameRequest()),
-            (stub.SubmitBid, platform_pb2.BidAction()),
-            (stub.PlayCard, platform_pb2.PlayAction()),
-        )
-        for call, request in mutations:
+        calls = [(getattr(stub, method), request_type()) for method, request_type, _ in mutations]
+        for call, request in calls:
             for metadata in denied_metadata:
                 with pytest.raises(grpc.aio.AioRpcError) as rejected:
                     await call(request, metadata=metadata, timeout=5)
                 assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED
-            assert (await call(request, metadata=service_key, timeout=5)).phase == "fixture"
+            assert (await call(request, metadata=service_key, timeout=5)).canonical_json == fixture_payload
 
         monkeypatch.delenv("BALOOT_API_KEY")
-        for call, request in mutations:
+        for call, request in calls:
             with pytest.raises(grpc.aio.AioRpcError) as rejected:
                 await call(request, metadata=service_key, timeout=5)
             assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED
 
     _grpc_probe(tmp_path, monkeypatch, probe, stub_type=platform_pb2_grpc.BalootPlatformStub)
+
+
+def test_grpc_improvement_approval_uses_the_verified_principal(tmp_path, monkeypatch):
+    from baloot_platform.generated import hitl_pb2, hitl_pb2_grpc
+    from baloot_platform.security import Scope
+    from baloot_platform.service import api
+
+    monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
+    proposal = "IMP-FIXTURE"
+    required = api.HITL.profile["improvement"]["minimum_independent_validators"]
+    evaluations = [
+        {"validatorId": f"FIXTURE-{number}", "independent": True, "status": "passed"}
+        for number in range(required)
+    ]
+    update = MagicMock(return_value={"status": "approved_for_challenger"})
+    monkeypatch.setattr(api.HITL.store, "get_proposal", lambda _id: {"proposalId": proposal})
+    monkeypatch.setattr(api.HITL.store, "list_improvement_evaluations", lambda _id: evaluations)
+    monkeypatch.setattr(api.HITL.store, "update_proposal", update)
+
+    def bearer(subject, role):
+        token = api.ACCESS_TOKENS.issue(subject_id=subject, role=role, scopes=[Scope.MODEL_ADMIN])
+        return (("authorization", f"Bearer {token}"),)
+
+    service_key = (("x-api-key", _SERVICE_KEY), ("x-baloot-subject-id", "FIXTURE-KEY"))
+    scoped_service = bearer("FIXTURE-SIGNED-SERVICE", "service")
+    guest = api.IDENTITY.create_guest("Approval fixture")["session"]["token"]
+    scoped_admin = bearer("FIXTURE-ADMIN", "admin")
+
+    def request(role):
+        return hitl_pb2.JsonRequest(canonical_json=json.dumps({"proposalId": proposal, "role": role}).encode())
+
+    async def probe(grpc, stub):
+        declared_role = request("expert")
+        for metadata in (
+            scoped_service,
+            scoped_service + service_key,
+            (("authorization", f"Bearer {guest}"),) + service_key,
+        ):
+            with pytest.raises(grpc.aio.AioRpcError) as denied:
+                await stub.ApproveImprovement(declared_role, metadata=metadata, timeout=5)
+            assert denied.value.code() == grpc.StatusCode.PERMISSION_DENIED
+        update.assert_not_called()
+
+        for approval, metadata, actor in (
+            (request("player"), scoped_admin, "FIXTURE-ADMIN"),
+            (declared_role, service_key, "FIXTURE-KEY"),
+        ):
+            approved = await stub.ApproveImprovement(approval, metadata=metadata, timeout=5)
+            assert json.loads(approved.canonical_json)["status"] == "approved_for_challenger"
+            assert update.call_args.kwargs["approvedBy"] == actor
+
+    _grpc_probe(tmp_path, monkeypatch, probe, stub_type=hitl_pb2_grpc.HumanLearningStub)
 
 
 @pytest.fixture(params=["sqlite", "postgres"])
