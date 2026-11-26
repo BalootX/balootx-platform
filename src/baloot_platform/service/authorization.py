@@ -165,6 +165,9 @@ HTTP_POLICY: dict[tuple[str, str], Scope | None] = {
     ("GET", "/api/v1/shared/runs/{run_id}/review"): Scope.READ,
     ("GET", "/api/v1/shared/runs/{run_id}/verification"): Scope.READ,
     ("GET", "/api/v1/users:search"): Scope.READ,
+    ("GET", "/api/v2/friends"): Scope.READ,
+    ("GET", "/api/v2/friends/requests"): Scope.READ,
+    ("GET", "/api/v2/users:search"): Scope.READ,
 
     ("POST", "/api/v1/adjudication/cases"): Scope.PLAY,
     ("POST", "/api/v1/adjudication/cases/{case_id}/appeals"): Scope.PLAY,

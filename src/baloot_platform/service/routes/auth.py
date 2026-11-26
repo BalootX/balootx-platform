@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from collections.abc import Callable
+from functools import partial
+from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from baloot_platform.identity import Identity, IdentityService
+from baloot_platform.identity.pagination import (
+    CURSOR_MAX_LENGTH,
+    IdentityPaginationConfig,
+    InvalidIdentityCursor,
+)
+from baloot_platform.security import AuthorizationPolicy, Scope
 from baloot_platform.service.authorization import claims_identity
 from baloot_platform.service.client_identity import service_client_identity
 
@@ -34,6 +42,36 @@ class FriendRequestBody(BaseModel):
 
 class FriendResponseBody(BaseModel):
     accept: bool = True
+
+
+class IdentityItem(BaseModel):
+    subjectId: str
+    kind: str
+    displayName: str
+    username: str | None
+    authenticated: bool
+    guest: bool
+    createdAt: str | None
+
+
+class PendingRequestItem(BaseModel):
+    requestId: str = Field(validation_alias="request_id")
+    senderId: str = Field(validation_alias="sender_id")
+    recipientId: str = Field(validation_alias="recipient_id")
+    status: Literal["pending"]
+    createdAt: str = Field(validation_alias="created_at")
+    senderDisplayName: str = Field(validation_alias="sender_display_name")
+    senderUsername: str | None = Field(validation_alias="sender_username")
+
+
+class IdentityPage(BaseModel):
+    items: list[IdentityItem]
+    nextCursor: str | None
+
+
+class PendingRequestPage(BaseModel):
+    items: list[PendingRequestItem]
+    nextCursor: str | None
 
 
 def request_token(request: Request) -> str | None:
@@ -66,7 +104,7 @@ def require_identity(request: Request, service: IdentityService) -> tuple[Identi
     if identity is not None and session is not None:
         return identity, session
     if bool(getattr(request.state, "api_key_valid", False)):
-        return service_client_identity(request.headers, "API Client"), {"csrf_token": ""}
+        return service_client_identity(request.headers, "API Client"), {"csrf_token": "", "service_key": True}
     raise HTTPException(401, "ابدأ كضيف أو سجّل الدخول")
 
 
@@ -88,8 +126,28 @@ def apply_session_cookie(response: Response, request: Request, result: dict[str,
     )
 
 
-def build_auth_router(service: IdentityService) -> APIRouter:
+def build_auth_router(
+    service: IdentityService, *, pagination: IdentityPaginationConfig, policy: AuthorizationPolicy
+) -> APIRouter:
     router = APIRouter(prefix="/api/v1", tags=["identity"])
+    paged_router = APIRouter(prefix="/api/v2", tags=["identity"])
+
+    def actor(request: Request, scope: Scope, *, require_signed_scope: bool = False) -> Identity:
+        identity, session = require_identity(request, service)
+        claims = session.get("access_claims")
+        if session.get("service_key") or (require_signed_scope and claims is not None):
+            try:
+                policy.require(role=identity.kind, required=scope, claims=claims)
+            except PermissionError as exc:
+                raise HTTPException(403, str(exc)) from exc
+        return identity
+
+    def page(fetch: Callable[..., dict[str, Any]], value: str, limit: int | None, cursor: str | None):
+        page_size = min(limit, pagination.maximum_page_size) if limit is not None else pagination.default_page_size
+        try:
+            return fetch(value, limit=page_size, cursor=cursor)
+        except InvalidIdentityCursor as exc:
+            raise HTTPException(422, [{"loc": ["query", "cursor"], "msg": str(exc), "type": "value_error"}]) from exc
 
     @router.get("/auth/me")
     def me(request: Request):
@@ -155,19 +213,59 @@ def build_auth_router(service: IdentityService) -> APIRouter:
         require_identity(request, service)
         return {"items": service.search(query, limit=limit)}
 
+    @paged_router.get("/users:search", response_model=IdentityPage)
+    def search_users_page(
+        request: Request, query: str, limit: int | None = Query(default=None, ge=1),
+        cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
+    ):
+        identity = actor(request, Scope.READ, require_signed_scope=True)
+        if identity.is_guest and not pagination.allow_guest_search:
+            raise HTTPException(403, "sign in to search for users")
+        maximum = pagination.maximum_search_query_length
+        if len(query) > maximum:
+            raise HTTPException(422, [{
+                "loc": ["query", "query"],
+                "msg": f"search query must contain at most {maximum} characters",
+                "type": "value_error",
+            }])
+        minimum = pagination.minimum_search_query_length
+        if "\0" in query or len(query.strip()) < minimum:
+            raise HTTPException(422, [{
+                "loc": ["query", "query"],
+                "msg": f"search query must contain at least {minimum} characters and no nulls",
+                "type": "value_error",
+            }])
+        return page(partial(service.search_page, maximum_results=pagination.maximum_search_results), query, limit, cursor)
+
     @router.get("/friends")
     def friends(request: Request):
-        identity, _ = require_identity(request, service)
+        identity = actor(request, Scope.READ)
         return {"items": service.friends(identity.subject_id)}
 
     @router.get("/friends/requests")
     def friend_requests(request: Request):
-        identity, _ = require_identity(request, service)
+        identity = actor(request, Scope.READ)
         return {"items": service.requests(identity.subject_id)}
+
+    @paged_router.get("/friends", response_model=IdentityPage)
+    def friends_page(
+        request: Request, limit: int | None = Query(default=None, ge=1),
+        cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
+    ):
+        identity = actor(request, Scope.READ, require_signed_scope=True)
+        return page(service.friend_page, identity.subject_id, limit, cursor)
+
+    @paged_router.get("/friends/requests", response_model=PendingRequestPage)
+    def friend_requests_page(
+        request: Request, limit: int | None = Query(default=None, ge=1),
+        cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
+    ):
+        identity = actor(request, Scope.READ, require_signed_scope=True)
+        return page(service.request_page, identity.subject_id, limit, cursor)
 
     @router.post("/friends/requests", status_code=201)
     def create_friend_request(body: FriendRequestBody, request: Request):
-        identity, _ = require_identity(request, service)
+        identity = actor(request, Scope.PLAY)
         try:
             return service.request_friend(identity.subject_id, body.recipientId)
         except KeyError as exc:
@@ -177,10 +275,13 @@ def build_auth_router(service: IdentityService) -> APIRouter:
 
     @router.post("/friends/requests/{request_id}:respond")
     def respond_friend_request(request_id: str, body: FriendResponseBody, request: Request):
-        identity, _ = require_identity(request, service)
+        identity = actor(request, Scope.PLAY)
         try:
             return service.respond_friend(request_id, identity.subject_id, accept=body.accept)
         except KeyError as exc:
             raise HTTPException(404, "friend request not found") from exc
 
-    return router
+    routes = APIRouter()
+    routes.include_router(router)
+    routes.include_router(paged_router)
+    return routes

@@ -550,7 +550,7 @@ def unified_app():
     return FileResponse(_APP_STATIC / "index.html")
 
 
-app.include_router(build_auth_router(IDENTITY))
+app.include_router(build_auth_router(IDENTITY, pagination=CONTAINER.identity_pagination, policy=AUTHORIZATION_POLICY))
 app.include_router(build_sakka_router(SAKKA, IDENTITY))
 app.include_router(build_shared_router(SAKKA, IDENTITY, EXPLANATIONS, REVIEWS))
 app.include_router(build_live_router(LIVE, IDENTITY, GAMES, WEBSOCKET_TICKETS))

@@ -165,9 +165,14 @@ def test_hosted_ci_contract(root):
         "(github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'merge_group'"
     )
     assert review_step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert review_step["env"]["REVIEW_BASE"] == "${{ github.event.merge_group.base_sha }}"
+    resolve_base, _ = review_step["run"].split("base_files=", 1)
+    assert 'if [[ "$GITHUB_EVENT_NAME" == pull_request ]]' in resolve_base
+    assert "git rev-parse --verify 'HEAD^1^{commit}'" in resolve_base
     assert 'git show "$REVIEW_BASE:ci/critical_review.py"' in review_step["run"]
     assert 'python3 -I "$RUNNER_TEMP/critical-review.py"' in review_step["run"]
     assert "python3 -I ci/critical_review.py" not in review_step["run"]
+    assert not re.search(r"^\s*exit\s+0\s*$", review_step["run"], re.MULTILINE)
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
         "media-inputs", "media-render", "media-release-smoke", "remotion-image-parity",
@@ -276,6 +281,30 @@ def test_critical_review_on_pull_request(review_history, monkeypatch, path, foll
         critical_review.check(*args)
 
 
+def test_pull_request_review_uses_merge_base_and_binds_head(review_history, monkeypatch):
+    path = "scripts/render_kickoff.py"
+    base, _, head, candidate = review_history(path)
+    pr = {"number": 104, "base": {"sha": "f" * 40}, "head": {"sha": head}}
+    endpoint = "repos/test/example/pulls/104"
+
+    def github(*args):
+        if args == (endpoint,):
+            return {**pr, "state": "open", "changed_files": 1}
+        if args == ("--paginate", "--slurp", f"{endpoint}/files?per_page=100"):
+            return [[{"filename": path, "status": "modified"}]]
+        assert args == ("--paginate", "--slurp", "repos/test/example/issues/104/comments?per_page=100")
+        return []
+
+    monkeypatch.setattr(critical_review, "github", github)
+    args = ("pull_request", {"pull_request": pr}, "test/example", "refs/pull/104/merge", candidate)
+    with pytest.raises(ValueError, match="needs a VERDICT"):
+        critical_review.check(*args)
+
+    pr["head"]["sha"] = base
+    with pytest.raises(ValueError, match="second parent.*Update the PR branch"):
+        critical_review.check(*args)
+
+
 def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatch):
     base, _, head, candidate = review_history("scripts/render-kickoff.json", squash=True)
     reviewer_ids, _ = critical_review.policy(base)
@@ -305,6 +334,9 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
         critical_review.check(*args)
     comment["body"] = f"VERDICT: GO {head}"
     critical_review.check(*args)
+    files[0]["filename"] = "ci/fixture.json"
+    with pytest.raises(ValueError, match="absent from both the PR base and head"):
+        critical_review.check(*args)
     files[0]["filename"] = "README.md"
     critical_review.check(*args)
     snapshot["changed_files"] = 2
@@ -690,7 +722,7 @@ def test_gate_requires_exact_scoped_producers(root, paths, producers):
     "tests/conftest.py", "tests/test_ci_hosted_contract.py", "tests/test_core.py",
     "tests/test_research_ortools_unified_executor.py", "tests/test_unmeasured.py",
     "docs/architecture/authority-map.json", "src/baloot_platform/core/rules.py",
-    "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py",
+    "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py", "tests/test_v8_identity_sakka.py",
     "src/baloot_platform/video/remotion/package.json", "src/baloot_platform/video/remotion/package-lock.json",
     "LICENSE", "THIRD-PARTY-NOTICES", "native/CMakeLists.txt", "configs/runtime/docker_v1.yaml",
     "schemas/version.schema.json", "generated/openapi.json", "proto/baloot.proto", "migrations/001_initial.sql",
