@@ -75,6 +75,8 @@ Legacy gRPC game and attempt writes require the configured service key. SDK logo
 
 Durable job reads are restricted to operators in the job's tenant. Signed token claims select the tenant. Installation-wide render outputs and video records are available to default-tenant operators. The trusted-context setting or key adds a separate requirement for operations that use complete hands.
 
+Canonical history requires trusted context for full-state reads and operator authorization for lineage writes.
+
 Shared-run owners can read the archived game and replay after the run completes. Render records within those responses require operator access.
 
 ## Merge

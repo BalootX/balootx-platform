@@ -231,6 +231,84 @@ def test_canonical_event_store_snapshots_branches_and_corrections(tmp_path: Path
     assert store.verify("GAME-17:round:1")["valid"] is True
 
 
+def test_canonical_history_http_authorizes_full_state_and_lineage_writes(root, tmp_path, monkeypatch):
+    from security_probe_helpers import security_probe_app
+
+    from baloot_platform.service import api
+    from baloot_platform.service.routes.canonical_history import build_canonical_history_router
+
+    monkeypatch.setenv("BALOOT_ENV", "production")
+    monkeypatch.setenv("BALOOT_RATE_LIMIT_PER_MINUTE", "0")
+    trusted_key = "canonical-fixture-trusted-key"
+    monkeypatch.setenv("BALOOT_TRUSTED_API_KEY", trusted_key)
+
+    store = CanonicalHistoryStore(tmp_path / "canonical-http.sqlite3")
+    games = GameManager(root, canonical_history=store)
+    game = games.create(seed=1709, dealer=Seat.EAST)
+    stream = f"{game.id}:round:{game.state.round_number}"
+    record = store.latest_snapshot(stream)
+    assert record is not None
+    expected = record.to_dict()
+    assert isinstance(expected["state"]["hands"]["east"], list)
+
+    probe_app = security_probe_app()
+    probe_app.include_router(build_canonical_history_router(
+        store, api.IDENTITY, games, require_trusted=api._require_trusted,
+    ))
+
+    def bearer(*scopes, role="admin", tenant_id=None):
+        token = api.ACCESS_TOKENS.issue(
+            subject_id="CANONICAL-FIXTURE", role=role, scopes=scopes, tenant_id=tenant_id,
+        )
+        return {"authorization": f"Bearer {token}"}
+
+    player = bearer(Scope.READ, Scope.PLAY, role="player")
+    hidden_reader = bearer(Scope.HIDDEN_READ, role="referee")
+    trusted_reader = {**hidden_reader, "x-baloot-trusted-key": trusted_key}
+    operator = bearer(Scope.CONFIG_ADMIN)
+    outside_operator = bearer(Scope.CONFIG_ADMIN, tenant_id="fixture-other")
+
+    with TestClient(probe_app) as client:
+        source_path = f"/api/v1/canonical-history/{game.id}"
+        snapshot_path = f"{source_path}/snapshot"
+        verification_path = f"/api/v1/canonical-history/{stream}/verification"
+        for path in (snapshot_path, verification_path):
+            assert client.get(path).status_code == 401
+            assert client.get(path, headers={**player, "x-baloot-trusted-key": trusted_key}).status_code == 403
+            denied = client.get(path, headers=hidden_reader)
+            assert denied.status_code == 403 and denied.json() == {
+                "detail": "trusted hidden-information access is not enabled",
+            }
+        snapshot = client.get(snapshot_path, headers=trusted_reader)
+        assert snapshot.status_code == 200 and snapshot.json() == expected
+        verification = client.get(verification_path, headers=trusted_reader)
+        assert verification.status_code == 200 and verification.json()["latestSnapshot"] == expected
+
+        lineage = client.get(f"{source_path}/lineage", headers=player)
+        assert lineage.status_code == 200
+        assert lineage.json() == {
+            "gameId": stream, "parentBranch": None, "parentCorrection": None, "branches": [], "corrections": [],
+        }
+        writes = (
+            ("branches", {"childGameId": "FIXTURE-CHILD", "reason": "Synthetic lineage"}, "parentGameId"),
+            ("corrections", {"correctedGameId": "FIXTURE-CORRECTED", "reason": "Synthetic lineage"}, "sourceGameId"),
+        )
+        for suffix, body, source_field in writes:
+            path = f"{source_path}/{suffix}"
+            assert client.post(path, json=body).status_code == 401
+            for denied_headers in (player, trusted_reader, outside_operator):
+                assert client.post(path, headers=denied_headers, json=body).status_code == 403
+            assert store.lineage(stream)[suffix] == []
+            written = client.post(path, headers=operator, json=body)
+            assert written.status_code == 201, written.text
+            assert written.json()[source_field] == stream
+            assert written.json()["createdBy"] == "CANONICAL-FIXTURE"
+
+        updated = client.get(f"{source_path}/lineage", headers=player).json()
+        assert updated["branches"][0]["child_game_id"] == "FIXTURE-CHILD"
+        assert updated["corrections"][0]["corrected_game_id"] == "FIXTURE-CORRECTED"
+
+
 def test_calibration_league_and_promotion_gates():
     report = evaluate_multiclass_calibration(
         [{"west": 0.8, "east": 0.2}, {"west": 0.3, "east": 0.7}],

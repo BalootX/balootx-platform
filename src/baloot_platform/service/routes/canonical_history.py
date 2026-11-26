@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -21,8 +23,13 @@ class CorrectionRequest(BaseModel):
     adjudicationCaseId: str | None = None
 
 
-def build_canonical_history_router(store: CanonicalHistoryStore, identities: IdentityService,
-                                   games: GameManager) -> APIRouter:
+def build_canonical_history_router(
+    store: CanonicalHistoryStore,
+    identities: IdentityService,
+    games: GameManager,
+    *,
+    require_trusted: Callable[[Request], None],
+) -> APIRouter:
     router = APIRouter(prefix="/api/v1/canonical-history", tags=["canonical-history"])
 
     def stream(identifier: str) -> str:
@@ -34,12 +41,12 @@ def build_canonical_history_router(store: CanonicalHistoryStore, identities: Ide
 
     @router.get("/{identifier}/verification")
     def verify(identifier: str, request: Request):
-        require_identity(request, identities)
+        require_trusted(request)
         return store.verify(stream(identifier))
 
     @router.get("/{identifier}/snapshot")
     def snapshot(identifier: str, request: Request):
-        require_identity(request, identities)
+        require_trusted(request)
         value = store.latest_snapshot(stream(identifier))
         if value is None:
             raise HTTPException(404, "canonical snapshot not found")

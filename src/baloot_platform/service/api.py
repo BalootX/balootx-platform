@@ -602,7 +602,6 @@ app.include_router(
         SECURITY_STATE,
     )
 )
-app.include_router(build_canonical_history_router(CANONICAL_HISTORY, IDENTITY, GAMES))
 
 
 def _truthy(name: str, default: str = "false") -> bool:
@@ -640,6 +639,11 @@ def _trusted_authorized(request: Request) -> bool:
 def _require_trusted(request: Request) -> None:
     if not _trusted_authorized(request):
         raise HTTPException(403, "trusted hidden-information access is not enabled")
+
+
+app.include_router(
+    build_canonical_history_router(CANONICAL_HISTORY, IDENTITY, GAMES, require_trusted=_require_trusted)
+)
 
 
 _RESEARCH_MUTATION_OPENAPI = {
