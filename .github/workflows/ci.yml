@@ -188,9 +188,11 @@ jobs:
         run: git show HEAD^1:src/baloot_platform/service/foundry_dashboard/src/styles.css > "$RUNNER_TEMP/foundry-audit-base.css"
       - name: Run Foundry Playwright suite
         if: ${{ !cancelled() && steps.playwright-install.outcome == 'success' }}
+        id: foundry-playwright
         run: npm run test:operator-e2e -- --reporter=list,junit
         env:
           BALOOT_OPERATOR_E2E_FOUNDRY_DIR: ${{ runner.temp }}/foundry-dashboard
+          BALOOT_OPERATOR_E2E_OUTPUT_DIR: ${{ runner.temp }}/foundry-playwright-output
           BALOOT_LIVE_RESULT_LATENCY_SAMPLE_OUTPUT: ${{ runner.temp }}/foundry-live-result-latency.json
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/foundry-playwright.xml
           BALOOT_FOUNDRY_AUDIT_BASE_CSS: ${{ github.event_name == 'pull_request' && format('{0}/foundry-audit-base.css', runner.temp) || '' }}
@@ -203,8 +205,14 @@ jobs:
             ${{ runner.temp }}/foundry-vitest.xml
             ${{ runner.temp }}/foundry-playwright.xml
             ${{ runner.temp }}/foundry-live-result-latency.json
-            output/playwright/acc19/**/audit-*.png
+            ${{ runner.temp }}/foundry-playwright-output/**/audit-*.png
           if-no-files-found: error
+      - name: Upload Foundry Playwright failure diagnostics
+        if: ${{ !cancelled() && steps.foundry-playwright.outcome == 'failure' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: foundry-playwright-failure-diagnostics
+          path: ${{ runner.temp }}/foundry-playwright-output
 
   sdks:
     needs: plan
@@ -732,6 +740,90 @@ jobs:
               fi
               exec python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules package-lock.json
             '
+      - name: Verify public producer preflight inside the video worker
+        timeout-minutes: 2
+        run: |
+          source_head=$(git rev-parse HEAD)
+          source_tree=$(git rev-parse 'HEAD^{tree}')
+          image_id=$(docker image inspect --format '{{.Id}}' balootx-video-worker-parity)
+          worker_checkout=$(mktemp -d "$RUNNER_TEMP/video-worker-checkout.XXXXXX")
+          worker_inputs=$(mktemp -d "$RUNNER_TEMP/video-worker-receipts.XXXXXX")
+          cp -a "$GITHUB_WORKSPACE/." "$worker_checkout/"
+          python3 -B - "$worker_inputs" "$source_head" "$source_tree" "$image_id" <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import sys
+
+          from scripts.render_kickoff import new_verdict
+
+          inputs, head, tree, image = sys.argv[1:]
+          lock = Path("src/baloot_platform/video/remotion/package-lock.json")
+          digest = hashlib.sha256(lock.read_bytes()).hexdigest()
+          for name, source in (("valid", head), ("wrong", tree)):
+              build = dict(status="PASSED", target="video-worker", sourceHead=source,
+                           sourceTree=tree, imageId=image, packageLockSha256=digest)
+              kickoff = new_verdict(source, tree, image)
+              kickoff.update(status="passed", mainHead=head, checkedAt="2026-01-01T00:00:00Z",
+                             packageLockSha256=digest)
+              (Path(inputs) / f"{name}-build.json").write_text(json.dumps(build), encoding="utf-8")
+              (Path(inputs) / f"{name}-kickoff.json").write_text(json.dumps(kickoff), encoding="utf-8")
+          PY
+          sudo chown -R 10001 "$worker_checkout" "$worker_inputs"
+          docker run --rm --network none --read-only --workdir /checkout -i \
+            --mount "type=bind,source=$worker_checkout,target=/checkout,readonly" \
+            --mount "type=bind,source=$worker_inputs,target=/receipts,readonly" \
+            --env PYTHONPATH=/checkout/src --env BALOOT_ROOT=/checkout \
+            --env "BALOOT_RENDER_IMAGE_ID=$image_id" \
+            balootx-video-worker-parity sh -ec '
+              test "$(id -u)" -eq 10001
+              exec python -B - "$@"
+            ' worker "$source_head" "$source_tree" <<'PY'
+          from datetime import UTC, datetime
+          import os
+          import subprocess
+          import sys
+          from unittest.mock import patch
+
+          from baloot_platform.video.remotion_renderer import WORKER_RENDERER_ROOT
+          from scripts import render_kickoff, render_research_notice as notice
+
+          class PreflightPassed(Exception):
+              pass
+
+          def run_producer(case, head, tree):
+              with patch.dict(os.environ, {
+                  "BALOOT_RENDER_BUILD_RECEIPT": f"/receipts/{case}-build.json",
+                  "BALOOT_RENDER_KICKOFF_RECEIPT": f"/receipts/{case}-kickoff.json",
+              }):
+                  notice.main(public=True, source_head=head, source_tree=tree)
+
+          source_head, source_tree = sys.argv[1:]
+          assert not (notice.STYLE.parents[1] / "node_modules").exists()
+          assert (WORKER_RENDERER_ROOT / "src/style.css").read_bytes() == notice.STYLE.read_bytes()
+          with (
+              patch.object(render_kickoff, "utc_now", return_value=datetime(2026, 1, 1, tzinfo=UTC)),
+              patch.object(notice, "build_notice_bundle", side_effect=PreflightPassed),
+          ):
+              try:
+                  run_producer("valid", source_head, source_tree)
+              except PreflightPassed:
+                  pass
+              else:
+                  raise SystemExit("public producer did not reach bundle generation")
+              try:
+                  run_producer("wrong", source_tree, source_tree)
+              except ValueError as exc:
+                  if "does not match the pinned source" not in str(exc):
+                      raise
+              else:
+                  raise SystemExit("public producer accepted the wrong source commit")
+          subprocess.run(
+              ["node", "--input-type=module", "-e",
+               "import '@remotion/bundler'; import '@remotion/renderer'; import './scripts/ffmpeg-profile.mjs';"],
+              cwd=WORKER_RENDERER_ROOT, check=True,
+          )
+          PY
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.video-worker-build-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: *video-worker-build-cache
