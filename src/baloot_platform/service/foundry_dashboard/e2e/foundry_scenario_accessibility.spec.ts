@@ -868,8 +868,25 @@ async function expectNoAxeViolations(page: Page, flow: string) {
   const ran = [results.passes, results.violations, results.incomplete, results.inapplicable]
     .flatMap((rules) => rules.map((rule) => rule.id));
   expect(ran, 'axe runs its WCAG 2.2 target-size rule').toContain('target-size');
-  expect.soft(results.violations.flatMap((rule) => rule.nodes.map((node) =>
-    `${rule.id} ${node.target.join(' ')}: ${node.failureSummary}`)), `axe violations on ${flow}`).toEqual([]);
+  const nodes = results.violations.flatMap((rule) => rule.nodes.map((node) => ({
+    text: `${rule.id} ${node.target.join(' ')}: ${node.failureSummary}`,
+    selectors: [node.target, ...[...node.any, ...node.all, ...node.none]
+      .flatMap((check) => check.relatedNodes ?? []).map((related) => related.target)]
+      .map((target) => target.join(' ')),
+  })));
+  // Give each node's box and the boxes of the nodes axe relates to it, such as what covers a target.
+  const boxes = await page.evaluate((groups) => groups.map((selectors) => selectors.map((selector) => {
+    let element: Element | null = null;
+    try { element = document.querySelector(selector); } catch { /* a frame or shadow path; report it as is */ }
+    if (!element) return `${selector} (not found in the document)`;
+    const rect = element.getBoundingClientRect();
+    return `<${element.tagName.toLowerCase()} class="${element.getAttribute('class') ?? ''}"> ${selector}`
+      + ` at ${Math.round(rect.left)},${Math.round(rect.top)} size ${Math.round(rect.width)}x${Math.round(rect.height)}`;
+  })), nodes.map((node) => node.selectors));
+  expect.soft(nodes.map((node, index) => {
+    const [target, ...related] = boxes[index]!;
+    return `${node.text}\n  box: ${target}${related.length ? `\n  related: ${related.join('; ')}` : ''}`;
+  }), `axe violations on ${flow}`).toEqual([]);
 }
 
 // 2.1.1, 2.4.7 and 2.4.11: Tab reaches every enabled control in scope, and each one shows a focus
