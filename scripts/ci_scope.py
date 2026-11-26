@@ -10,6 +10,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from ci.critical_review import pull_request_merge
 from scripts.run_heavy_pytest import HEAVY_SHARDS, validate_union
 from scripts.run_isolated_pytest import fast_files, node_sharded_files, validate_shards
 
@@ -60,10 +61,10 @@ def changed_paths(base: str, head: str) -> set[str]:
     """Read the exact PR merge delta, including both sides of renames."""
     if not all(re.fullmatch(r"[0-9a-f]{40}", sha) for sha in (base, head)):
         raise ValueError("PR event commit identity is missing")
-    parents = git("rev-list", "--parents", "--max-count=1", "HEAD").decode("ascii").split()
-    if len(parents) != 3 or parents[1:] != [base, head]:
+    checkout, merge_base = pull_request_merge(git, head)
+    if merge_base != base:
         raise ValueError("checkout does not match both PR event parents")
-    fields = git("diff", "--raw", "-z", "--no-renames", "--no-ext-diff", base, parents[0], "--").split(b"\0")
+    fields = git("diff", "--raw", "-z", "--no-renames", "--no-ext-diff", base, checkout, "--").split(b"\0")
     if fields[-1] != b"" or (len(fields) - 1) % 2:
         raise ValueError("malformed PR diff")
     paths = set()
