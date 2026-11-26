@@ -260,10 +260,19 @@ async function setSelectorRanks(page: Page, id: string, ranks: string[]) {
   }
 }
 
+const readinessLabel = 'إعدادات منشورة ومجمّدة';
+
+function readinessTrigger(page: Page) {
+  return page.locator('.readiness-grid').getByRole('button').filter({
+    has: page.getByText(readinessLabel, {exact: true}),
+  });
+}
+
 async function openReadinessDrawer(page: Page) {
   await page.goto('/foundry?section=overview');
-  const trigger = page.locator('.readiness-item').first();
+  const trigger = readinessTrigger(page);
   await expect(trigger).toBeVisible();
+  await expect(trigger).toBeEnabled();
   await trigger.focus();
   await page.keyboard.press('Enter');
   const dialog = page.locator('dialog.drawer-layer');
@@ -311,13 +320,81 @@ test('distinct performance metrics follow the selected governed copy capability'
   await expect(distinctMetrics).toHaveCount(3);
 });
 
+for (const summaryOutcome of ['success', 'failure'] as const) {
+  test('readiness waits for the run list and summary after a profile failure (' + summaryOutcome + ')', async ({page}) => {
+    let releaseRuns!: () => void;
+    let releaseSummary!: () => void;
+    const runsGate = new Promise<void>((resolve) => { releaseRuns = resolve; });
+    const summaryGate = new Promise<void>((resolve) => { releaseSummary = resolve; });
+
+    await page.route('**/api/v2/foundry-profile', (route) =>
+      route.fulfill({status: 503, json: {detail: 'profile unavailable'}}));
+    await page.route((url) => url.pathname === '/api/v2/research-runs', async (route) => {
+      await runsGate;
+      await route.fulfill({json: {
+        items: [{runCode: 'RUN-STARTUP-SETTLEMENT', recipeCode: 'RCP-STARTUP-SETTLEMENT', status: 'completed'}],
+      }});
+    });
+    await page.route('**/api/v2/research-stats', async (route) => {
+      await summaryGate;
+      if (summaryOutcome === 'failure') {
+        await route.fulfill({status: 503, json: {detail: 'research summary unavailable'}});
+      } else {
+        await route.continue();
+      }
+    });
+
+    const trigger = readinessTrigger(page);
+    const notice = page.locator('.notice');
+    try {
+      await page.goto('/foundry?section=overview');
+      await expect(notice.getByText('profile unavailable', {exact: true})).toBeVisible();
+      await expect(trigger).toBeDisabled();
+
+      const summaryRequested = page.waitForRequest((request) =>
+        new URL(request.url()).pathname === '/api/v2/research-stats');
+      releaseRuns();
+      await summaryRequested;
+      await expect(trigger).toBeDisabled();
+    } finally {
+      releaseRuns();
+      releaseSummary();
+    }
+
+    await expect(trigger).toBeEnabled();
+    if (summaryOutcome === 'failure') {
+      await expect(notice.getByText('research summary unavailable', {exact: true})).toBeVisible();
+    } else {
+      await expect(page.locator('.research-performance-summary')).toBeVisible();
+    }
+    await trigger.click();
+    const dialog = page.locator('dialog.drawer-layer');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAccessibleName(readinessLabel);
+  });
+}
+
 test('@mobile touch opens and closes the drawer with a full-size control', async ({page}) => {
   expect(await page.evaluate(() => navigator.maxTouchPoints)).toBeGreaterThan(0);
-  await page.goto('/foundry?section=overview');
-  const trigger = page.locator('.readiness-item').first();
-  await expect(trigger).toBeVisible();
+  let releaseProfile!: () => void;
+  const profileGate = new Promise<void>((resolve) => { releaseProfile = resolve; });
+  await page.route('**/api/v2/foundry-profile', async (route) => {
+    await profileGate;
+    await route.continue();
+  });
+  const trigger = readinessTrigger(page);
+  try {
+    await page.goto('/foundry?section=overview');
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toBeDisabled();
+  } finally {
+    releaseProfile();
+  }
+  await expect(trigger).toBeEnabled();
   await trigger.tap();
   const dialog = page.locator('dialog.drawer-layer');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAccessibleName(readinessLabel);
   const close = dialog.locator('header button');
   const size = await close.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -343,9 +420,11 @@ test('@reduced-motion drawer keeps its state change without animation', async ({
 test('@zoom drawer remains operable and contained at 200 percent zoom', async ({page}) => {
   await page.goto('/foundry?section=overview');
   await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
-  const trigger = page.locator('.readiness-item').first();
+  const trigger = readinessTrigger(page);
+  await expect(trigger).toBeEnabled();
   await trigger.click();
   const dialog = page.locator('dialog.drawer-layer');
+  await expect(dialog).toBeVisible();
   const close = dialog.locator('header button');
   await expect(close).toBeVisible();
   const bounds = await dialog.locator('.drawer').evaluate((element) => {

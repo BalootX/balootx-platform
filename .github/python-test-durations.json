@@ -5,7 +5,7 @@
     "tests/test_ortools_scenario_model.py"
   ],
   "nodeShardingRationale": {
-    "tests/test_ortools_scenario_model.py": "Lead decision: 103/579 cases after 2400s projects about 13491s, exceeding the 3600s whole-file limit; retain all nodes in Python 3.13 shards."
+    "tests/test_ortools_scenario_model.py": "103/579 cases after 2400s projects about 13491s; shard the complete node set on each Python version in the full workflow matrix."
   },
   "additionalSources": {
     "tests/test_research_profile_publication_parity.py": "Scheduling weight: median completed file duration across Python 3.12 and 3.13 receipts from main runs 45405321120 and 45401279200.",

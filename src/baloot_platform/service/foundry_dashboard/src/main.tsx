@@ -10,7 +10,7 @@ import {
 } from '@tanstack/react-table';
 import './styles.css';
 import {researchRunStatusLabel} from './shared/presentation';
-import {configurationEditorArrayOptions, configurationEditorArrayItemSchema, configurationEditorChange, configurationEditorEntries, configurationEditorEnum, configurationEditorEnumTitle, configurationEditorEnumMessageKey, configurationEditorExpressionChoices, configurationEditorExpressionChoice, configurationEditorSelectExpression, configurationEditorObjectArrayAdd, configurationEditorObjectArrayRemove, configurationEditorObjectArraySchema, configurationEditorObjectValue, configurationEditorSchema, configurationPreviewComponents} from './features/configuration/model';
+import {configurationEditorArrayOptions, configurationEditorArrayItemSchema, configurationEditorChange, configurationEditorEntries, configurationEditorEnum, configurationEditorEnumTitle, configurationEditorEnumMessageKey, configurationEditorExpressionChoices, configurationEditorExpressionChoice, configurationEditorSelectExpression, configurationEditorObjectArrayAdd, configurationEditorObjectArrayRemove, configurationEditorObjectArraySchema, configurationEditorObjectValue, configurationEditorSchema, configurationPreviewComponents, openConfigurationRevision} from './features/configuration/model';
 import {
   mergeResearchPatch,
   researchCatalogFieldApplicable,
@@ -1101,6 +1101,7 @@ function App() {
     return requested && foundrySectionIds.includes(requested) ? requested : 'overview';
   });
   const [profile, setProfile] = useState<FoundryProfile | null>(null);
+  const [readinessLoaded, setReadinessLoaded] = useState(false);
   const [researchBundles, setResearchBundles] = useState<ConfigBundle[]>([]);
   const researchRecipeController = useMemo(
     () => new ResearchRecipeController(researchRecipeApi),
@@ -1126,7 +1127,7 @@ function App() {
   }, [researchRecipeController]);
   const [retiringRecipeCodes, setRetiringRecipeCodes] = useState<Set<string>>(() => new Set());
   const [researchRuns, setResearchRuns] = useState<ResearchRun[]>([]);
-  const [researchStats, setResearchStats] = useState<ResearchStats | null>(null);
+  const [researchStats, setResearchStats] = useState<ResearchStats | null>();
   const researchStatsRevision = researchRuns.map(({runCode, status}) => `${runCode}:${status}`).join('|');
   const activeResearchRunCodes = researchRuns.filter((item) => ['queued', 'running'].includes(item.status))
     .map((item) => item.runCode).sort().join('|');
@@ -1197,14 +1198,16 @@ function App() {
     }
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (reportStartupError?: (error: Error) => void) => {
     await ensureConfigurationIdentity();
     const runtimeRequest=api<FoundryProfile>('/api/v2/foundry-profile').then((value)=>{setProfile(value);return value;});
     const bundleRequest=api<{items: ConfigBundle[]}>('/api/v2/configuration/bundles?status=published&limit=200').then((value)=>{setResearchBundles(value.items);return value;});
-    const [,,, disagreementPage, campaignPage, catalogPage, sakkaPage, reviewPage, analysisPage, finalistPage, renderPage, videoBatchPage, qualifiedPage] = await Promise.all([
+    const runsRequest = api<{items: ResearchRun[]}>('/api/v2/research-runs?limit=100')
+      .then((value) => setResearchRuns(value.items));
+    const overview = await Promise.all([
       runtimeRequest,
       bundleRequest,
-      api<{items: ResearchRun[]}>('/api/v2/research-runs?limit=100').then((value)=>{setResearchRuns(value.items);return value;}),
+      runsRequest,
       api<{items: SemanticDisagreement[]}>('/api/v2/semantic-disagreements?limit=100'),
       api<{items: Campaign[]}>('/api/v2/campaigns?limit=100'),
       api<{items: CatalogRecord[]}>('/api/v2/foundry-catalogs?limit=100'),
@@ -1215,7 +1218,15 @@ function App() {
       api<{items: RenderJob[]}>('/api/v2/render-batches?limit=20').catch(() => ({items: []})),
       api<{items: VideoProductionBatch[]}>('/api/v2/video-production-batches?limit=20').catch(() => ({items: []})),
       api<{items: BatchPreparedItem[]; nextCursor:string|null}>('/api/v2/qualified-laffat?limit=100&sort=laffa_score&direction=desc').catch(() => ({items: [], nextCursor:null})),
-    ]);
+    ]).catch(async (error: Error) => {
+      if (!reportStartupError) throw error;
+      reportStartupError(error);
+      // These requests can still update the layout after the aggregate rejects.
+      await Promise.allSettled([runtimeRequest, bundleRequest, runsRequest]);
+      return null;
+    });
+    if (!overview) return;
+    const [,,, disagreementPage, campaignPage, catalogPage, sakkaPage, reviewPage, analysisPage, finalistPage, renderPage, videoBatchPage, qualifiedPage] = overview;
     const recentCampaigns = [...campaignPage.items].sort((left, right) => {
       const created = Date.parse(right.createdAt) - Date.parse(left.createdAt);
       return created || right.campaignHash.localeCompare(left.campaignHash);
@@ -1290,10 +1301,16 @@ function App() {
     }
   };
 
-  useEffect(() => { refresh().catch((error: Error) => setMessage(error.message)); }, [refresh]);
+  useEffect(() => {
+    const reportStartupError = (error: Error) => setMessage(error.message);
+    void refresh(reportStartupError).catch(reportStartupError).finally(() => setReadinessLoaded(true));
+  }, [refresh]);
   useEffect(() => {
     if ((view !== 'overview' && view !== 'research') || !researchRuns.length) return;
-    api<ResearchStats>('/api/v2/research-stats').then(setResearchStats).catch((error:Error)=>setMessage(error.message));
+    api<ResearchStats>('/api/v2/research-stats').then(setResearchStats).catch((error: Error) => {
+      setResearchStats((current) => current ?? null);
+      setMessage(error.message);
+    });
   }, [view, researchStatsRevision]);
   useEffect(() => {
     if (view !== 'laffat') return;
@@ -1543,6 +1560,8 @@ function App() {
     && selected.spec.perspectiveProfileHash === profile.perspectiveProfileHash
     && selected.spec.selectionProfileHash === profile.selectionProfileHash);
   const evidenceCount = Math.max(candidatePage?.count || 0, catalogs.filter((item) => item.kind.includes('evidence') || item.kind.includes('proof')).length);
+  // The first research summary can still shift the readiness controls after refresh.
+  const readinessLoading = !readinessLoaded || (researchRuns.length > 0 && researchStats === undefined);
   const readiness = [
     {label: t("workflow.m_d40c6942d37e"), ready: Boolean(profile?.bundleHash), detail: t("workflow.m_406fd6baf625")},
     {label: t("workflow.m_c6ad13aaf02e"), ready: completedCampaigns.length > 0 || sakkas.length > 0, detail: t("workflow.m_0c5f3d3d663d")},
@@ -2230,7 +2249,7 @@ function App() {
         recipes={researchRecipes}
         runs={researchRuns}
         disagreements={semanticDisagreements}
-        stats={researchStats}
+        stats={researchStats ?? null}
         busy={busy}
         setBusy={setBusy}
         setMessage={setMessage}
@@ -2423,7 +2442,7 @@ function App() {
       {view === 'overview' && <>
       <section className="panel readiness-panel">
         <PanelTitle kicker={t("settings.m_4dd48409b984")} title={t("settings.m_77cbd53db867")} help={t("settings.m_e706bdf84419")} example={t("settings.m_565d95bfb57e")} openHelp={openHelp} setOpenHelp={setOpenHelp} />
-        <div className="readiness-grid">{readiness.map((item) => <button key={item.label} className={`readiness-item ${item.ready ? 'ready' : 'pending'}`} onClick={() => setDrawer({kind:'readiness', title:item.label, subtitle:item.ready ? t("settings.m_c2da5684d63b") : t("settings.m_8398aec9e029"), content:<p className="drawer-lead">{item.detail}</p>})}><i>{item.ready ? '✓' : '○'}</i><span><b>{item.label}</b><small>{item.detail}</small></span><span className="chevron">‹</span></button>)}</div>
+        <div className="readiness-grid" aria-busy={readinessLoading}>{readiness.map((item) => <button key={item.label} className={`readiness-item ${item.ready ? 'ready' : 'pending'}`} disabled={readinessLoading} onClick={() => setDrawer({kind:'readiness', title:item.label, subtitle:item.ready ? t("settings.m_c2da5684d63b") : t("settings.m_8398aec9e029"), content:<p className="drawer-lead">{item.detail}</p>})}><i>{item.ready ? '✓' : '○'}</i><span><b>{item.label}</b><small>{item.detail}</small></span><span className="chevron">‹</span></button>)}</div>
         <div className="publishing-lock"><span>🔒</span><div><b>{t("settings.m_2382f4a3fe95")}</b><small>{t("settings.m_12c8c831be2c")}</small></div><a href={renderJob?.status === 'completed' ? '#render-output' : '#video-workflow'}>{t("settings.m_94d1f1049135")}</a></div>
       </section>
       </>}
@@ -2474,6 +2493,8 @@ function ConfigurationWorkspace({runtimeProfile, openHelp, setOpenHelp, setDrawe
   const [family, setFamily] = useState('rules');
   const [selected, setSelected] = useState<ConfigProfile | null>(null);
   const [draft, setDraft] = useState<JsonObject | null>(null);
+  // A mutation's follow-up read keeps the intent that started the mutation.
+  const profileIntent = useRef(0);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState('');
   const [adminKey, setAdminKey] = useState('');
@@ -2500,14 +2521,22 @@ function ConfigurationWorkspace({runtimeProfile, openHelp, setOpenHelp, setDrawe
   }, [family, setMessage]);
   const families = useMemo(() => [...new Set(profiles.map((item) => item.family))].sort((a,b) => (familyMeta[a]?.label || a).localeCompare(familyMeta[b]?.label || b, 'ar')), [profiles]);
   const latest = useMemo(() => profiles.filter((item) => item.family === family && item.status === 'published').sort((a,b) => b.sequence - a.sequence)[0] || profiles.find((item) => item.family === family), [profiles, family]);
-  useEffect(() => { if (!selected || selected.family !== family) setSelected(null); }, [family, selected]);
-  const openProfile = async (item: ConfigProfile) => {
-    try {
-      const full = await api<ConfigProfile>(`/api/v1/configuration-registry/profiles/${item.revisionId}`);
-      setSelected(full); setDraft(copyJson(full.payload || {})); setProfileValidation(null); setProfileCompilation(null); setProfileCompilationError(''); setPreviewBundle(null);
-    } catch (error) { setMessage((error as Error).message); }
+  useEffect(() => () => { ++profileIntent.current; }, []);
+  const selectFamily = (nextFamily: string) => {
+    if (nextFamily === family && !selected) return;
+    ++profileIntent.current;
+    setFamily(nextFamily); setSelected(null); setDraft(null);
   };
-  useEffect(() => { if (latest && !selected) openProfile(latest); }, [latest, selected]);
+  const openProfile = useCallback((item: ConfigProfile, intent?: number) => openConfigurationRevision(
+    profileIntent,
+    () => api<ConfigProfile>(`/api/v1/configuration-registry/profiles/${item.revisionId}`),
+    (full, nextDraft) => {
+      setSelected(full); setDraft(nextDraft); setProfileValidation(null); setProfileCompilation(null); setProfileCompilationError(''); setPreviewBundle(null);
+    },
+    setMessage,
+    intent,
+  ), [setMessage]);
+  useEffect(() => { if (latest && !selected) openProfile(latest); }, [latest, selected, openProfile]);
   const siblingRevisions = useMemo(() => profiles.filter((item) => selected && item.family === selected.family && item.profileId === selected.profileId && item.revisionId !== selected.revisionId).sort((a,b) => b.sequence - a.sequence), [profiles, selected]);
   const visibleSiblingRevisions = showAllRevisions ? siblingRevisions : siblingRevisions.slice(0, 12);
   useEffect(() => { setCompareRevision(siblingRevisions[0]?.revisionId || ''); }, [selected?.revisionId, siblingRevisions[0]?.revisionId]);
@@ -2524,21 +2553,25 @@ function ConfigurationWorkspace({runtimeProfile, openHelp, setOpenHelp, setDrawe
   const changed = useMemo(() => diffPaths((selected?.payload || {}) as JsonValue, (draft || {}) as JsonValue), [selected, draft]);
   const saveDraft = async () => {
     if (!selected || selected.status !== 'draft' || !draft || !changed.length) return; setSaving(true);
+    const intent = ++profileIntent.current;
     try {
       const result = await api<ConfigProfile>(`/api/v2/configuration/profiles/${selected.revisionId}`, {method:'PATCH', headers:adminHeaders(), body:JSON.stringify({payload:draft, expectedEtag:selected.etag})});
-      setMessage(t("settings.m_257862e1d0ee")); await load(); await openProfile(result);
-    } catch (error) { setMessage((error as Error).message); } finally { setSaving(false); }
+      if (intent === profileIntent.current) setMessage(t("settings.m_257862e1d0ee"));
+      await load(); await openProfile(result, intent);
+    } catch (error) { if (intent === profileIntent.current) setMessage((error as Error).message); } finally { setSaving(false); }
   };
   const adminHeaders = () => ({'x-baloot-role':'admin', ...(adminKey ? {'x-api-key':adminKey} : {})});
   const cloneDraft = async () => {
     if (!selected?.payload) return; setSaving(true);
+    const intent = ++profileIntent.current;
     try {
       const payload=copyJson(selected.payload); const profile=payload.profile as JsonObject | undefined;
       // Revision identity changes independently; cloning cannot invent support for a new contract version.
       if(profile) profile.status='draft';
       const result=await api<ConfigProfile>('/api/v2/configuration/profiles', {method:'POST', headers:adminHeaders(), body:JSON.stringify({family:selected.family,payload,scope:selected.scope,scopeKey:selected.scopeKey==='*'?null:selected.scopeKey,rolloutPercentage:100,rolloutSeed:'default',supersedesRevisionId:selected.revisionId,publish:false})});
-      setMessage(t("settings.rules_clone_ready")); await load(); await openProfile(result);
-    } catch(error) { setMessage((error as Error).message); } finally { setSaving(false); }
+      if (intent === profileIntent.current) setMessage(t("settings.rules_clone_ready"));
+      await load(); await openProfile(result, intent);
+    } catch(error) { if (intent === profileIntent.current) setMessage((error as Error).message); } finally { setSaving(false); }
   };
   const validateDraft = async () => {
     if (!selected || selected.status !== 'draft' || changed.length) return; setSaving(true);
@@ -2558,12 +2591,16 @@ function ConfigurationWorkspace({runtimeProfile, openHelp, setOpenHelp, setDrawe
     if (!selected) return;
     if (action !== 'publish' && transitionReason.trim().length < 2) { setMessage(t("settings.m_5c725248e82f")); return; }
     setSaving(true);
+    const intent = ++profileIntent.current;
     try {
       const body = action === 'publish' ? {expectedEtag:selected.etag} : {expectedEtag:selected.etag, reason:transitionReason.trim()};
       const result = await api<ConfigProfile>(`/api/v1/configuration-registry/profiles/${selected.revisionId}:${action}`, {method:'POST', headers:adminHeaders(), body:JSON.stringify(body)});
-      setMessage(action === 'publish' ? t("settings.m_d3cf2f94e36e") : action === 'reject' ? t("settings.m_eabf58cbd764") : t("settings.m_054f2c46d23f"));
-      setTransitionReason(''); await load(); await openProfile(result);
-    } catch (error) { setMessage((error as Error).message); } finally { setSaving(false); }
+      if (intent === profileIntent.current) {
+        setMessage(action === 'publish' ? t("settings.m_d3cf2f94e36e") : action === 'reject' ? t("settings.m_eabf58cbd764") : t("settings.m_054f2c46d23f"));
+        setTransitionReason('');
+      }
+      await load(); await openProfile(result, intent);
+    } catch (error) { if (intent === profileIntent.current) setMessage((error as Error).message); } finally { setSaving(false); }
   };
   const filteredFamilies = families.filter((item) => `${familyMeta[item]?.label || item} ${familyMeta[item]?.description || ''}`.includes(query));
   const runtimeBundle = bundles.find((item) => item.revisionId === runtimeProfile?.runtimeBundleRevisionId);
@@ -2641,8 +2678,8 @@ function ConfigurationWorkspace({runtimeProfile, openHelp, setOpenHelp, setDrawe
     <aside className="settings-sidebar panel">
       <PanelTitle kicker={t("settings.m_d817347b32c4")} title={t("settings.m_3988d2354c99")} help={t("settings.m_8f3cb700222e")} example={t("settings.m_925d63afaf43")} openHelp={openHelp} setOpenHelp={setOpenHelp} />
       <label className="search-box"><span>{t("settings.m_f7a9f4607a42")}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("settings.m_6c744321c488")} /></label>
-      <label className="family-select"><span>{t("settings.label_family_picker")}</span><select value={family} onChange={(event) => {setFamily(event.target.value); setSelected(null); setDraft(null);}}>{filteredFamilies.map((item) => <option key={item} value={item}>{familyMeta[item]?.label || t("settings.m_f224d86b5a90")}</option>)}</select></label>
-      <div className="family-nav">{filteredFamilies.map((item) => <button key={item} className={family === item ? 'active' : ''} onClick={() => {setFamily(item); setSelected(null); setDraft(null);}}><span>{familyMeta[item]?.label || t("settings.m_f224d86b5a90")}</span><small>{familyMeta[item]?.description || t("settings.m_097648632423")}</small></button>)}</div>
+      <label className="family-select"><span>{t("settings.label_family_picker")}</span><select value={family} onChange={(event) => selectFamily(event.target.value)}>{filteredFamilies.map((item) => <option key={item} value={item}>{familyMeta[item]?.label || t("settings.m_f224d86b5a90")}</option>)}</select></label>
+      <div className="family-nav">{filteredFamilies.map((item) => <button key={item} className={family === item ? 'active' : ''} onClick={() => selectFamily(item)}><span>{familyMeta[item]?.label || t("settings.m_f224d86b5a90")}</span><small>{familyMeta[item]?.description || t("settings.m_097648632423")}</small></button>)}</div>
     </aside>
     <section className="settings-main">
       <article className="panel bundle-summary">
