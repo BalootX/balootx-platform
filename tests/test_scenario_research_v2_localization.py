@@ -204,6 +204,8 @@ def test_ortools_product_profile_preserves_legacy_source_without_stale_copy(
     assert set(fields) - set(legacy["foundry_copy"]["groups"]["configuration_fields"]) == native_only_controls
     for key in native_only_controls:
         assert fields.pop(key).strip()
+    # The frozen legacy profile predates the browser request deadline; the dashboard falls back for it.
+    assert normalized["foundry_copy"]["groups"]["helpers"].pop("request_timeout") == "انتهت مهلة الطلب. حدّث الصفحة وتحقّق من النتيجة قبل إعادة المحاولة."
     assert normalized == legacy
 
 
