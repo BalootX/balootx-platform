@@ -252,7 +252,7 @@
           "family": "video",
           "id": "premium_video",
           "path": "configs/video/premium.yaml",
-          "sha256": "0236a74c7ec32262cc8973958ed1089753ceec2795e4a9c149c2f9f775828024",
+          "sha256": "9ee9b956e0230277ba28433b7ec8528b20d52fd227810fb5594c6aa0ad714877",
           "status": "governed_candidate",
           "version": "21.3.5"
         }
@@ -263,7 +263,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "975f4c4e62e50227d39d66057a3688358ce937edc3bdc381f059b2bb54cf3cc9"
+      "sha256": "3e8660d3e297b7c517b5511793e46f7aacabb25784bd4f91bebb41cd8b377fcf"
     },
     "hokum_only": {
       "components": {
@@ -517,7 +517,7 @@
           "family": "video",
           "id": "premium_video",
           "path": "configs/video/premium.yaml",
-          "sha256": "0236a74c7ec32262cc8973958ed1089753ceec2795e4a9c149c2f9f775828024",
+          "sha256": "9ee9b956e0230277ba28433b7ec8528b20d52fd227810fb5594c6aa0ad714877",
           "status": "governed_candidate",
           "version": "21.3.5"
         }
@@ -528,7 +528,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "05abe22c9db6c4d91dd6ba67e222f6575cb5373def069a0338b4107fd9e46f26"
+      "sha256": "8a879abbec6ca81f17a8958b17d8cb782916c87bf328a5b498b804b98351f583"
     },
     "sun_only": {
       "components": {
@@ -782,7 +782,7 @@
           "family": "video",
           "id": "premium_video",
           "path": "configs/video/premium.yaml",
-          "sha256": "0236a74c7ec32262cc8973958ed1089753ceec2795e4a9c149c2f9f775828024",
+          "sha256": "9ee9b956e0230277ba28433b7ec8528b20d52fd227810fb5594c6aa0ad714877",
           "status": "governed_candidate",
           "version": "21.3.5"
         }
@@ -793,7 +793,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "9608ef37ba6939b70129ca99a629d8c559407c83e43860a52b1368da7ee0225d"
+      "sha256": "e86bc9be16e5309d412b8228a411b08e3e84c2df898dc760ca6e9cc520960df1"
     }
   },
   "schemaVersion": 1

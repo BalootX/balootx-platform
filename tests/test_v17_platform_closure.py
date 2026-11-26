@@ -327,6 +327,28 @@ def test_encrypted_canonical_snapshots_and_live_broker(tmp_path: Path):
     asyncio.run(exercise())
     broker.close()
 
+def test_service_does_not_start_without_the_shared_browser_assets(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("BALOOT_ENV", "test")
+    from fastapi import FastAPI
+
+    from baloot_platform.service.api import _mount_shared_assets
+
+    shared = tmp_path / "shared"
+    with pytest.raises(RuntimeError, match="request.js, request-loader.js"):
+        _mount_shared_assets(FastAPI(), shared)
+    shared.mkdir()
+    (shared / "request.js").write_text("export {};", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="missing: request-loader.js"):
+        _mount_shared_assets(FastAPI(), shared)
+    (shared / "request-loader.js").write_text("// loader", encoding="utf-8")
+    application = FastAPI()
+    _mount_shared_assets(application, shared)
+    served = TestClient(application).get("/shared-assets/request-loader.js")
+    assert served.status_code == 200 and served.text == "// loader"
+
+
 def test_v17_api_routes_and_unified_arabic_app(monkeypatch):
     monkeypatch.setenv("BALOOT_ENV", "test")
     from baloot_platform.service.api import app
@@ -341,8 +363,12 @@ def test_v17_api_routes_and_unified_arabic_app(monkeypatch):
     for label in ("شارك لفة أو صكّة", "صكّة كاملة", "ليش لعبها؟", "طاولة مباشرة"):
         assert label in text
     assert '"request_timeout":' in text and "{{" not in text
+    assert '"request_unavailable":' in text
+    assert '<script src="/shared-assets/request-loader.js" defer></script>' in text
     shared = client.get("/shared-assets/request.js")
     assert shared.status_code == 200 and "REQUEST_DEADLINE_MS" in shared.text
+    loader = client.get("/shared-assets/request-loader.js")
+    assert loader.status_code == 200 and "loadRequestHelper" in loader.text
     openapi = client.get("/openapi.json").json()
     paths = openapi["paths"]
     assert "/api/v1/live/rooms" in paths

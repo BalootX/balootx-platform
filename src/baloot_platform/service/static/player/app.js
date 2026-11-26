@@ -19,11 +19,11 @@
 
   function show(name){ views.forEach(v=>v.classList.toggle('active',v.id===`${name}-view`)); document.body.classList.toggle('game-active',name==='game'); window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'}); }
   function toast(msg){ const el=$('toast'); el.textContent=msg; el.classList.add('show'); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2200); }
-  const requestModule = import('/shared-assets/request.js');
   async function api(path, options={}){
     const headers = {'content-type':'application/json',...(options.headers||{})};
     if(state.csrf && !['GET','HEAD'].includes((options.method||'GET').toUpperCase())) headers['x-csrf-token']=state.csrf;
-    const {fetchWithDeadline,isDeadlineError}=await requestModule;
+    let helper; try{helper=await loadRequestHelper()}catch{throw new Error(copy('request_unavailable'))}
+    const {fetchWithDeadline,isDeadlineError}=helper;
     let res,text; try{res=await fetchWithDeadline(path,{credentials:'include',...options,headers}); text=await res.text()}catch(error){throw isDeadlineError(error)?new Error(copy('request_timeout')):error}
     let data=null; try{data=text?JSON.parse(text):null}catch{data={detail:text}}
     if(!res.ok) throw new Error(copy('request_error',{status:res.status})); return data;

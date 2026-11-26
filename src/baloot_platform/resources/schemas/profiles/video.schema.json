@@ -962,6 +962,9 @@
         "request_timeout": {
           "type": "string"
         },
+        "request_unavailable": {
+          "type": "string"
+        },
         "result_default_label": {
           "type": "string"
         },
@@ -1265,6 +1268,7 @@
         "recommended_rate",
         "request_error",
         "request_timeout",
+        "request_unavailable",
         "result_default_label",
         "result_default_title",
         "result_different",

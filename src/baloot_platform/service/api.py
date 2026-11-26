@@ -450,10 +450,31 @@ _APP_STATIC = Path(__file__).resolve().parent / "static" / "app"
 if _APP_STATIC.exists():
     app.mount("/app-assets", StaticFiles(directory=_APP_STATIC), name="app-assets")
 _SHARED_STATIC = Path(__file__).resolve().parent / "static" / "shared"
-if _SHARED_STATIC.exists():
-    app.mount(
-        "/shared-assets", StaticFiles(directory=_SHARED_STATIC), name="shared-assets"
+
+
+def _mount_shared_assets(application: FastAPI, directory: Path) -> None:
+    """Mount the browser request helper, or stop the service from starting.
+
+    Every served page calls the API through these two files, so an installation
+    that lacks them must fail at start-up instead of serving pages that cannot work.
+    """
+    missing = [
+        name
+        for name in ("request.js", "request-loader.js")
+        if not (directory / name).is_file()
+    ]
+    if missing:
+        raise RuntimeError(
+            "shared browser assets are missing: "
+            + ", ".join(missing)
+            + ". Reinstall the package so static/shared is included."
+        )
+    application.mount(
+        "/shared-assets", StaticFiles(directory=directory), name="shared-assets"
     )
+
+
+_mount_shared_assets(app, _SHARED_STATIC)
 _CHALLENGE_STATIC = Path(__file__).resolve().parent / "static" / "challenge"
 if _CHALLENGE_STATIC.exists():
     app.mount(

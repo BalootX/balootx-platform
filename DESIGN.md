@@ -18,4 +18,5 @@
 
 ## Browser requests
 
-- The served pages and the Foundry dashboard call the API through the [shared request deadline](src/baloot_platform/service/static/shared/request.js). A request that reaches the deadline ends once, with no retry. It shows the profile's `request_timeout` message, which asks the person to refresh and check the result before trying again.
+- The served pages and the Foundry dashboard call the API through the [shared request deadlines](src/baloot_platform/service/static/shared/request.js). Interactive calls use the request deadline. Synchronous Research calls that run a solver or prepare a candidate use the long-call deadline, which exceeds the longest covered server budget by a stated margin. A request that reaches its deadline ends once, with no retry. It shows the profile's `request_timeout` message, which asks the person to refresh and check the result before trying again.
+- The served pages load the request module through the [request loader](src/baloot_platform/service/static/shared/request-loader.js). A failed load shows the profile's `request_unavailable` message, which asks the person to try again and to refresh if it persists. The next request loads the module again.
