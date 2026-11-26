@@ -1,3 +1,0 @@
-# Format: tests/test_file.py # one-line reason for zero call phases on Linux CI
-# Empty: reviewed platform guards do not justify any whole-file Linux exception.
-# Native/OR-Tools absence is not an exception: CI installs/builds those dependencies.
