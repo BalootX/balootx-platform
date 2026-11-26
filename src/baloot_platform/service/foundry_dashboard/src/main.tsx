@@ -1,4 +1,4 @@
-import {CSSProperties, FormEvent, Fragment, ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {CSSProperties, FormEvent, Fragment, ReactNode, SetStateAction, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {
   createColumnHelper,
@@ -1161,8 +1161,9 @@ function App() {
   const [drawer, setDrawerState] = useState<DrawerState>(null);
   const drawerIntent = useRef(0);
   // Every open or close is a new intent; a loader drops its late result once the returned check is false.
-  const setDrawer = useCallback((value: DrawerState) => {
-    const intent = ++drawerIntent.current;
+  // An updater function edits the open drawer in place and keeps the current intent.
+  const setDrawer = useCallback((value: SetStateAction<DrawerState>) => {
+    const intent = typeof value === 'function' ? drawerIntent.current : ++drawerIntent.current;
     setDrawerState(value);
     return () => intent === drawerIntent.current;
   }, []);
@@ -1458,7 +1459,7 @@ function App() {
 
   useEffect(() => {
     if (!drawer || drawer.kind !== 'campaign' || !selected) return;
-    setDrawerState((current) => current?.kind === 'campaign' ? {
+    setDrawer((current) => current?.kind === 'campaign' ? {
       ...current,
       title: campaignNames.get(selected.campaignHash) || t("workflow.m_7255069a0d81"),
       content: <CampaignDetails campaign={selected} shards={shards} attempts={attempts} />,
@@ -1468,7 +1469,7 @@ function App() {
 
   useEffect(() => {
     if (!renderJob) return;
-    setDrawerState((current) => current?.kind === 'render' ? {
+    setDrawer((current) => current?.kind === 'render' ? {
       ...current,
       subtitle: statusLabel[renderJob.status] || renderJob.status,
       content: <JsonSummary value={renderJob.result || {status:renderJob.status} as JsonObject} />,
@@ -2172,7 +2173,7 @@ function App() {
       setDrawer({
         kind:'research-run', title:`${t("workflow.research_run_details")} · ${current.runCode}`,
         subtitle:researchRunStatusLabel(current),
-        content:<ResearchRunDetails key={current.runCode} run={current} recipe={recipe} stats={stats} busy={busy} onCancel={cancelResearchRun} onRetry={retryResearchRun} onResults={()=>{setDrawer(null);selectView('research');}} loadSequentialSearchReceipts={()=>api<ResearchSequentialSearchReceiptPage>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}/sequential-search-receipts?offset=0&limit=25`)} loadRun={()=>api<ResearchRun>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}`)} loadStats={()=>api<ResearchStats>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}/stats`)} onSnapshot={(nextRun, nextStats)=>setDrawerState((open)=>open?.kind === 'research-run' ? {...open, subtitle:researchRunStatusLabel(nextRun), audit:{run:nextRun as unknown as JsonValue,stats:nextStats ?? (open.audit?.stats as JsonValue)}} : open)} PerformanceSummary={ResearchPerformanceSummary} />,
+        content:<ResearchRunDetails key={current.runCode} run={current} recipe={recipe} stats={stats} busy={busy} onCancel={cancelResearchRun} onRetry={retryResearchRun} onResults={()=>{setDrawer(null);selectView('research');}} loadSequentialSearchReceipts={()=>api<ResearchSequentialSearchReceiptPage>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}/sequential-search-receipts?offset=0&limit=25`)} loadRun={()=>api<ResearchRun>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}`)} loadStats={()=>api<ResearchStats>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}/stats`)} onSnapshot={(nextRun, nextStats)=>setDrawer((open)=>open?.kind === 'research-run' ? {...open, subtitle:researchRunStatusLabel(nextRun), audit:{run:nextRun as unknown as JsonValue,stats:nextStats ?? (open.audit?.stats as JsonValue)}} : open)} PerformanceSummary={ResearchPerformanceSummary} />,
         audit:{run:current as unknown as JsonValue,stats},
       });
     } catch(error) { if (stillOpen()) setMessage(researchRecipeErrorMessage(error)); }
