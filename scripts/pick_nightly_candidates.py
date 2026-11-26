@@ -22,6 +22,7 @@ from baloot_platform.research.slot_sequencer import (
     write_handoff,
 )
 
+from scripts import render_kickoff
 from scripts.nightly_candidates import CANDIDATE_ID, MINIMUM_POOL_SIZE, notice
 
 
@@ -338,6 +339,16 @@ def prepare(args, gate):
         else:
             run, artifact = None, args.artifact.resolve()
         index, seal = verified_pool(artifact, run)
+        if run is None:
+            try:
+                render_kickoff.verify_source_freshness(
+                    render_kickoff.TRUSTED_ROOT, index.get("sourceCommit"),
+                    render_kickoff.load_policy(), {},
+                )
+            except ValueError as exc:
+                raise PlanError(
+                    "MANUAL_POOL_FRESHNESS_UNVERIFIED: reseal the pool from current main"
+                ) from exc
         days, fallbacks = select(gate, index["candidates"], captions, live)
         expected = {
             "schemaVersion": 1,
