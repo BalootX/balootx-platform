@@ -305,6 +305,9 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
         critical_review.check(*args)
     comment["body"] = f"VERDICT: GO {head}"
     critical_review.check(*args)
+    files[0]["filename"] = "ci/fixture.json"
+    with pytest.raises(ValueError, match="absent from both the PR base and head"):
+        critical_review.check(*args)
     files[0]["filename"] = "README.md"
     critical_review.check(*args)
     snapshot["changed_files"] = 2
