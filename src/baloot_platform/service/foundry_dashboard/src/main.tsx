@@ -1,4 +1,4 @@
-import {CSSProperties, FormEvent, Fragment, ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {CSSProperties, FormEvent, Fragment, ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {
   createColumnHelper,
@@ -2188,7 +2188,7 @@ function App() {
         <div className="runtime-badge"><i />{t("workflow.m_7b8ec1caafbd")}<b dir="ltr">{profile?.engineVersion ?? '—'}</b></div>
       </div>
     </header>
-    {message && <div className="notice" role="status"><span>{message}</span><button onClick={() => setMessage('')} aria-label={t("workflow.m_ca90c297b099")}>×</button></div>}
+    <div className="notice-region" role="status">{message && <div className="notice"><span>{message}</span><button onClick={() => setMessage('')} aria-label={t("workflow.m_ca90c297b099")}>×</button></div>}</div>
 
     <div className="foundry-layout">
       <aside className="foundry-sidebar">
@@ -2880,8 +2880,9 @@ function ConfigField({name, technicalKey, value, schema, disabled, path, onChang
 }
 function RawJsonFallback({value,disabled,onApply}:{value:JsonObject;disabled:boolean;onApply:(value:JsonObject)=>void}) {
   const [text,setText]=useState(()=>JSON.stringify(value,null,2)); const [valid,setValid]=useState(true);
+  const id=useId();
   useEffect(()=>{setText(JSON.stringify(value,null,2));setValid(true);},[value]);
-  return <details className="raw-json-fallback"><summary>{t("settings.rules_advanced_json")}</summary><p>{t("settings.rules_advanced_json_help")}</p><textarea dir="ltr" disabled={disabled} value={text} onChange={(event)=>{setText(event.target.value);try{const parsed=JSON.parse(event.target.value);setValid(Boolean(parsed)&&typeof parsed==='object'&&!Array.isArray(parsed));}catch{setValid(false);}}}/><button className="secondary" type="button" disabled={disabled||!valid} onClick={()=>onApply(JSON.parse(text) as JsonObject)}>{t("settings.rules_advanced_json_apply")}</button></details>;
+  return <details className="raw-json-fallback"><summary id={`${id}-title`}>{t("settings.rules_advanced_json")}</summary><p id={`${id}-help`}>{t("settings.rules_advanced_json_help")}</p><textarea dir="ltr" aria-labelledby={`${id}-title`} aria-describedby={`${id}-help ${id}-error`} aria-invalid={!valid} disabled={disabled} value={text} onChange={(event)=>{setText(event.target.value);try{const parsed=JSON.parse(event.target.value);setValid(Boolean(parsed)&&typeof parsed==='object'&&!Array.isArray(parsed));}catch{setValid(false);}}}/><output id={`${id}-error`}>{valid?'':t("workflow.research_scenario_json_invalid")}</output><button className="secondary" type="button" disabled={disabled||!valid} onClick={()=>onApply(JSON.parse(text) as JsonObject)}>{t("settings.rules_advanced_json_apply")}</button></details>;
 }
 function diffPaths(left: JsonValue, right: JsonValue, path = ''): string[] {
   if (JSON.stringify(left) === JSON.stringify(right)) return [];
