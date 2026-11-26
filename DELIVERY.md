@@ -16,6 +16,8 @@ Follows engineering standard v1.26.
 
 The required **ci-gate** check compares the producer results to the plan and fails on missing, failed, cancelled or unexpectedly skipped work. See [the current limits in the workflow](.github/workflows/ci.yml) and the [historical timing samples](ci/TIMINGS.md).
 
+The [FFmpeg runtime profile](src/baloot_platform/video/remotion/scripts/ffmpeg-runtime.json) caps codec and filter threads for Remotion rendering and Python media verification on every host. The renderer fingerprint includes the profile.
+
 The `docker-constraints` job dry-runs pip with the Python base image, exact constraints and extras shared by the Docker test and verifier stages. It runs when its Docker, dependency or CI inputs change on a PR, when CI cannot resolve the diff, and on main and merge groups.
 
 The address-sanitizer job requires both verifier pytest nodes to pass against its own build. The Windows job uses a [CPU fixture](ci/windows-ci-local-cpu.json) for its four-vCPU checkout and runs the inherited-limit test through the capped launcher. Both jobs require passing phase receipts for every selected node.
@@ -38,12 +40,15 @@ Servers sends BalootX QA the `main` SHA, test counts, failing test IDs, a JUnit 
 
 BalootX QA owns tests at every layer, the end-to-end journey catalogue, coverage, red and flaky tests, nightly results, and the pre-release sweep. QA routes pipeline faults to BalootX Delivery.
 
+The Python shards share a deadline derived from each job's timeout. The full matrix requires heavy OR-Tools coverage for every Python version it selects. The Linux file runner rejects skipped collection and unexpected skip or xfail phases. [Expected skip phases](ci/expected-pytest-skips.txt) identify the exact nodes and prerequisites for checks that run outside those file lanes.
+
 - Add property and edge-case tests for code that handles untrusted or varied input, including parsers, limits, time zones and daylight saving transitions, schedules, slot sequencing and caption windows. Put long runs in the nightly profile.
 - Every bug that reached `main` adds its failing case as a regression test or a golden-case row.
 
 ### CI-only PC rule
 
 - Keep PC work to Git edits and commits plus the required pre-push deny check and privacy screen. Close shells when their step ends.
+- The installed guard is the only reader of the deny inputs. Workers run it and read only its class counts. No agent opens, prints or copies the input file.
 - Run tests, lint, scrubs, builds and renders through CI. On the PC, `run-locked.ps1` returns `SKIP_TO_CI`.
 - Use free GitHub-hosted runners for public repo checks. Use zero-cost server runners for private repos, deploys and jobs that use secrets.
 - If a check has no CI job, add one in the same PR.
@@ -57,7 +62,8 @@ For deployment setup and migration, see [Operating OIDC sign-in](docs/OIDC_OPERA
 ## Merge
 
 - The `main` merge queue is the only path to trunk and uses squash merges only. Workers push their own short-lived branches without rewriting history and open PRs under the project's App identity. Merge, split or close an open PR within two days of its first push. The ruleset requires zero human approvals.
-- Only changes in the [critical classes mapped in AGENTS.md](AGENTS.md#critical-paths) get one independent full-diff review in parallel with CI. The worker enables auto-merge after the verdict comment names the current head SHA. Turn off auto-merge before any later push. An existing verdict carries forward unless the push adds a new critical change. Verify fixes to review findings with tests.
+- Changes in the [critical classes](AGENTS.md#critical-paths) get one independent full-diff review in parallel with CI. The deciding reviewer posts a line `VERDICT: GO <full SHA>` or `VERDICT: NO_GO <full SHA>` through the shared App. On a PR and in the merge queue, `ci-gate` uses the base commit's [critical path configuration](ci/critical-paths.json). It requires the latest configured reviewer verdict to be a GO and every listed path in the PR diff to match in presence and content at the PR head and the reviewed commit. The same reviewer re-checks any push that changes a listed file after a GO and any fix after a NO_GO, then posts a new verdict. After posting a verdict, the reviewer uses `gh run rerun <run-id> --failed` to re-run the failed `ci-gate` job on the existing head. Verify fixes to review findings with tests.
+- Until the verdict step is live, enable auto-merge on a critical PR only after a GO names its current head. For PRs touching workflow files, keep this manual check after the step is live.
 - For everything else, the thread that made the change opens its own PR and enables auto-merge at once. The PR merges through the queue once the required CI checks are green, with no review.
 - Delivery owns the queue, admission gates, pipeline faults, CI health and speed, releases, deploys, rollback and alerts. Workers handle each PR.
 - Use `Closes #n` in the PR body only if merging meets the item's whole Done-when. Otherwise use `Refs #n`.

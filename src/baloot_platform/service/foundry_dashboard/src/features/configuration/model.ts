@@ -1,4 +1,20 @@
-import type {JsonObject, JsonValue} from '../../shared/json';
+import {copyJson, type JsonObject, type JsonValue} from '../../shared/json';
+
+export async function openConfigurationRevision<Profile extends {payload?: JsonObject}>(
+  selection: {current: number},
+  fetchProfile: () => Promise<Profile>,
+  applyProfile: (profile: Profile, draft: JsonObject) => void,
+  reportError: (message: string) => void,
+  intent = ++selection.current,
+) {
+  if (intent !== selection.current) return;
+  try {
+    const profile = await fetchProfile();
+    if (intent === selection.current) applyProfile(profile, copyJson(profile.payload || {}));
+  } catch (error) {
+    if (intent === selection.current) reportError((error as Error).message);
+  }
+}
 
 function object(value: JsonValue | undefined): JsonObject {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};

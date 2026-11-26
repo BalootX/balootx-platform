@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
+from ci import critical_review
 from scripts import ci_scope
 from scripts import run_required_pytest
 import test_v20_asan_verifier_portability as asan_portability
@@ -157,6 +158,15 @@ def test_hosted_ci_contract(root):
         "ci-gate", "viewer-seat-proof",
     }
     assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof }}"
+    assert jobs["ci-gate"]["permissions"] == {"contents": "read", "pull-requests": "read"}
+    review_step = next(step for step in jobs["ci-gate"]["steps"] if "GH_TOKEN" in step.get("env", {}))
+    assert review_step["if"] == (
+        "(github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'merge_group'"
+    )
+    assert review_step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert 'git show "$REVIEW_BASE:ci/critical_review.py"' in review_step["run"]
+    assert 'python3 -I "$RUNNER_TEMP/critical-review.py"' in review_step["run"]
+    assert "python3 -I ci/critical_review.py" not in review_step["run"]
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
         "media-inputs", "media-render", "media-release-smoke", "remotion-image-parity",
@@ -164,6 +174,145 @@ def test_hosted_ci_contract(root):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)
         assert flags and all("-P" in options.split() for options in flags), name
+
+
+@pytest.fixture
+def review_history(tmp_path, monkeypatch, root):
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True, timeout=10).stdout
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.name", "CI review fixture")
+    git("config", "user.email", "ci-fixture@users.noreply.github.com")
+    git("config", "commit.gpgsign", "false")
+    git("remote", "add", "origin", ".")
+    policy = tmp_path / critical_review.POLICY_PATH
+    policy.parent.mkdir()
+    policy.write_bytes((root / critical_review.POLICY_PATH).read_bytes())
+    kickoff = tmp_path / "scripts/render_kickoff.py"
+    kickoff.parent.mkdir()
+    kickoff.write_text("base content\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    base = git("rev-parse", "HEAD").decode().strip()
+    monkeypatch.setattr(critical_review, "git", git)
+
+    def commit(path, followup=None, remove=False, squash=False):
+        git("switch", "-qc", "topic")
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("synthetic change\n", encoding="utf-8")
+        git("add", ".")
+        git("commit", "-qm", "change")
+        reviewed = git("rev-parse", "HEAD").decode().strip()
+        if followup is not None or remove:
+            if remove:
+                target.unlink()
+            else:
+                (tmp_path / followup).write_text("later change\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-qm", "followup")
+        head = git("rev-parse", "HEAD").decode().strip()
+        git("switch", "-q", "main")
+        if squash:
+            git("merge", "--squash", "topic")
+            git("commit", "-qm", "queued change")
+        else:
+            git("merge", "--no-ff", "topic", "-m", "PR merge")
+        return base, reviewed, head, git("rev-parse", "HEAD").decode().strip()
+
+    return commit
+
+
+@pytest.mark.parametrize(("path", "followup", "remove", "records", "other_verdict", "error"), [
+    ("scripts/render_kickoff.py", None, False, (), False, "needs a VERDICT"),
+    ("scripts/render_kickoff.py", None, False, (), True, "needs a VERDICT"),
+    ("scripts/render_kickoff.py", None, False, ("VERDICT: GO {head}",), False, None),
+    ("scripts/render_kickoff.py", "scripts/render_kickoff.py", False, ("VERDICT: GO {reviewed}",), False, "changed or missing"),
+    ("scripts/render_kickoff.py", "README.md", False, ("VERDICT: GO {reviewed}",), False, None),
+    ("scripts/render_kickoff.py", None, True, ("VERDICT: GO {reviewed}",), False, "changed or missing"),
+    ("scripts/render_kickoff.py", None, True, ("VERDICT: GO {head}",), False, None),
+    ("scripts/render-kickoff.json", None, False, ("VERDICT: GO {head}", "VERDICT: NO_GO {head}"), False, "NO_GO verdict"),
+    ("scripts/render-kickoff.json", None, False, ("VERDICT: NO_GO {head}", "VERDICT: GO {head}"), False, None),
+    ("scripts/render-kickoff.json", None, False, ("VERDICT: GO {head}", "VERDICT: GO ffffffff"), False, "malformed VERDICT"),
+    ("scripts/render-kickoff.json", None, False, ("PR #104 verdict GO on {head}",), False, "needs a VERDICT"),
+    ("ci/critical-paths.json", None, False, (), False, "needs a VERDICT"),
+    ("README.md", None, False, (), False, None),
+])
+def test_critical_review_on_pull_request(review_history, monkeypatch, path, followup, remove, records, other_verdict, error):
+    base, reviewed, head, candidate = review_history(path, followup=followup, remove=remove)
+    reviewer_ids, _ = critical_review.policy(base)
+    author = {"id": next(iter(reviewer_ids))}
+    repo = "test/example"
+    event = {"pull_request": {"number": 104, "base": {"sha": base}, "head": {"sha": head}}}
+    endpoint = f"repos/{repo}/pulls/104"
+    files = [{"filename": path, "status": "removed" if remove else "modified"}]
+    if followup and followup != path:
+        files.append({"filename": followup, "status": "added"})
+
+    def github(*args):
+        if args == (endpoint,):
+            return {**event["pull_request"], "state": "open", "changed_files": len(files)}
+        if args == ("--paginate", "--slurp", f"{endpoint}/files?per_page=100"):
+            return [files]
+        assert path != "README.md"
+        assert args == ("--paginate", "--slurp", f"repos/{repo}/issues/104/comments?per_page=100")
+        pages = [
+            [{"id": index, "user": author, "body": record.format(head=head, reviewed=reviewed)}]
+            for index, record in enumerate(records, start=1)
+        ]
+        if other_verdict:
+            pages.append([{"user": {"id": max(reviewer_ids) + 1}, "body": f"VERDICT: GO {head}"}])
+        return pages
+
+    monkeypatch.setattr(critical_review, "github", github)
+    args = ("pull_request", event, repo, "refs/pull/104/merge", candidate)
+    if error:
+        with pytest.raises(ValueError, match=error):
+            critical_review.check(*args)
+    else:
+        critical_review.check(*args)
+
+
+def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatch):
+    base, _, head, candidate = review_history("scripts/render-kickoff.json", squash=True)
+    reviewer_ids, _ = critical_review.policy(base)
+    ref = f"refs/heads/gh-readonly-queue/main/pr-104-{base}"
+    event = {"merge_group": {"base_ref": "refs/heads/main", "base_sha": base, "head_ref": ref, "head_sha": candidate}}
+    entry = {"baseCommit": {"oid": base}, "headCommit": {"oid": candidate}}
+    pr = {"mergeQueueEntry": entry, "headRefOid": head}
+    comment = {"user": {"id": next(iter(reviewer_ids))}, "body": f"VERDICT: GO {base}"}
+    snapshot = {"number": 104, "state": "open", "head": {"sha": head}, "base": {"sha": base}, "changed_files": 1}
+    files = [{"filename": "scripts/render-kickoff.json", "status": "added"}]
+
+    def github(*args):
+        if args[0] == "graphql":
+            assert args[-6:] == ("-f", "owner=test", "-f", "name=example", "-F", "number=104")
+            return {"data": {"repository": {"pullRequest": pr}}}
+        if args == ("repos/test/example/pulls/104",):
+            return snapshot
+        if args == ("--paginate", "--slurp", "repos/test/example/pulls/104/files?per_page=100"):
+            return [files]
+        assert args == ("--paginate", "--slurp", "repos/test/example/issues/104/comments?per_page=100")
+        assert files[0]["filename"] != "README.md"
+        return [[comment]]
+
+    monkeypatch.setattr(critical_review, "github", github)
+    args = ("merge_group", event, "test/example", ref, candidate)
+    with pytest.raises(ValueError, match="changed or missing"):
+        critical_review.check(*args)
+    comment["body"] = f"VERDICT: GO {head}"
+    critical_review.check(*args)
+    files[0]["filename"] = "README.md"
+    critical_review.check(*args)
+    snapshot["changed_files"] = 2
+    with pytest.raises(ValueError, match="snapshot is incomplete"):
+        critical_review.check(*args)
+    entry["headCommit"]["oid"] = "f" * 40
+    with pytest.raises(ValueError, match="no longer has the event's merge-queue entry"):
+        critical_review.check(*args)
+    with pytest.raises(ValueError, match="Merge-group ref"):
+        critical_review.check("merge_group", event, "test/example", "refs/heads/main", candidate)
 
 
 def _assert_single_ci_check_producers(workflows):
@@ -616,10 +765,69 @@ def test_plan_runs_selected_tests_on_all_python_versions(root):
     assert strategy.get("matrix", {}).get("python") == list(ci_scope.VERSIONS)
     assert strategy["fail-fast"] is False
     assert affected["if"] == "needs.plan.outputs.tests != '[]'"
-    assert affected["steps"][1]["with"]["python-version"] == "${{ matrix.python }}"
+    assert affected["steps"][2]["with"]["python-version"] == "${{ matrix.python }}"
     assert any(step.get("env", {}).get("AFFECTED_TESTS") == "${{ needs.plan.outputs.tests }}"
                for step in affected["steps"])
     assert "python-affected" in jobs["ci-gate"]["needs"]
+
+
+@pytest.mark.parametrize("phase", ["setup", "call", "teardown"])
+def test_file_receipts_reject_unexpected_skip_xfail_and_xpass(phase):
+    from scripts import run_isolated_pytest as isolated
+
+    node = "tests/test_sample.py::test_case"
+    phases = ["setup", "teardown"] if phase == "setup" else ["setup", "call", "teardown"]
+    events = [{"phase": when, "outcome": "passed", "xfail": False} for when in phases]
+    event = next(row for row in events if row["phase"] == phase)
+    receipt = {"exitstatus": 0, "deselected": [], "collectionIssues": [], "collected": [node],
+               "reports": {node: events}}
+    event.update(outcome="skipped", skipReason="unexpected dependency failure")
+    with pytest.raises(ValueError, match=f"unexpected pytest skip in {phase}"):
+        isolated.validate_execution(receipt, {node: (phase, "requires Windows")})
+    allowed = {node: (phase, event["skipReason"])}
+    if phase == "teardown":
+        with pytest.raises(ValueError, match="unexpected pytest skip in teardown"):
+            isolated.validate_execution(receipt, allowed)
+    else:
+        isolated.validate_execution(receipt, allowed)
+    event["xfail"] = True
+    for outcome in ("skipped", "passed"):
+        event["outcome"] = outcome
+        if phase == "setup" and outcome == "passed":
+            events.insert(1, {"phase": "call", "outcome": "passed", "xfail": False})
+        with pytest.raises(ValueError, match="unexpected pytest xfail/xpass"):
+            isolated.validate_execution(receipt, allowed)
+    receipt["collectionIssues"] = [{"nodeid": "tests/test_sample.py", "outcome": "skipped"}]
+    with pytest.raises(ValueError, match="skipped/failed collection"):
+        isolated.validate_execution(receipt, allowed)
+
+
+def test_python_job_deadline_and_ortools_wheelhouse_follow_the_matrix(root, monkeypatch):
+    from scripts import run_isolated_pytest as isolated
+
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    deadline = jobs["python-fast-run"]["steps"][0]
+    assert '$(date +%s) + BALOOT_PYTEST_JOB_MINUTES * 60 - 60' in deadline["run"]
+    assert '>> "$GITHUB_ENV"' in deadline["run"]
+    for name in ("python-fast-run", "python-backend-run", "python-heavy", "python-affected"):
+        job = jobs[name]
+        assert job["steps"][0] is deadline
+        assert job["env"]["BALOOT_PYTEST_JOB_MINUTES"] == job["timeout-minutes"]
+    monkeypatch.setattr(isolated.time, "time", lambda: 1000)
+    for cutoff, remaining in ((2320, 1320), (1050, 50), (980, 0)):
+        monkeypatch.setenv("BALOOT_PYTEST_DEADLINE", str(cutoff))
+        assert isolated.job_seconds_remaining(900) == remaining
+    wheelhouse, heavy = jobs["python-wheelhouse"], jobs["python-heavy"]
+    assert "python-wheelhouse" in heavy["needs"]
+    assert heavy["strategy"]["matrix"]["python"] == wheelhouse["strategy"]["matrix"]["python"]
+    install, verify = [next(step for step in wheelhouse["steps"] if step.get("name") == name)
+                       for name in ("Build wheels and install the run-local Python runtime",
+                                    "Verify OR-Tools in the installed runtime")]
+    assert "if" not in install and "if" not in verify
+    assert wheelhouse["steps"].index(verify) == wheelhouse["steps"].index(install) + 1
+    assert '"$RUNNER_TEMP/ci-venv/bin/python" -I -c' in verify["run"]
+    assert "from ortools.sat.python import cp_model; cp_model.CpModel()" in verify["run"]
+    assert any(step.get("with", {}).get("name") == "python-runtime-${{ matrix.python }}" for step in heavy["steps"])
 
 
 def test_only_exact_pr_merge_diff_can_select_scoped_work(tmp_path, monkeypatch):
