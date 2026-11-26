@@ -16,13 +16,21 @@ Follows engineering standard v1.29.5.
 
 The required **ci-gate** check compares the producer results to the plan and fails on missing, failed, cancelled or unexpectedly skipped work. See [the current limits in the workflow](.github/workflows/ci.yml) and the [historical timing samples](ci/TIMINGS.md).
 
+On a PR, `ci-gate` loads the verdict script and policy from the first parent of the checked-out merge commit and requires its second parent to match the event's PR head. In the merge queue, it loads both from the merge group's base SHA.
+
 The [FFmpeg runtime profile](src/baloot_platform/video/remotion/scripts/ffmpeg-runtime.json) caps codec and filter threads for Remotion rendering and Python media verification on every host. The renderer fingerprint includes the profile.
 
 The `docker-constraints` job dry-runs pip with the Python base image, exact constraints and extras shared by the Docker test and verifier stages. It runs when its Docker, dependency or CI inputs change on a PR, when CI cannot resolve the diff, and on main and merge groups.
 
+The full profile includes `identity-postgres`, which applies and replays the migrations using the [PostgreSQL proof's pinned image](scripts/verify_live_postgres_research.py) and the driver versions in [the Docker constraints](requirements-docker.txt). It verifies paging and query plans with an ICU collation. The [identity migration notes](docs/IDENTITY_PAGINATION.md#migration-notes) cover deployment and reversal.
+
+An active identity profile must declare its pagination policy. Before activating a custom bundle, validate its identity revision against the [identity profile schema](schemas/profiles/identity.schema.json). The [identity pagination release note](docs/IDENTITY_PAGINATION.md#release-note) defines the v1 compatibility contract and the v2 read scope.
+
 The address-sanitizer job requires both verifier pytest nodes to pass against its own build. The Windows job uses a [CPU fixture](ci/windows-ci-local-cpu.json) for its four-vCPU checkout and runs the inherited-limit test through the capped launcher. Both jobs require passing phase receipts for every selected node.
 
-The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples. The `pagePerformance` section of `foundry-live-result-latency.json` records Chromium timings for fresh visits to the overview and one click per visit to open the research workspace. It compares nearest-rank p75 with the [Foundry page budgets](DESIGN.md#foundry-dashboard) and reports headroom during baseline collection.
+The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples. The `pagePerformance` section of `foundry-live-result-latency.json` records Chromium timings for fresh visits to the overview and one click per visit to open the research workspace. It compares nearest-rank p75 with the [Foundry page budgets](DESIGN.md#foundry-dashboard) and reports headroom during baseline collection. When the Playwright suite fails, the `foundry-playwright-failure-diagnostics` artifact contains its traces and screenshots.
+
+After rendering and uploading the governed media, the decision shard checks a synthetic play bundle from the research-notice release builder. It samples the first, steady and last frames of the hook, question and reveal and checks the rendered timer and layout on both sides of every countdown change. A test-only moving prompt must trigger the prompt and notice overlap check at the first countdown change. The `media-stage-logs-decision` artifact retains the bundle and pinned layout table copies, frame results, measured boxes and PNGs under `transition-layout/`, including when a frame check fails.
 
 The main ruleset's CodeQL rule evaluates each PR at admission and blocks new high or critical alerts on lines the PR changes. The main-push scan surfaces alerts that arise only in the combined commit.
 
@@ -61,10 +69,12 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 
 - The `main` merge queue is the only path to trunk and uses squash merges only. Workers push their own short-lived branches without rewriting history and open PRs under the project's App identity. Merge, split or close an open PR within two days of its first push. The ruleset requires zero human approvals.
 - Changes in the [critical classes](AGENTS.md#critical-paths) get one independent full-diff review in parallel with CI. The deciding reviewer posts a line `VERDICT: GO <full SHA>` or `VERDICT: NO_GO <full SHA>` through the shared App. On a PR and in the merge queue, `ci-gate` uses the base commit's [critical path configuration](ci/critical-paths.json). It requires the latest configured reviewer verdict to be a GO and every listed path in the PR diff to match in presence and content at the PR head and the reviewed commit. The same reviewer re-checks any push that changes a listed file after a GO and any fix after a NO_GO, then posts a new verdict. After posting a verdict, the reviewer uses `gh run rerun <run-id> --failed` to re-run the failed `ci-gate` job on the existing head. Verify fixes to review findings with tests.
-- For PRs touching workflow files, enable auto-merge only after a GO names the current head. Keep this manual check until the ruleset requires the reviewer App's `review-verdict` status.
+- The verdict script and critical-path policy must both be present at the base revision. Before enabling auto-merge on a PR that changes workflow files, verify that a configured reviewer posted a GO naming the current head. Keep this requirement until the `main` ruleset requires `review-verdict` from the designated reviewer App.
 - For non-critical changes, the thread that made the change opens its own PR and enables auto-merge at once. The PR merges through the queue once the required CI checks are green, with no review.
 - Delivery owns the queue, admission gates, pipeline faults, CI health and speed, releases, deploys, rollback and alerts. Workers handle each PR.
 - Use `Closes #n` in the PR body only if merging meets the item's whole Done-when. Otherwise use `Refs #n`.
+
+Every listed critical changed path must exist at the PR base or head. The review gate checks this before applying the verdict, including when the PR deletes a file.
 
 ## GitHub Releases
 
