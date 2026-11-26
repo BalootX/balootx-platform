@@ -346,7 +346,10 @@ def test_layout_receipt_binds_raw_mp4_bundle_table_and_checkpoint_bytes(root, tm
     approved = (root / "src/baloot_platform/video/remotion/scripts/approved-layout-adjacencies.json").read_bytes()
     if widened:
         altered = json.loads(approved)
-        altered["rows"][0]["observedMaxWidth"] = 200
+        altered["rows"].append({
+            "phase": "hook", "pair": ["promptPill:0", "broadcastHud:0"],
+            "observedMaxWidth": 200, "observedMaxHeight": 5, "marginEachAxis": 2,
+        })
         approved = json.dumps(altered).encode("utf-8")
     table, table_sha = retain("layout-table.json", approved)
     bundle, bundle_sha = retain("render-bundle.json", b'{"schemaVersion": 1}')
@@ -543,6 +546,9 @@ def test_remotion_plugin_packages_complete_artifacts_from_bundle(
             )
             return
         output = Path(environment["BALOOTX_RENDER_OUTPUT"])
+        bundle_path = Path(environment["BALOOTX_RENDER_BUNDLE"])
+        assert bundle_path.is_file() and bundle_path.parent != output
+        output.mkdir()
         (output / "render.mp4").write_bytes(b"deterministic-test-video")
         for index, name in enumerate(
             (

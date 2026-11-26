@@ -9,7 +9,7 @@ const pairKey = (phase, pair) => [phase, ...[...pair].sort()].join("|");
 const positive = value => Number.isFinite(value) && value > 0;
 const roleId = /^(promptPill|namePills|buyerBadge|dealerBadge|choiceBox):(0|[1-9]\d*)$/;
 const hash = /^[a-f0-9]{64}$/;
-const approvedLayoutTableSha256 = "7c1aeee912e4b032d8fb35b50cacde5f464ebf279cbb34464e4054e322ae6a1c";
+const approvedLayoutTableSha256 = "9f5f305b43c0d4f15cf4c15479807ec4cd4e8840150c35afae742ffa85687d28";
 
 export const layoutMeasurementMarker = "balootx-layout-measurement-never-post";
 export const sha256 = value => createHash("sha256").update(value).digest("hex");

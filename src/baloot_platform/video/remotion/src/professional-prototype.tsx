@@ -311,7 +311,8 @@ const SeatDock: React.FC<{
   count: number;
   active: boolean;
   name: string;
-}> = ({actualSeat, seat, count, active, name}) => (
+  children?: React.ReactNode;
+}> = ({actualSeat, seat, count, active, name, children}) => (
   <section
     className={`seat-dock dock-${seat} ${active ? "is-active" : ""}`}
     data-seat={actualSeat}
@@ -319,7 +320,10 @@ const SeatDock: React.FC<{
     data-card-back-count={Math.min(6, Math.max(0, count))}
   >
     <BackStack count={count} seat={seat} />
-    <div className={`seat-row row-${seat}`}><SeatPill count={count} name={name} active={active} /></div>
+    <div className={`seat-row row-${seat}`}>
+      <SeatPill count={count} name={name} active={active} />
+      {children}
+    </div>
   </section>
 );
 
@@ -921,7 +925,6 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
   }
   // Answer-only reveal: the badge joins the south lane beside the name pill, clear of the raised card.
   const answerOnlyReveal = showReveal && !showJustification;
-  const southLaneState = answerOnlyReveal ? " is-reveal" : showPrompt && decisionKind === "play" ? " is-play-prompt" : "";
   const revealPanel = showReveal ? (
     <section
       className="reveal-reason"
@@ -1011,9 +1014,13 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
 
       {(["north", "west", "east"] as const).map((visualSeat) => {
         const actualSeat = actualAtVisual(visualSeat);
-        return <SeatDock key={visualSeat} actualSeat={actualSeat} seat={visualSeat} count={counts[actualSeat]} active={!showOutcome && currentPlayer === actualSeat} name={playerNames[actualSeat]} />;
+        return <SeatDock key={visualSeat} actualSeat={actualSeat} seat={visualSeat} count={counts[actualSeat]} active={!showOutcome && currentPlayer === actualSeat} name={playerNames[actualSeat]}>
+          {visualSeat === "north" ? null : <>
+            {tagsFor(visualSeat)}
+            {playCallouts.filter((item) => item.visual === visualSeat).map((item) => item.node)}
+          </>}
+        </SeatDock>;
       })}
-      {(["west", "east"] as const).map((visualSeat) => <React.Fragment key={visualSeat}>{tagsFor(visualSeat)}</React.Fragment>)}
 
       <main className="play-table">
         {capturePlaybackDom ? <PlaybackDomArtifact frame={frame} /> : null}
@@ -1065,32 +1072,47 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
       {setupAction ? <section className="call-layer" data-setup-action-index={setupActionIndex} data-setup-action-kind={String(setupAction.kind)} data-setup-actor={String(setupAction.seat)}>
         {setupCalls.filter((item) => item.visual !== "north").map((item) => item.node)}
       </section> : null}
-      {playCallouts.filter((item) => item.visual !== "north").map((item) => item.node)}
+      {playCallouts.filter((item) => item.visual === "south").map((item) => item.node)}
 
       <div className="seat-lane lane-north" dir="ltr">
         <div className="lane-side lane-start" dir="rtl">{tagsFor("north")}</div>
         <div className="lane-spacer" aria-hidden="true"><SeatPill count={counts[northActual]} name={playerNames[northActual]} active={false} /></div>
         <div className="lane-side lane-end" dir="rtl">{[...setupCalls, ...playCallouts].filter((item) => item.visual === "north").map((item) => item.node)}</div>
       </div>
-      <div className={`seat-lane lane-south${southLaneState}`} dir="ltr">
-        <div className="lane-side lane-start" dir="rtl">{tagsFor("south")}</div>
-        <div className="lane-spacer" aria-hidden="true"><SeatPill count={counts[observer]} name={playerNames[observer]} active={false} /></div>
-        <div className="lane-side lane-end">{answerOnlyReveal ? revealPanel : null}</div>
-      </div>
-
-      {showPrompt ? <>
-        <div className="handglow" aria-hidden="true" />
-        <section className="decision-prompt">
+      {showPrompt ? <div className="handglow" aria-hidden="true" /> : null}
+      <div className="south-stack" style={{bottom: asRecord(bundle.presentation.safe_areas).bottom_px as number | undefined}}>
+        {answerOnlyReveal ? null : revealPanel}
+        <div className="seat-lane lane-south" dir="ltr">
+          <div className="lane-side lane-start" dir="rtl">{tagsFor("south")}</div>
+          <div className={showPrompt ? "lane-spacer" : "viewer-identity"} dir="rtl" aria-hidden={showPrompt || undefined}>
+            <SeatPill count={counts[observer]} name={playerNames[observer]} active={!showPrompt && !showOutcome && currentPlayer === observer} />
+          </div>
+          <div className="lane-side lane-end">{answerOnlyReveal ? revealPanel : null}</div>
+        </div>
+        {showPrompt ? <section className="decision-prompt">
+          {decisionKind !== "play" ? <ul className="decision-choices" aria-label={localized("video.accessibility.decision_choices")}>
+            {legalChoices.map((action) => <li key={String(action.code)} dir="auto">{actionLabel(action)}</li>)}
+          </ul> : null}
           <div className="ask" role="status">
             <span className="timer" style={{background: `conic-gradient(${paint("decision_red")} 0 ${promptFraction * 100}%, ${paint("timer_track")} 0)`}}><span>{promptTimer}</span></span>
             <span><small>{formatted("video.decision.your_turn", {name: playerNames[actingSeat]})}</small><strong>{localized(questionKey)}</strong></span>
           </div>
-          {decisionKind !== "play" ? <ul className="decision-choices" aria-label={localized("video.accessibility.decision_choices")}>
-            {legalChoices.map((action) => <li key={String(action.code)} dir="auto">{actionLabel(action)}</li>)}
-          </ul> : null}
+        </section> : null}
+        <section className={`observer-hand ${!showOutcome && currentPlayer === observer ? "is-active" : ""}`} aria-label={localized("video.accessibility.hand")} data-seat={observer} data-hand-count={hand.length}>
+          {hand.map((card, index) => {
+            if (!isFlagship && frame > 0 && index === 0) return null;
+            const middle = (hand.length - 1) / 2;
+            const offset = index - middle;
+            // Leave room for both rotated outer edges of a full hand inside the side gutters.
+            const spacing = Math.min(102, 680 / Math.max(1, hand.length - 1));
+            const isRecommended = isActorChallenge && recommended?.id === card.id && showReveal;
+            return <Card key={card.id} card={card} className={isRecommended ? "is-recommended" : ""} style={{
+              transform: `translateX(${offset * spacing}px) rotate(${offset * 1.8}deg) translateY(${isRecommended ? "calc(-1 * var(--hand-lift))" : `${Math.abs(offset) * 4}px`})`,
+              zIndex: index + 1,
+            }} />;
+          })}
         </section>
-      </> : null}
-      {answerOnlyReveal ? null : revealPanel}
+      </div>
       {showOutcome && terminalOutcomeAvailable ? (
         <section className={`outcome-card ledger ${showScoreBreakdown ? "has-breakdown" : ""}`}>
           <svg width="500" height="14" aria-hidden="true" style={{display: "block"}}><rect width="500" height="14" fill="url(#mj-tris)" /></svg>
@@ -1111,10 +1133,6 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
         </section>
       ) : null}
 
-      {!showPrompt ? <div className={`viewer-identity seat-row row-south${answerOnlyReveal ? " is-reveal" : ""}`}>
-        <SeatPill count={counts[observer]} name={playerNames[observer]} active={!showOutcome && currentPlayer === observer} />
-      </div> : null}
-
       {String(social.tiktok ?? "") ? <div className="social social-tiktok" aria-label="TikTok">
         <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={stroke("team_us_text")}><path d="M14 3v11.5a3.5 3.5 0 1 1-3.5-3.5" /><path d="M14 3c.6 2.6 2.4 4.3 5 4.6" /></svg>
         <span dir="ltr">{`@${String(social.tiktok ?? "")}`}</span>
@@ -1123,20 +1141,6 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
         <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" fill="none" strokeWidth="2" style={stroke("team_us_text")}><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.3" cy="6.7" r="1" stroke="none" style={fill("team_us_text")} /></svg>
         <span dir="ltr">{`@${String(social.instagram ?? "")}`}</span>
       </div> : null}
-
-      <section className={`observer-hand ${!showOutcome && currentPlayer === observer ? "is-active" : ""}`} aria-label={localized("video.accessibility.hand")} data-seat={observer} data-hand-count={hand.length}>
-        {hand.map((card, index) => {
-          if (!isFlagship && frame > 0 && index === 0) return null;
-          const middle = (hand.length - 1) / 2;
-          const offset = index - middle;
-          const spacing = Math.min(102, 720 / Math.max(1, hand.length - 1));
-          const isRecommended = isActorChallenge && recommended?.id === card.id && showReveal;
-          return <Card key={card.id} card={card} className={isRecommended ? "is-recommended" : ""} style={{
-            transform: `translateX(${offset * spacing}px) rotate(${offset * 1.8}deg) translateY(${isRecommended ? -34 : Math.abs(offset) * 4}px)`,
-            zIndex: index + 1,
-          }} />;
-        })}
-      </section>
 
       {auditMedia ? <>
         <div className="rhead" role="note">

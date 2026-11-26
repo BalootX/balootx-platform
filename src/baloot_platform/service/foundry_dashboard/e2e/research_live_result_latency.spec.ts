@@ -3,6 +3,7 @@ import {mkdir, writeFile} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {performance} from 'node:perf_hooks';
 import {fileURLToPath} from 'node:url';
+import {measureFoundryPage} from './foundryPagePerformance';
 import {nativeResearchBundleRevision} from './nativeResearchBundle';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
@@ -67,7 +68,7 @@ test('shows safe live quality work without claiming proof', async ({page}) => {
   }
 });
 
-test('retains governed SSE-to-visible live-result latency samples', async ({context}) => {
+test('retains governed live-result latency and Foundry page performance samples', async ({context, baseURL, locale}) => {
   const latenciesMilliseconds: number[] = [];
   const browser = context.browser();
   if (!browser) throw new Error('browser_identity_unavailable');
@@ -144,8 +145,14 @@ test('retains governed SSE-to-visible live-result latency samples', async ({cont
     await bundle.selectOption(await nativeResearchBundleRevision(page, bundle));
     await expect(page.locator('#scenario-studio-title')).toBeVisible();
     await page.locator('button.list-item').filter({hasText: runCode}).click();
-    await expect(page.getByText(candidateHash, {exact: true})).toBeVisible();
-    await expect(page.locator('section.scenario-live-candidates dl > div').nth(3).locator('dd')).toHaveText(/^[2٢]$/);
+    const runDialog = page.getByRole('dialog', {name: `تفاصيل عملية البحث · ${runCode}`});
+    await expect(runDialog).toBeVisible();
+    await expect(runDialog.locator('.research-sequential-summary .detail-tags')
+      .getByText(candidateHash, {exact: true})).toBeVisible();
+    const incomplete = page.locator('section.scenario-live-candidates dl > div').filter({
+      has: page.getByText('غير مكتمل', {exact: true}),
+    });
+    await expect(incomplete.locator('dd')).toHaveText(/^[2٢]$/);
     if (eventEmittedAt === null) throw new Error('sse_progress_event_not_observed');
     latenciesMilliseconds.push(Number((performance.now() - eventEmittedAt).toFixed(6)));
     expect(detailReads).toBeGreaterThan(1);
@@ -162,13 +169,21 @@ test('retains governed SSE-to-visible live-result latency samples', async ({cont
     visibleSignal: 'campaign_progress.provisional_result',
     browser: {name: 'chrome', version: browser.version()},
     latenciesMilliseconds,
+    pagePerformance: undefined as Awaited<ReturnType<typeof measureFoundryPage>> | undefined,
   };
-  await test.info().attach('research-live-result-latency-samples.json', {
-    body: JSON.stringify(measurement, null, 2),
-    contentType: 'application/json',
-  });
-  await mkdir(dirname(sampleOutput), {recursive: true});
-  await writeFile(sampleOutput, `${JSON.stringify(measurement, null, 2)}\n`, 'utf8');
+  try {
+    if (!baseURL || !locale) throw new Error('Foundry performance requires the project base URL and locale');
+    measurement.pagePerformance = await test.step('Measure Foundry overview load and research interaction',
+      () => measureFoundryPage(browser, baseURL, locale));
+  } finally {
+    const receipt = `${JSON.stringify(measurement, null, 2)}\n`;
+    await mkdir(dirname(sampleOutput), {recursive: true});
+    await writeFile(sampleOutput, receipt, 'utf8');
+    await test.info().attach('research-live-result-latency-samples.json', {
+      body: receipt,
+      contentType: 'application/json',
+    });
+  }
 });
 
 test('refreshes terminal run stats when a progress event observes completion', async ({page}) => {
@@ -225,8 +240,10 @@ test('refreshes terminal run stats when a progress event observes completion', a
   const bundle = page.locator('#research-bundle-select');
   await bundle.selectOption(await nativeResearchBundleRevision(page, bundle));
   await page.locator('button.list-item').filter({hasText: runCode}).click();
-  await expect(page.locator('.research-run-details .research-performance-funnel button').first().locator('b')).toHaveText('4');
-  await expect(page.locator('section.research-run-events')).toContainText('tail_boundary_infeasible');
+  const runDialog = page.getByRole('dialog', {name: `تفاصيل عملية البحث · ${runCode}`});
+  const attemptedSeeds = runDialog.getByRole('button', {name: /^عدد البذور/});
+  await expect(attemptedSeeds.locator('b')).toHaveText('4');
+  await expect(runDialog.locator('section.research-run-events')).toContainText('tail_boundary_infeasible');
   expect(statsReads).toBeGreaterThan(1);
 });
 
@@ -280,10 +297,11 @@ test('reconciles a completed run when the event stream stays open but silent', a
   const bundle = page.locator('#research-bundle-select');
   await bundle.selectOption(await nativeResearchBundleRevision(page, bundle));
   await page.locator('button.list-item').filter({hasText: runCode}).click();
-  await expect(page.locator('#drawer-title')).toContainText(runCode);
-  await expect(page.locator('section.research-run-events')).toBeVisible();
+  const runDialog = page.getByRole('dialog', {name: `تفاصيل عملية البحث · ${runCode}`});
+  await expect(runDialog).toBeVisible();
+  await expect(runDialog.locator('section.research-run-events')).toBeVisible();
   terminal = true;
-  await expect(page.locator('dialog.drawer-layer').getByText('مكتمل', {exact: true})).toBeVisible({timeout: 10_000});
+  await expect(runDialog.locator('.drawer > header').getByText('مكتمل', {exact: true})).toBeVisible({timeout: 10_000});
   releaseTerminalStats?.();
-  await expect(page.locator('dialog.drawer-layer').getByRole('button', {name: 'أوقف البحث'})).toHaveCount(0);
+  await expect(runDialog.getByRole('button', {name: 'أوقف البحث'})).toHaveCount(0);
 });

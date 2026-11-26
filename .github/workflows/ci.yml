@@ -70,7 +70,7 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install 'pytest>=8.3' 'PyYAML>=6.0' 'ruff>=0.11'
       - run: |
-          ruff check --select E9,F63,F7,F82 src scripts sdk/python tests
+          ruff check --select E9,F63,F7,F82 src scripts sdk/python tests ci/critical_review.py
           python -m compileall -q src scripts sdk/python
           python -m pytest -q tests/test_ci_hosted_contract.py tests/test_repository_structure.py tests/test_media_render_artifact.py
 
@@ -121,7 +121,10 @@ jobs:
       run:
         working-directory: src/baloot_platform/service/foundry_dashboard
     steps:
-      - *checkout
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
       - *py313
       - &python-runtime-download
         if: needs.plan.outputs.full == 'true'
@@ -180,6 +183,9 @@ jobs:
         if: ${{ !cancelled() && steps.foundry-build.outcome == 'success' }}
         id: playwright-install
         run: ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Stage the PR base stylesheet for audit screenshots
+        if: ${{ github.event_name == 'pull_request' && steps.playwright-install.outcome == 'success' }}
+        run: git show HEAD^1:src/baloot_platform/service/foundry_dashboard/src/styles.css > "$RUNNER_TEMP/foundry-audit-base.css"
       - name: Run Foundry Playwright suite
         if: ${{ !cancelled() && steps.playwright-install.outcome == 'success' }}
         run: npm run test:operator-e2e -- --reporter=list,junit
@@ -187,6 +193,7 @@ jobs:
           BALOOT_OPERATOR_E2E_FOUNDRY_DIR: ${{ runner.temp }}/foundry-dashboard
           BALOOT_LIVE_RESULT_LATENCY_SAMPLE_OUTPUT: ${{ runner.temp }}/foundry-live-result-latency.json
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/foundry-playwright.xml
+          BALOOT_FOUNDRY_AUDIT_BASE_CSS: ${{ github.event_name == 'pull_request' && format('{0}/foundry-audit-base.css', runner.temp) || '' }}
       - name: Upload Foundry test receipts
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -196,6 +203,7 @@ jobs:
             ${{ runner.temp }}/foundry-vitest.xml
             ${{ runner.temp }}/foundry-playwright.xml
             ${{ runner.temp }}/foundry-live-result-latency.json
+            output/playwright/acc19/**/audit-*.png
           if-no-files-found: error
 
   sdks:
@@ -243,6 +251,9 @@ jobs:
           "$RUNNER_TEMP/ci-venv/bin/python" -I -m pip install --no-index "$RUNNER_TEMP"/wheelhouse/*.whl
           "$RUNNER_TEMP/ci-venv/bin/python" -I -c 'from importlib.metadata import version; print(version("baloot-platform"))'
           tar -C "$RUNNER_TEMP" -cf - ci-venv | gzip -1 > "$RUNNER_TEMP/python-runtime.tar.gz"
+      - name: Verify OR-Tools in the installed runtime
+        run: |
+          "$RUNNER_TEMP/ci-venv/bin/python" -I -c 'from ortools.sat.python import cp_model; cp_model.CpModel()'
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: *pip-cache
@@ -332,6 +343,8 @@ jobs:
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
+    env:
+      SANITIZER_BUILD_DIR: build/sanitizer
     strategy:
       fail-fast: false
       matrix:
@@ -342,35 +355,88 @@ jobs:
             extra: -fno-sanitize-recover=all
     steps:
       - *checkout
+      - *py313
       - env:
           SANITIZER: ${{ matrix.sanitizer }}
           EXTRA: ${{ matrix.extra }}
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: |
           asan='detect_leaks=1:halt_on_error=1:abort_on_error=1:disable_coredump=1'
-          cmake -S native -B build/sanitizer -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+          cmake -S native -B "$SANITIZER_BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
             "-DCMAKE_CXX_FLAGS=-fsanitize=$SANITIZER -fno-omit-frame-pointer $EXTRA" \
             "-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=$SANITIZER" \
             "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=$SANITIZER" \
             "-DBALOOT_ASAN_OPTIONS=$asan"
-          cmake --build build/sanitizer
+          cmake --build "$SANITIZER_BUILD_DIR"
           env -u LD_PRELOAD -u ASAN_OPTIONS timeout 180s \
-            ctest --test-dir build/sanitizer --output-on-failure --timeout 150
-          if [[ "$SANITIZER" == address ]]; then
-            env -u LD_PRELOAD ASAN_OPTIONS="$asan" timeout 150s build/sanitizer/baloot_native_tests
-          fi
+            ctest --test-dir "$SANITIZER_BUILD_DIR" --output-on-failure --timeout 150
+      - name: Run ASan verifier pytest nodes
+        if: matrix.sanitizer == 'address'
+        run: |
+          python -m pip install '.[dev]'
+          BALOOT_ASAN_BUILD_DIR="$SANITIZER_BUILD_DIR" python -m scripts.run_required_pytest \
+            tests/test_v20_asan_verifier_portability.py::test_generated_asan_ctest_invokes_sanitized_binary_without_preload \
+            tests/test_v20_asan_verifier_portability.py::test_configured_sanitized_binary_passes_without_preload
+
+  python-windows:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - *checkout
+      - *py313
+      - run: python -m pip install '.[dev,grpc,security]'
+      - name: Configure CPU fixture for the hosted checkout
+        id: cpu-fixture
+        shell: powershell
+        run: Copy-Item -LiteralPath ci/windows-ci-local-cpu.json -Destination configs/runtime/local_cpu.json
+      - name: Run Windows-only pytest nodes
+        shell: powershell
+        env:
+          WINDOWS_PYTEST_NODES: |
+            tests/test_combined_finalist_policy_pilot.py::test_taskkill_failure_still_kills_and_waits_for_the_owned_root[timeout]
+            tests/test_combined_finalist_policy_pilot.py::test_taskkill_failure_still_kills_and_waits_for_the_owned_root[nonzero]
+            tests/test_combined_finalist_policy_pilot.py::test_atomic_checkpoint_retries_while_a_real_reader_denies_delete
+            tests/test_combined_finalist_policy_pilot.py::test_exhausted_checkpoint_retry_removes_the_owned_temporary_file
+            tests/test_local_cpu_launcher.py::test_launcher_restores_missing_add_type_temp_directory
+            tests/test_local_cpu_launcher.py::test_direct_python_runtime_enforces_cap_once_and_fails_closed[False]
+            tests/test_local_cpu_launcher.py::test_direct_python_runtime_enforces_cap_once_and_fails_closed[True]
+            tests/test_local_cpu_launcher.py::test_verified_inherited_cpu_ceiling_skips_nested_launcher
+            tests/test_local_cpu_launcher.py::test_local_cpu_cap_rejects_invalid_config_and_is_inherited
+            tests/test_v18_hitl_governance.py::test_media_command_uses_extended_executable_with_short_argv_zero
+            tests/test_verifier_preflight.py::test_archive_node_checks_use_a_bounded_runtime_path
+        run: |
+          $nodes = @(($env:WINDOWS_PYTEST_NODES -split '\r?\n').Where({ $_ }))
+          python -m scripts.run_required_pytest @nodes
+      - name: Verify inherited Windows CPU limits through the capped launcher
+        if: '!cancelled() && steps.cpu-fixture.outcome == ''success'''
+        shell: powershell
+        env:
+          CAPPED_PYTEST_NODE: tests/test_local_cpu_launcher.py::test_current_capped_process_has_verified_inherited_limits
+        run: |
+          & ./scripts/run_local_capped.ps1 -Executable (Get-Command python).Source `
+            -CommandArguments @('-m', 'scripts.run_required_pytest', $env:CAPPED_PYTEST_NODE)
 
   python-fast-run:
     needs: [plan, python-wheelhouse, native-build, ffmpeg-packages]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: &fast-timeout 25
+    env:
+      BALOOT_PYTEST_JOB_MINUTES: *fast-timeout
     strategy:
       fail-fast: false
       matrix:
         python: *full-python
         shard: [1, 2, 3]
     steps: &python-shard
+      - &pytest-job-deadline
+        name: Set pytest deadline before setup
+        shell: bash
+        run: |
+          # Leave time for process termination and receipt upload.
+          echo "BALOOT_PYTEST_DEADLINE=$(( $(date +%s) + BALOOT_PYTEST_JOB_MINUTES * 60 - 60 ))" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
@@ -478,12 +544,15 @@ jobs:
     needs: [plan, native-build, ffmpeg-packages]
     if: needs.plan.outputs.tests != '[]'
     runs-on: ubuntu-24.04
-    timeout-minutes: 18
+    timeout-minutes: &affected-timeout 18
+    env:
+      BALOOT_PYTEST_JOB_MINUTES: *affected-timeout
     strategy:
       fail-fast: false
       matrix:
         python: ['3.12', '3.13']
     steps:
+      - *pytest-job-deadline
       - *checkout
       - *matrix-python
       - *node
@@ -518,10 +587,12 @@ jobs:
 
   python-backend-run:
     # Let the short producers clear capacity before the widest matrix starts.
-    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages, preflight, sdks, foundry, remotion-checks, native-sanitizers]
+    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages, preflight, sdks, foundry, remotion-checks, native-sanitizers, python-windows]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: &backend-timeout 30
+    env:
+      BALOOT_PYTEST_JOB_MINUTES: *backend-timeout
     strategy:
       fail-fast: false
       max-parallel: 7
@@ -534,11 +605,14 @@ jobs:
     needs: [plan, python-wheelhouse, native-build, ffmpeg-packages]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: &heavy-timeout 30
+    env:
+      BALOOT_PYTEST_JOB_MINUTES: *heavy-timeout
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
-        python: ['3.13']
+        python: *full-python
         shard: [1, 2]
     steps: *python-shard
 
@@ -695,13 +769,15 @@ jobs:
           digest-mismatch: error
       - name: Check synthetic hook layouts
         if: matrix.shard == 'decision'
+        env:
+          BALOOT_HOOK_LAYOUT_EVIDENCE_DIR: ${{ runner.temp }}/media-stage-logs/hook-layout
         run: node tests/hook-layout.integration.mjs ../../../../outputs/professional-video-prototypes/render-bundle-decision.json
       - name: Render the governed media shard
         working-directory: .
         env:
           SHARD: ${{ matrix.shard }}
           BALOOTX_CI_SHORT_COLLECTION_SAMPLE: ${{ github.event_name == 'pull_request' && matrix.shard == 'companion' }}
-          BALOOT_RENDER_EVIDENCE_DIR: ${{ runner.temp }}/media-stage-logs
+          BALOOT_RENDER_EVIDENCE_DIR: ${{ runner.temp }}/media-stage-logs/render
         run: |
           cpus="$(python -c 'import os; print(",".join(map(str, sorted(os.sched_getaffinity(0))[:4])))')"
           taskset --cpu-list "$cpus" sh -ec '
@@ -758,9 +834,13 @@ jobs:
           mv outputs/professional-video-collection/trick-collection-sample.mp4 outputs/professional-video-flagship/
           python -P scripts/verify_remotion_plugin_parity.py
           python -P scripts/generate_scene_preview.py --refresh
-          for video in outputs/professional-video-{flagship/balootx-complete-laffah-audit,flagship/trick-collection-sample,decision/balootx-decision-clip}.mp4; do
-            ffmpeg -v error -xerror -threads 4 -i "$video" -filter_threads 4 -filter_complex_threads 4 -threads 4 -f null -
-          done
+          python -P - outputs/professional-video-{flagship/balootx-complete-laffah-audit,flagship/trick-collection-sample,decision/balootx-decision-clip}.mp4 <<'PY'
+          import sys
+          from baloot_platform.video.media_probe import run_media_command
+
+          for video in sys.argv[1:]:
+              run_media_command(["ffmpeg", "-v", "error", "-xerror", "-i", video, "-f", "null", "-"], check=True)
+          PY
           python -P scripts/generate_media_probe.py
           version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           python -P scripts/generate_test_inventory_v20.py --version "$version" --output release/test-inventory.json
@@ -773,12 +853,36 @@ jobs:
 
   ci-gate:
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}
-    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
+    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-windows, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
     if: ${{ always() && !inputs.viewer-seat-proof }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - *checkout
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require an independent verdict on critical changes
+        if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'merge_group'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          [[ "$REVIEW_BASE" =~ ^[0-9a-f]{40}$ ]]
+          base_files=$(git ls-tree --name-only "$REVIEW_BASE" -- ci/critical_review.py ci/critical-paths.json)
+          if [[ -z "$base_files" ]]; then
+            # The first installation is reviewed before these files become the base policy.
+            installed_files=$(git ls-tree --name-only HEAD -- ci/critical_review.py ci/critical-paths.json)
+            test "$installed_files" = $'ci/critical-paths.json\nci/critical_review.py'
+            exit 0
+          fi
+          test "$base_files" = $'ci/critical-paths.json\nci/critical_review.py'
+          git show "$REVIEW_BASE:ci/critical_review.py" > "$RUNNER_TEMP/critical-review.py"
+          python3 -I "$RUNNER_TEMP/critical-review.py"
       - env:
           CI_RESULTS: ${{ toJSON(needs) }}
           IS_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}

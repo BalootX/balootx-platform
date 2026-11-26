@@ -6,6 +6,7 @@ import socket
 import time
 
 from baloot_platform.challenge.deep_analysis import FoundryDeepAnalysisWorkerV1
+from baloot_platform.observability import log_worker_result, run_worker
 from baloot_platform.service.container import build_container
 
 
@@ -13,7 +14,7 @@ def _truthy(name: str, default: str = "false") -> bool:
     return os.environ.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def main() -> None:  # pragma: no cover - operational process
+def _run() -> None:
     container = build_container()
     worker = FoundryDeepAnalysisWorkerV1(
         container.deep_analysis,
@@ -36,8 +37,14 @@ def main() -> None:  # pragma: no cover - operational process
                 if exit_when_idle:
                     return
                 time.sleep(poll_seconds)
+            else:
+                log_worker_result("foundry_analysis", result.job_id, result.status)
     finally:
         container.shutdown()
+
+
+def main() -> None:
+    run_worker("foundry_analysis", _run)
 
 
 if __name__ == "__main__":  # pragma: no cover - module execution

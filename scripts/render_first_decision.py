@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from PIL import Image
 
+from baloot_platform.filesystem import staged_render_output
 from baloot_platform.video.audio_postprocess import finish_remotion_audio
 from baloot_platform.video.media_validation import media_tool, run_media_command
 from baloot_platform.video.render_bundle import RenderBundleV1
@@ -48,10 +49,12 @@ def main() -> None:
         "BALOOTX_PLAYBACK_EVIDENCE": "1",
     })
     started = time.monotonic()
-    subprocess.run(
-        ["node", "scripts/render-decision-clip.mjs"], check=True,
-        cwd=ROOT / "src/baloot_platform/video/remotion", timeout=1800,
-    )
+    with staged_render_output(output) as rendered:
+        subprocess.run(
+            ["node", "scripts/render-decision-clip.mjs"], check=True,
+            cwd=ROOT / "src/baloot_platform/video/remotion", timeout=1800,
+            env={**os.environ, "BALOOTX_RENDER_OUTPUT": str(rendered)},
+        )
     video = output / "balootx-first-decision.mp4"
     finish_remotion_audio(
         video, bundle, repository_root=ROOT,
@@ -64,8 +67,7 @@ def main() -> None:
     verifier.main()
     ffmpeg = media_tool(ROOT, "ffmpeg")
     run_media_command([
-        str(ffmpeg), "-v", "error", "-threads", "4", "-i", str(video),
-        "-filter_threads", "4", "-filter_complex_threads", "4", "-threads", "4",
+        str(ffmpeg), "-v", "error", "-i", str(video),
         "-c:v", "rawvideo", "-c:a", "pcm_s16le", "-f", "null", "-",
     ], check=True)
     sheet = Image.new("RGB", (810, 960))

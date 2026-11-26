@@ -256,8 +256,7 @@ test("north and south side items sit in a lane around the real name width", () =
   value.scenes[1].layers[0].content.buyer = "north";
   const html = render(value);
   const lane = (side) => {
-    const state = side === "south" ? " is-play-prompt" : "";
-    const tag = `<div class="seat-lane lane-${side}${state}" dir="ltr">`;
+    const tag = `<div class="seat-lane lane-${side}" dir="ltr">`;
     const start = html.indexOf(tag);
     assert.ok(start >= 0, side);
     const end = html.indexOf('<div class="seat-lane', start + 1);
@@ -266,7 +265,7 @@ test("north and south side items sit in a lane around the real name width", () =
   const north = lane("north");
   assert.match(north, /^<div class="lane-side lane-start" dir="rtl"><div class="seat-tags tags-north"><span class="tag buyer"/);
   assert.match(north, /<div class="lane-spacer" aria-hidden="true"><div class="seat "><span class="count">4<\/span><span class="name">لاعب تجريبي شمالي<\/span>/);
-  assert.match(lane("south"), /<div class="lane-spacer" aria-hidden="true"><div class="seat "><span class="count">5<\/span><span class="name">لاعب تجريبي جنوبي<\/span>/);
+  assert.match(lane("south"), /<div class="lane-spacer" dir="rtl" aria-hidden="true"><div class="seat "><span class="count">5<\/span><span class="name">لاعب تجريبي جنوبي<\/span>/);
   assert.equal((html.match(/tags-north/g) ?? []).length, 1);
 });
 
@@ -294,7 +293,7 @@ const rule = (selector) => {
 };
 const px = (selector, property) => Number(rule(selector).match(new RegExp(`(?:^|[;\\s])${property}:\\s*(-?\\d+)px`))[1]);
 
-test("reveal: choice badge, name pills and the raised card keep a 12 px gap at every seat", () => {
+test("answer-only reveal keeps the choice box and viewer pill clear of the raised card", () => {
   const MIN_GAP = 12;
   const W = 1080;
   // Separation of two boxes: positive when apart on either axis, negative when they intersect.
@@ -310,19 +309,19 @@ test("reveal: choice badge, name pills and the raised card keep a 12 px gap at e
   const [bodyTop, bodySide, bodyBottom] = rule(".reason-body").match(/padding:\s*(\d+)px (\d+)px (\d+)px/).slice(1).map(Number);
   const badgeW = 2 * border + 2 * bodySide + px(".pick", "width");
   const badgeH = 2 * border + px(".reason-band", "height") + bodyTop + bodyBottom + px(".pick", "height");
-  const laneBottom = px(".lane-south", "top") + Number(rule(".lane-south").match(/grid-template-rows:\s*(\d+)px/)[1]);
-  const laneGap = px(".seat-lane", "column-gap");
-  assert.match(rule(".lane-south.is-reveal .lane-end"), /align-self:\s*end/);
-  assert.match(rule(".lane-end"), /justify-self:\s*start/);
-  assert.match(rule(".seat-lane .reveal-reason"), /position:\s*relative/);
-  assert.ok(laneGap >= MIN_GAP, `lane column gap ${laneGap}`);
-  // The raised hand card (pre-rotation size and raise come from CSS and the rendered transform).
-  const handTop = px(".observer-hand", "top");
-  const cardLeft = px(".observer-hand .card", "left");
-  const cardW = px(".observer-hand .card", "width");
-  const cardH = px(".observer-hand .card", "height");
-
+  const handLift = px(".observer-hand", "--hand-lift");
+  const cardH = px(".observer-hand", "--hand-card-height");
   const value = bundle();
+  value.presentation.safe_areas = {bottom_px: 320};
+  const handTop = 1920 - value.presentation.safe_areas.bottom_px - px(".observer-hand", "padding-block-end") - cardH;
+  const reservedTilt = Number(rule(".observer-hand:has(.is-recommended)").match(/padding-block-start:\s*calc\(var\(--hand-lift\) \+ (\d+)px\)/)[1]);
+  const laneBottom = handTop - handLift - reservedTilt - px(".south-stack", "gap");
+  const laneGap = px(".seat-lane", "column-gap");
+  assert.match(rule(".lane-south"), /align-items:\s*end/);
+  assert.match(rule(".lane-end"), /justify-self:\s*start/);
+  assert.ok(laneGap >= MIN_GAP, `lane column gap ${laneGap}`);
+  const cardW = px(".observer-hand .card", "width");
+
   // The geometry case models the production answer-only reveal layout.
   value.presentation.presentation.show_justification_text = false;
   value.identity.players.south = "South Example";
@@ -331,62 +330,44 @@ test("reveal: choice badge, name pills and the raised card keep a 12 px gap at e
   for (const code of ["CA", "C9", "SJ", "H7", "HA"]) {
     value.scenes = [value.scenes[0], question, {...question, stage: "reveal", layers: [...question.layers, {id: "analysis", content: {selectedAction: code}}]}];
     const html = render(value, "reveal");
-    assert.match(html, /class="seat-lane lane-south is-reveal"[^>]*>(?:(?!seat-lane)[\s\S])*?<div class="lane-side lane-end"><section class="reveal-reason" data-selected-action/, code);
+    assert.match(html, /class="south-stack" style="bottom:320px"><div class="seat-lane lane-south"[^>]*>.*?<div class="viewer-identity"[^>]*>.*?<div class="lane-side lane-end"><section class="reveal-reason" data-selected-action/, code);
     assert.doesNotMatch(html, /<svg class="reason-band"[^>]*\bwidth=/);
     assert.equal((html.match(/class="reveal-reason"/g) ?? []).length, 1);
-    assert.match(html, /class="viewer-identity seat-row row-south is-reveal"/);
     const style = html.match(/<img class="card [^"]*is-recommended[^"]*"[^>]*style="([^"]*)"/)?.[1];
     assert.ok(style, `raised card for ${code}`);
-    const [shift, angle, raise] = style.match(/translateX\((-?[\d.]+)px\) rotate\((-?[\d.]+)deg\) translateY\((-?[\d.]+)px\)/).slice(1).map(Number);
-    assert.ok(raise < 0, "the card is raised");
+    const [shift, angle] = style.match(/translateX\((-?[\d.]+)px\) rotate\((-?[\d.]+)deg\) translateY\(calc\(-1 \* var\(--hand-lift\)\)\)/).slice(1).map(Number);
     const theta = Math.abs(angle) * Math.PI / 180;
     const rotW = cardW * Math.cos(theta) + cardH * Math.sin(theta);
     const rotH = cardH * Math.cos(theta) + cardW * Math.sin(theta);
-    const cx = cardLeft + cardW / 2 + shift + Math.sin(angle * Math.PI / 180) * -raise;
-    const cy = handTop + cardH / 2 + Math.cos(theta) * raise;
+    const cx = W / 2 + shift + Math.sin(angle * Math.PI / 180) * handLift;
+    const cy = handTop + cardH / 2 - Math.cos(theta) * handLift;
     const raised = box(cx - rotW / 2, cy - rotH / 2, rotW, rotH);
 
     for (const nameWidth of [40, 160, 420]) {
       const pillW = seatChrome + nameWidth;
-      const pill = (centerX, top) => box(centerX - pillW / 2, top, pillW, seatHeight);
-      const southPill = pill(W / 2, px(".row-south.is-reveal", "top"));
+      const southPill = box(W / 2 - pillW / 2, laneBottom - seatHeight, pillW, seatHeight);
       const badge = box(W / 2 + pillW / 2 + laneGap, laneBottom - badgeH, badgeW, badgeH);
-      const pills = {
-        south: southPill,
-        north: pill(W / 2, px(".row-north", "top")),
-        west: pill(px(".row-west", "left") + px(".row-west", "width") / 2, px(".row-west", "top")),
-        east: pill(px(".row-east", "left") + px(".row-east", "width") / 2, px(".row-east", "top")),
-      };
-      for (const [seat, seatPill] of Object.entries(pills)) {
-        assert.ok(gap(badge, seatPill) >= MIN_GAP, `${code} name ${nameWidth}: badge vs ${seat} pill gap ${gap(badge, seatPill)}`);
-      }
+      assert.ok(gap(badge, southPill) >= MIN_GAP, `${code} name ${nameWidth}: badge vs pill gap ${gap(badge, southPill)}`);
       assert.ok(gap(badge, raised) >= MIN_GAP, `${code} name ${nameWidth}: badge vs raised card gap ${gap(badge, raised)}`);
       assert.ok(gap(southPill, raised) >= MIN_GAP, `${code} name ${nameWidth}: pill vs raised card gap ${gap(southPill, raised)}`);
-      assert.equal(southPill.y1, laneBottom, "pill and badge share the lane bottom");
     }
   }
 });
 
-test("play prompts and east name pills have clearance from role tags", () => {
-  const z = (selector) => Number(rule(selector).match(/z-index:\s*(\d+)/)[1]);
-  assert.ok(z(".lane-south") < z(".decision-prompt"));
-  assert.ok(z(".lane-south") < z(".reveal-reason"));
+test("side tags follow the name and the viewer prompt follows its role tags", () => {
   const value = bundle();
   value.scenes[0].layers[0].content.dealer = "south";
   value.timeline.segments = [{stage: "hook", startFrame: 0, durationFrames: 60},
     {stage: "question", startFrame: 60, durationFrames: 60}, {stage: "reveal", startFrame: 120, durationFrames: 60}];
+  assert.match(rule(".south-stack"), /display:\s*grid/);
+  assert.match(rule(".decision-prompt"), /display:\s*grid/);
+  assert.doesNotMatch(rule(".lane-south"), /position:|top:/);
   for (const frame of [30, 90]) {
-    assert.match(frameAt(value, frame), /class="seat-lane lane-south is-play-prompt"[^>]*><div[^>]*><div class="seat-tags tags-south"><span class="tag dealer"/);
+    const html = frameAt(value, frame);
+    assert.match(html, /class="south-stack"[^>]*><div class="seat-lane lane-south"[^>]*><div[^>]*><div class="seat-tags tags-south"><span class="tag dealer".*?<section class="decision-prompt".*?<section class="observer-hand/);
+    assert.match(html, /class="seat-row row-west"><div class="seat [^"]*">.*?<\/div><div class="seat-tags tags-west"/);
   }
-  assert.doesNotMatch(frameAt(value, 150), /is-play-prompt/);
-
-  const theta = Number(rule(".pcard").match(/rotate\((-?\d+)deg\)/)[1]) * Math.PI / 180;
-  const cardHalfHeight = (px(".pcard", "height") * Math.cos(theta) + px(".pcard", "width") * Math.abs(Math.sin(theta))) / 2;
-  const tagHalfHeight = px(".tag", "height") / 2;
-  const southBottom = px(".lane-south.is-play-prompt", "top") + tagHalfHeight + cardHalfHeight;
-  assert.ok(southBottom < px(".decision-prompt", "top"), "south purchase card stays above the prompt");
-  const eastTop = px(".tags-east", "top") + px(".tags-east > .tag.buyer:has(.pcard)", "margin-top") + tagHalfHeight - cardHalfHeight;
-  assert.ok(eastTop > px(".row-east", "top") + px(".seat", "height"), "east purchase card stays below the name");
+  assert.doesNotMatch(frameAt(value, 150), /class="decision-prompt"/);
 });
 
 test("north tray meets the pill-row bottom", () => {
@@ -406,7 +387,10 @@ test("north tray meets the pill-row bottom", () => {
 test("the calibration table qualifies exact red notice checkpoints and excludes planted contacts", async () => {
   const table = await loadLayoutTable();
   const widened = JSON.parse(table.bytes);
-  widened.rows[0].observedMaxWidth = 200;
+  widened.rows.push({
+    phase: "hook", pair: ["namePills:1", "buyerBadge:0"],
+    observedMaxWidth: 200, observedMaxHeight: 5, marginEachAxis: 2,
+  });
   const bytes = Buffer.from(JSON.stringify(widened));
   const file = new URL("widened-table.json", out);
   writeFileSync(file, bytes);
@@ -421,8 +405,8 @@ test("the calibration table qualifies exact red notice checkpoints and excludes 
     const groups = {
       promptPill: reveal ? [] : [rect(400, 280, 200, 100)],
       namePills: [rect(40, 400, 100, 40), name, rect(900, 400, 100, 40), ...(reveal ? [rect(750, 400, 100, 40)] : [])],
-      buyerBadge: [rect(200, 436.1748046875, 167.578125, 50)],
-      dealerBadge: [rect(150, 500, 100, 40)],
+      buyerBadge: [rect(200, 452, 168, 75)],
+      dealerBadge: [rect(150, 540, 100, 40)],
       choiceBox: reveal ? [rect(400, 630, 200, 60)] : [],
       researchNotice: [rect(40, 40, 1000, 116)],
       broadcastHud: [rect(40, 175, 1000, 50)],
@@ -438,7 +422,7 @@ test("the calibration table qualifies exact red notice checkpoints and excludes 
     const result = checkLayoutGeometry(row, expected, table);
     assert.equal(result.status, "passed");
     assert.equal(result.tableSha256, sha256(table.bytes));
-    assert.deepEqual(result.designedAdjacencies.map(({width, height}) => [width, height]), [[167.578125, 3.8251953125]]);
+    assert.deepEqual(result.intersections, []);
     const widenedBinding = {...binding, tableSha256: measurementTable.tableSha256};
     assert.throws(() => checkLayoutGeometry(
       {...row, binding: widenedBinding}, {...expected, binding: widenedBinding}, measurementTable,
@@ -450,8 +434,7 @@ test("the calibration table qualifies exact red notice checkpoints and excludes 
     for (const [role, bounds] of [
       ["broadcastHud", rect(40, 155, 1000, 50)],
       ["dealerBadge", name],
-      ["buyerBadge", rect(200, 430, 167.578125, 50)],
-      ["buyerBadge", rect(200, 436.1748046875, 170, 50)],
+      ["buyerBadge", rect(200, 436.1748046875, 167.578125, 50)],
     ]) {
       const altered = structuredClone(row);
       Object.assign(altered.roles[role].items[0], bounds);

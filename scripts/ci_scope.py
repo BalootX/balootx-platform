@@ -17,7 +17,7 @@ HISTORY = Path(".github/python-test-durations.json")
 VERSIONS = ("3.12", "3.13")
 FULL = {
     "python-wheelhouse", "ffmpeg-packages", "native-build", "native-sanitizers", "python-fast-run",
-    "python-backend-run", "python-heavy", "python-coverage", "media-inputs",
+    "python-backend-run", "python-heavy", "python-windows", "python-coverage", "media-inputs",
     "media-render", "media-release-smoke",
 }
 SCOPED = {
@@ -46,6 +46,8 @@ CI_TESTS = {
     "tests/test_heavy_pytest.py", "tests/test_isolated_pytest.py",
     "tests/test_repository_structure.py", "tests/test_media_render_artifact.py",
     "tests/test_remotion_image_parity.py",
+    "tests/test_combined_finalist_policy_pilot.py", "tests/test_local_cpu_launcher.py",
+    "tests/test_v18_hitl_governance.py", "tests/test_v20_asan_verifier_portability.py", "tests/test_verifier_preflight.py",
 }
 
 
@@ -180,7 +182,8 @@ def validate_coverage(receipts: Path, head: str, history: dict, event: str) -> d
     files = fast_files(history)
     coverage = {}
     versions = ("3.13",) if event == "pull_request" else VERSIONS
-    for pattern, filename in (("python-fast-run", "python-fast-status.json"), ("python-backend-run", "receipt.json")):
+    for pattern, filename in (("python-fast-run", "python-fast-status.json"), ("python-backend-run", "receipt.json"),
+                              ("python-heavy", "receipt.json")):
         prefix = f"{pattern}-"
         if any(path.parent.name.removeprefix(prefix).split("-", 1)[0] not in versions
                for path in receipts.glob(f"{pattern}-*/{filename}")):
@@ -196,10 +199,11 @@ def validate_coverage(receipts: Path, head: str, history: dict, event: str) -> d
             python=version, seconds=history["nodeSeconds"][version],
             shards=history["versionedNodeShards"],
         )
-    heavy = [json.loads(path.read_bytes()) for path in receipts.glob("python-heavy-3.13-*/receipt.json")]
-    coverage["heavy"] = validate_union(
-        heavy, head, sorted(node_sharded_files(history)), seconds=history["heavyNodeSeconds"], shards=HEAVY_SHARDS,
-    )
+        heavy = [json.loads(path.read_bytes()) for path in receipts.glob(f"python-heavy-{version}-*/receipt.json")]
+        coverage[f"heavy-{version}"] = validate_union(
+            heavy, head, sorted(node_sharded_files(history)), python=version,
+            seconds=history["heavyNodeSeconds"], shards=HEAVY_SHARDS,
+        )
     return coverage
 
 

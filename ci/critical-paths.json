@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "reviewerAccountIds": [357558349],
+  "classes": {
+    "production": [
+      "Dockerfile",
+      ".dockerignore",
+      "configs/runtime/docker_v1.yaml",
+      "src/baloot_platform/resources/configs/runtime/docker_v1.yaml"
+    ],
+    "secrets-and-credentials": [
+      ".github/workflows/**",
+      ".gitleaks.toml",
+      "src/baloot_platform/identity/**",
+      "src/baloot_platform/security/**",
+      "configs/identity/**",
+      "configs/security/**",
+      "src/baloot_platform/resources/configs/identity/**",
+      "src/baloot_platform/resources/configs/security/**"
+    ],
+    "personal-and-customer-data": [
+      "migrations/**",
+      "src/baloot_platform/resources/migrations/**",
+      "scripts/migrate_postgres.py",
+      "scripts/migrate_to_canonical_v17.py",
+      "src/baloot_platform/history/**",
+      "src/baloot_platform/storage/**",
+      "src/baloot_platform/configuration/**",
+      "src/baloot_platform/adjudication/**",
+      "src/baloot_platform/service/**/*.py",
+      "src/baloot_platform/shared/access.py",
+      "api/**"
+    ],
+    "making-anything-public": [
+      "scripts/pick_nightly_candidates.py",
+      "scripts/build_nightly_shadow_day.py",
+      "scripts/render_research_notice.py",
+      "scripts/render_kickoff.py",
+      "scripts/render-kickoff.json",
+      "src/baloot_platform/challenge/publication_service.py",
+      "src/baloot_platform/research/slot_sequencer.py",
+      "src/baloot_platform/video/captions.py",
+      "src/baloot_platform/video/render_projection.py"
+    ],
+    "hosts-networks-and-firewalls": [
+      ".github/workflows/**",
+      "Dockerfile",
+      "configs/runtime/docker_v1.yaml",
+      "configs/security/local_secure_v1.yaml",
+      "src/baloot_platform/resources/configs/runtime/docker_v1.yaml",
+      "src/baloot_platform/resources/configs/security/local_secure_v1.yaml"
+    ],
+    "repo-settings-branch-protection-and-release-gates": [
+      ".github/**",
+      "ci/**",
+      "scripts/ci_scope.py",
+      "scripts/ci_known_failures.py",
+      "scripts/run_isolated_pytest.py",
+      "scripts/run_heavy_pytest.py",
+      "release/**",
+      "scripts/check_release_readiness.py",
+      "scripts/verify_release.py",
+      "src/baloot_platform/release_scope.py",
+      "src/baloot_platform/video/**"
+    ]
+  }
+}
