@@ -165,6 +165,10 @@ def test_hosted_ci_contract(root):
         "(github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'merge_group'"
     )
     assert review_step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert review_step["env"]["REVIEW_BASE"] == "${{ github.event.merge_group.base_sha }}"
+    resolve_base, _ = review_step["run"].split("base_files=", 1)
+    assert 'if [[ "$GITHUB_EVENT_NAME" == pull_request ]]' in resolve_base
+    assert "git rev-parse --verify 'HEAD^1^{commit}'" in resolve_base
     assert 'git show "$REVIEW_BASE:ci/critical_review.py"' in review_step["run"]
     assert 'python3 -I "$RUNNER_TEMP/critical-review.py"' in review_step["run"]
     assert "python3 -I ci/critical_review.py" not in review_step["run"]
@@ -274,6 +278,30 @@ def test_critical_review_on_pull_request(review_history, monkeypatch, path, foll
         with pytest.raises(ValueError, match=error):
             critical_review.check(*args)
     else:
+        critical_review.check(*args)
+
+
+def test_pull_request_review_uses_merge_base_and_binds_head(review_history, monkeypatch):
+    path = "scripts/render_kickoff.py"
+    base, _, head, candidate = review_history(path)
+    pr = {"number": 104, "base": {"sha": "f" * 40}, "head": {"sha": head}}
+    endpoint = "repos/test/example/pulls/104"
+
+    def github(*args):
+        if args == (endpoint,):
+            return {**pr, "state": "open", "changed_files": 1}
+        if args == ("--paginate", "--slurp", f"{endpoint}/files?per_page=100"):
+            return [[{"filename": path, "status": "modified"}]]
+        assert args == ("--paginate", "--slurp", "repos/test/example/issues/104/comments?per_page=100")
+        return []
+
+    monkeypatch.setattr(critical_review, "github", github)
+    args = ("pull_request", {"pull_request": pr}, "test/example", "refs/pull/104/merge", candidate)
+    with pytest.raises(ValueError, match="needs a VERDICT"):
+        critical_review.check(*args)
+
+    pr["head"]["sha"] = base
+    with pytest.raises(ValueError, match="second parent.*Update the PR branch"):
         critical_review.check(*args)
 
 
