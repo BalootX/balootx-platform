@@ -42,7 +42,7 @@ Run the Python commands at the repository root and npm commands in the named pac
 | Fast test | `python -m pytest -q tests/test_ci_hosted_contract.py tests/test_repository_structure.py tests/test_media_render_artifact.py` |
 | Full test | Use the hosted full profile in [DELIVERY.md](DELIVERY.md#ci). |
 | Build | Python `python -m pip wheel --no-deps .`. Foundry `npm run build`. |
-| Run on a development host | `uvicorn baloot_platform.service.api:app --host 127.0.0.1 --port 8080`. Open `/foundry` after building the dashboard. |
+| Run on a development host | Set `BALOOT_HOST=127.0.0.1` and run `baloot-api`. Open `/foundry` after building the dashboard. |
 
 ## Coding rules
 
@@ -51,21 +51,21 @@ Run the Python commands at the repository root and npm commands in the named pac
 - Validate API, import and configuration inputs at entry and explain rejected values. Version APIs used by independently deployed clients. Keep client-facing API versions and the previous release's schema working during rollouts. Keep applied migrations immutable. Add a forward migration for schema corrections. Ship destructive cleanup separately after callers have moved.
 - Check actor, role and ownership on the server before serving protected data or mutating it. Reject access unless explicitly allowed, and test allowed and denied requests for each affected role.
 - Store instants in UTC and local schedules with their named time zone. Give background jobs and message handlers a dedupe key. Set deadlines and bounded backoff for outbound calls. Reconcile an uncertain external write before another attempt.
-- Use structured logs with a request or trace ID. Log BalootX IDs for players, reviewers and stored records. Keep names and record contents out of logs. Return safe errors with a next step. Page growing lists and check database query plans for indexing and per-row lookups.
+- Use structured logs with a request or trace ID. The API generates its own `x-request-id` and records the transport and outcome. Worker result events identify jobs by BalootX ID. Use the service entry points for these logs. Keep names, network addresses, raw request targets, credentials and record contents out of logs. Return safe errors with a next step. Page growing lists and check database query plans for indexing and per-row lookups.
 - Use the [design contract](DESIGN.md) for UI changes. Preserve Arabic and right-to-left layout, source visible copy from translations, and verify the changed flows against WCAG 2.2 AA.
 - Preserve the public rules and replay contracts at their owning source. Update generated views and packaged copies from that source. Use `python scripts/sync_package_resources.py` after changing mirrored resources and `python scripts/generate_openapi.py --check` to check the OpenAPI output.
 - Treat a valid replay, a bounded result and an exact proof as separate evidence. Preserve a result's scope and budget when exposing it through the API, UI or render bundle.
 
 ## Critical paths
 
-Apply the [independent review procedure](DELIVERY.md#merge) only when a change affects one of these controls. Paths show where the controls live in this repo. All other changes merge on green required CI.
+Apply the [independent review procedure](DELIVERY.md#merge) only when a change affects one of these controls. The [critical path configuration](ci/critical-paths.json) maps them to repository paths. All other changes merge on green required CI.
 
-- **Production** includes deploys, production configuration and production data. The production image uses `Dockerfile` and `.dockerignore`. Runtime configuration lives in `configs/runtime/docker_v1.yaml` and its packaged copy.
-- **Secrets and credentials** include how tokens and keys are read, scoped, stored and rotated. Repo controls include workflow secrets and token permissions in `.github/workflows/`, secret scanning in `.gitleaks.toml`, and credential handling in `src/baloot_platform/{identity,security}/`, `configs/{identity,security}/` and their packaged mirrors.
-- **Real people's or customer data** includes migrations, deletion, retention, audit history, backups, restore and access to personal or restricted records. Data controls include `migrations/` and its packaged copy, `scripts/migrate_{postgres,to_canonical_v17}.py`, `src/baloot_platform/{history,storage,configuration,adjudication}/`, and authorization and response fields in `src/baloot_platform/service/`, `src/baloot_platform/shared/access.py` and `api/`. Uncovered safety-critical rules also require review.
-- **Making anything public** includes the posting controller, publication ledger writer, caption and media release steps, and any transition from `NEVER_POST` to posting. Repo inputs include `scripts/{pick_nightly_candidates,build_nightly_shadow_day,render_research_notice}.py`, `src/baloot_platform/challenge/publication_service.py`, `src/baloot_platform/research/slot_sequencer.py` and `src/baloot_platform/video/{captions,render_projection}.py`.
-- **Hosts, networks and firewalls** include runner and render-host configuration, network access and firewall rules. Repo controls include runner selection in `.github/workflows/`, the video-worker image in `Dockerfile`, and network policy in `configs/{runtime/docker_v1,security/local_secure_v1}.yaml` and their packaged copies.
-- **Repo settings, branch protection and release gates** include rulesets, required checks, the privacy deny check, and removing, skipping or weakening a test or the test-file guard. Repo controls include `.github/workflows/`, `scripts/ci_scope.py`, `release/`, `scripts/{check_release_readiness,verify_release}.py`, `src/baloot_platform/release_scope.py` and clip admission checks in `src/baloot_platform/video/`. The clip release gate's r8 revision requires its one independent review.
+- **Production** includes deploys, production configuration and production data.
+- **Secrets and credentials** include how tokens and keys are read, scoped, stored and rotated, including workflow secrets, token permissions, secret scanning and credential handling.
+- **Real people's or customer data** includes migrations, deletion, retention, audit history, backups, restore and access to personal or restricted records. Uncovered safety-critical rules also require review.
+- **Making anything public** includes the posting controller, publication ledger writer, caption and media release steps, and any transition from `NEVER_POST` to posting.
+- **Hosts, networks and firewalls** include runner and render-host configuration, network access and firewall rules.
+- **Repo settings, branch protection and release gates** include rulesets, required checks, the privacy deny check, clip admission checks, and removing, skipping or weakening a test or the test-file guard. The clip release gate's r8 revision requires its one independent review.
 
 Once end-to-end tests cover every BalootX safety rule and this section records each rule and its test, changes to covered rules merge on green CI. A new safety rule needs one review until its test lands.
 
