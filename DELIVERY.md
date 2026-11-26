@@ -66,6 +66,8 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 - Delivery owns the queue, admission gates, pipeline faults, CI health and speed, releases, deploys, rollback and alerts. Workers handle each PR.
 - Use `Closes #n` in the PR body only if merging meets the item's whole Done-when. Otherwise use `Refs #n`.
 
+Every listed critical changed path must exist at the PR base or head. The review gate checks this before applying the verdict, including when the PR deletes a file.
+
 ## GitHub Releases
 
 - `public-switch-lock-tag` blocks creating, moving or deleting tags outside `v*`. `release-tags-create` lets only the project's App create `v*` tags. `release-tags-immutable` blocks everyone from moving or deleting them.
