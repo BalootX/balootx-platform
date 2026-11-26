@@ -36,6 +36,36 @@ if (([uint64][Diagnostics.Process]::GetCurrentProcess().ProcessorAffinity.ToInt6
 # Bound the launcher bootstrap too, before Add-Type can invoke a compiler.
 [Diagnostics.Process]::GetCurrentProcess().ProcessorAffinity = [IntPtr]([int64]$affinity)
 [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal'
+
+function Get-Descendants($Root, $Processes) {
+    $snapshotRoot = $Processes | Where-Object ProcessId -eq $Root.ProcessId | Select-Object -First 1
+    if ($snapshotRoot.CreationDate -ne $Root.CreationDate) {
+        throw "Root process $($Root.ProcessId) exited during CPU tree attachment."
+    }
+    $children = $Processes | Group-Object ParentProcessId -AsHashTable -AsString
+    $parents = [Collections.Generic.Queue[object]]::new()
+    $parents.Enqueue($Root)
+    while ($parents.Count) {
+        $parent = $parents.Dequeue()
+        foreach ($child in $children[[string]$parent.ProcessId]) {
+            if ($child.ProcessId -eq $Root.ProcessId) { continue }
+            if ($null -eq $child.CreationDate) {
+                throw "Cannot verify creation time for process $($child.ProcessId) ($($child.Name), parent $($child.ParentProcessId))."
+            }
+            if ($child.CreationDate.ToUniversalTime() -ge $parent.CreationDate.ToUniversalTime()) {
+                $child
+                $parents.Enqueue($child)
+            }
+        }
+    }
+}
+
+function Confirm-CappedProcess($Process, [bool]$VerifyOnly = $false) {
+    $created = $Process.CreationDate.ToUniversalTime()
+    $identity = "$($Process.ProcessId) ($($Process.Name), parent $($Process.ParentProcessId), created $($created.ToString('o')))"
+    [BalootCpuJob]::Attach($job, $Process.ProcessId, $created.ToFileTimeUtc(), $affinity, $identity, $VerifyOnly)
+}
+
 if (-not ('BalootCpuJob' -as [type])) {
     # Test runtimes can remove an inherited temp directory before Add-Type runs.
     $compileTemp = [IO.Path]::GetTempPath()
@@ -65,6 +95,12 @@ public static class BalootCpuJob {
     [DllImport("kernel32.dll", SetLastError=true)]
     public static extern IntPtr OpenProcess(uint access, bool inherit, int id);
     [DllImport("kernel32.dll", SetLastError=true)]
+    private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    private static extern bool GetProcessTimes(IntPtr process, out long created, out long exited, out long kernel, out long user);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    private static extern bool GetProcessAffinityMask(IntPtr process, out UIntPtr affinity, out UIntPtr systemAffinity);
+    [DllImport("kernel32.dll", SetLastError=true)]
     public static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
     [DllImport("kernel32.dll", SetLastError=true)]
     public static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool member);
@@ -72,16 +108,66 @@ public static class BalootCpuJob {
     public static void Check(bool success) {
         if (!success) throw new Win32Exception(Marshal.GetLastWin32Error());
     }
-    public static void Attach(IntPtr job, int id) {
-        IntPtr process = OpenProcess(0x1101, false, id); // query, set quota, terminate rights
-        if (process == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "OpenProcess " + id);
+    private static Win32Exception ProcessError(int code, string operation, string identity) {
+        return new Win32Exception(code, operation + " (Win32 " + code + ") for process " + identity
+            + ": " + new Win32Exception(code).Message);
+    }
+    private static void CheckProcess(bool success, string operation, string identity) {
+        if (!success) throw ProcessError(Marshal.GetLastWin32Error(), operation, identity);
+    }
+    private static bool HasExited(IntPtr process, string identity) {
+        uint state = WaitForSingleObject(process, 0);
+        CheckProcess(state != 0xFFFFFFFF, "WaitForSingleObject", identity);
+        return state == 0; // WAIT_OBJECT_0
+    }
+    public static bool Attach(IntPtr job, int id, long expectedCreation, ulong affinity, string identity, bool verifyOnly) {
+        const int InvalidParameter = 87, AccessDenied = 5;
+        const uint QueryAndSynchronize = 0x101000, SetQuotaAndTerminate = 0x0101;
+        uint rights = verifyOnly ? QueryAndSynchronize : QueryAndSynchronize | SetQuotaAndTerminate;
+        IntPtr process = OpenProcess(rights, false, id);
+        if (process == IntPtr.Zero) {
+            int error = Marshal.GetLastWin32Error();
+            if (error == InvalidParameter) return false; // No process for this positive PID.
+            if (error == AccessDenied && !verifyOnly) {
+                // A retained, exited process can still have a PID. Probe with query rights only.
+                IntPtr status = OpenProcess(QueryAndSynchronize, false, id);
+                if (status != IntPtr.Zero) {
+                    try { if (HasExited(status, identity)) return false; }
+                    finally { CloseHandle(status); }
+                } else if (Marshal.GetLastWin32Error() == InvalidParameter) {
+                    return false;
+                }
+            }
+            throw ProcessError(error, "OpenProcess", identity);
+        }
         try {
+            if (HasExited(process, identity)) return false;
             bool member;
-            Check(IsProcessInJob(process, job, out member));
-            if (!member && !AssignProcessToJobObject(job, process))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject " + id);
-            Check(IsProcessInJob(process, job, out member));
-            if (!member) throw new InvalidOperationException("CPU job membership verification failed.");
+            UIntPtr actualAffinity, systemAffinity;
+            try {
+                if (expectedCreation != 0) {
+                    long created, exited, kernel, user;
+                    CheckProcess(GetProcessTimes(process, out created, out exited, out kernel, out user), "GetProcessTimes", identity);
+                    // CIM timestamps have microsecond precision. The handle pins the current process.
+                    if (created / 10 > expectedCreation / 10) return false;
+                    if (created / 10 != expectedCreation / 10)
+                        throw new InvalidOperationException("Process creation time verification failed for " + identity + ".");
+                }
+                CheckProcess(IsProcessInJob(process, job, out member), "IsProcessInJob", identity);
+                if (!member && !verifyOnly) {
+                    CheckProcess(AssignProcessToJobObject(job, process), "AssignProcessToJobObject", identity);
+                    CheckProcess(IsProcessInJob(process, job, out member), "IsProcessInJob", identity);
+                }
+                CheckProcess(GetProcessAffinityMask(process, out actualAffinity, out systemAffinity), "GetProcessAffinityMask", identity);
+            } catch (Win32Exception) {
+                if (HasExited(process, identity)) return false;
+                throw;
+            }
+            if (HasExited(process, identity)) return false;
+            if (!member) throw new InvalidOperationException("CPU job membership verification failed for " + identity + ".");
+            if (actualAffinity.ToUInt64() != affinity)
+                throw new InvalidOperationException("Shared CPU-set verification failed for " + identity + ".");
+            return true;
         } finally { CloseHandle(process); }
     }
 }
@@ -111,28 +197,26 @@ try {
         throw 'An older percentage-quota job exists; restart owned work before applying this CPU-set ceiling.'
     }
     if ($AttachRootId -gt 0) {
-        $root = Get-Process -Id $AttachRootId
-        $processes = @(Get-CimInstance Win32_Process)
-        $ids = [Collections.Generic.HashSet[int]]::new()
-        [void]$ids.Add($root.Id)
-        do {
-            $added = $false
-            foreach ($row in $processes) {
-                if ($ids.Contains([int]$row.ParentProcessId) -and $ids.Add([int]$row.ProcessId)) { $added = $true }
-            }
-        } while ($added)
-        foreach ($id in $ids) {
-            if (Get-Process -Id $id -ErrorAction SilentlyContinue) {
-                [BalootCpuJob]::Attach($job, $id)
-                if ((Get-Process -Id $id).ProcessorAffinity.ToInt64() -ne $affinity) {
-                    throw "Shared CPU-set verification failed for process $id."
-                }
+        $properties = 'ProcessId', 'ParentProcessId', 'CreationDate', 'Name'
+        $root = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $AttachRootId" -Property $properties
+        if ($null -eq $root.CreationDate) { throw "Cannot verify creation time for root process $AttachRootId." }
+        if (-not (Confirm-CappedProcess $root)) { throw "Root process $AttachRootId exited before its CPU cap was verified." }
+        $verifiedTree = @{$AttachRootId = $root.CreationDate}
+        $processes = Get-CimInstance -ClassName Win32_Process -Property $properties
+        foreach ($process in (Get-Descendants $root $processes)) {
+            if (Confirm-CappedProcess $process) { $verifiedTree[[int]$process.ProcessId] = $process.CreationDate }
+        }
+        # A descendant can spawn children before it joins the job. Check once after all assignments.
+        $processes = Get-CimInstance -ClassName Win32_Process -Property $properties
+        foreach ($process in (Get-Descendants $root $processes)) {
+            $id = [int]$process.ProcessId
+            if ($verifiedTree[$id] -ne $process.CreationDate -and (Confirm-CappedProcess $process $true)) {
+                $verifiedTree[$id] = $process.CreationDate
             }
         }
-        Write-Output "Verified CPU ceiling: $($config.cpuPercent)%; shared CPU set: $allowedCpus/$logicalCpus; attached tree: $($ids.Count) processes."
+        Write-Output "Verified CPU ceiling: $($config.cpuPercent)%; shared CPU set: $allowedCpus/$logicalCpus; attached tree: $($verifiedTree.Count) processes."
     } else {
-        [BalootCpuJob]::Attach($job, $PID)
-        if ([Diagnostics.Process]::GetCurrentProcess().ProcessorAffinity.ToInt64() -ne $affinity) {
+        if (-not [BalootCpuJob]::Attach($job, $PID, 0, $affinity, "$PID (launcher)", $false)) {
             throw 'Shared CPU-set verification failed; command was not launched.'
         }
         [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal'
