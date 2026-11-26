@@ -1,4 +1,4 @@
-Follows engineering standard v1.26.
+Follows engineering standard v1.29.5.
 
 # BalootX delivery
 
@@ -78,7 +78,7 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 - The `main` merge queue is the only path to trunk and uses squash merges only. Workers push their own short-lived branches without rewriting history and open PRs under the project's App identity. Merge, split or close an open PR within two days of its first push. The ruleset requires zero human approvals.
 - Changes in the [critical classes](AGENTS.md#critical-paths) get one independent full-diff review in parallel with CI. The deciding reviewer posts a line `VERDICT: GO <full SHA>` or `VERDICT: NO_GO <full SHA>` through the shared App. On a PR and in the merge queue, `ci-gate` uses the base commit's [critical path configuration](ci/critical-paths.json). It requires the latest configured reviewer verdict to be a GO and every listed path in the PR diff to match in presence and content at the PR head and the reviewed commit. The same reviewer re-checks any push that changes a listed file after a GO and any fix after a NO_GO, then posts a new verdict. After posting a verdict, the reviewer uses `gh run rerun <run-id> --failed` to re-run the failed `ci-gate` job on the existing head. Verify fixes to review findings with tests.
 - The verdict script and critical-path policy must both be present at the base revision. Before enabling auto-merge on a PR that changes workflow files, verify that a configured reviewer posted a GO naming the current head. Keep this requirement until the `main` ruleset requires `review-verdict` from the designated reviewer App.
-- For everything else, the thread that made the change opens its own PR and enables auto-merge at once. The PR merges through the queue once the required CI checks are green, with no review.
+- For non-critical changes, the thread that made the change opens its own PR and enables auto-merge at once. The PR merges through the queue once the required CI checks are green, with no review.
 - Delivery owns the queue, admission gates, pipeline faults, CI health and speed, releases, deploys, rollback and alerts. Workers handle each PR.
 - Use `Closes #n` in the PR body only if merging meets the item's whole Done-when. Otherwise use `Refs #n`.
 
@@ -149,15 +149,15 @@ The producer runs the image's installed Remotion package and verifies its locked
 | Rule | BalootX reason | Review date |
 | --- | --- | --- |
 | `ci-gate` runs without a skip condition | The job skips the manual viewer-seat proof lane, which runs its own proof checks. | 2026-12-22 |
-| Measured per-job limits in `.github/ci-timings.json` | Per-job p95 is still pending. The timing samples above cover earlier workflow runs. | 2026-12-04 |
-| Release tags and GitHub Releases | The first milestone release tag and GitHub Release are pending. Clips follow the [media release path](#media-release). | 2026-12-22 |
+| Measured per-job limits in `.github/ci-timings.json` | BalootX Delivery needs [current per-job p95 samples](https://github.com/BalootX/balootx-platform/issues/156) before setting measured limits. | 2026-12-04 |
+| Release tags and GitHub Releases | The first release awaits the milestone's approved commit. BalootX Delivery tracks the [tag and GitHub Release](https://github.com/BalootX/balootx-platform/issues/102). Clips follow the [media release path](#media-release). | 2026-12-22 |
 | GitHub deployment environments | No GitHub environments are configured. The [clip release path](#media-release) runs outside GitHub. | 2026-12-22 |
 | One attested artifact across environments | No single attested artifact is promoted across environments. Clip releases use individually verified media artifacts. | 2026-12-22 |
 | Committed Python lockfile and locked CI installs | There is no Python lockfile. CI resolves dependencies from the ranges in [pyproject.toml](pyproject.toml) for installs and wheel builds. | 2026-12-22 |
-| Tracked pre-commit and pre-push hooks | The repository ships neither hook. Hosted preflight runs lint and focused tests, and the [privacy guard](AGENTS.md#privacy-and-public-pushes) checks pushes. | 2026-12-22 |
-| Privacy deny check in CI on every branch push and merge group | The push guard relies on a private deny list. Hosted enforcement needs a way to check fork changes while keeping that list private. | 2026-12-22 |
-| PR size targets | PR size p50 and p95 are pending. Generated files lack size-exclusion markers. | 2026-12-04 |
-| Scoped URL and IP literal check | The push guard checks private values. The source literal check and committed allowlist are pending. | 2026-12-04 |
-| Configured no-reply domains for commit identities and trailers | The push guard checks commit metadata with a fixed address policy. | 2026-12-04 |
+| Tracked pre-commit and pre-push hooks | Hosted preflight runs lint and focused tests. Contributors run the [privacy guard](AGENTS.md#privacy-and-public-pushes) as a separate pre-push command. | 2026-12-22 |
+| Private data and identifier screening in CI on branch pushes and merge groups | The [push guard](AGENTS.md#privacy-and-public-pushes) screens the pushes it handles. BalootX Delivery tracks [hosted enforcement](https://github.com/BalootX/balootx-platform/issues/158). | 2026-12-03 |
+| PR size targets | BalootX Delivery needs the [generated-file markers](https://github.com/BalootX/balootx-platform/issues/252) before measuring PR size p50 and p95. | 2026-12-04 |
+| Protection of network identifiers in source code | The push guard screens private values. General URL and IP literals in source await the [hosted source-literal check](https://github.com/BalootX/balootx-platform/issues/252) owned by BalootX Delivery. | 2026-12-04 |
+| Privacy of author, committer and trailer identities | The push guard checks commit metadata under a fixed address policy. BalootX Delivery tracks [validated identity configuration](https://github.com/BalootX/balootx-platform/issues/159) ahead of [hosted enforcement](https://github.com/BalootX/balootx-platform/issues/158). | 2026-12-03 |
 | Affected CI on draft PRs | The affected checks start when a PR is ready. | 2026-12-04 |
 | PR feedback (`ci-gate`) p50 under 1 min and p95 under 2 min | Measured on 2026-11-26 over 149 of the last 150 first attempts: p50 20.0 min, p95 28.7 min. `ci-gate` reports only after every affected job finishes, including the Python shards, the Foundry Playwright suite and the media renders. The delivery board item "Meet the PR and merge-queue CI feedback targets" (due 2026-12-03) brings it down. | 2026-12-03 |
