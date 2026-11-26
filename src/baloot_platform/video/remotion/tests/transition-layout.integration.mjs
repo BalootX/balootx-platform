@@ -116,6 +116,12 @@ try {
   assert.deepEqual(transition.validation.disallowedIntersections?.map(({first, second}) => [first, second]),
     [["promptPill:0", "researchNotice:0"]]);
   console.log("Moving overlap: steady sampling passed; transition sampling detected prompt/notice contact.");
+
+  const decisionFrames = [...checkpoints.values()].sort((first, second) => first.frame - second.frame);
+  const decisionRows = await measure("decision-clip", decisionFrames);
+  assert.deepEqual(decisionRows.filter(({validation}) => validation.status !== "passed")
+    .map(({phase, frame, validation}) => ({phase, frame, validation})), [],
+  "decision-clip geometry failed; see decision-clip-layout-evidence.json");
 } finally {
   await browser.close({silent: true});
 }

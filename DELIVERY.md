@@ -24,6 +24,8 @@ The address-sanitizer job requires both verifier pytest nodes to pass against it
 
 The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples.
 
+The decision media shard checks synthetic layout at the first and last frames of the governed hook, question and reveal and on both sides of each question countdown change. It also renders a test-only moving prompt to verify that the added sampling detects an overlap missed by the steady samples. The `media-stage-logs-decision` artifact retains the frame results, measured boxes and PNGs under `transition-layout/`.
+
 The main ruleset's CodeQL rule evaluates each PR at admission and blocks new high or critical alerts on lines the PR changes. The main-push scan surfaces alerts that arise only in the combined commit.
 
 The concurrency key uses the PR number to keep same-named branches from different forks in separate groups. A new run supersedes only the same PR's older run. Each push, merge-group and manual CI run has its own group and cannot cancel another run.
