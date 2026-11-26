@@ -60,6 +60,23 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
+      - name: Check pull request opener
+        if: github.event_name == 'pull_request'
+        env:
+          # GitHub account IDs for tree-publisher and Dependabot.
+          ALLOWED_PR_OPENER_IDS: '357558349 49699333'
+          PR_OPENER_ID: ${{ github.event.pull_request.user.id }}
+          PR_OPENER_TYPE: ${{ github.event.pull_request.user.type }}
+        run: |
+          python3 -I -c '
+          import os
+
+          if (
+              os.environ["PR_OPENER_TYPE"] != "Bot"
+              or os.environ["PR_OPENER_ID"] not in os.environ["ALLOWED_PR_OPENER_IDS"].split()
+          ):
+              raise SystemExit("::error::Open this pull request through an approved GitHub App.")
+          '
       - &checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

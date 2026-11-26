@@ -55,6 +55,7 @@ The Python shards share a deadline derived from each job's timeout. The full mat
 
 - Keep PC work to Git edits and commits plus the required pre-push deny check and privacy screen. Close shells when their step ends.
 - The installed guard is the only reader of the deny inputs. Workers run it and read only its class counts. No agent opens, prints or copies the input file.
+- Required PR preflight checks that an approved GitHub App opened the PR, since GitHub uses the opener as the squash author. The check uses the PR opener's account identity from the event. See [the hosted workflow](.github/workflows/ci.yml).
 - Run tests, lint, scrubs, builds and renders through CI. On the PC, `run-locked.ps1` returns `SKIP_TO_CI`.
 - Use free GitHub-hosted runners for public repo checks. Use zero-cost server runners for private repos, deploys and jobs that use secrets.
 - If a check has no CI job, add one in the same PR.
