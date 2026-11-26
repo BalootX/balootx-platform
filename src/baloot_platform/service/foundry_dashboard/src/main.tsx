@@ -56,7 +56,7 @@ import {researchRecipeApi} from './api/research';
 import {ResearchPerformanceSummary, ResearchStudio} from './features/research/workspace';
 import {copyJson, isSeatName, type JsonObject, type JsonValue, type SeatName} from './shared/json';
 import {date, number, hasFoundryCopy, requestTimeoutMessage, t, tCatalog, tVariant, useResearchWorkflowCopyRevision} from './shared/localization';
-import {fetchWithDeadline, isDeadlineError} from '../../static/shared/request.js';
+import {fetchWithDeadline, fetchWithLongDeadline, isDeadlineError} from '../../static/shared/request.js';
 import {
   renderJobReferencesResearch,
   renderJobReferencesSource,
@@ -926,9 +926,9 @@ const thrillFieldAr: Record<string, string> = {
   narrativeArc:t("configuration_fields.label_thrill_narrative_arc"),
 };
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
+async function api<T>(path: string, init?: RequestInit, request: typeof fetch = fetchWithDeadline): Promise<T> {
   try {
-    const response = await fetchWithDeadline(path, {
+    const response = await request(path, {
       ...init,
       headers: {'accept': 'application/json', ...(init?.body ? {'content-type': 'application/json'} : {}), ...init?.headers},
     });
@@ -942,6 +942,9 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw isDeadlineError(error) ? new Error(requestTimeoutMessage()) : error;
   }
 }
+
+// Synchronous calls that run a solver or prepare a candidate before they answer.
+const longApi = <T,>(path: string, init?: RequestInit) => api<T>(path, init, fetchWithLongDeadline);
 
 const loadResearchPerspectives = (code: string, seat: SeatName) =>
   api<{items:JsonObject[]}>(`/api/v2/research-results/${encodeURIComponent(code)}/perspectives?observerSeat=${encodeURIComponent(seat)}`);
@@ -1755,7 +1758,7 @@ function App() {
         ? `/api/v2/research-results/${result.resultCode}:prepare-render`
         : `/api/v2/research-results/${result.resultCode}/decisions/${ordinal}:prepare-render`;
       const exportPreset = ordinal === undefined ? 'hooked_flagship' : 'decision_clip';
-      const prepared = assertPreparedObserver(await api<ResearchPreparedRender>(endpoint, {
+      const prepared = assertPreparedObserver(await longApi<ResearchPreparedRender>(endpoint, {
         method:'POST',
         body:JSON.stringify({revealPolicy:'after_commit', exportPreset, observerSeat}),
       }), observerSeat);
@@ -1789,7 +1792,7 @@ function App() {
       }
       const sourceCode = item.sourceLocator.code;
       const endpoint = `/api/v2/laffat/${encodeURIComponent(sourceCode)}:prepare-render`;
-      const prepared = await api<ResearchPreparedRender>(endpoint, {
+      const prepared = await longApi<ResearchPreparedRender>(endpoint, {
         method:'POST',
         body:JSON.stringify({revealPolicy:'after_commit'}),
       });
@@ -1818,7 +1821,7 @@ function App() {
     const code = `LAF-${traceHash.slice(0,10).toUpperCase()}`;
     setBusy(true); setMessage('');
     try {
-      const prepared = await api<ResearchPreparedRender>(`/api/v2/laffat/${encodeURIComponent(code)}:prepare-render`, {
+      const prepared = await longApi<ResearchPreparedRender>(`/api/v2/laffat/${encodeURIComponent(code)}:prepare-render`, {
         method:'POST',
         body:JSON.stringify({revealPolicy:'after_commit', exportPreset:'hooked_flagship'}),
       });
@@ -1835,7 +1838,7 @@ function App() {
   const verifyResearchPlay = async (result: ResearchResult) => {
     setBusy(true); setMessage('');
     try {
-      const proof = await api<JsonObject>(`/api/v2/research-results/${result.resultCode}:verify-play-compiler`, {method:'POST'});
+      const proof = await longApi<JsonObject>(`/api/v2/research-results/${result.resultCode}:verify-play-compiler`, {method:'POST'});
       setDrawer({
         kind:'research-play-proof',
         title:t("workflow.research_play_proof_title"),
@@ -1850,11 +1853,11 @@ function App() {
     setBusy(true); setMessage('');
     try {
       const prepared = item.finalistJobId
-        ? await api<PreparedCandidate>(`/api/v2/finalist-validations/${item.finalistJobId}:prepare-best`, {
+        ? await longApi<PreparedCandidate>(`/api/v2/finalist-validations/${item.finalistJobId}:prepare-best`, {
             method:'POST',
             body:JSON.stringify({revealPolicy:'after_commit', exportPreset:'hooked_flagship'}),
           })
-        : await api<PreparedCandidate>(`/api/v2/analysis-batches/${item.analysisJobId}/candidates/${item.candidateHash}:prepare`, {
+        : await longApi<PreparedCandidate>(`/api/v2/analysis-batches/${item.analysisJobId}/candidates/${item.candidateHash}:prepare`, {
             method:'POST',
             body:JSON.stringify({revealPolicy:'after_commit', exportPreset:'hooked_flagship'}),
           });
@@ -1928,7 +1931,7 @@ function App() {
     if (!analysisJob || !candidate.playReady) return;
     setBusy(true); setMessage('');
     try {
-      const value = await api<PreparedCandidate>(`/api/v2/analysis-batches/${analysisJob.jobId}/candidates/${candidate.candidateHash}:prepare`, {method:'POST', body:JSON.stringify({revealPolicy:'after_commit', exportPreset:'hooked_flagship'})});
+      const value = await longApi<PreparedCandidate>(`/api/v2/analysis-batches/${analysisJob.jobId}/candidates/${candidate.candidateHash}:prepare`, {method:'POST', body:JSON.stringify({revealPolicy:'after_commit', exportPreset:'hooked_flagship'})});
       setPrepared(value);
       setMessage(t("workflow.m_1a1fc084dd70") + String(value.locator.code || candidate.shortCode) + t("workflow.m_e38684c0a6d3"));
       setDrawer({kind:'prepared', title:t("workflow.m_0bab9d58c31d"), subtitle:t("workflow.m_c485c6b17790") + String(value.locator.code || candidate.shortCode), content:<PreparedDetails value={value} />, audit:value as unknown as JsonObject});
@@ -1951,7 +1954,7 @@ function App() {
     if (!finalistJob || finalistJob.status !== 'completed' || !finalistJob.result?.localPreviewReady) return;
     setBusy(true); setMessage('');
     try {
-      const value = await api<PreparedCandidate>(`/api/v2/finalist-validations/${finalistJob.jobId}:prepare-best`, {method:'POST', body:JSON.stringify({revealPolicy:'after_commit', exportPreset})});
+      const value = await longApi<PreparedCandidate>(`/api/v2/finalist-validations/${finalistJob.jobId}:prepare-best`, {method:'POST', body:JSON.stringify({revealPolicy:'after_commit', exportPreset})});
       setPrepared(value);
       setMessage(exportPreset === 'hooked_flagship' ? t("workflow.m_e9c3c87d96d7") : t("workflow.m_4f660a44646c"));
       setDrawer({kind:'prepared', title:exportPreset === 'hooked_flagship' ? t("workflow.m_bf40007eacb8") : t("workflow.m_34ef1c737707"), subtitle:t("workflow.m_c485c6b17790") + String(value.locator.code || value.candidate.shortCode), content:<PreparedDetails value={value} />, audit:value as unknown as JsonObject});
@@ -2644,7 +2647,7 @@ function ConfigurationWorkspace({runtimeProfile, openHelp, setOpenHelp, setDrawe
     if (!selected || !base || !componentRevisions || changed.length || (selected.status === 'draft' && !profileValidation?.valid)) return; setSaving(true);
     try {
       const created=await api<ConfigBundle>('/api/v2/configuration/bundles', {method:'POST',headers:adminHeaders(),body:JSON.stringify({bundleId:base.bundleId,version:nextPatchVersion(base.version),mode:base.mode||'full',componentRevisions,scope:'global',rolloutPercentage:100,rolloutSeed:'default',supersedesRevisionId:base.revisionId,publish:false,allowDraftComponents:selected.status==='draft'})});
-      const compilation=await api<BundleCompilation>(`/api/v2/configuration/bundles/${created.revisionId}:compile`, {method:'POST',headers:adminHeaders()});
+      const compilation=await longApi<BundleCompilation>(`/api/v2/configuration/bundles/${created.revisionId}:compile`, {method:'POST',headers:adminHeaders()});
       setPreviewBundle(created); setProfileCompilation(compilation); setProfileCompilationError(''); setMessage(compilation.publishable?t("settings.rules_compile_ready"):t("settings.rules_compile_blocked")); await load();
     } catch(error) { const message=configurationErrorCopy(error); setProfileCompilation(null); setProfileCompilationError(message); setPreviewBundle(null); setMessage(''); } finally { setSaving(false); }
   };

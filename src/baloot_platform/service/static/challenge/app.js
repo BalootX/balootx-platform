@@ -111,12 +111,18 @@
     clearTimeout(element._timer);
     element._timer = setTimeout(() => element.classList.remove('show'), 2200);
   }
-  const requestModule = import('/shared-assets/request.js');
   async function api(path, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
     const headers = {'content-type': 'application/json', ...(options.headers || {})};
     if (state.csrf && !['GET', 'HEAD'].includes(method)) headers['x-csrf-token'] = state.csrf;
-    const {fetchWithDeadline, isDeadlineError} = await requestModule;
+    let helper;
+    try {
+      helper = await loadRequestHelper();
+    } catch {
+      // Challenges frozen before request_unavailable existed carry only request_error.
+      throw new Error(state.copy?.request_unavailable || copy('request_error', {status: 503}));
+    }
+    const {fetchWithDeadline, isDeadlineError} = helper;
     let response;
     let text;
     try {
@@ -142,7 +148,7 @@
     return value;
   }
   async function frozenChallenge(code) {
-    const {fetchWithDeadline} = await requestModule;
+    const {fetchWithDeadline} = await loadRequestHelper();
     const response = await fetchWithDeadline(
       `/api/v2/challenge-locators/${encodeURIComponent(code)}`,
       {credentials: 'include', headers: {'content-type': 'application/json'}},
