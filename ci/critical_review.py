@@ -149,7 +149,7 @@ def critical_entries(commit, paths):
     return entries
 
 
-def check(event_name, event, repo, ref, candidate):
+def evaluate(event_name, event, repo, ref, candidate):
     if event_name == "pull_request":
         pr = event["pull_request"]
         number, base, head = pr["number"], pr["base"]["sha"], pr["head"]["sha"]
@@ -159,8 +159,8 @@ def check(event_name, event, repo, ref, candidate):
         group = event["merge_group"]
         base, head = group["base_sha"], None
         number = queue_pr_number(group, ref, candidate)
-        if git("rev-parse", "HEAD").decode("ascii").strip() != candidate:
-            raise ValueError("Checkout does not match the merge group commit")
+        if git("rev-list", "--parents", "-n", "1", "HEAD").decode("ascii").split() != [candidate, base]:
+            raise ValueError("Checkout does not match the merge group commit and its base parent")
     else:
         raise ValueError(f"Unsupported review gate event {event_name}")
     if not all(re.fullmatch(SHA, sha) for sha in (candidate, base)):
@@ -173,8 +173,7 @@ def check(event_name, event, repo, ref, candidate):
         head = queued_pr_head(repo, number, base, candidate)
     critical_changes = critical_paths(repo, number, head, patterns, base if event_name == "pull_request" else None)
     if not critical_changes:
-        print("No critical paths changed.")
-        return
+        return f"No critical paths changed (policy {base[:12]})."
 
     pages = github("--paginate", "--slurp", f"repos/{repo}/issues/{number}/comments?per_page=100")
     # GitHub lists issue comments in ascending ID order across pages.
@@ -184,7 +183,11 @@ def check(event_name, event, repo, ref, candidate):
     reviewed_entries = head_entries if reviewed == head else critical_entries(reviewed, critical_changes)
     if head_entries != reviewed_entries:
         raise ValueError(f"PR #{number} has changed or missing critical paths relative to the GO on {reviewed}")
-    print(f"PR #{number} head {head} is covered by the GO on {reviewed}.")
+    return f"PR #{number} head {head} is covered by the GO on {reviewed}."
+
+
+def check(event_name, event, repo, ref, candidate):
+    print(evaluate(event_name, event, repo, ref, candidate))
 
 
 if __name__ == "__main__":

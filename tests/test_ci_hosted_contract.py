@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from ci import critical_review
+from ci import review_verdict_poster
 from scripts import ci_scope
 from scripts import run_required_pytest
 import test_v20_asan_verifier_portability as asan_portability
@@ -189,7 +190,10 @@ def review_history(tmp_path, monkeypatch, root):
     git("remote", "add", "origin", ".")
     policy = tmp_path / critical_review.POLICY_PATH
     policy.parent.mkdir()
-    policy.write_bytes((root / critical_review.POLICY_PATH).read_bytes())
+    config = json.loads((root / critical_review.POLICY_PATH).read_bytes())
+    config["reviewerAccountIds"] = [1001]
+    policy.write_text(json.dumps(config), encoding="utf-8")
+    (policy.parent / "critical_review.py").write_bytes((root / "ci/critical_review.py").read_bytes())
     kickoff = tmp_path / "scripts/render_kickoff.py"
     kickoff.parent.mkdir()
     kickoff.write_text("base content\n", encoding="utf-8")
@@ -197,6 +201,15 @@ def review_history(tmp_path, monkeypatch, root):
     git("commit", "-qm", "base")
     base = git("rev-parse", "HEAD").decode().strip()
     monkeypatch.setattr(critical_review, "git", git)
+    monkeypatch.setattr(review_verdict_poster, "git", git)
+    load_review = review_verdict_poster.load_review
+
+    def load_fixture_review(base):
+        evaluate = load_review(base)
+        evaluate.__globals__.update(git=git, github=critical_review.github)
+        return evaluate
+
+    monkeypatch.setattr(review_verdict_poster, "load_review", load_fixture_review)
 
     def commit(path, followup=None, remove=False, squash=False):
         git("switch", "-qc", "topic")
@@ -220,7 +233,10 @@ def review_history(tmp_path, monkeypatch, root):
             git("commit", "-qm", "queued change")
         else:
             git("merge", "--no-ff", "topic", "-m", "PR merge")
-        return base, reviewed, head, git("rev-parse", "HEAD").decode().strip()
+        candidate = git("rev-parse", "HEAD").decode().strip()
+        ref = f"refs/heads/gh-readonly-queue/main/pr-104-{base}" if squash else "refs/pull/104/merge"
+        git("update-ref", ref, candidate)
+        return base, reviewed, head, candidate
 
     return commit
 
@@ -239,6 +255,7 @@ def review_history(tmp_path, monkeypatch, root):
     ("scripts/render-kickoff.json", None, False, ("PR #104 verdict GO on {head}",), False, "needs a VERDICT"),
     ("scripts/render-kickoff.schema.json", None, False, (), False, "needs a VERDICT"),
     ("ci/critical-paths.json", None, False, (), False, "needs a VERDICT"),
+    ("ci/critical_review.py", None, False, (), False, "needs a VERDICT"),
     ("README.md", None, False, (), False, None),
 ])
 def test_critical_review_on_pull_request(review_history, monkeypatch, path, followup, remove, records, other_verdict, error):
@@ -274,6 +291,13 @@ def test_critical_review_on_pull_request(review_history, monkeypatch, path, foll
             critical_review.check(*args)
     else:
         critical_review.check(*args)
+    state, reason = review_verdict_poster.decision(
+        repo, "main", {"number": 104, "headRefOid": head}, "refs/heads/main", args[3], candidate,
+    )
+    if error:
+        assert state == "failure" and error in reason
+    else:
+        assert state == "success"
 
 
 def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatch):
@@ -305,6 +329,9 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
         critical_review.check(*args)
     comment["body"] = f"VERDICT: GO {head}"
     critical_review.check(*args)
+    assert review_verdict_poster.decision(
+        "test/example", "main", {"number": 104, **pr}, "refs/heads/main", ref, candidate, queue=True,
+    )[0] == "success"
     files[0]["filename"] = "README.md"
     critical_review.check(*args)
     snapshot["changed_files"] = 2
@@ -315,6 +342,108 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
         critical_review.check(*args)
     with pytest.raises(ValueError, match="Merge-group ref"):
         critical_review.check("merge_group", event, "test/example", "refs/heads/main", candidate)
+
+
+def test_critical_review_rejects_wrong_queue_parent(review_history):
+    base, _, head, candidate = review_history("scripts/render-kickoff.json")
+    ref = f"refs/heads/gh-readonly-queue/main/pr-104-{base}"
+    wrong = critical_review.git("commit-tree", f"{candidate}^{{tree}}", "-p", head, "-m", "wrong parent").decode().strip()
+    critical_review.git("update-ref", ref, wrong)
+    critical_review.git("update-ref", "--no-deref", "HEAD", wrong)
+    event = {"merge_group": {"base_ref": "refs/heads/main", "base_sha": base, "head_ref": ref, "head_sha": wrong}}
+    with pytest.raises(ValueError, match="base parent"):
+        critical_review.evaluate("merge_group", event, "test/example", ref, wrong)
+    pr = {"number": 104, "headRefOid": head, "mergeQueueEntry": {"baseCommit": {"oid": base}}}
+    state, reason = review_verdict_poster.decision(
+        "test/example", "main", pr, "refs/heads/main", ref, wrong, queue=True,
+    )
+    assert state == "failure" and "base parent" in reason
+
+
+def test_poster_waits_for_current_pr_merge_parents(review_history):
+    _, _, _, candidate = review_history("README.md")
+    state, reason = review_verdict_poster.decision(
+        "test/example", "main", {"number": 104, "headRefOid": "f" * 40},
+        "refs/heads/main", "refs/pull/104/merge", candidate,
+    )
+    assert state == "pending" and "test merge" in reason
+
+
+def test_poster_does_not_load_a_base_outside_main(review_history, monkeypatch):
+    base, _, head, candidate = review_history("README.md")
+    git = critical_review.git
+    git("update-ref", "refs/heads/main", base)
+    merge = git("commit-tree", f"{candidate}^{{tree}}", "-p", head, "-p", base, "-m", "retargeted").decode().strip()
+    ref = "refs/pull/104/merge"
+    git("update-ref", ref, merge)
+
+    def load_review(_):
+        pytest.fail("Loaded a review evaluator from an untrusted base")
+
+    monkeypatch.setattr(review_verdict_poster, "load_review", load_review)
+    assert review_verdict_poster.decision(
+        "test/example", "main", {"number": 104, "headRefOid": base}, "refs/heads/main", ref, merge,
+    )[0] == "pending"
+
+
+@pytest.mark.parametrize(("error", "state"), [
+    (subprocess.CalledProcessError(1, "gh api"), "pending"),
+    (subprocess.TimeoutExpired("gh api", 30), "pending"),
+    (json.JSONDecodeError("invalid response", "", 0), "pending"),
+    (None, "failure"),
+])
+def test_poster_fails_closed_on_api_error_or_moved_snapshot(review_history, monkeypatch, error, state):
+    base, _, head, candidate = review_history("scripts/render-kickoff.json")
+    ref = "refs/pull/104/merge"
+    snapshot = {"number": 104, "state": "open", "head": {"sha": head}, "base": {"sha": base}, "changed_files": 1}
+
+    def github(*args):
+        if error:
+            raise error
+        if args == ("repos/test/example/pulls/104",):
+            return snapshot
+        assert args == ("--paginate", "--slurp", "repos/test/example/pulls/104/files?per_page=100")
+        snapshot["head"] = {"sha": "f" * 40}
+        return [[{"filename": "scripts/render-kickoff.json", "status": "added"}]]
+
+    monkeypatch.setattr(critical_review, "github", github)
+    result = review_verdict_poster.decision(
+        "test/example", "main", {"number": 104, "headRefOid": head}, "refs/heads/main", ref, candidate,
+    )
+    assert result[0] == state
+    if error:
+        assert result[1] == f"Verdict not re-checked: {type(error).__name__}"
+    else:
+        assert "snapshot is incomplete or has moved" in result[1]
+
+
+@pytest.mark.parametrize(("previous", "state", "posts"), [
+    (None, "success", True),
+    (None, "failure", True),
+    ("success", "pending", True),
+    ("failure", "pending", False),
+    ("failure", "failure", False),
+])
+def test_poster_uses_only_its_own_previous_status(monkeypatch, previous, state, posts):
+    repo, target, bot_id = "test/example", "a" * 40, 1001
+    endpoint = f"repos/{repo}"
+    sent = []
+
+    def github(*args):
+        if args == ("--paginate", "--slurp", f"{endpoint}/commits/{target}/statuses?per_page=100"):
+            workflow_status = {"context": "review-verdict", "state": "success", "creator": {"id": 1002}}
+            app_status = {**workflow_status, "state": previous, "creator": {"id": bot_id}}
+            return [[workflow_status], [app_status] if previous else []]
+        sent.append(args)
+
+    monkeypatch.setattr(review_verdict_poster, "github", github)
+    monkeypatch.setattr(review_verdict_poster.time, "sleep", lambda seconds: None)
+    review_verdict_poster.publish(repo, "https://github.example", bot_id, 104, target, state, "reason")
+    assert sent == ([(
+        "--method", "POST", f"{endpoint}/statuses/{target}",
+        "-f", "context=review-verdict", "-f", f"state={state}", "-f", "description=reason",
+        "-f", f"target_url=https://github.example/{repo}/pull/104",
+    )] if posts else [])
 
 
 def _assert_single_ci_check_producers(workflows):
