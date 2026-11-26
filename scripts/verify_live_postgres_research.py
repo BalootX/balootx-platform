@@ -74,7 +74,13 @@ REQUIRED_MIGRATION_HASHES = {
     "029_shared_run_game_access.sql": (
         "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"
     ),
-    "030_configuration_local_schedule.sql": (
+    "031_identity_list_pagination.sql": (
+        "0ab020769e7933fe9e2ef0d0c68846b499cef02300cb37960240650a5b4e0bfa"
+    ),
+    "032_identity_pending_requests_index.sql": (
+        "03ba3451c7010c52db713b096fb64009c37e0efb608f9413a71883b22a76684b"
+    ),
+    "033_configuration_local_schedule.sql": (
         "314fde4a8203348f10791f2494933b7cba7b0b57e36f0914c57d7a0177b3acf6"
     ),
 }
@@ -104,7 +110,7 @@ CONFIGURATION_V25_TRIGGERS = frozenset(
         ),
     }
 )
-CONFIGURATION_V30_TRIGGERS = frozenset(
+CONFIGURATION_SCHEDULE_TRIGGERS = frozenset(
     (
         f"{kind}_revisions",
         f"trg_configuration_{kind}_local_schedule_immutable",
@@ -1917,6 +1923,7 @@ def _migration_schema_contract(snapshot_root: Path) -> dict[str, Any]:
     }
     if not tables or not constraints or not rls_enabled:
         raise ProofError("PostgreSQL migration schema contract is incomplete")
+    tables.add("baloot_migrations.applied")
     contract = {
         "tables": sorted(tables),
         "constraints": [list(item) for item in sorted(constraints)],
@@ -1945,19 +1952,21 @@ def _run_migration_once(
         secrets_to_remove=secrets_to_remove,
     )
     lines = _command_text(completed).splitlines()
-    applied = [
-        line.removeprefix("applied ") for line in lines if line.startswith("applied ")
-    ]
-    if applied != list(expected_names):
-        raise ProofError(
-            "PostgreSQL migration output does not match the source inventory"
-        )
     if not lines or lines[-1] != "Baloot PostgreSQL schema is current":
         raise ProofError("PostgreSQL migration completion marker is missing")
     inventory = _migration_inventory(snapshot_root)
+    expected = set(expected_names)
+    applied = [item for item in inventory if item["name"] in expected]
+    actions = [
+        f"{'applied' if item['name'] in expected else 'verified'} {item['name']}"
+        for item in inventory
+    ]
+    if [item["name"] for item in applied] != list(expected_names) or lines[:-1] != actions:
+        raise ProofError("PostgreSQL migration output does not match the source inventory")
     return {
         "applied": len(applied),
-        "executedInventorySha256": _sha256_text(_canonical_json(inventory)),
+        "verified": len(inventory) - len(applied),
+        "executedInventorySha256": _sha256_text(_canonical_json(applied)),
     }
 
 
@@ -2323,25 +2332,24 @@ def _prove_migrations(
 ) -> dict[str, Any]:
     snapshot_root, inventory = _stage_migrations(proof_root)
     source_inventory = list(inventory)
-    names = [item["name"] for item in inventory]
     executed_inventory_sha256 = _sha256_text(_canonical_json(inventory))
-    expected_pass = {
-        "applied": len(inventory),
-        "executedInventorySha256": executed_inventory_sha256,
-    }
     schema_contract = _migration_schema_contract(snapshot_root)
     passes = []
     fingerprints = []
-    for _ in range(2):
+    for expected in (inventory, []):
         if _migration_inventory(snapshot_root) != inventory:
             raise ProofError("PostgreSQL migration snapshot changed before execution")
         migration_pass = _run_migration_once(
             database_url,
             snapshot_root,
-            names,
+            [item["name"] for item in expected],
             secrets_to_remove,
         )
-        if migration_pass != expected_pass:
+        if migration_pass != {
+            "applied": len(expected),
+            "verified": len(inventory) - len(expected),
+            "executedInventorySha256": _sha256_text(_canonical_json(expected)),
+        }:
             raise ProofError("PostgreSQL executed migration inventory evidence drifted")
         passes.append(migration_pass)
         if _migration_inventory(snapshot_root) != inventory:
@@ -3684,7 +3692,7 @@ def _prove_configuration_v25_schema(database_url: str) -> dict[str, Any]:
         row[2] is not True for row in constraint_rows
     ):
         raise ProofError("configuration v25 validated constraints drifted")
-    expected_triggers = CONFIGURATION_V25_TRIGGERS | CONFIGURATION_V30_TRIGGERS
+    expected_triggers = CONFIGURATION_V25_TRIGGERS | CONFIGURATION_SCHEDULE_TRIGGERS
     if {
         (str(row[0]), str(row[1]), str(row[2]), str(row[3])) for row in trigger_rows
     } != expected_triggers:

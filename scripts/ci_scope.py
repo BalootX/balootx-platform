@@ -18,7 +18,7 @@ VERSIONS = ("3.12", "3.13")
 FULL = {
     "python-wheelhouse", "ffmpeg-packages", "native-build", "native-sanitizers", "python-fast-run",
     "python-backend-run", "python-heavy", "python-windows", "python-coverage", "media-inputs",
-    "media-render", "media-release-smoke", "postgres-configuration",
+    "media-render", "media-release-smoke", "identity-postgres", "postgres-configuration",
 }
 SCOPED = {
     "sdks": "sdk", "foundry": "foundry", "remotion-checks": "remotion", "remotion-image-parity": "video_worker",
@@ -48,6 +48,7 @@ CI_TESTS = {
     "tests/test_remotion_image_parity.py",
     "tests/test_combined_finalist_policy_pilot.py", "tests/test_local_cpu_launcher.py",
     "tests/test_v18_hitl_governance.py", "tests/test_v20_asan_verifier_portability.py", "tests/test_verifier_preflight.py",
+    "tests/test_v8_identity_sakka.py",
 }
 
 

@@ -162,6 +162,7 @@ from baloot_platform.identity import (
     PostgresIdentityStore,
     SQLiteIdentityStore,
 )
+from baloot_platform.identity.pagination import IdentityPaginationConfig
 from baloot_platform.history.canonical_store_v17 import CanonicalHistoryStore
 from baloot_platform.learning.service import LearningService
 from baloot_platform.explain import ExplanationService
@@ -361,6 +362,7 @@ class PlatformContainer:
     passkeys: PasskeyChallengeService
     websocket_tickets: WebSocketTicketService
     identity_profile: dict[str, Any]
+    identity_pagination: IdentityPaginationConfig
     duplicate_profile: dict[str, Any]
     shared_profile: dict[str, Any]
     hitl_store: Any
@@ -639,6 +641,7 @@ def _build_container(
     games.learning_service = learning
 
     identity_profile = bundle.component("identity")
+    identity_pagination = IdentityPaginationConfig.model_validate(identity_profile["pagination"])
     identity_store = _own(
         owned_resources,
         PostgresIdentityStore(dsn)
@@ -1368,9 +1371,7 @@ def _build_container(
             "http://127.0.0.1:8080",
         ),
         difficulty_calibrator=difficulty,
-        friend_ids=lambda subject_id: (
-            item["subjectId"] for item in identity.friends(subject_id)
-        ),
+        friend_ids=identity.friend_ids,
         challenge_copy=bundle.component("video")["challenge_copy"],
         research_presentation_resolver=frozen_research_presentation,
     )
@@ -1677,6 +1678,7 @@ def _build_container(
         passkeys,
         websocket_tickets,
         identity_profile,
+        identity_pagination,
         duplicate_profile,
         bundle.component("shared"),
         hitl_store,

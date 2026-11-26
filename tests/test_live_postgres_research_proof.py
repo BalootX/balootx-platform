@@ -769,9 +769,10 @@ def test_migration_proof_runs_twice_and_rejects_schema_drift(
         "_run_migration_once",
         lambda _url, _root, names, _secrets: calls.append(list(names))
         or {
-            "applied": 1,
+            "applied": len(names),
+            "verified": len(inventory) - len(names),
             "executedInventorySha256": proof._sha256_text(
-                proof._canonical_json(inventory)
+                proof._canonical_json(inventory if names else [])
             ),
         },
     )
@@ -788,7 +789,7 @@ def test_migration_proof_runs_twice_and_rejects_schema_drift(
         "postgresql://secret", tmp_path, secrets_to_remove=["secret"]
     )
 
-    assert calls == [["001.sql"], ["001.sql"]]
+    assert calls == [["001.sql"], []]
     assert result == {
         "inventory": inventory,
         "migrationCount": 1,
@@ -797,14 +798,16 @@ def test_migration_proof_runs_twice_and_rejects_schema_drift(
         "passes": [
             {
                 "applied": 1,
+                "verified": 0,
                 "executedInventorySha256": proof._sha256_text(
                     proof._canonical_json(inventory)
                 ),
             },
             {
-                "applied": 1,
+                "applied": 0,
+                "verified": 1,
                 "executedInventorySha256": proof._sha256_text(
-                    proof._canonical_json(inventory)
+                    proof._canonical_json([])
                 ),
             },
         ],
@@ -846,19 +849,29 @@ def test_migration_proof_runs_twice_and_rejects_schema_drift(
         )
 
 
+def _authored_migration_names() -> list[str]:
+    return sorted(path.name for path in (proof.ROOT / "migrations").glob("*.sql"))
+
+
 def test_current_migration_stage_freezes_complete_inventory_and_required_tail(
     tmp_path: Path,
 ) -> None:
     snapshot_root, inventory = proof._stage_migrations(tmp_path)
 
-    assert len(inventory) == 29
+    names = [item["name"] for item in inventory]
+    assert names == _authored_migration_names()
     assert proof._migration_inventory(snapshot_root) == inventory
     assert {
         item["name"]: item["sha256"]
         for item in inventory
         if item["name"] in proof.REQUIRED_MIGRATION_HASHES
     } == proof.REQUIRED_MIGRATION_HASHES
-    assert inventory[-1]["name"] == "030_configuration_local_schedule.sql"
+    assert names.index("029_shared_run_game_access.sql") < names.index("031_identity_list_pagination.sql")
+    assert names[-3:] == [
+        "031_identity_list_pagination.sql",
+        "032_identity_pending_requests_index.sql",
+        "033_configuration_local_schedule.sql",
+    ]
     assert (
         proof.REQUIRED_MIGRATION_HASHES["029_shared_run_game_access.sql"]
         == "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"
@@ -957,11 +970,11 @@ def test_current_migration_policy_contract_is_final_and_deterministic(
         ("security.websocket_tickets", "websocket_ticket_service_v20"),
     }
 
-    assert len(inventory) == 29
+    assert [item["name"] for item in inventory] == _authored_migration_names()
     assert first == second
     assert (
         first["sha256"]
-        == "d4d21f7c7a5235f8b933af652f81f884266c425aad2bcff9d5b37fe4733f1bd7"
+        == "55aeba613b919752173665d31599e517bc74a3b62489a62c858267aa22247e3b"
     )
     assert policies.isdisjoint(legacy_configuration_policies)
     assert configuration_v25_policies.issubset(policies)
@@ -1914,7 +1927,7 @@ def test_configuration_v25_schema_probe_is_exact_and_fail_closed(
                     )
                 )
             if "FROM pg_trigger" in sql:
-                return Result(rows=proof.CONFIGURATION_V25_TRIGGERS | proof.CONFIGURATION_V30_TRIGGERS)
+                return Result(rows=proof.CONFIGURATION_V25_TRIGGERS | proof.CONFIGURATION_SCHEDULE_TRIGGERS)
             if "FROM pg_policies" in sql:
                 rows = [
                     (*value, "PERMISSIVE") for value in proof.CONFIGURATION_V25_POLICIES
@@ -1950,7 +1963,7 @@ def test_configuration_v25_schema_probe_is_exact_and_fail_closed(
                     "rlsRelations": sorted(proof.CONFIGURATION_V25_RLS_RELATIONS),
                     "triggers": [
                         list(value)
-                        for value in sorted(proof.CONFIGURATION_V25_TRIGGERS | proof.CONFIGURATION_V30_TRIGGERS)
+                        for value in sorted(proof.CONFIGURATION_V25_TRIGGERS | proof.CONFIGURATION_SCHEDULE_TRIGGERS)
                     ],
                 }
             )

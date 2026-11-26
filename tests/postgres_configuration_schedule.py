@@ -32,9 +32,25 @@ from baloot_platform.storage.request_context import (
 )
 from scripts.migrate_postgres import apply_migrations
 from scripts.verify_live_postgres_research import (
+    _assert_schema_contract,
+    _migration_schema_contract,
     _prove_configuration_schedule,
     _prove_configuration_v25_schema,
 )
+
+
+def _run_previous_migrator(dsn: str, previous: Path, migration_root: Path) -> None:
+    subprocess.run(
+        [sys.executable, str(previous / "scripts/migrate_postgres.py")],
+        cwd=previous,
+        env={
+            **os.environ,
+            "BALOOT_ROOT": str(migration_root),
+            "BALOOT_DATABASE_URL": dsn,
+            "PYTHONPATH": str(previous / "src"),
+        },
+        check=True,
+    )
 
 
 def _prove_previous_release(migrator_dsn: str, app_dsn: str, postgres_ids: tuple[str, str], path: Path) -> None:
@@ -52,10 +68,7 @@ def _prove_previous_release(migrator_dsn: str, app_dsn: str, postgres_ids: tuple
         created_by="TEST", local_schedule=local,
     )
     old_env = {**os.environ, "BALOOT_ROOT": str(previous), "PYTHONPATH": str(previous / "src")}
-    subprocess.run(
-        [sys.executable, str(previous / "scripts/migrate_postgres.py")],
-        cwd=previous, env={**old_env, "BALOOT_DATABASE_URL": migrator_dsn}, check=True,
-    )
+    _run_previous_migrator(migrator_dsn, previous, previous)
     subprocess.run(
         [sys.executable, "-c", """
 import os
@@ -94,7 +107,7 @@ print(f"previousReleaseConfigurationModule: {module_path.relative_to(previous_ro
 @pytest.fixture(scope="module")
 def migrated_postgres(root: Path, tmp_path_factory: pytest.TempPathFactory) -> tuple[str, str]:
     dsn = os.environ["BALOOT_TEST_POSTGRES_URL"]
-    migration = root / "migrations/030_configuration_local_schedule.sql"
+    migration = root / "migrations/033_configuration_local_schedule.sql"
     with psycopg.connect(dsn, autocommit=True) as connection:
         connection.execute("CREATE ROLE configuration_migrator LOGIN NOSUPERUSER NOBYPASSRLS")
         connection.execute("CREATE ROLE configuration_app LOGIN NOSUPERUSER NOBYPASSRLS")
@@ -102,11 +115,14 @@ def migrated_postgres(root: Path, tmp_path_factory: pytest.TempPathFactory) -> t
         connection.execute("GRANT USAGE, CREATE ON SCHEMA public TO configuration_migrator")
 
     migrator_dsn = make_conninfo(dsn, user="configuration_migrator")
-    predecessor_directory = tmp_path_factory.mktemp("pre-schedule-migrations")
+    predecessor_root = tmp_path_factory.mktemp("pre-schedule-migrations")
+    predecessor_directory = predecessor_root / "migrations"
+    predecessor_directory.mkdir()
     for predecessor in sorted(migration.parent.glob("*.sql")):
         if predecessor.name < migration.name:
             shutil.copyfile(predecessor, predecessor_directory / predecessor.name)
-    apply_migrations(migrator_dsn, predecessor_directory)
+    previous = Path(os.environ["BALOOT_PREVIOUS_ROOT"])
+    _run_previous_migrator(migrator_dsn, previous, predecessor_root)
     with psycopg.connect(migrator_dsn) as connection:
         connection.execute("SELECT set_config('app.role', 'service', true)")
         connection.execute(
@@ -136,7 +152,9 @@ def test_configuration_schedule_migrates_populated_postgres_and_round_trips(
     root: Path, tmp_path: Path, migrated_postgres: tuple[str, str],
 ) -> None:
     migrator_dsn, app_dsn = migrated_postgres
-    migration = root / "migrations/030_configuration_local_schedule.sql"
+    migration = root / "migrations/033_configuration_local_schedule.sql"
+    schema_contract = _migration_schema_contract(root)
+    assert _assert_schema_contract(migrator_dsn, schema_contract)["tableCount"] == len(schema_contract["tables"])
     schema_proof = _prove_configuration_v25_schema(migrator_dsn)
     assert schema_proof["immutabilityTriggerCount"] == 4
     store = PostgresConfigurationStore(app_dsn)
@@ -169,7 +187,13 @@ def test_configuration_schedule_migrates_populated_postgres_and_round_trips(
 
     _prove_previous_release(migrator_dsn, app_dsn, postgres_ids, tmp_path / "configuration.sqlite3")
     assert _prove_configuration_v25_schema(migrator_dsn) == schema_proof
-    print(f"migration 030 sha256 {hashlib.sha256(migration.read_bytes()).hexdigest()}")
+    with psycopg.connect(migrator_dsn) as connection:
+        receipts = connection.execute("SELECT name, sha256 FROM baloot_migrations.applied ORDER BY name").fetchall()
+    assert receipts == [
+        (path.name, hashlib.sha256(path.read_bytes()).hexdigest())
+        for path in sorted(migration.parent.glob("*.sql"))
+    ]
+    print(f"{migration.name} sha256 {hashlib.sha256(migration.read_bytes()).hexdigest()}")
     print("configurationLocalScheduleRoundTrip: true")
 
 

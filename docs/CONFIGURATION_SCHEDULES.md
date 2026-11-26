@@ -58,12 +58,13 @@ known-good content, use the v1 registry's `POST /bundles/{revisionId}:rollback`
 with a new version. It publishes a fresh, unscheduled revision.
 Restart affected processes after publishing and verify readiness.
 
-Apply the PostgreSQL migration with the current migration runner before starting
-new service code. The runner records checksums so the historical content-only
-index is applied once. SQLite adds the nullable column on open and converts
-historical empty bounds to NULL. Historical bounds retain their effective
-instants and carry no local schedule. SQLite reads legacy text without a UTC
-offset as UTC.
+Apply PostgreSQL migration 033 with the current migration runner before
+starting new service code. It follows the two identity index migrations. The
+runner needs permission to create its receipt schema and records checksums so
+later runs can verify previously recorded migrations. SQLite adds the nullable
+column on open and converts historical empty bounds to NULL. Historical bounds
+retain their effective instants and carry no local schedule. SQLite reads legacy
+text without a UTC offset as UTC.
 
 The schema retains content-only uniqueness. The PostgreSQL CI job writes
 schedules with the new code, runs the previous revision's migration runner,

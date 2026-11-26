@@ -12,6 +12,10 @@ _SQL_TOKEN = re.compile(
     re.DOTALL,
 )
 _COMMENT_END = re.compile(r"/\*|\*/")
+_CONCURRENT_INDEX_PREFIX = "CREATE INDEX CONCURRENTLY "
+_CONCURRENT_INDEX = re.compile(
+    r"CREATE INDEX CONCURRENTLY IF NOT EXISTS ([a-z][a-z0-9_]*)\s+ON ([a-z][a-z0-9_]*)\."
+)
 _TRANSACTION_COMMANDS = {"ABORT", "BEGIN", "COMMIT", "END", "RELEASE", "ROLLBACK", "SAVEPOINT", "START"}
 _ROUTINE_HEADER = {
     ("CREATE", "OR"): "CREATE OR",
@@ -77,6 +81,29 @@ def _migration_sql(source: bytes, name: str) -> str:
     return sql
 
 
+def _apply_concurrent_index(conn, sql: str, name: str, *, recorded: bool) -> bool:
+    match = _CONCURRENT_INDEX.match(sql)
+    if match is None or sql.count(";") != 1 or not sql.endswith(";"):
+        raise ValueError(f"{name} must contain one schema-qualified concurrent index build")
+    index, schema = match.groups()
+    qualified = f"{schema}.{index}"
+    # The predecessor runner shares this index lock during a service rollback.
+    conn.execute("SELECT pg_advisory_lock(hashtextextended(%s, 0))", (qualified,))
+    try:
+        valid = conn.execute(
+            "SELECT indisvalid FROM pg_index WHERE indexrelid=to_regclass(%s)", (qualified,)
+        ).fetchone()
+        if recorded and valid == (True,):
+            return False
+        # An interrupted build can leave an invalid index that IF NOT EXISTS would skip.
+        if valid == (False,):
+            conn.execute(f"DROP INDEX CONCURRENTLY {qualified}")
+        conn.execute(sql)
+        return True
+    finally:
+        conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (qualified,))
+
+
 def apply_migrations(dsn: str, directory: Path) -> None:
     import psycopg
 
@@ -93,13 +120,20 @@ def apply_migrations(dsn: str, directory: Path) -> None:
         for migration in sorted(directory.glob("*.sql")):
             source = migration.read_bytes()
             digest = hashlib.sha256(source).hexdigest()
-            if migration.name in applied:
-                if applied[migration.name] != digest:
-                    raise ValueError(f"Applied migration has changed: {migration.name}")
-                continue
+            recorded = migration.name in applied
+            if recorded and applied[migration.name] != digest:
+                raise ValueError(f"Applied migration has changed: {migration.name}")
             sql = _migration_sql(source, migration.name)
+            concurrent = sql.startswith(_CONCURRENT_INDEX_PREFIX)
+            rebuilt = concurrent and _apply_concurrent_index(conn, sql, migration.name, recorded=recorded)
+            if recorded:
+                action = "repaired" if rebuilt else "verified"
+                print(f"{action} {migration.name}")
+                continue
+            # Concurrent DDL commits separately. Its idempotent repair handles a missing receipt.
             with conn.transaction():
-                conn.execute(sql)
+                if not concurrent:
+                    conn.execute(sql)
                 conn.execute(
                     "INSERT INTO baloot_migrations.applied (name, sha256) VALUES (%s,%s)",
                     (migration.name, digest),

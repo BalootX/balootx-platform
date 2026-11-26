@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Iterator
-from typing import Any, Literal, NotRequired, TypedDict, Unpack
+from typing import Any, Literal, NotRequired, TypedDict, Unpack, cast
 from uuid import uuid4
 
 import httpx
@@ -19,6 +19,36 @@ class ResearchRenderPreparePayload(TypedDict):
 
 class ResearchRecipeListResponse(TypedDict):
     items: list[dict[str, Any]]
+    nextCursor: str | None
+
+
+class IdentityItem(TypedDict):
+    subjectId: str
+    kind: str
+    displayName: str
+    username: str | None
+    authenticated: bool
+    guest: bool
+    createdAt: str | None
+
+
+class PendingRequestItem(TypedDict):
+    requestId: str
+    senderId: str
+    recipientId: str
+    status: Literal["pending"]
+    createdAt: str
+    senderDisplayName: str
+    senderUsername: str | None
+
+
+class IdentityPage(TypedDict):
+    items: list[IdentityItem]
+    nextCursor: str | None
+
+
+class PendingRequestPage(TypedDict):
+    items: list[PendingRequestItem]
     nextCursor: str | None
 
 
@@ -142,6 +172,19 @@ class BalootClient:
 
     def friends(self) -> dict[str, Any]:
         return self._get("/api/v1/friends")
+
+    def friends_page(self, *, cursor: str | None = None, limit: int | None = None) -> IdentityPage:
+        return cast(IdentityPage, self._identity_page("/api/v2/friends", cursor=cursor, limit=limit))
+
+    def friend_requests(self, *, cursor: str | None = None, limit: int | None = None) -> PendingRequestPage:
+        return cast(PendingRequestPage, self._identity_page("/api/v2/friends/requests", cursor=cursor, limit=limit))
+
+    def search_users(self, query: str, *, cursor: str | None = None, limit: int | None = None) -> IdentityPage:
+        return cast(IdentityPage, self._identity_page("/api/v2/users:search", query=query, cursor=cursor, limit=limit))
+
+    def _identity_page(self, path: str, **options: str | int | None) -> dict[str, Any]:
+        params = {key: value for key, value in options.items() if value is not None}
+        return self._get(path, params=params)
 
     def request_friend(self, recipient_id: str) -> dict[str, Any]:
         return self._post("/api/v1/friends/requests", {"recipientId": recipient_id})

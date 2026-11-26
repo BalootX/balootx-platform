@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
-from contextlib import nullcontext
+from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,8 +14,8 @@ from scripts import migrate_postgres
 
 
 MIGRATION_NAME = "025_configuration_store_contract.sql"
-LATEST_MIGRATION_NAME = "030_configuration_local_schedule.sql"
-SHARED_RUN_ACCESS_MIGRATION_NAME = "029_shared_run_game_access.sql"
+SHARED_RUN_MIGRATION_NAME = "029_shared_run_game_access.sql"
+LATEST_MIGRATION_NAME = "033_configuration_local_schedule.sql"
 FROZEN_PREDECESSOR_HASHES = {
     "011_configuration_registry_v19.sql": (
         "1e79c94b6244244afe0a2fd1f9ef421dcfadca6c32a48bd4c7f4b8fee97b9931"
@@ -79,7 +79,7 @@ def test_v25_authored_and_packaged_inventory_are_byte_identical(root: Path) -> N
 def test_shared_run_access_migration_matches_store_bootstrap(
     root: Path,
 ) -> None:
-    sql = (root / "migrations" / SHARED_RUN_ACCESS_MIGRATION_NAME).read_text(encoding="utf-8")
+    sql = (root / "migrations" / SHARED_RUN_MIGRATION_NAME).read_text(encoding="utf-8")
     normalized = _normalized(sql)
 
     assert normalized.startswith("BEGIN;")
@@ -119,7 +119,7 @@ def test_v25_preserves_published_predecessor_migration_bytes(root: Path) -> None
 
 
 def test_runner_applies_history_in_order_and_skips_recorded_migrations(
-    root: Path, monkeypatch
+    root: Path, monkeypatch, capsys,
 ) -> None:
     expected_paths = sorted((root / "migrations").glob("*.sql"))
     expected_sql = []
@@ -130,45 +130,94 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
         expected_sql.append(sql)
     receipts: dict[str, str] = {}
     executed: list[str] = []
+    indexes: dict[str, bool] = {}
 
     class FakeConnection:
+        in_transaction = False
+        index = None
+
         def __enter__(self):
             return self
 
         def __exit__(self, *_args):
             return False
 
+        @contextmanager
         def transaction(self):
-            return nullcontext()
+            assert not self.in_transaction
+            self.in_transaction = True
+            try:
+                yield
+            finally:
+                self.in_transaction = False
 
         def execute(self, sql: str, params=None):
             if sql.startswith("SELECT name, sha256"):
                 return list(receipts.items())
             if sql.startswith("INSERT INTO baloot_migrations.applied"):
                 name, digest = params
+                assert self.in_transaction
                 assert name not in receipts
                 receipts[name] = digest
                 return
             if sql.startswith(("SELECT pg_advisory_lock", "CREATE SCHEMA IF NOT EXISTS baloot_migrations",
                                "CREATE TABLE IF NOT EXISTS baloot_migrations.applied")):
                 return
+            if sql.startswith("SELECT indisvalid"):
+                (self.index,) = params
+                valid = indexes.get(self.index)
+                return SimpleNamespace(fetchone=lambda: None if valid is None else (valid,))
+            if sql.startswith("CREATE INDEX CONCURRENTLY "):
+                assert not self.in_transaction and self.index is not None
+                assert indexes.get(self.index) is not False
+                indexes[self.index] = True
+            elif sql.startswith("DROP INDEX CONCURRENTLY "):
+                assert not self.in_transaction and sql == f"DROP INDEX CONCURRENTLY {self.index}"
+                assert indexes.pop(self.index) is False
+            elif sql.startswith("SELECT pg_advisory_unlock"):
+                return
+            else:
+                assert self.in_transaction
             executed.append(sql)
 
-    fake_psycopg = SimpleNamespace(connect=lambda _dsn, *, autocommit: FakeConnection())
+    def connect(_dsn, *, autocommit):
+        assert autocommit
+        return FakeConnection()
+
+    fake_psycopg = SimpleNamespace(connect=connect)
     monkeypatch.setitem(sys.modules, "psycopg", fake_psycopg)
     monkeypatch.setenv("BALOOT_DATABASE_URL", "postgresql://bootstrap.invalid/test")
     monkeypatch.setenv("BALOOT_ROOT", str(root))
 
     migrate_postgres.main()
     assert executed == expected_sql
+    completion = "Baloot PostgreSQL schema is current"
+    assert capsys.readouterr().out.splitlines() == [
+        *(f"applied {path.name}" for path in expected_paths), completion,
+    ]
     migrate_postgres.main()
 
     assert executed == expected_sql
+    assert capsys.readouterr().out.splitlines() == [
+        *(f"verified {path.name}" for path in expected_paths), completion,
+    ]
     assert list(receipts.items()) == [
         (path.name, hashlib.sha256(path.read_bytes()).hexdigest()) for path in expected_paths
     ]
     assert any(path.name == MIGRATION_NAME for path in expected_paths)
     assert expected_paths[-1].name == LATEST_MIGRATION_NAME
+
+    index = "identity.idx_identity_pending_requests"
+    indexes[index] = False
+    migrate_postgres.main()
+    assert executed == expected_sql + [
+        f"DROP INDEX CONCURRENTLY {index}",
+        next(sql for sql in expected_sql if sql.startswith(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_identity_pending_requests "
+        )),
+    ]
+    assert indexes[index] is True
+    assert "repaired 032_identity_pending_requests_index.sql" in capsys.readouterr().out.splitlines()
 
 
 @pytest.mark.parametrize(
