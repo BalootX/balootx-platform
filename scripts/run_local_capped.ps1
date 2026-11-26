@@ -47,7 +47,7 @@ function Get-Descendants($Root, $Processes) {
     $parents.Enqueue($Root)
     while ($parents.Count) {
         $parent = $parents.Dequeue()
-        foreach ($child in $children[[string]$parent.ProcessId].Group) {
+        foreach ($child in $children[[string]$parent.ProcessId]) {
             if ($child.ProcessId -eq $Root.ProcessId) { continue }
             if ($null -eq $child.CreationDate) {
                 throw "Cannot verify creation time for process $($child.ProcessId) ($($child.Name), parent $($child.ParentProcessId))."

@@ -241,7 +241,7 @@ try {
         timeout=30,
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
-    assert result.stdout.count("Verified CPU ceiling:") == 1, result
+    assert result.stdout.count("Verified CPU ceiling:") == 1, result.stderr
     assert "attached tree: 1 processes." in result.stdout
     assert "Uncapped descendant detected at readback" in result.stdout
     assert result.returncode != 0, result
