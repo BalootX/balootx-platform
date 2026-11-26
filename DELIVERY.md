@@ -22,7 +22,7 @@ The `docker-constraints` job dry-runs pip with the Python base image, exact cons
 
 The address-sanitizer job requires both verifier pytest nodes to pass against its own build. The Windows job uses a [CPU fixture](ci/windows-ci-local-cpu.json) for its four-vCPU checkout and runs the inherited-limit test through the capped launcher. Both jobs require passing phase receipts for every selected node.
 
-The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples.
+The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples. The `pagePerformance` section of `foundry-live-result-latency.json` records Chromium timings for fresh visits to the overview and one click per visit to open the research workspace. It compares nearest-rank p75 with the [Foundry page budgets](DESIGN.md#foundry-dashboard) and reports headroom during baseline collection.
 
 The main ruleset's CodeQL rule evaluates each PR at admission and blocks new high or critical alerts on lines the PR changes. The main-push scan surfaces alerts that arise only in the combined commit.
 
@@ -77,9 +77,48 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 - Live clip publication requires individual release approval until the clip release gate is approved. Once approved, the gate can admit clips for publication. A production deploy requires the project owner's explicit approval.
 - The `nightly-synthetic-candidates` artifact contains synthetic render evidence. Check `SHA256SUMS.txt` for the complete pool and use `candidate-index.json` to bind the exact source tree and qualified media. Each render uses the checkout's locked renderer and the [shared synthetic name pool](examples/synthetic-clip-identity.json). The hosted pool is marked `NEVER_POST` and carries no posting ledger or caption pool.
 - On a server runner, run `python -B -m scripts.pick_nightly_candidates` from the checkout with the package installed. Pass `--ledger`, `--caption-pool`, `--gate`, `--policy`, and `--output` from the existing private release configuration. Set `GH_TOKEN` only for this process using the repository-scoped, Actions-read App token. The picker verifies the newest successful scheduled pool from main, uses the pinned release gate against the live ledger, and writes a private two-day pick with distinct reserves. For manual evidence, pass a downloaded pool directory with `--artifact`. Both paths produce `NEVER_POST` picks, which the next stage must validate against its own receiving rules.
+- The picker and shadow builder use [one handoff verifier](scripts/pick_nightly_candidates.py) for the current ledger, approved caption pool, sealed candidate pool, and pick structure. The picker reports `NIGHTLY_PICK_READY` for an existing handoff, including one written by a concurrent picker, only when it also matches the newly computed two-day selection and reserves. A stale or invalid handoff holds the pick and is preserved.
 - Build a private shadow day with `python -B -m scripts.build_nightly_shadow_day`, using the resulting `--pick`, current `--ledger`, pinned `--caption-pool`, `--gate` and `--policy`, and a `--reference` slot manifest and its `--reference-sha`. Give it a new private `--output` directory. It maps the picks to the reference's four UTC slots, copies the primaries and reserves, and verifies synthetic names, the approved red notice and layout, omitted justification, exact viewer-seat proof at 90% or higher, and loudness evidence bound to each exact video. It checks captions against the last eight posts and the approved pool and retired-phrase rules, screens every clip against the canonical ledger, and records Policy C for each reachable primary, reserve and no-post branch in `SLOT-COMBINATION-CHECKS.json`. `shadow-day.json` and `SHA256SUMS.txt` record the checks. Unresolved canonical history holds the sealed day and returns a nonzero exit status. Every output is marked `NEVER_POST`.
 - The clip gate keeps its audit rows in a private evidence store. Each row records the gate and ledger hashes.
 - Require independent media QA, [engine-interest and viewer-seat proof](docs/RESEARCH_SCENARIO_V4.md#engine-interest-v1), the [approved clip presentation](DESIGN.md#rendered-clips), caption policy and a current per-platform publication history. Hold a failing or unverified clip and record the reason.
+
+### Manual render kickoff
+
+At each batch kickoff, run the following as the source checkout owner from a trusted public-main checkout with the project dependencies installed. Set `WORKER_IMAGE` to the selected local video-worker image. Use absolute paths for the clean, full-history `SOURCE_CHECKOUT`, the selected `BUILD_RECEIPT`, the new `KICKOFF_RECEIPT`, and the pre-created `OUTPUT_DIR`. Keep both receipts and the output directory outside the checkout. The [shared preflight](scripts/render_kickoff.py) writes its verdict to the kickoff receipt.
+
+```sh
+set -eu
+IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$WORKER_IMAGE")
+SOURCE_HEAD=$(git -C "$SOURCE_CHECKOUT" rev-parse HEAD)
+SOURCE_TREE=$(git -C "$SOURCE_CHECKOUT" rev-parse 'HEAD^{tree}')
+
+python -I -B scripts/render_kickoff.py --checkout "$SOURCE_CHECKOUT" \
+  --source-head "$SOURCE_HEAD" --source-tree "$SOURCE_TREE" \
+  --build-receipt "$BUILD_RECEIPT" --image-id "$IMAGE_ID" > "$KICKOFF_RECEIPT"
+```
+
+The command resolves public `main` outside any Git checkout and fetches the observed commit into the selected checkout's Git object store if needed. It checks its own script, policy and schema against that commit. The selected checkout must be clean and its pinned tree must match public `main` across the repository, subject to the [reviewed exclusions](scripts/render-kickoff.json). A pin outside main's history must contain every merged commit affecting that scope. The verdict identifies a missing merged commit when available and binds the input commit and tree to the selected worker image.
+
+Stdout always carries one JSON verdict with `schemaVersion` (`1`), `status`, `sourceHead`, `sourceTree`, `imageId`, `packageLockSha256`, `mainHead`, `checkedAt` (UTC), `missingRendererCommit`, and `reason`. Unavailable evidence is `null`. Exit `0` carries `passed` or `help`, exit `1` carries a refusal, and exit `2` carries a usage error. Proceed with a `passed` verdict. The producer checks its own commit and tree and rejects future-dated receipts or receipts older than the configured limit. Run kickoff again before starting a producer with an expired receipt.
+
+In the same shell, launch the producer with the inspected image ID. UID `10001` must own the checkout, be able to read both receipts, and have write access to the output directory.
+
+```sh
+docker run --rm --pull=never --network none --read-only --user 10001 \
+  --workdir /checkout --tmpfs /tmp \
+  --mount "type=bind,source=$SOURCE_CHECKOUT,target=/checkout,readonly" \
+  --mount "type=bind,source=$BUILD_RECEIPT,target=/build-receipt.json,readonly" \
+  --mount "type=bind,source=$KICKOFF_RECEIPT,target=/kickoff-receipt.json,readonly" \
+  --mount "type=bind,source=$OUTPUT_DIR,target=/output" \
+  --env BALOOT_ROOT=/checkout --env PYTHONPATH=/checkout/src \
+  --env BALOOT_RENDER_BUILD_RECEIPT=/build-receipt.json \
+  --env BALOOT_RENDER_KICKOFF_RECEIPT=/kickoff-receipt.json \
+  --env "BALOOT_RENDER_IMAGE_ID=$IMAGE_ID" \
+  "$IMAGE_ID" python -B -m scripts.render_research_notice --public \
+    --source-head "$SOURCE_HEAD" --source-tree "$SOURCE_TREE" --output /output
+```
+
+The producer runs the image's installed Remotion package and verifies its locked dependency tree while reading render inputs and assets from the pinned checkout. The worker disables [persistent bundle caching](https://www.remotion.dev/docs/bundle#enablecaching) to keep the installed runtime read-only. The hosted `remotion-image-parity` job exercises this public producer preflight with the image's default user.
 
 ## Rollback
 
