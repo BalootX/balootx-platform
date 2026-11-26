@@ -181,7 +181,7 @@ def test_grpc_censor_interceptor_returns_failed_precondition(root):
     source = root / "src/baloot_platform/service/grpc_service.py"
     serve = next(n for n in ast.parse(source.read_text(encoding="utf-8")).body
                  if isinstance(n, ast.AsyncFunctionDef) and n.name == "serve")
-    interceptor = next(n for n in serve.body if isinstance(n, ast.ClassDef) and n.name == "TimeCensoredInterceptor")
+    interceptor = next(n for n in serve.body if isinstance(n, ast.ClassDef) and n.name == "ApplicationErrorInterceptor")
     server_assignment = next(n for n in serve.body if isinstance(n, ast.Assign)
                              and any(isinstance(t, ast.Name) and t.id == "server" for t in n.targets))
     methods = [n for cls in serve.body if isinstance(cls, ast.ClassDef) for n in cls.body

@@ -128,6 +128,9 @@ from baloot_platform.service.routes.auth import request_token, require_identity
 from baloot_platform.service.routes.configuration import (
     configuration_integrity_response,
     configuration_schedule_conflict_response,
+    configuration_unavailable_response,
+    is_configuration_admin,
+    is_configuration_recovery_route,
 )
 from baloot_platform.shared import (
     SharedDecisionAccessError,
@@ -171,6 +174,14 @@ from baloot_platform.research.result_authority import (
 )
 
 CONTAINER: PlatformContainer = build_container(allow_unavailable_configuration=True)
+
+
+def require_verified_configuration() -> None:
+    error = CONTAINER.configuration_error or next(iter(CONTAINER.research_configuration_errors.values()), None)
+    if error is not None:
+        raise error
+
+
 ROOT = CONTAINER.root
 DATA_ROOT = CONTAINER.data_root
 OUTPUTS = CONTAINER.outputs
@@ -852,16 +863,26 @@ async def platform_security(request: Request, call_next):
         if api_key_valid and not session_valid else None
     )
     started = time.monotonic()
+    metric_path = request.url.path
     try:
-        response = await call_next(request)
+        error = CONTAINER.configuration_error
+        if error is not None and metric_path not in {"/healthz", "/api/v1/health", "/readyz", "/metrics"}:
+            # Public metrics must not expose recovery revision IDs.
+            metric_path = "/configuration-unavailable"
+            if is_configuration_recovery_route(request) and is_configuration_admin(request, AUTHORIZATION_POLICY):
+                response = await call_next(request)
+            else:
+                response = await configuration_integrity_response(request, error)
+        else:
+            response = await call_next(request)
     finally:
         SERVICE_SUBJECT_OWNER.reset(ownership_token)
         CURRENT_DATABASE_IDENTITY.reset(context_token)
     elapsed = time.monotonic() - started
     with _METRIC_LOCK:
-        _METRICS[(request.method, request.url.path, response.status_code)] += 1
+        _METRICS[(request.method, metric_path, response.status_code)] += 1
         # Keep a coarse latency sum in integer microseconds without another dependency.
-        _METRICS[("LATENCY_US", request.url.path, 0)] += int(elapsed * 1_000_000)
+        _METRICS[("LATENCY_US", metric_path, 0)] += int(elapsed * 1_000_000)
     response.headers["x-content-type-options"] = "nosniff"
     response.headers["x-frame-options"] = "DENY"
     response.headers["referrer-policy"] = "no-referrer"
@@ -873,16 +894,10 @@ async def platform_security(request: Request, call_next):
 
 
 if CONTAINER.configuration_error is not None:
-    boot_error = CONTAINER.configuration_error
-
     def unavailable_configuration(app):
         async def guarded(scope, receive, send):
             if scope["type"] == "websocket":
                 await send({"type": "websocket.close", "code": 1013})
-                return
-            if scope["type"] == "http" and scope["path"] not in {"/healthz", "/api/v1/health", "/metrics"}:
-                response = await configuration_integrity_response(Request(scope, receive), boot_error)
-                await response(scope, receive, send)
                 return
             await app(scope, receive, send)
 
@@ -7523,11 +7538,13 @@ def health():
 
 
 @app.get("/readyz")
-def ready():
+def ready(request: Request):
+    if CONTAINER.configuration_error is not None:
+        return configuration_unavailable_response(request, str(CONTAINER.configuration_error))
     if CONTAINER.research_configuration_errors:
-        raise HTTPException(
-            503,
-            detail={
+        return configuration_unavailable_response(
+            request,
+            {
                 environment: str(error)
                 for environment, error in CONTAINER.research_configuration_errors.items()
             },

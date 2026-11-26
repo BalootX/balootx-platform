@@ -17,7 +17,9 @@ from typing import Any
 from baloot_platform.audit import build_video_audit_map
 from baloot_platform.analysis.search_errors import SearchTimeBudgetExceeded
 from baloot_platform.config import data_root, platform_root
+from baloot_platform.configuration.schedule import ConfigurationIntegrityError, ConfigurationScheduleConflict
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER, owns_subject
+from baloot_platform.observability import configure_event_logging
 from baloot_platform.service.client_identity import (
     initialize_service_subject_ownership,
     service_client_identity,
@@ -68,6 +70,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         _execute_history_replay_render_job, _legacy_video_run_is_v4,
         _legacy_video_run_view,
         _submit_legacy_video_compatibility,
+        require_verified_configuration,
     )
     from baloot_platform.service.game import GameManager
     from baloot_platform.shared import (
@@ -81,6 +84,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
     from baloot_platform.certification import verify_certification_candidate
     from baloot_platform.storage.game_store import SQLiteGameStore
 
+    require_verified_configuration()
     initialize_service_subject_ownership()
     runtime = Path(os.environ.get("BALOOT_RUNTIME", data_root() / "runtime")).expanduser().resolve()
     runtime.mkdir(parents=True, exist_ok=True)
@@ -1462,6 +1466,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                     family=request.family, payload=_payload(request.canonical_json), created_by=identity.subject_id,
                     scope=request.scope or "global", tenant_id=request.tenant_id or self._tenant(context),
                     supersedes_revision_id=request.supersedes_revision_id or None, publish=request.publish,
+                    require_matching_schedule=False,
                 )
                 return self._result(value)
             except ValueError as exc:
@@ -1541,6 +1546,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                     scope=request.scope or "global", tenant_id=request.tenant_id or self._tenant(context),
                     supersedes_revision_id=request.supersedes_revision_id or None,
                     publish=request.publish, allow_draft_components=request.allow_drafts,
+                    require_matching_schedule=False,
                 ))
             except ValueError as exc:
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
@@ -1673,7 +1679,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result({"profile": OPERATIONS_PROFILE, "automaticProductionChange": False})
 
 
-    class TimeCensoredInterceptor(grpc.aio.ServerInterceptor):
+    class ApplicationErrorInterceptor(grpc.aio.ServerInterceptor):
         async def intercept_service(self, continuation, handler_call_details):
             handler = await continuation(handler_call_details)
             # shortcut: current RPCs are unary-only, wrap streams when one is added.
@@ -1688,13 +1694,20 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                         grpc.StatusCode.FAILED_PRECONDITION,
                         json.dumps(exc.to_detail(), sort_keys=True, separators=(",", ":")),
                     )
+                except ConfigurationScheduleConflict as exc:
+                    await context.abort(grpc.StatusCode.ALREADY_EXISTS, str(exc))
+                except ConfigurationIntegrityError:
+                    await context.abort(
+                        grpc.StatusCode.UNAVAILABLE,
+                        "Configuration is unavailable. Ask a configuration administrator to restore a verified revision.",
+                    )
 
             return grpc.unary_unary_rpc_method_handler(
                 invoke, request_deserializer=handler.request_deserializer,
                 response_serializer=handler.response_serializer,
             )
 
-    server = grpc.aio.server(interceptors=[TimeCensoredInterceptor()], options=[
+    server = grpc.aio.server(interceptors=[ApplicationErrorInterceptor()], options=[
         ("grpc.max_receive_message_length", 2 * 1024 * 1024),
         ("grpc.max_send_message_length", 8 * 1024 * 1024),
     ])
@@ -1716,7 +1729,11 @@ async def serve() -> None:  # pragma: no cover - optional runtime
 
 
 def main() -> None:  # pragma: no cover
-    asyncio.run(serve())
+    configure_event_logging()
+    try:
+        asyncio.run(serve())
+    except ConfigurationIntegrityError:
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -122,6 +122,12 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
     root: Path, monkeypatch
 ) -> None:
     expected_paths = sorted((root / "migrations").glob("*.sql"))
+    expected_sql = []
+    for path in expected_paths:
+        sql = path.read_bytes().decode("utf-8").strip()
+        if sql.startswith("BEGIN;") and sql.endswith("COMMIT;"):
+            sql = sql[len("BEGIN;"):-len("COMMIT;")]
+        expected_sql.append(sql)
     receipts: dict[str, str] = {}
     executed: list[str] = []
 
@@ -154,10 +160,10 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
     monkeypatch.setenv("BALOOT_ROOT", str(root))
 
     migrate_postgres.main()
-    assert len(executed) == len(expected_paths)
+    assert executed == expected_sql
     migrate_postgres.main()
 
-    assert len(executed) == len(expected_paths)
+    assert executed == expected_sql
     assert list(receipts.items()) == [
         (path.name, hashlib.sha256(path.read_bytes()).hexdigest()) for path in expected_paths
     ]

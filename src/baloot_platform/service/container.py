@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from baloot_platform.observability import log_event
 from baloot_platform.agents.profiles import AgentProfileRegistry
 from baloot_platform.agents.qualification import (
     FinalistAgentPilotEvidenceV1,
@@ -270,6 +272,17 @@ def _own(values: list[Any], value: Any) -> Any:
     return value
 
 
+def _log_schedule_unavailable(error: ConfigurationIntegrityError, environment: str | None) -> None:
+    log_event(
+        "configuration.schedule_unavailable",
+        level=logging.ERROR,
+        trace_id=uuid.uuid4().hex,
+        revision_id=error.revision_id,
+        environment=environment,
+        error_type=type(error).__name__,
+    )
+
+
 def _bootstrap_packaged_configuration(
     configuration: VersionedConfigurationService,
     *,
@@ -285,9 +298,13 @@ def _bootstrap_packaged_configuration(
         )
     )
     try:
-        active = configuration.bootstrap_packaged_bundle(
-            actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT
-        )
+        try:
+            active = configuration.bootstrap_packaged_bundle(
+                actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT
+            )
+        except ConfigurationIntegrityError as exc:
+            _log_schedule_unavailable(exc, None)
+            raise
         for path, environment in (
             (_NATIVE_RESEARCH_BUNDLE, "research-native-v3"),
             (_INTELLIGENT_RESEARCH_BUNDLE, "research-native-v3-intelligent"),
@@ -300,10 +317,10 @@ def _bootstrap_packaged_configuration(
                     environment=environment,
                 )
             except ConfigurationIntegrityError as exc:
+                _log_schedule_unavailable(exc, environment)
                 if research_errors is None:
                     raise
                 research_errors[environment] = exc
-                logging.getLogger(__name__).error("Configuration unavailable for %s: %s", environment, exc)
         return active
     finally:
         CURRENT_DATABASE_IDENTITY.reset(token)
@@ -507,7 +524,6 @@ def _build_container(
     except ConfigurationIntegrityError as exc:
         if not allow_unavailable_configuration:
             raise
-        logging.getLogger(__name__).error("Runtime configuration unavailable: %s", exc)
         configuration_error = exc
         resolved_configuration = None
         # The HTTP app uses these defaults to construct routes while traffic is blocked.

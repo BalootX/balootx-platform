@@ -264,6 +264,7 @@ class VersionedConfigurationService:
         rollout_seed: str = "default",
         supersedes_revision_id: str | None = None,
         publish: bool = False,
+        require_matching_schedule: bool = True,
     ) -> dict[str, Any]:
         validated = self.validate_profile(str(family), payload)
         profile_id, version = self._profile_identity(validated)
@@ -294,6 +295,7 @@ class VersionedConfigurationService:
             rollout_percentage=percentage,
             rollout_seed=str(rollout_seed or "default"),
             supersedes_revision_id=supersedes_revision_id,
+            require_matching_schedule=require_matching_schedule,
         )
         self._invalidate_cache()
         return revision.to_dict()
@@ -653,6 +655,7 @@ class VersionedConfigurationService:
         allow_draft_components: bool = False,
         allow_historical_components: bool = False,
         force_new_revision: bool = False,
+        require_matching_schedule: bool = True,
     ) -> dict[str, Any]:
         if not _SEMVER.match(str(version)):
             raise ValueError("configuration bundle version must be semantic")
@@ -699,6 +702,7 @@ class VersionedConfigurationService:
             rollout_seed=str(rollout_seed or "default"),
             supersedes_revision_id=supersedes_revision_id,
             force_new_revision=force_new_revision,
+            require_matching_schedule=require_matching_schedule,
             allowed_component_statuses=tuple(sorted(allowed_component_statuses)),
         )
         self._invalidate_cache()
@@ -962,8 +966,6 @@ class VersionedConfigurationService:
                     break
         if bundle is None:
             raise KeyError("published configuration bundle not found")
-        if revision_id is not None:
-            self._verify_schedule(bundle)
         exact_historical = (
             revision_id is not None and (
                 bundle.status == RevisionStatus.SUPERSEDED.value
@@ -978,6 +980,8 @@ class VersionedConfigurationService:
             raise PermissionError(
                 "unpublished configuration bundle requires explicit preview access"
             )
+        if revision_id is not None:
+            self._verify_schedule(bundle)
         profiles = {}
         identities = {}
         for family, rid in bundle.component_revisions.items():

@@ -86,12 +86,12 @@ def _same_schedule(
 
 def _find_matching_schedule(
     revisions: Iterable[Revision | None],
-    schedule: tuple[str | None, str | None, dict[str, str] | None],
+    schedule: tuple[str | None, str | None, dict[str, str] | None] | None,
 ) -> Revision | None:
     first_revision_id = None
     for revision in revisions:
         assert revision is not None
-        if _same_schedule(revision, schedule):
+        if schedule is None or _same_schedule(revision, schedule):
             return revision
         if first_revision_id is None:
             first_revision_id = revision.revision_id
@@ -710,7 +710,8 @@ class SQLiteConfigurationStore:
                        effective_from: str | None = None, effective_until: str | None = None,
                        local_schedule: Mapping[str, str] | None = None,
                        rollout_percentage: float = 100.0, rollout_seed: str = "default",
-                       supersedes_revision_id: str | None = None) -> ProfileRevision:
+                       supersedes_revision_id: str | None = None,
+                       require_matching_schedule: bool = True) -> ProfileRevision:
         schedule = normalize_schedule(effective_from, effective_until, local_schedule)
         start, end, local = schedule
         payload_hash = digest(payload)
@@ -723,7 +724,7 @@ class SQLiteConfigurationStore:
                 "ORDER BY sequence DESC,revision_id",
                 (family, scope, scope_key, tenant_id, environment, payload_hash),
             ).fetchall()
-            result = _find_matching_schedule(map(self._profile, existing), schedule)
+            result = _find_matching_schedule(map(self._profile, existing), schedule if require_matching_schedule else None)
             if result is not None:
                 conn.execute("COMMIT")
                 return result
@@ -1078,6 +1079,7 @@ class SQLiteConfigurationStore:
                       rollout_percentage: float = 100.0, rollout_seed: str = "default",
                        supersedes_revision_id: str | None = None,
                        force_new_revision: bool = False,
+                       require_matching_schedule: bool = True,
                        allowed_component_statuses: tuple[str, ...] = ("published",)) -> BundleRevision:
         schedule = normalize_schedule(effective_from, effective_until, local_schedule)
         start, end, local = schedule
@@ -1097,7 +1099,7 @@ class SQLiteConfigurationStore:
                     "ORDER BY sequence DESC,revision_id",
                     (bundle_id, scope, scope_key, tenant_id, environment, content_hash),
                 ).fetchall()
-                result = _find_matching_schedule(map(self._bundle, existing), schedule)
+                result = _find_matching_schedule(map(self._bundle, existing), schedule if require_matching_schedule else None)
                 if result is not None:
                     conn.execute("COMMIT")
                     return result
@@ -1772,7 +1774,9 @@ class PostgresConfigurationStore:
                 "ORDER BY sequence DESC,revision_id",
                 (family, scope, scope_key, tenant_id, environment, payload_hash),
             ).fetchall()
-            result = _find_matching_schedule(map(self._profile, existing), schedule)
+            result = _find_matching_schedule(
+                map(self._profile, existing), schedule if kwargs.get("require_matching_schedule", True) else None,
+            )
             if result is not None:
                 return result
             self._lock_head(conn, "profile", logical_identity)
@@ -2243,7 +2247,9 @@ class PostgresConfigurationStore:
                     "ORDER BY sequence DESC,revision_id",
                     (bundle_id, scope, scope_key, tenant_id, environment, content_hash),
                 ).fetchall()
-                result = _find_matching_schedule(map(self._bundle, existing), schedule)
+                result = _find_matching_schedule(
+                    map(self._bundle, existing), schedule if kwargs.get("require_matching_schedule", True) else None,
+                )
                 if result is not None:
                     return result
             self._lock_head(conn, "bundle", logical_identity)

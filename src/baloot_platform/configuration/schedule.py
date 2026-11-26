@@ -12,6 +12,10 @@ from tzdata import IANA_VERSION
 class ConfigurationIntegrityError(Exception):
     """A saved configuration schedule cannot be verified."""
 
+    def __init__(self, revision_id: str, detail: str):
+        self.revision_id = revision_id
+        super().__init__(f"{revision_id}: {detail}")
+
 
 class ConfigurationScheduleConflict(Exception):
     """An existing revision owns this content under a different schedule."""
@@ -23,11 +27,13 @@ def _parse_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
 
-def parse_instant(value: str | None, field: str) -> datetime | None:
-    if value is None:
+def parse_instant(value: str | None, field: str, *, legacy_utc: bool = False) -> datetime | None:
+    if value is None or (legacy_utc and not value):
         return None
     try:
-        parsed = _parse_datetime(value)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00")) if legacy_utc else _parse_datetime(value)
+        if legacy_utc and parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
         if parsed.tzinfo is not None:
             return parsed.astimezone(timezone.utc)
     except (TypeError, ValueError, OverflowError) as exc:
@@ -136,6 +142,7 @@ def verify_schedule(
                     )
     except (KeyError, TypeError, ZoneInfoNotFoundError, ValueError) as exc:
         raise ConfigurationIntegrityError(
-            f"{revision_id}: the saved schedule cannot be verified with IANA {IANA_VERSION}. "
-            f"Create a replacement revision with a verified schedule. {exc}"
+            revision_id,
+            f"the saved schedule cannot be verified with IANA {IANA_VERSION}. "
+            f"Create a replacement revision with a verified schedule. {exc}",
         ) from exc

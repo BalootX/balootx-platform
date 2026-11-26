@@ -11,17 +11,33 @@ from baloot_platform.configuration import VersionedConfigurationService
 from baloot_platform.configuration.schedule import (
     ConfigurationIntegrityError,
     ConfigurationScheduleConflict,
+    parse_instant,
 )
 from baloot_platform.identity import IdentityService
 from baloot_platform.security import AuthorizationPolicy, Scope
 
 from .auth import require_identity
 
+_V1_CONFIGURATION = "/api/v1/configuration-registry"
+_V2_CONFIGURATION = "/api/v2/configuration"
+_CONFIGURATION_PREFIXES = {_V1_CONFIGURATION, _V2_CONFIGURATION}
+
+
+def configuration_unavailable_response(
+    request: Request, diagnostics: str | dict[str, str]
+) -> JSONResponse:
+    detail: str | dict[str, str] = "Configuration is unavailable. Contact a configuration administrator."
+    policy = getattr(request.app.state, "authorization_policy", None)
+    if policy is not None and is_configuration_admin(request, policy):
+        detail = diagnostics
+    request_id = getattr(request.state, "request_id", None)
+    return JSONResponse(status_code=503, content={"detail": detail, "requestId": request_id})
+
 
 async def configuration_integrity_response(
-    _request: Request, exc: ConfigurationIntegrityError
+    request: Request, exc: ConfigurationIntegrityError
 ) -> JSONResponse:
-    return JSONResponse(status_code=503, content={"detail": str(exc)})
+    return configuration_unavailable_response(request, str(exc))
 
 
 async def configuration_schedule_conflict_response(
@@ -168,10 +184,37 @@ def _admin(request: Request, policy: AuthorizationPolicy) -> None:
         raise HTTPException(403, str(exc)) from exc
 
 
+def is_configuration_admin(request: Request, policy: AuthorizationPolicy) -> bool:
+    if not (getattr(request.state, "access_claims", None) or getattr(request.state, "api_key_valid", False)):
+        return False
+    try:
+        _admin(request, policy)
+    except HTTPException:
+        return False
+    return True
+
+
+def is_configuration_recovery_route(request: Request) -> bool:
+    prefix, _, resource = request.url.path.rpartition("/")
+    if prefix in _CONFIGURATION_PREFIXES:
+        return resource in {"profiles", "bundles"} and request.method in {"GET", "POST"}
+    return (
+        request.method == "POST" and prefix == f"{_V1_CONFIGURATION}/bundles"
+        and resource.endswith(":rollback") and bool(resource.removesuffix(":rollback"))
+    )
+
+
+def _wire_instant(request: Request, value: str | None, field: str) -> str | None:
+    if not request.url.path.startswith(f"{_V1_CONFIGURATION}/"):
+        return value
+    instant = parse_instant(value, field, legacy_utc=True)
+    return instant.isoformat() if instant is not None else None
+
+
 def build_configuration_router(service: VersionedConfigurationService, identities: IdentityService,
                                policy: AuthorizationPolicy, profile: dict[str, Any],
                                performance_profile: dict[str, Any]) -> APIRouter:
-    router = APIRouter(prefix="/api/v1/configuration-registry", tags=["configuration-control-plane"])
+    router = APIRouter(prefix=_V1_CONFIGURATION, tags=["configuration-control-plane"])
 
     @router.get("/profile")
     def registry_profile(request: Request):
@@ -212,7 +255,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
             return service.resolve_profile(family=family, profile_id=profileId, tenant_id=tenantId,
                 environment=environment, room_id=roomId, shared_game_id=sharedGameId,
                 video_profile_id=videoProfileId, user_experiment_key=experimentKey,
-                subject_id=subjectId, at_time=atTime)
+                subject_id=subjectId, at_time=_wire_instant(request, atTime, "atTime"))
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
@@ -239,7 +282,9 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
             return service.create_profile(
                 family=body.family, payload=body.payload, created_by=identity.subject_id,
                 scope=body.scope, scope_key=body.scopeKey, tenant_id=body.tenantId,
-                environment=body.environment, effective_from=body.effectiveFrom, effective_until=body.effectiveUntil,
+                environment=body.environment,
+                effective_from=_wire_instant(request, body.effectiveFrom, "effectiveFrom"),
+                effective_until=_wire_instant(request, body.effectiveUntil, "effectiveUntil"),
                 local_schedule=body.localSchedule.model_dump(exclude_none=True) if body.localSchedule is not None else None,
                 rollout_percentage=body.rolloutPercentage, rollout_seed=body.rolloutSeed,
                 supersedes_revision_id=body.supersedesRevisionId, publish=body.publish,
@@ -350,7 +395,9 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                 bundle_id=body.bundleId, version=body.version, mode=body.mode,
                 component_revisions=body.componentRevisions, created_by=identity.subject_id,
                 scope=body.scope, scope_key=body.scopeKey, tenant_id=body.tenantId,
-                environment=body.environment, effective_from=body.effectiveFrom, effective_until=body.effectiveUntil,
+                environment=body.environment,
+                effective_from=_wire_instant(request, body.effectiveFrom, "effectiveFrom"),
+                effective_until=_wire_instant(request, body.effectiveUntil, "effectiveUntil"),
                 local_schedule=body.localSchedule.model_dump(exclude_none=True) if body.localSchedule is not None else None,
                 rollout_percentage=body.rolloutPercentage, rollout_seed=body.rolloutSeed,
                 supersedes_revision_id=body.supersedesRevisionId, publish=body.publish,
@@ -480,7 +527,8 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         try:
             return service.resolve(bundle_id=bundleId, tenant_id=tenantId, environment=environment,
                 room_id=roomId, shared_game_id=sharedGameId, video_profile_id=videoProfileId,
-                user_experiment_key=experimentKey, subject_id=subjectId, at_time=atTime)
+                user_experiment_key=experimentKey, subject_id=subjectId,
+                at_time=_wire_instant(request, atTime, "atTime"))
         except KeyError as exc:
             raise HTTPException(404, "published configuration bundle not found") from exc
         except ValueError as exc:
@@ -510,7 +558,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                 video_profile_id=videoProfileId,
                 user_experiment_key=experimentKey,
                 subject_id=subjectId,
-                at_time=atTime,
+                at_time=_wire_instant(request, atTime, "atTime"),
             )
         except KeyError as exc:
             raise HTTPException(404, "published configuration bundle not found") from exc
@@ -527,7 +575,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
-    aliases = APIRouter(prefix="/api/v2/configuration", tags=["configuration-control-plane-v2"])
+    aliases = APIRouter(prefix=_V2_CONFIGURATION, tags=["configuration-control-plane-v2"])
     aliases.add_api_route("/profiles", list_profiles, methods=["GET"], name="v2_list_configuration_profiles")
     aliases.add_api_route("/profile-schemas/{family}", get_profile_schema, methods=["GET"], name="v2_get_configuration_profile_schema")
     aliases.add_api_route("/profiles", create_profile, methods=["POST"], status_code=201, name="v2_create_configuration_profile")
