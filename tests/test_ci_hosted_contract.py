@@ -50,6 +50,7 @@ def test_codeowners_covers_hosted_ci_and_release_controls(root, codeowners_rules
         "/src/baloot_platform/service/foundry_dashboard/scripts/check-generated-api.mjs",
         "/src/baloot_platform/video/remotion/scripts/", "/scripts/render_remotion_plugin_parity.py",
         "/scripts/render_research_notice.py", "/scripts/render_research_scenario_v4_goldens.py",
+        "/scripts/render_kickoff.py", "/scripts/render-kickoff.json", "/scripts/render-kickoff.schema.json",
         "/scripts/verify_professional_flagship.py", "/scripts/verify_professional_decision_clip.py",
         "/scripts/verify_professional_video_prototypes.py",
         "/scripts/build_reproducible_wheel.py", "/scripts/package_release*.py", "/scripts/verify_release*.py",
@@ -236,6 +237,7 @@ def review_history(tmp_path, monkeypatch, root):
     ("scripts/render-kickoff.json", None, False, ("VERDICT: NO_GO {head}", "VERDICT: GO {head}"), False, None),
     ("scripts/render-kickoff.json", None, False, ("VERDICT: GO {head}", "VERDICT: GO ffffffff"), False, "malformed VERDICT"),
     ("scripts/render-kickoff.json", None, False, ("PR #104 verdict GO on {head}",), False, "needs a VERDICT"),
+    ("scripts/render-kickoff.schema.json", None, False, (), False, "needs a VERDICT"),
     ("ci/critical-paths.json", None, False, (), False, "needs a VERDICT"),
     ("README.md", None, False, (), False, None),
 ])
@@ -303,6 +305,9 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
         critical_review.check(*args)
     comment["body"] = f"VERDICT: GO {head}"
     critical_review.check(*args)
+    files[0]["filename"] = "ci/fixture.json"
+    with pytest.raises(ValueError, match="absent from both the PR base and head"):
+        critical_review.check(*args)
     files[0]["filename"] = "README.md"
     critical_review.check(*args)
     snapshot["changed_files"] = 2
@@ -366,7 +371,7 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert parity["if"] == "needs.plan.outputs.video_worker == 'true'"
     assert jobs["plan"]["outputs"]["video_worker"] == "${{ steps.plan.outputs.video_worker }}"
     assert "remotion-image-parity" in jobs["media-render"]["needs"]
-    checkout, restore, build, check, save = parity["steps"]
+    checkout, restore, build, check, check_checkout, save = parity["steps"]
     assert checkout["with"]["persist-credentials"] is False
     assert restore["with"] == save["with"]
     assert all(path in restore["with"]["key"] for path in (
@@ -381,6 +386,15 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert "python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules package-lock.json" in check["run"]
     assert "target=/check/package-lock.json,readonly" in check["run"]
     assert "target=/check/scripts/remotion_image_parity.py,readonly" in check["run"]
+    assert "sudo chown -R 10001" in check_checkout["run"]
+    assert "docker run --rm --network none --read-only --workdir /checkout" in check_checkout["run"]
+    assert "target=/checkout,readonly" in check_checkout["run"]
+    assert "target=/receipts,readonly" in check_checkout["run"]
+    assert 'test "$(id -u)" -eq 10001' in check_checkout["run"]
+    assert "notice.main(public=True, source_head=head, source_tree=tree)" in check_checkout["run"]
+    assert 'run_producer("wrong", source_tree, source_tree)' in check_checkout["run"]
+    assert 'notice.STYLE.parents[1] / "node_modules"' in check_checkout["run"]
+    assert "safe.directory" not in check_checkout["run"]
     dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
     assert re.fullmatch(r"FROM python:3\.13-slim@sha256:[0-9a-f]{64} AS python-base", dockerfile.splitlines()[0])
     assert jobs["python-wheelhouse"]["strategy"]["matrix"]["python"] == jobs["python-fast-run"]["strategy"]["matrix"]["python"]
@@ -679,7 +693,7 @@ def test_gate_requires_exact_scoped_producers(root, paths, producers):
     "tests/conftest.py", "tests/test_ci_hosted_contract.py", "tests/test_core.py",
     "tests/test_research_ortools_unified_executor.py", "tests/test_unmeasured.py",
     "docs/architecture/authority-map.json", "src/baloot_platform/core/rules.py",
-    "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py",
+    "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py", "tests/test_v8_identity_sakka.py",
     "src/baloot_platform/video/remotion/package.json", "src/baloot_platform/video/remotion/package-lock.json",
     "LICENSE", "THIRD-PARTY-NOTICES", "native/CMakeLists.txt", "configs/runtime/docker_v1.yaml",
     "schemas/version.schema.json", "generated/openapi.json", "proto/baloot.proto", "migrations/001_initial.sql",

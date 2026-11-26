@@ -109,6 +109,31 @@ jobs:
       - *checkout
       - run: docker build --progress=plain --target docker-constraints .
 
+  identity-postgres:
+    needs: [plan, preflight]
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - *checkout
+      - *py313
+      - run: python -m pip install -c requirements-docker.txt '.[dev,postgres]'
+      - name: Verify paging and migration replay against PostgreSQL
+        run: |
+          image="$(python -c 'from scripts.verify_live_postgres_research import POSTGRES_IMAGE_TAG, EXPECTED_POSTGRES_INDEX_DIGEST; print(f"{POSTGRES_IMAGE_TAG}@{EXPECTED_POSTGRES_INDEX_DIGEST}")')"
+          container="$(docker run --rm --detach --publish 127.0.0.1::5432 \
+            -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -e 'POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C --locale-provider=icu --icu-locale=en-US' \
+            "$image")"
+          trap 'docker rm --force "$container"' EXIT
+          if ! timeout 30s bash -c 'until docker exec "$1" pg_isready -q -h 127.0.0.1 -U postgres; do sleep 1; done' -- "$container"; then
+            docker logs "$container"
+            exit 1
+          fi
+          endpoint="$(docker port "$container" 5432/tcp)"
+          export BALOOT_IDENTITY_TEST_POSTGRES="dbname=postgres host=127.0.0.1 port=${endpoint##*:} user=postgres connect_timeout=5"
+          python -m pytest -s tests/test_v8_identity_sakka.py -k identity_pagination_large_lists_and_plans
+
   foundry:
     needs: [plan, python-wheelhouse]
     if: >-
@@ -188,9 +213,11 @@ jobs:
         run: git show HEAD^1:src/baloot_platform/service/foundry_dashboard/src/styles.css > "$RUNNER_TEMP/foundry-audit-base.css"
       - name: Run Foundry Playwright suite
         if: ${{ !cancelled() && steps.playwright-install.outcome == 'success' }}
+        id: foundry-playwright
         run: npm run test:operator-e2e -- --reporter=list,junit
         env:
           BALOOT_OPERATOR_E2E_FOUNDRY_DIR: ${{ runner.temp }}/foundry-dashboard
+          BALOOT_OPERATOR_E2E_OUTPUT_DIR: ${{ runner.temp }}/foundry-playwright-output
           BALOOT_LIVE_RESULT_LATENCY_SAMPLE_OUTPUT: ${{ runner.temp }}/foundry-live-result-latency.json
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/foundry-playwright.xml
           BALOOT_FOUNDRY_AUDIT_BASE_CSS: ${{ github.event_name == 'pull_request' && format('{0}/foundry-audit-base.css', runner.temp) || '' }}
@@ -203,8 +230,14 @@ jobs:
             ${{ runner.temp }}/foundry-vitest.xml
             ${{ runner.temp }}/foundry-playwright.xml
             ${{ runner.temp }}/foundry-live-result-latency.json
-            output/playwright/acc19/**/audit-*.png
+            ${{ runner.temp }}/foundry-playwright-output/**/audit-*.png
           if-no-files-found: error
+      - name: Upload Foundry Playwright failure diagnostics
+        if: ${{ !cancelled() && steps.foundry-playwright.outcome == 'failure' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: foundry-playwright-failure-diagnostics
+          path: ${{ runner.temp }}/foundry-playwright-output
 
   sdks:
     needs: plan
@@ -219,6 +252,7 @@ jobs:
           go-version: '1.23'
           cache: false
       - run: npx --yes --package typescript@5.8.3 tsc -p sdk/typescript/tsconfig.json --noEmit
+      - run: node --experimental-strip-types --test sdk/typescript/src/client.test.mjs
       - run: go test ./...
         working-directory: sdk/go
 
@@ -587,7 +621,7 @@ jobs:
 
   python-backend-run:
     # Let the short producers clear capacity before the widest matrix starts.
-    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages, preflight, sdks, foundry, remotion-checks, native-sanitizers, python-windows]
+    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages, preflight, sdks, foundry, remotion-checks, native-sanitizers, python-windows, identity-postgres]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: &backend-timeout 30
@@ -732,6 +766,90 @@ jobs:
               fi
               exec python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules package-lock.json
             '
+      - name: Verify public producer preflight inside the video worker
+        timeout-minutes: 2
+        run: |
+          source_head=$(git rev-parse HEAD)
+          source_tree=$(git rev-parse 'HEAD^{tree}')
+          image_id=$(docker image inspect --format '{{.Id}}' balootx-video-worker-parity)
+          worker_checkout=$(mktemp -d "$RUNNER_TEMP/video-worker-checkout.XXXXXX")
+          worker_inputs=$(mktemp -d "$RUNNER_TEMP/video-worker-receipts.XXXXXX")
+          cp -a "$GITHUB_WORKSPACE/." "$worker_checkout/"
+          python3 -B - "$worker_inputs" "$source_head" "$source_tree" "$image_id" <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import sys
+
+          from scripts.render_kickoff import new_verdict
+
+          inputs, head, tree, image = sys.argv[1:]
+          lock = Path("src/baloot_platform/video/remotion/package-lock.json")
+          digest = hashlib.sha256(lock.read_bytes()).hexdigest()
+          for name, source in (("valid", head), ("wrong", tree)):
+              build = dict(status="PASSED", target="video-worker", sourceHead=source,
+                           sourceTree=tree, imageId=image, packageLockSha256=digest)
+              kickoff = new_verdict(source, tree, image)
+              kickoff.update(status="passed", mainHead=head, checkedAt="2026-01-01T00:00:00Z",
+                             packageLockSha256=digest)
+              (Path(inputs) / f"{name}-build.json").write_text(json.dumps(build), encoding="utf-8")
+              (Path(inputs) / f"{name}-kickoff.json").write_text(json.dumps(kickoff), encoding="utf-8")
+          PY
+          sudo chown -R 10001 "$worker_checkout" "$worker_inputs"
+          docker run --rm --network none --read-only --workdir /checkout -i \
+            --mount "type=bind,source=$worker_checkout,target=/checkout,readonly" \
+            --mount "type=bind,source=$worker_inputs,target=/receipts,readonly" \
+            --env PYTHONPATH=/checkout/src --env BALOOT_ROOT=/checkout \
+            --env "BALOOT_RENDER_IMAGE_ID=$image_id" \
+            balootx-video-worker-parity sh -ec '
+              test "$(id -u)" -eq 10001
+              exec python -B - "$@"
+            ' worker "$source_head" "$source_tree" <<'PY'
+          from datetime import UTC, datetime
+          import os
+          import subprocess
+          import sys
+          from unittest.mock import patch
+
+          from baloot_platform.video.remotion_renderer import WORKER_RENDERER_ROOT
+          from scripts import render_kickoff, render_research_notice as notice
+
+          class PreflightPassed(Exception):
+              pass
+
+          def run_producer(case, head, tree):
+              with patch.dict(os.environ, {
+                  "BALOOT_RENDER_BUILD_RECEIPT": f"/receipts/{case}-build.json",
+                  "BALOOT_RENDER_KICKOFF_RECEIPT": f"/receipts/{case}-kickoff.json",
+              }):
+                  notice.main(public=True, source_head=head, source_tree=tree)
+
+          source_head, source_tree = sys.argv[1:]
+          assert not (notice.STYLE.parents[1] / "node_modules").exists()
+          assert (WORKER_RENDERER_ROOT / "src/style.css").read_bytes() == notice.STYLE.read_bytes()
+          with (
+              patch.object(render_kickoff, "utc_now", return_value=datetime(2026, 1, 1, tzinfo=UTC)),
+              patch.object(notice, "build_notice_bundle", side_effect=PreflightPassed),
+          ):
+              try:
+                  run_producer("valid", source_head, source_tree)
+              except PreflightPassed:
+                  pass
+              else:
+                  raise SystemExit("public producer did not reach bundle generation")
+              try:
+                  run_producer("wrong", source_tree, source_tree)
+              except ValueError as exc:
+                  if "does not match the pinned source" not in str(exc):
+                      raise
+              else:
+                  raise SystemExit("public producer accepted the wrong source commit")
+          subprocess.run(
+              ["node", "--input-type=module", "-e",
+               "import '@remotion/bundler'; import '@remotion/renderer'; import './scripts/ffmpeg-profile.mjs';"],
+              cwd=WORKER_RENDERER_ROOT, check=True,
+          )
+          PY
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.video-worker-build-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: *video-worker-build-cache
@@ -797,6 +915,29 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
+      - name: Check synthetic transition layouts
+        if: matrix.shard == 'decision'
+        working-directory: .
+        run: |
+          bundle="$RUNNER_TEMP/transition-layout-bundle.json"
+          PYTHONPATH="$PWD:$PWD/src" python -P - "$bundle" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          from baloot_platform.core.rules import RuleBook
+          from scripts import render_research_notice as notice
+          from scripts.nightly_candidates import synthetic_identity
+
+          rules = RuleBook.load(notice.ROOT / "configs/rules/saudi_common_v1.yaml")
+          profile = notice.notice_profile(public=True)
+          profile["identity"] = synthetic_identity()
+          bundle = notice.build_notice_bundle(rules, profile)
+          notice.validate_notice_bundle(bundle, notice.engine_round_result(rules), public=True)
+          Path(sys.argv[1]).write_text(json.dumps(bundle.to_dict(), ensure_ascii=False), encoding="utf-8")
+          PY
+          cd src/baloot_platform/video/remotion
+          node tests/transition-layout.integration.mjs "$bundle" "$RUNNER_TEMP/media-stage-logs/transition-layout"
       - name: Retain render stage logs
         if: '!cancelled()'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -851,7 +992,7 @@ jobs:
 
   ci-gate:
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}
-    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-windows, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
+    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, identity-postgres, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-windows, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
     if: ${{ always() && !inputs.viewer-seat-proof }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
