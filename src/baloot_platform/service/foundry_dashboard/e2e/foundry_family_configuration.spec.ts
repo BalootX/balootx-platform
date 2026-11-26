@@ -1,4 +1,5 @@
 import {expect, test, type Page} from '@playwright/test';
+import {selectChallenge} from './settingsFamily';
 
 const target = 'scenarioResearchV4.qualityExecution.familyTarget';
 const family = `${target}.catalog.families.0`;
@@ -16,15 +17,6 @@ async function openTemplate(page: Page) {
     target, `${target}.catalog`, `${target}.catalog.families`, family,
     `${family}.template`, expression, `${expression}.children`, `${expression}.children.1`,
     `${expression}.children.1.arguments`]) await open(page,path);
-}
-
-async function selectChallenge(page: Page) {
-  const picker = page.locator('.family-select select');
-  if (await picker.isVisible()) await picker.selectOption('challenge');
-  else {
-    const name = await picker.locator('option[value="challenge"]').textContent();
-    await page.locator('.family-nav').getByRole('button',{name:new RegExp(name!.trim())}).click();
-  }
 }
 
 async function openNativeSettings(page: Page) {

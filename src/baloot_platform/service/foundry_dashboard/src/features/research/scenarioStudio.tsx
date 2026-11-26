@@ -1624,11 +1624,11 @@ function OrToolsAuthorityPanel({
       <span className={`status ${launchBlockReason?'failed':'completed'}`}>{launchBlockReason?t('workflow.research_scenario_estimate_not_admitted'):t('workflow.research_scenario_estimate_admitted')}</span>
     </header>
     <dl>
-      <div><dt>{tCatalog('research_scenario_backend')}</dt><dd>{tCatalog(`research_scenario_backend_${identity.backendId}`)}</dd><small>{tCatalog('research_scenario_backend_help')}</small></div>
-      <div><dt>{tCatalog('research_scenario_planner')}</dt><dd>{tCatalog(`research_scenario_planner_${identity.planner}`)}</dd><small>{tCatalog('research_scenario_planner_help')}</small></div>
-      <div><dt>{tCatalog('research_scenario_deterministic_execution')}</dt><dd>{identity.deterministicExecution?'✓':'×'}</dd><small>{tCatalog('research_scenario_deterministic_execution_help')}</small></div>
-      <div><dt><code dir="ltr">qualificationAuthority</code></dt><dd dir="ltr">{identity.qualificationAuthority}</dd><small>{identity.solverVersion}</small></div>
-      <div><dt>{t('workflow.research_scenario_predicate')}</dt><dd>{capability.hardPredicateCatalog.definitions.length}</dd><small dir="ltr">{capability.hardPredicateCatalog.sha256.slice(0,16)}</small></div>
+      <div><dt>{tCatalog('research_scenario_backend')}</dt><dd>{tCatalog(`research_scenario_backend_${identity.backendId}`)}</dd><dd><small>{tCatalog('research_scenario_backend_help')}</small></dd></div>
+      <div><dt>{tCatalog('research_scenario_planner')}</dt><dd>{tCatalog(`research_scenario_planner_${identity.planner}`)}</dd><dd><small>{tCatalog('research_scenario_planner_help')}</small></dd></div>
+      <div><dt>{tCatalog('research_scenario_deterministic_execution')}</dt><dd>{identity.deterministicExecution?'✓':'×'}</dd><dd><small>{tCatalog('research_scenario_deterministic_execution_help')}</small></dd></div>
+      <div><dt><code dir="ltr">qualificationAuthority</code></dt><dd dir="ltr">{identity.qualificationAuthority}</dd><dd><small>{identity.solverVersion}</small></dd></div>
+      <div><dt>{t('workflow.research_scenario_predicate')}</dt><dd>{capability.hardPredicateCatalog.definitions.length}</dd><dd><small dir="ltr">{capability.hardPredicateCatalog.sha256.slice(0,16)}</small></dd></div>
     </dl>
     {launchBlockReason ? <p className="scenario-launch-block" role="status"><strong>{tCatalog(scenarioLaunchBlockMessageKey(launchBlockReason))}</strong> <code dir="ltr">{launchBlockReason}</code>{unsupportedPredicateIds.length?<span dir="ltr"> {unsupportedPredicateIds.join(' · ')}</span>:null}</p> : null}
     <div className="scenario-estimate-identities"><code dir="ltr">{identity.sha256}</code><code dir="ltr">{identity.loweringManifestHash ?? capability.hardPredicateCatalog.loweringManifestHash ?? '—'}</code></div>
@@ -1735,7 +1735,7 @@ function RuleAuthorityPanel({
         <div><dt>{t('workflow.research_rule_authority_content_hash')}</dt><dd><code dir="ltr" data-testid="rule-profile-hash">{state.identity.payloadSha256}</code></dd></div>
         <div><dt>{t('workflow.research_rule_authority_source_catalog')}</dt><dd><code dir="ltr" data-testid="rule-source-catalog">{state.boundary.sourceCatalog.id} · {state.boundary.sourceCatalog.version}</code><small><code dir="ltr">{state.boundary.sourceCatalog.sha256}</code></small></dd></div>
         <div><dt>{t('workflow.research_rule_authority_catalog_status')}</dt><dd data-testid="rule-profile-status">{ruleAuthorityValue(state.identity.profileStatus)}</dd></div>
-        <div><dt>{t('workflow.research_rule_authority_ratification')}</dt><dd data-testid="rule-ratification-boundary">{ruleAuthorityValue(state.boundary.status)}</dd><small>{state.boundary.certificationEligible?t('workflow.research_rule_authority_certification_eligible'):t('workflow.research_rule_authority_certification_ineligible')}</small></div>
+        <div><dt>{t('workflow.research_rule_authority_ratification')}</dt><dd data-testid="rule-ratification-boundary">{ruleAuthorityValue(state.boundary.status)}</dd><dd><small>{state.boundary.certificationEligible?t('workflow.research_rule_authority_certification_eligible'):t('workflow.research_rule_authority_certification_ineligible')}</small></dd></div>
       </dl>
       <section className="scenario-rule-authority-delta" aria-labelledby="scenario-rule-authority-delta-title">
         <div><h4 id="scenario-rule-authority-delta-title">{t('workflow.research_rule_authority_delta_title')}</h4><p>{state.comparison?t('workflow.research_rule_authority_delta_help'):t('workflow.research_rule_authority_official_selected')}</p></div>

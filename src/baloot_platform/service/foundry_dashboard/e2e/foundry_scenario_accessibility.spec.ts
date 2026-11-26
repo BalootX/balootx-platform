@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import {expect, test, type Locator, type Page} from '@playwright/test';
 import {nativeResearchBundleRevision} from './nativeResearchBundle';
+import {selectChallenge} from './settingsFamily';
 
 test('library filters reflow without page overflow on narrow and desktop viewports', async ({page}, testInfo) => {
   await page.goto('/foundry?section=laffat');
@@ -1004,7 +1005,7 @@ for (const tag of ['', '@mobile '] as const) {
     test('the advanced JSON editor in settings', async ({page}) => {
       await routeDraftChallengeProfile(page, 'CPR-ACCESSIBLE-JSON-EDITOR');
       await page.goto('/foundry?section=settings');
-      await page.getByRole('button', {name: /^اختيار التحديات/}).click();
+      await selectChallenge(page);
       const editor = page.locator('details.raw-json-fallback');
       const summary = editor.locator('summary');
       await tabTo(page, summary);

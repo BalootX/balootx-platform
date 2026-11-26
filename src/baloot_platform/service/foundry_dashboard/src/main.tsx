@@ -2222,16 +2222,16 @@ function App() {
         <JourneyStep index={5} title={t("workflow.m_d94d3fee9506")} description={t("workflow.m_a510e3b8ce0a")} state={publications.length ? 'active' : 'locked'} help={t("workflow.m_5dbe2b0c5803")} example={t("workflow.m_c9548a76b9d2")} openHelp={openHelp} setOpenHelp={setOpenHelp} />
       </section>
 
-      {profile?.finalistAgentQualification && <button className={`panel agent-readiness ${profile.finalistAgentQualification.expertGenerationAllowed ? 'qualified' : 'local'}`} onClick={() => setDrawer({
+      {profile?.finalistAgentQualification && <section className={`panel agent-readiness ${profile.finalistAgentQualification.expertGenerationAllowed ? 'qualified' : 'local'}`}><button type="button" onClick={() => setDrawer({
         kind:'agent-qualification',
         title:t("workflow.label_agent_details"),
         subtitle:profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_ready_local"),
         content:<AgentQualificationDetails value={profile.finalistAgentQualification} pilot={profile.finalistAgentPilotEvidence} />,
         audit:{qualification:profile.finalistAgentQualification, localPilot:profile.finalistAgentPilotEvidence} as unknown as JsonObject,
       })}>
-        <div><span className="eyebrow">{t("workflow.label_agent_title")}</span><h2>{profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_ready_local")}</h2><small>{profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_pending")}</small></div>
+        <span className="eyebrow">{t("workflow.label_agent_title")}</span><h2>{profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_ready_local")}</h2><small>{profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_pending")}</small></button>
         <div className="agent-badges"><span>✓ {t("workflow.label_agent_equal")}</span><span>✓ {t("workflow.label_agent_search")}</span>{profile.finalistAgentPilotEvidence?.passed && <span>✓ {t("workflow.label_agent_local_pilot")}</span>}<InfoBadge id="agent-readiness" text={t("workflow.label_agent_help")} example={t("workflow.label_agent_example")} openHelp={openHelp} setOpenHelp={setOpenHelp} /></div>
-      </button>}
+      </section>}
 
       <section className="metrics" aria-label={t("workflow.m_9a21bfcc41a4")}>
         <Metric label={t("workflow.m_deb6cb326493")} value={campaigns.length} help={t("workflow.m_d00bd4ce79ab")} example={t("workflow.m_abb954f9fbf9")} openHelp={openHelp} setOpenHelp={setOpenHelp} />
@@ -2882,7 +2882,7 @@ function RawJsonFallback({value,disabled,onApply}:{value:JsonObject;disabled:boo
   const [text,setText]=useState(()=>JSON.stringify(value,null,2)); const [valid,setValid]=useState(true);
   const id=useId();
   useEffect(()=>{setText(JSON.stringify(value,null,2));setValid(true);},[value]);
-  return <details className="raw-json-fallback"><summary id={`${id}-title`}>{t("settings.rules_advanced_json")}</summary><p id={`${id}-help`}>{t("settings.rules_advanced_json_help")}</p><textarea dir="ltr" aria-labelledby={`${id}-title`} aria-describedby={`${id}-help ${id}-error`} aria-invalid={!valid} disabled={disabled} value={text} onChange={(event)=>{setText(event.target.value);try{const parsed=JSON.parse(event.target.value);setValid(Boolean(parsed)&&typeof parsed==='object'&&!Array.isArray(parsed));}catch{setValid(false);}}}/><output id={`${id}-error`}>{valid?'':t("workflow.research_scenario_json_invalid")}</output><button className="secondary" type="button" disabled={disabled||!valid} onClick={()=>onApply(JSON.parse(text) as JsonObject)}>{t("settings.rules_advanced_json_apply")}</button></details>;
+  return <details className="raw-json-fallback"><summary id={`${id}-title`}>{t("settings.rules_advanced_json")}</summary><p id={`${id}-help`}>{t("settings.rules_advanced_json_help")}</p><textarea dir="ltr" aria-labelledby={`${id}-title`} aria-describedby={`${id}-help ${id}-error`} aria-invalid={!valid} disabled={disabled} value={text} onChange={(event)=>{setText(event.target.value);try{const parsed=JSON.parse(event.target.value);setValid(Boolean(parsed)&&typeof parsed==='object'&&!Array.isArray(parsed));}catch{setValid(false);}}}/><span id={`${id}-error`} role="status">{valid?'':t("workflow.research_scenario_json_invalid")}</span><button className="secondary" type="button" disabled={disabled||!valid} onClick={()=>onApply(JSON.parse(text) as JsonObject)}>{t("settings.rules_advanced_json_apply")}</button></details>;
 }
 function diffPaths(left: JsonValue, right: JsonValue, path = ''): string[] {
   if (JSON.stringify(left) === JSON.stringify(right)) return [];
