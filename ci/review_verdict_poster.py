@@ -7,6 +7,13 @@ import time
 
 
 CONTEXT = "review-verdict"
+COMMENT_FIELDS = """
+fragment ReviewComments on IssueCommentConnection {
+  totalCount
+  pageInfo { hasNextPage endCursor }
+  nodes { fullDatabaseId body author { ... on Node { id } } }
+}
+"""
 QUERY = """
 query($owner: String!, $name: String!, $branch: String!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
@@ -14,13 +21,22 @@ query($owner: String!, $name: String!, $branch: String!, $endCursor: String) {
       pageInfo { hasNextPage endCursor }
       nodes {
         number headRefOid baseRefOid
-        comments(first: 100) { totalCount nodes { id body } }
+        comments(first: 100) { ...ReviewComments }
         mergeQueueEntry { baseCommit { oid } headCommit { oid } }
       }
     }
   }
 }
-"""
+""" + COMMENT_FIELDS
+MORE_COMMENTS = """
+query($owner: String!, $name: String!, $number: Int!, $cursor: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      comments(first: 100, after: $cursor) { ...ReviewComments }
+    }
+  }
+}
+""" + COMMENT_FIELDS
 
 
 def git(*args):
@@ -39,7 +55,7 @@ def load_review(base):
     return scope["evaluate"]
 
 
-def decision(repo, branch, pr, main_ref, ref, candidate, queue=False):
+def decision(repo, branch, pr, main_ref, ref, candidate, queue=False, *, comments=None):
     number, head = pr["number"], pr["headRefOid"]
     try:
         if not candidate:
@@ -66,7 +82,7 @@ def decision(repo, branch, pr, main_ref, ref, candidate, queue=False):
         # An open PR can be retargeted while its GitHub-generated ref is fetched.
         git("merge-base", "--is-ancestor", base, main_ref)
         git("update-ref", "--no-deref", "HEAD", candidate)
-        return "success", load_review(base)(event_name, event, repo, ref, candidate)
+        return "success", load_review(base)(event_name, event, repo, ref, candidate, comments=comments)
     except json.JSONDecodeError as exc:
         return "pending", f"Verdict not re-checked: {type(exc).__name__}"
     except ValueError as exc:
@@ -77,11 +93,17 @@ def decision(repo, branch, pr, main_ref, ref, candidate, queue=False):
 
 def publish(repo, public_url, bot_id, number, target, state, reason):
     endpoint = f"repos/{repo}"
-    pages = github("--paginate", "--slurp", f"{endpoint}/commits/{target}/statuses?per_page=100")
-    previous = next((
-        row["state"] for page in pages for row in page
-        if row["context"].casefold() == CONTEXT and (row["creator"] or {}).get("id") == bot_id
-    ), None)
+    try:
+        pages = github("--paginate", "--slurp", f"{endpoint}/commits/{target}/statuses?per_page=100")
+        previous = next((
+            row["state"] for page in pages for row in page
+            if row["context"].casefold() == CONTEXT and (row["creator"] or {}).get("id") == bot_id
+        ), None)
+    except Exception as exc:
+        if state == "success":
+            raise
+        print(f"PR #{number} status history unavailable: {type(exc).__name__}", flush=True)
+        previous = None
     if previous == state or (previous == "failure" and state == "pending"):
         return
     try:
@@ -94,10 +116,71 @@ def publish(repo, public_url, bot_id, number, target, state, reason):
         time.sleep(1)
 
 
+def comment_snapshot(repo, pr):
+    number = pr["number"]
+    owner, name = repo.split("/", 1)
+    page = pr["comments"]
+    total = page["totalCount"]
+    problem = f"PR #{number} comment snapshot is incomplete or has moved"
+    if type(total) is not int or total < 0:
+        raise RuntimeError(problem)
+    expected = []
+    cursors = set()
+    while True:
+        nodes = page["nodes"]
+        if page["totalCount"] != total or len(nodes) != min(100, total - len(expected)):
+            raise RuntimeError(problem)
+        expected.extend(
+            (row["fullDatabaseId"], row["body"], None if row["author"] is None else row["author"]["id"])
+            for row in nodes
+        )
+        info = page["pageInfo"]
+        if type(info["hasNextPage"]) is not bool or info["hasNextPage"] != (len(expected) < total):
+            raise RuntimeError(problem)
+        if not info["hasNextPage"]:
+            break
+        cursor = info["endCursor"]
+        if not isinstance(cursor, str) or not cursor or cursor in cursors:
+            raise RuntimeError(problem)
+        cursors.add(cursor)
+        response = github("graphql", "-f", f"query={MORE_COMMENTS}", "-f", f"owner={owner}", "-f", f"name={name}",
+                          "-F", f"number={number}", "-f", f"cursor={cursor}")
+        if response.get("errors"):
+            raise RuntimeError(problem)
+        page = response["data"]["repository"]["pullRequest"]["comments"]
+
+    # A REST offset page can shift when a comment disappears. Compare every row with the cursor view.
+    pages = github("--paginate", "--slurp", f"repos/{repo}/issues/{number}/comments?per_page=100")
+    if not isinstance(pages, list) or not pages or any(not isinstance(page, list) for page in pages):
+        raise RuntimeError(problem)
+    comments = []
+    for page in pages:
+        for row in page:
+            author = row["user"]
+            if type(row["id"]) is not int or row["id"] <= 0 or not isinstance(row["body"], str):
+                raise RuntimeError(problem)
+            if author is not None and (
+                type(author["id"]) is not int or author["id"] <= 0
+                or not isinstance(author["node_id"], str) or not author["node_id"]
+            ):
+                raise RuntimeError(problem)
+            comments.append({
+                "id": row["id"], "body": row["body"],
+                "user": None if author is None else {"id": author["id"], "node_id": author["node_id"]},
+            })
+    ids = [row["id"] for row in comments]
+    actual = [(str(row["id"]), row["body"], (row["user"] or {}).get("node_id")) for row in comments]
+    if ids != sorted(set(ids)) or actual != expected:
+        raise RuntimeError(problem)
+    return comments
+
+
 def targets(repo, branch, main_ref):
     owner, name = repo.split("/", 1)
     pages = github("--paginate", "--slurp", "graphql", "-f", f"query={QUERY}",
                    "-f", f"owner={owner}", "-f", f"name={name}", "-f", f"branch={branch}")
+    if not pages or any(page.get("errors") for page in pages):
+        raise RuntimeError("Open PR snapshot is incomplete")
     prs = [pr for page in pages for pr in page["data"]["repository"]["pullRequests"]["nodes"]]
     branch_ref = f"refs/heads/{branch}"
     queue_prefix = f"refs/heads/gh-readonly-queue/{branch}/"
@@ -135,24 +218,36 @@ def poll(repo, branch, public_url, bot_id, seconds):
             outage = f"Verdict not re-checked: {type(exc).__name__}"
             print(outage, flush=True)
         seen = {sha: key for sha, key in seen.items() if sha in current}
+        snapshots = {}
         for sha, entries in current.items():
             number = entries[0][0]["number"]
+            key = None
             if outage:
                 state, reason = "pending", outage
-            elif entries == seen.get(sha):
-                continue
             elif len(entries) != 1:
+                key = (entries, None)
+                if key == seen.get(sha):
+                    continue
                 state, reason = "failure", "Commit is associated with multiple open review targets"
             else:
                 pr, ref, candidate, queue = entries[0]
-                state, reason = decision(repo, branch, pr, main_ref, ref, candidate, queue=queue)
+                if number not in snapshots:
+                    try:
+                        snapshots[number] = (comment_snapshot(repo, pr), None)
+                    except Exception as exc:
+                        snapshots[number] = (None, f"Comment snapshot unavailable: {type(exc).__name__}")
+                comments, snapshot_error = snapshots[number]
+                if snapshot_error:
+                    state, reason = "pending", snapshot_error
+                else:
+                    key = (entries, comments)
+                    if key == seen.get(sha):
+                        continue
+                    state, reason = decision(repo, branch, pr, main_ref, ref, candidate, queue=queue, comments=comments)
             try:
                 publish(repo, public_url, bot_id, number, sha, state, reason)
-                # A partial comment list cannot establish that a verdict is unchanged.
-                if state != "pending" and all(
-                    len(pr["comments"]["nodes"]) == pr["comments"]["totalCount"] for pr, *_ in entries
-                ):
-                    seen[sha] = entries
+                if key is not None and state != "pending":
+                    seen[sha] = key
                     continue
             except Exception as exc:
                 print(f"PR #{number} status unavailable: {type(exc).__name__}", flush=True)

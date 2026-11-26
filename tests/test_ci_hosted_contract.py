@@ -456,8 +456,15 @@ def test_poster_fails_closed_on_api_error_or_moved_snapshot(review_history, monk
         assert "snapshot is incomplete or has moved" in result[1]
 
 
-@pytest.mark.parametrize("change", ["edit", "delete"])
-def test_poster_replaces_both_successes_after_an_older_verdict_changes(review_history, monkeypatch, change):
+@pytest.mark.parametrize(("change", "replacement"), [
+    ("edit", "failure"),
+    ("delete", "failure"),
+    ("body disagreement", "pending"),
+    ("offset shift", "pending"),
+    ("cursor drift", "pending"),
+    ("missing receipt", "pending"),
+])
+def test_poster_replaces_both_successes_when_comments_change(review_history, monkeypatch, change, replacement):
     path = "scripts/render-kickoff.json"
     base, _, head, queued = review_history(path, squash=True)
     git = critical_review.git
@@ -470,44 +477,97 @@ def test_poster_replaces_both_successes_after_an_older_verdict_changes(review_hi
     endpoint = "repos/test/example"
     clock = SimpleNamespace(now=0)
     writes = []
+    verdict_id = 101 if change == "body disagreement" else 100
+    unrelated = {"id": 1002, "node_id": "fixture-user"}
+    reviewer = {"id": bot_id, "node_id": "fixture-reviewer"}
 
-    def comments():
-        effective = "NO_GO" if clock.now >= 30 and change == "edit" else "GO"
-        verdict = {"id": 1, "user": {"id": bot_id}, "body": f"VERDICT: {effective} {head}"}
-        unrelated = {"id": 2, "user": {"id": 1002}, "body": "Unrelated comment"}
-        return [unrelated] if clock.now >= 30 and change == "delete" else [verdict, unrelated]
+    def comments(rest=False):
+        rows = [{"id": index, "user": unrelated, "body": "Unrelated comment"} for index in range(1, 103)]
+        rows[verdict_id - 1] = {"id": verdict_id, "user": reviewer, "body": f"VERDICT: GO {head}"}
+        if clock.now >= 30:
+            if change == "edit" or (rest and change == "body disagreement"):
+                rows[verdict_id - 1]["body"] = f"VERDICT: NO_GO {head}"
+            if change == "delete" or (rest and change == "offset shift"):
+                rows.pop(verdict_id - 1)
+        return rows
+
+    def graph_page(after=0):
+        rows = comments()
+        return {
+            "totalCount": len(rows) - (clock.now >= 30 and change == "cursor drift" and after != 0),
+            "pageInfo": {"hasNextPage": after == 0, "endCursor": "fixture-page-2"},
+            "nodes": [
+                {"fullDatabaseId": str(row["id"]), "body": row["body"], "author": {"id": row["user"]["node_id"]}}
+                for row in rows[after:after + 100]
+            ],
+        }
 
     def github(*args):
         if args[:3] == ("--paginate", "--slurp", "graphql"):
-            query = args[4]
-            assert "comments(first: 100) { totalCount nodes { id body } }" in query
-            rows = comments()
-            snapshot = {**pr, "comments": {"totalCount": len(rows), "nodes": [
-                {"id": str(row["id"]), "body": row["body"]} for row in rows
-            ]}}
+            assert args[4] == f"query={review_verdict_poster.QUERY}"
+            snapshot = dict(pr)
+            if clock.now < 30 or change != "missing receipt":
+                snapshot["comments"] = graph_page()
             return [{"data": {"repository": {"pullRequests": {"nodes": [snapshot]}}}}]
         if args[0] == "graphql":
+            if args[2] == f"query={review_verdict_poster.MORE_COMMENTS}":
+                assert args[-1] == "cursor=fixture-page-2"
+                return {"data": {"repository": {"pullRequest": {"comments": graph_page(after=100)}}}}
             return {"data": {"repository": {"pullRequest": pr}}}
         if args == (f"{endpoint}/pulls/104",):
             return {"number": 104, "state": "open", "head": {"sha": head}, "base": {"sha": base}, "changed_files": 1}
         if args[-1] == f"{endpoint}/pulls/104/files?per_page=100":
             return [[{"filename": path, "status": "added"}]]
         if args[-1] == f"{endpoint}/issues/104/comments?per_page=100":
-            return [comments()]
+            rows = comments(rest=True)
+            return [rows[:100], rows[100:]]
         if args[:2] == ("--method", "POST"):
-            writes.append((args[2].rsplit("/", 1)[1], args[6].removeprefix("state=")))
+            writes.append((args[2].rsplit("/", 1)[1], args[6].removeprefix("state="), args[8]))
             return {}
         target = args[-1].split("/")[-2]
         assert args[-1] == f"{endpoint}/commits/{target}/statuses?per_page=100"
         return [[{"creator": {"id": bot_id}, "context": "review-verdict", "state": state}
-                 for sha, state in reversed(writes) if sha == target]]
+                 for sha, state, _ in reversed(writes) if sha == target]]
 
     monkeypatch.setattr(critical_review, "github", github)
     monkeypatch.setattr(review_verdict_poster, "github", github)
-    monkeypatch.setattr(review_verdict_poster.time, "monotonic", lambda: clock.now)
-    monkeypatch.setattr(review_verdict_poster.time, "sleep", lambda delay: setattr(clock, "now", clock.now + delay))
+    monkeypatch.setattr(review_verdict_poster, "time", SimpleNamespace(
+        monotonic=lambda: clock.now, sleep=lambda delay: setattr(clock, "now", clock.now + delay),
+    ))
     review_verdict_poster.poll("test/example", "main", "https://github.example", bot_id, seconds=31)
-    assert writes == [(head, "success"), (queued, "success"), (head, "failure"), (queued, "failure")]
+    assert [(sha, state) for sha, state, _ in writes] == [
+        (head, "success"), (queued, "success"), (head, replacement), (queued, replacement),
+    ], writes
+
+
+@pytest.mark.parametrize("state", ["pending", "failure", "success"])
+def test_status_history_error_only_allows_blocking_writes_and_retries_failed_post(monkeypatch, state):
+    head, queued = "a" * 40, "b" * 40
+    pr = {"number": 104}
+    found = {head: [(pr, "pr-ref", head, False)], queued: [(pr, "queue-ref", queued, True)]}
+    clock = SimpleNamespace(now=0)
+    writes = []
+
+    def github(*args):
+        if args[:2] == ("--paginate", "--slurp"):
+            raise subprocess.CalledProcessError(1, "status history")
+        assert args[:2] == ("--method", "POST")
+        sha = args[2].rsplit("/", 1)[1]
+        assert args[6] == f"state={state}"
+        writes.append(sha)
+        if writes.count(sha) == 1:
+            raise subprocess.CalledProcessError(1, "status post")
+        return {}
+
+    monkeypatch.setattr(review_verdict_poster, "targets", lambda *args: found)
+    monkeypatch.setattr(review_verdict_poster, "comment_snapshot", lambda *args: [])
+    monkeypatch.setattr(review_verdict_poster, "decision", lambda *args, **kwargs: (state, "fixture result"))
+    monkeypatch.setattr(review_verdict_poster, "github", github)
+    monkeypatch.setattr(review_verdict_poster, "time", SimpleNamespace(
+        monotonic=lambda: clock.now, sleep=lambda delay: setattr(clock, "now", clock.now + delay),
+    ))
+    review_verdict_poster.poll("test/example", "main", "https://github.example", 1001, seconds=31)
+    assert writes == ([] if state == "success" else [head, queued, head, queued])
 
 
 @pytest.mark.parametrize(("previous", "state", "posts"), [
@@ -530,7 +590,7 @@ def test_poster_uses_only_its_own_previous_status(monkeypatch, previous, state, 
         sent.append(args)
 
     monkeypatch.setattr(review_verdict_poster, "github", github)
-    monkeypatch.setattr(review_verdict_poster.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(review_verdict_poster, "time", SimpleNamespace(sleep=lambda seconds: None))
     review_verdict_poster.publish(repo, "https://github.example", bot_id, 104, target, state, "reason")
     assert sent == ([(
         "--method", "POST", f"{endpoint}/statuses/{target}",

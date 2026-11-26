@@ -161,7 +161,7 @@ def critical_entries(commit, paths):
     return entries
 
 
-def evaluate(event_name, event, repo, ref, candidate):
+def evaluate(event_name, event, repo, ref, candidate, *, comments=None):
     if event_name == "pull_request":
         pr = event["pull_request"]
         number, base, head = pr["number"], pr["base"]["sha"], pr["head"]["sha"]
@@ -198,10 +198,11 @@ def evaluate(event_name, event, repo, ref, candidate):
                 f"PR #{number} lists {len(unresolved)} critical changed paths absent from both the PR base and head"
             )
 
-    pages = github("--paginate", "--slurp", f"repos/{repo}/issues/{number}/comments?per_page=100")
+    if comments is None:
+        pages = github("--paginate", "--slurp", f"repos/{repo}/issues/{number}/comments?per_page=100")
+        comments = [comment for page in pages for comment in page]
     # GitHub lists issue comments in ascending ID order across pages.
-    newest_first = (comment for page in reversed(pages) for comment in reversed(page))
-    reviewed = reviewed_sha(newest_first, reviewer_ids, number)
+    reviewed = reviewed_sha(reversed(comments), reviewer_ids, number)
     reviewed_entries = head_entries if reviewed == head else critical_entries(reviewed, critical_changes)
     if head_entries != reviewed_entries:
         raise ValueError(f"PR #{number} has changed or missing critical paths relative to the GO on {reviewed}")
