@@ -1015,7 +1015,14 @@ for (const tag of ['', '@mobile '] as const) {
       await addPredicate(page, 'outcome.team_round', 'EXPR-OUTCOME', 'PRED-0002');
       await routeTitleRequiredValidation(page);
       await tabTo(page, page.locator('.scenario-actions button').nth(0));
+      expect.soft(await page.evaluate(() => window.scrollY), 'validation starts on a scrolled page').toBeGreaterThan(0);
       await expectStatusMessage(page, () => page.keyboard.press('Enter'), titleRequired);
+      await expect(page.locator('.notice-region .notice')).toBeVisible();
+      const {journeyBottom, fieldTop} = await page.locator('#scenario-field-diversity-topKPerCell').evaluate((field) => ({
+        journeyBottom: document.querySelector('.scenario-journey')!.getBoundingClientRect().bottom,
+        fieldTop: field.getBoundingClientRect().top,
+      }));
+      expect.soft(journeyBottom, 'scenario journey ends above the diversity input after validation').toBeLessThanOrEqual(fieldTop);
       await expectAccessible(page, 'the scenario studio');
     });
 
