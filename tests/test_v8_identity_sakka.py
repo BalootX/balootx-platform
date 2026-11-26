@@ -11,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from hypothesis import given, strategies as st
+from security_probe_helpers import security_probe_app
 
 from baloot_platform.core.enums import Seat
 from baloot_platform.history.event_store_v7 import EventEnvelope
@@ -129,8 +130,7 @@ def test_friend_routes_preserve_service_delegation_and_apply_v2_read_scope(tmp_p
         service.respond_friend(friendship["requestId"], owner, accept=True)
         service.request_friend("SUB-SENDER", owner)
 
-    app = FastAPI()
-    app.middleware("http")(api.platform_security)
+    app = security_probe_app()
     app.include_router(build_auth_router(api.IDENTITY, pagination=api.CONTAINER.identity_pagination, policy=api.AUTHORIZATION_POLICY))
     delegated = {"x-api-key": key, "x-baloot-subject-id": "SUB-DELEGATED"}
 
