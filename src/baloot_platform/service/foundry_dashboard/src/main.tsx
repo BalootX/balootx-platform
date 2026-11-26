@@ -1162,6 +1162,15 @@ function App() {
   const [openHelp, setOpenHelp] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const noticeRegion = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const region = noticeRegion.current;
+    if (!region) return;
+    // The sticky panels and focus scrolling use this height to stay clear of the sticky notice.
+    const observer = new ResizeObserver(() => document.documentElement.style.setProperty('--notice-height', `${region.offsetHeight}px`));
+    observer.observe(region);
+    return () => observer.disconnect();
+  }, []);
   const [generationLane, setGenerationLane] = useState<'organic' | 'guided' | 'disagreement'>('guided');
   const [seedStart, setSeedStart] = useState(0);
   const [seedCount, setSeedCount] = useState(4);
@@ -2188,7 +2197,7 @@ function App() {
         <div className="runtime-badge"><i />{t("workflow.m_7b8ec1caafbd")}<b dir="ltr">{profile?.engineVersion ?? '—'}</b></div>
       </div>
     </header>
-    <div className="notice-region" role="status">{message && <div className="notice"><span>{message}</span><button onClick={() => setMessage('')} aria-label={t("workflow.m_ca90c297b099")}>×</button></div>}</div>
+    <div ref={noticeRegion} className="notice-region" role="status">{message && <div className="notice"><span>{message}</span><button onClick={() => setMessage('')} aria-label={t("workflow.m_ca90c297b099")}>×</button></div>}</div>
 
     <div className="foundry-layout">
       <aside className="foundry-sidebar">
