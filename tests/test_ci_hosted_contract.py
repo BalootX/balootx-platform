@@ -351,7 +351,24 @@ def test_qa_journey_dispatch_rejects_unknown_and_conflicting_choices(root, monke
     assert "go test -count=1 -json ./..." in steps["Exercise Go SDK"]["run"]
     assert 'verify_qa_journey.py go "$RUNNER_TEMP/qa-journey/go.jsonl"' in steps["Exercise Go SDK"]["run"]
     assert all("runner." not in value for value in job["env"].values())
-    assert "foundry-screenshots=%s/qa-journey-playwright/" in steps["Bind evidence to the dispatched source"]["run"]
+    source = steps["Bind evidence to the dispatched source"]
+    browser = steps["Exercise Foundry authoring and research on desktop and mobile"]
+    output_step = steps["Set the Foundry Playwright output directory"]
+    foundry_steps = workflow["jobs"]["foundry"]["steps"]
+    assert any(step is output_step for step in foundry_steps)
+    output_dir = f"${{{{ steps.{output_step['id']}.outputs.path }}}}"
+    suite = next(step for step in foundry_steps if step.get("name") == "Run Foundry Playwright suite")
+    assert (
+        source["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+        == browser["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+        == suite["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+        == output_dir
+    )
+    assert (
+        "printf 'foundry-screenshots=%s/*/alternate-first-result-*.png\\n' "
+        '"$BALOOT_OPERATOR_E2E_OUTPUT_DIR" >> "$GITHUB_OUTPUT"'
+    ) in source["run"]
+    assert "--output" not in browser["run"]
     foundry = steps["Verify Foundry journey evidence"]
     assert '"$FOUNDRY_JOURNEY_SCREENSHOTS"' in foundry["run"]
     screenshots = steps["Upload Foundry journey screenshots"]["with"]
