@@ -61,7 +61,7 @@ def run(
     baseline = json.loads((output / "pod-preflight.json").read_text())
     command = [sys.executable, "-B"]
     if public:
-        command += ["scripts/render_research_notice.py", "--public", "--output", str(output)]
+        command += ["scripts/render_research_notice.py", "--output", str(output)]
         if deal_id is not None:
             command += ["--deal-id", deal_id]
         elif seed is not None:
@@ -140,8 +140,8 @@ def main() -> None:
     parser.add_argument("mode", choices=("preflight", "run"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--public", action="store_true", help="Run the approved-v4 public producer.")
-    parser.add_argument("--source-head", help="Pinned source commit SHA for archive execution.")
-    parser.add_argument("--source-tree", help="Pinned source tree SHA for archive execution.")
+    parser.add_argument("--source-head", help="Pinned source checkout commit SHA.")
+    parser.add_argument("--source-tree", help="Pinned source checkout tree SHA.")
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument(
         "--deal-id", "--deal-identifier", dest="deal_id",

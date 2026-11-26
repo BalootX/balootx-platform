@@ -469,8 +469,16 @@ def test_poster_fails_closed_on_api_error_or_moved_snapshot(review_history, monk
     ("cursor drift", "pending"),
     ("missing receipt", "pending"),
     ("identity drift", "pending"),
+    ("retarget during files", "pending"),
+    ("dequeue during files", "pending"),
+    ("dequeue during history", "pending"),
+    ("retarget during failed history", "pending"),
+    ("retarget cached", "pending"),
+    ("dequeue cached", "pending"),
+    ("requeue cached", "pending"),
+    ("identity read error", "pending"),
 ])
-def test_poster_replaces_both_successes_when_comments_change(review_history, monkeypatch, change, replacement):
+def test_poster_replaces_both_successes_when_review_inputs_change(review_history, monkeypatch, change, replacement):
     path = "scripts/render-kickoff.json"
     base, _, head, queued = review_history(path, squash=True)
     git = critical_review.git
@@ -478,11 +486,15 @@ def test_poster_replaces_both_successes_when_comments_change(review_history, mon
     git("update-ref", "refs/pull/104/merge", merge)
     bot_id = 1001
     pr = {"number": 104, "headRefOid": head, "baseRefOid": base, "mergeQueueEntry": {
-        "baseCommit": {"oid": base}, "headCommit": {"oid": queued},
+        "id": "fixture-queue", "baseCommit": {"oid": base}, "headCommit": {"oid": queued},
     }}
     endpoint = "repos/test/example"
     clock = SimpleNamespace(now=0)
     writes = []
+    file_reads = []
+    moved = False
+    reevaluate = change.endswith(("during files", "during history", "during failed history"))
+    cached_drift = change.endswith("cached")
     verdict_id = 101 if change == "body disagreement" else 100
     unrelated = {"id": 1002, "node_id": "fixture-user"}
     reviewer = {"id": bot_id, "node_id": "fixture-reviewer"}
@@ -495,6 +507,8 @@ def test_poster_replaces_both_successes_when_comments_change(review_history, mon
                 rows[verdict_id - 1]["body"] = f"VERDICT: NO_GO {head}"
             if change == "delete" or (rest and change == "offset shift"):
                 rows.pop(verdict_id - 1)
+            if reevaluate:
+                rows[-1]["body"] = "Changed unrelated comment"
         return rows
 
     def graph_page(after=0):
@@ -509,6 +523,7 @@ def test_poster_replaces_both_successes_when_comments_change(review_history, mon
         }
 
     def github(*args):
+        nonlocal moved
         if args[:3] == ("--paginate", "--slurp", "graphql"):
             assert args[4] == f"query={review_verdict_poster.QUERY}"
             return [{"data": {"repository": {"pullRequests": {"nodes": [pr]}}}}]
@@ -522,10 +537,26 @@ def test_poster_replaces_both_successes_when_comments_change(review_history, mon
                 if clock.now >= 30 and change == "identity drift" and after:
                     snapshot["headRefOid"] = "f" * 40
                 return {"data": {"repository": {"pullRequest": snapshot}}}
+            if args[2] == f"query={review_verdict_poster.IDENTITY}":
+                snapshot = {**pr, "state": "OPEN", "baseRefName": "main"}
+                if 30 <= clock.now < 60:
+                    if change == "identity read error":
+                        raise subprocess.TimeoutExpired("gh api graphql", 30)
+                    if moved or cached_drift:
+                        if change.startswith("retarget"):
+                            snapshot["baseRefName"] = "another-branch"
+                        elif change == "requeue cached":
+                            snapshot["mergeQueueEntry"] = {**pr["mergeQueueEntry"], "id": "fixture-requeue"}
+                        else:
+                            snapshot["mergeQueueEntry"] = None
+                return {"data": {"repository": {"pullRequest": snapshot}}}
             return {"data": {"repository": {"pullRequest": pr}}}
         if args == (f"{endpoint}/pulls/104",):
             return {"number": 104, "state": "open", "head": {"sha": head}, "base": {"sha": base}, "changed_files": 1}
         if args[-1] == f"{endpoint}/pulls/104/files?per_page=100":
+            file_reads.append(clock.now // 30)
+            if change.endswith("during files") and file_reads.count(1) == 2:
+                moved = True
             return [[{"filename": path, "status": "added"}]]
         if args[-1] == f"{endpoint}/issues/104/comments?per_page=100":
             rows = comments(rest=True)
@@ -535,6 +566,10 @@ def test_poster_replaces_both_successes_when_comments_change(review_history, mon
             return {}
         target = args[-1].split("/")[-2]
         assert args[-1] == f"{endpoint}/commits/{target}/statuses?per_page=100"
+        if 30 <= clock.now < 60 and change.endswith(("during history", "during failed history")):
+            moved = True
+            if change == "retarget during failed history":
+                raise subprocess.CalledProcessError(1, "status history")
         return [[{"creator": {"id": bot_id}, "context": "review-verdict", "state": state}
                  for sha, state, _ in reversed(writes) if sha == target]]
 
@@ -543,10 +578,16 @@ def test_poster_replaces_both_successes_when_comments_change(review_history, mon
     monkeypatch.setattr(review_verdict_poster, "time", SimpleNamespace(
         monotonic=lambda: clock.now, sleep=lambda delay: setattr(clock, "now", clock.now + delay),
     ))
-    review_verdict_poster.poll("test/example", "main", "https://github.example", bot_id, seconds=31)
-    assert [(sha, state) for sha, state, _ in writes] == [
+    review_verdict_poster.poll("test/example", "main", "https://github.example", bot_id, seconds=61 if cached_drift else 31)
+    expected = [
         (head, "success"), (queued, "success"), (head, replacement), (queued, replacement),
-    ], writes
+    ]
+    if cached_drift:
+        expected.extend([(head, "success"), (queued, "success")])
+        assert file_reads == [0, 0, 2, 2]
+    if change.endswith("during files"):
+        assert file_reads == [0, 0, 1, 1]
+    assert [(sha, state) for sha, state, _ in writes] == expected, writes
 
 
 @pytest.mark.parametrize("fault", ["first comments page", "merge refs", "missing queue base"])
@@ -599,8 +640,10 @@ def test_poster_blocks_discovered_targets_on_cold_start_read_error(monkeypatch, 
     ]
 
 
-@pytest.mark.parametrize("state", ["pending", "failure", "success"])
-def test_status_history_error_only_allows_blocking_writes_and_retries_failed_post(monkeypatch, state):
+@pytest.mark.parametrize(("state", "retire_queue"), [
+    ("pending", False), ("failure", False), ("success", False), ("pending", True),
+])
+def test_status_history_error_only_allows_blocking_writes_and_retries_failed_post(monkeypatch, state, retire_queue):
     head, queued = "a" * 40, "b" * 40
     pr = {"number": 104}
     found = {head: [(pr, False)], queued: [(pr, True)]}
@@ -618,9 +661,12 @@ def test_status_history_error_only_allows_blocking_writes_and_retries_failed_pos
             raise subprocess.CalledProcessError(1, "status post")
         return {}
 
-    monkeypatch.setattr(review_verdict_poster, "targets", lambda *args: found)
+    monkeypatch.setattr(
+        review_verdict_poster, "targets", lambda *args: {head: found[head]} if retire_queue and clock.now >= 30 else found,
+    )
     monkeypatch.setattr(review_verdict_poster, "merge_refs", lambda *args: {})
     monkeypatch.setattr(review_verdict_poster, "comment_snapshot", lambda *args: [])
+    monkeypatch.setattr(review_verdict_poster, "read_pr", lambda *args: pr)
     monkeypatch.setattr(review_verdict_poster, "decision", lambda *args, **kwargs: (state, "fixture result"))
     monkeypatch.setattr(review_verdict_poster, "github", github)
     monkeypatch.setattr(review_verdict_poster, "time", SimpleNamespace(
@@ -730,7 +776,7 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert "target=/checkout,readonly" in check_checkout["run"]
     assert "target=/receipts,readonly" in check_checkout["run"]
     assert 'test "$(id -u)" -eq 10001' in check_checkout["run"]
-    assert "notice.main(public=True, source_head=head, source_tree=tree)" in check_checkout["run"]
+    assert "notice.main(source_head=head, source_tree=tree)" in check_checkout["run"]
     assert 'run_producer("wrong", source_tree, source_tree)' in check_checkout["run"]
     assert 'notice.STYLE.parents[1] / "node_modules"' in check_checkout["run"]
     assert "safe.directory" not in check_checkout["run"]
