@@ -121,6 +121,31 @@ jobs:
       - *checkout
       - run: docker build --progress=plain --target docker-constraints .
 
+  identity-postgres:
+    needs: [plan, preflight]
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - *checkout
+      - *py313
+      - run: python -m pip install -c requirements-docker.txt '.[dev,postgres]'
+      - name: Verify paging and migration replay against PostgreSQL
+        run: |
+          image="$(python -c 'from scripts.verify_live_postgres_research import POSTGRES_IMAGE_TAG, EXPECTED_POSTGRES_INDEX_DIGEST; print(f"{POSTGRES_IMAGE_TAG}@{EXPECTED_POSTGRES_INDEX_DIGEST}")')"
+          container="$(docker run --rm --detach --publish 127.0.0.1::5432 \
+            -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -e 'POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C --locale-provider=icu --icu-locale=en-US' \
+            "$image")"
+          trap 'docker rm --force "$container"' EXIT
+          if ! timeout 30s bash -c 'until docker exec "$1" pg_isready -q -h 127.0.0.1 -U postgres; do sleep 1; done' -- "$container"; then
+            docker logs "$container"
+            exit 1
+          fi
+          endpoint="$(docker port "$container" 5432/tcp)"
+          export BALOOT_IDENTITY_TEST_POSTGRES="dbname=postgres host=127.0.0.1 port=${endpoint##*:} user=postgres connect_timeout=5"
+          python -m pytest -s tests/test_v8_identity_sakka.py -k identity_pagination_large_lists_and_plans
+
   foundry:
     needs: [plan, python-wheelhouse]
     if: >-
@@ -245,6 +270,7 @@ jobs:
           go-version: '1.23'
           cache: false
       - run: npx --yes --package typescript@5.8.3 tsc -p sdk/typescript/tsconfig.json --noEmit
+      - run: node --experimental-strip-types --test sdk/typescript/src/client.test.mjs
       - run: go test ./...
         working-directory: sdk/go
 
@@ -613,7 +639,7 @@ jobs:
 
   python-backend-run:
     # Let the short producers clear capacity before the widest matrix starts.
-    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages, preflight, sdks, foundry, remotion-checks, native-sanitizers, python-windows]
+    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages, preflight, sdks, foundry, remotion-checks, native-sanitizers, python-windows, identity-postgres]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: &backend-timeout 30
@@ -1079,7 +1105,7 @@ jobs:
 
   ci-gate:
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}
-    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-windows, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
+    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, identity-postgres, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-windows, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
     if: ${{ always() && !inputs.viewer-seat-proof && (!inputs.qa-journey || inputs.qa-journey == 'none') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
