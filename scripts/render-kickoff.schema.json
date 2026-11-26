@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["publicRemote", "mainRef", "maxReceiptAgeSeconds", "gitTimeoutSeconds", "excludedPaths"],
+  "properties": {
+    "publicRemote": {
+      "type": "string",
+      "pattern": "^https://[^\\s]+$"
+    },
+    "mainRef": {
+      "type": "string",
+      "pattern": "^refs/heads/[A-Za-z0-9][A-Za-z0-9_./-]*$"
+    },
+    "maxReceiptAgeSeconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "gitTimeoutSeconds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["local", "discovery", "fetch"],
+      "properties": {
+        "local": {"type": "integer", "minimum": 1},
+        "discovery": {"type": "integer", "minimum": 1},
+        "fetch": {"type": "integer", "minimum": 1}
+      }
+    },
+    "excludedPaths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"
+      }
+    }
+  }
+}
