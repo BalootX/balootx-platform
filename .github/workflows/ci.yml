@@ -1013,12 +1013,6 @@ jobs:
         run: |
           [[ "$REVIEW_BASE" =~ ^[0-9a-f]{40}$ ]]
           base_files=$(git ls-tree --name-only "$REVIEW_BASE" -- ci/critical_review.py ci/critical-paths.json)
-          if [[ -z "$base_files" ]]; then
-            # The first installation is reviewed before these files become the base policy.
-            installed_files=$(git ls-tree --name-only HEAD -- ci/critical_review.py ci/critical-paths.json)
-            test "$installed_files" = $'ci/critical-paths.json\nci/critical_review.py'
-            exit 0
-          fi
           test "$base_files" = $'ci/critical-paths.json\nci/critical_review.py'
           git show "$REVIEW_BASE:ci/critical_review.py" > "$RUNNER_TEMP/critical-review.py"
           python3 -I "$RUNNER_TEMP/critical-review.py"
