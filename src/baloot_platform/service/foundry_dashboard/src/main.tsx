@@ -2806,12 +2806,12 @@ function ConfigObjectArraySection({name, technicalKey, value, schema, rootSchema
   const id = `config-${path.join('-')}`;
   const added = configurationEditorObjectArrayAdd(value, schema);
   const minimum = typeof schema.minItems === 'number' ? schema.minItems : 0;
-  return <details className="config-section" data-config-path={path.join('.')} open={expanded} onToggle={(event)=>setExpanded(event.currentTarget.open)}>
-    <summary><span>{name} · {number.format(items.length)}</span><InfoBadge id={id} text={schema.description || name} example={t("evidence.m_81ef2928b9cc")} technical={technicalKey} openHelp={openHelp} setOpenHelp={setOpenHelp}/>{onRemove&&<button type="button" className="quiet" disabled={disabled} aria-label={`${t("workflow.research_scenario_remove")} · ${name}`} onClick={(event)=>{event.preventDefault();onRemove();}}>{t("workflow.research_scenario_remove")}</button>}</summary>
+  return <div className="config-section" data-config-path={path.join('.')}>
+    <div className="config-section-head"><button type="button" aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}>{name} · {number.format(items.length)}</button><InfoBadge id={id} text={schema.description || name} example={t("evidence.m_81ef2928b9cc")} technical={technicalKey} openHelp={openHelp} setOpenHelp={setOpenHelp}/>{onRemove&&<button type="button" className="quiet" disabled={disabled} aria-label={`${t("workflow.research_scenario_remove")} · ${name}`} onClick={()=>onRemove()}>{t("workflow.research_scenario_remove")}</button>}</div>
     {expanded&&<div className="json-editor">{items.map((item,index)=>
       <ConfigObjectSection key={index} technicalKey={technicalKey} name={`${name} · ${number.format(index+1)}`} value={item} schema={itemSchema} rootSchema={rootSchema} disabled={disabled} path={[...path,index]} onChange={onChange} onRemove={items.length>minimum?()=>{const removed=configurationEditorObjectArrayRemove(value,schema,index);if(!disabled&&removed)onChange(path,removed);}:undefined} defaultOpen={index===0} openHelp={openHelp} setOpenHelp={setOpenHelp}/>
     )}<button type="button" className="secondary" disabled={disabled||!added} aria-label={`${t("workflow.research_scenario_expression_add_group")} · ${name}`} onClick={()=>{if(!disabled&&added)onChange(path,added);}}>{t("workflow.research_scenario_expression_add_group")}</button></div>}
-  </details>;
+  </div>;
 }
 function configSchemaHelp(schema: JsonSchema | undefined, fallback: string): string {
   const key = schema?.['x-helpArKey'];
@@ -2828,7 +2828,7 @@ function ConfigObjectSection({technicalKey, name, value, schema, rootSchema, dis
     : thrillSection && technicalKey === 'weights'
       ? t("helpers.thrill_weight_example")
       : t("evidence.m_81ef2928b9cc");
-  return <details className="config-section" data-config-path={path.join('.')} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}><summary><span>{name}</span><InfoBadge id={id} text={help} example={example} technical={technicalKey} openHelp={openHelp} setOpenHelp={setOpenHelp} />{onRemove && <button type="button" className="quiet" disabled={disabled} aria-label={`${t("workflow.research_scenario_remove")} · ${name}`} onClick={(event)=>{event.preventDefault();onRemove();}}>{t("workflow.research_scenario_remove")}</button>}</summary>{expanded && <JsonEditor value={value} schema={schema} rootSchema={rootSchema} disabled={disabled} path={path} onChange={onChange} openHelp={openHelp} setOpenHelp={setOpenHelp} />}</details>;
+  return <div className="config-section" data-config-path={path.join('.')}><div className="config-section-head"><button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{name}</button><InfoBadge id={id} text={help} example={example} technical={technicalKey} openHelp={openHelp} setOpenHelp={setOpenHelp} />{onRemove && <button type="button" className="quiet" disabled={disabled} aria-label={`${t("workflow.research_scenario_remove")} · ${name}`} onClick={()=>onRemove()}>{t("workflow.research_scenario_remove")}</button>}</div>{expanded && <JsonEditor value={value} schema={schema} rootSchema={rootSchema} disabled={disabled} path={path} onChange={onChange} openHelp={openHelp} setOpenHelp={setOpenHelp} />}</div>;
 }
 function ConfigField({name, technicalKey, value, schema, disabled, path, onChange, onRemove, id, openHelp, setOpenHelp}: {name:string;technicalKey:string;value:JsonValue;schema:JsonSchema|undefined;disabled:boolean;path:(string|number)[];onChange:(path:(string|number)[],value:JsonValue)=>void;onRemove?:()=>void;id:string;openHelp:string|null;setOpenHelp:(value:string|null)=>void}) {
   const help = configSchemaHelp(schema, t("evidence.m_1f81dffaa812") + name + t("evidence.m_24b96014dd3a"));

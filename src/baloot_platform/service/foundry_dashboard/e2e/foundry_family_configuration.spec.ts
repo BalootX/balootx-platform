@@ -8,7 +8,8 @@ const expression = `${family}.template.expression`;
 async function open(page: Page, path: string) {
   const section = page.locator(`[data-config-path="${path}"]`);
   await expect(section).toBeVisible();
-  if (await section.getAttribute('open') === null) await section.locator(':scope > summary').click();
+  const toggle = section.locator(':scope > .config-section-head > button[aria-expanded]');
+  if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
   return section;
 }
 
@@ -117,8 +118,8 @@ for (const mode of ['desktop', '@mobile']) test(`delayed payoff controls enable 
   await expect(minimum).toHaveAttribute('step','any');
   await expect(metric).toHaveAccessibleDescription(/بدون مكافأة الأكلة الأخيرة/);
   await expect(minimum).toHaveAccessibleDescription(/لا نختار قيمة نيابةً عنك/);
-  await section.locator(':scope > summary .info-badge').click();
-  await expect(section.locator(':scope > summary .info-popover')).toContainText('معرفة كل الأوراق فقط');
+  await section.locator(':scope > .config-section-head .info-badge').click();
+  await expect(section.locator(':scope > .config-section-head .info-popover')).toContainText('معرفة كل الأوراق فقط');
   for (const unit of ['raw_card_points','awarded_point_margin']) {
     await metric.selectOption(unit);
     await expect(metric.locator('option:checked')).not.toHaveText(unit);
@@ -143,7 +144,7 @@ for (const mode of ['desktop', '@mobile']) test(`delayed payoff controls enable 
   await expect(page.locator('.draft-proof-flow .status')).toHaveText('المسودة سليمة');
   await minimum.scrollIntoViewIfNeeded();
   await page.screenshot({path:testInfo.outputPath('delayed-payoff-controls.png')});
-  await section.locator(':scope > summary').getByRole('button',{name:new RegExp(` · ${label}$`)}).click();
+  await section.locator(':scope > .config-section-head').getByRole('button',{name:new RegExp(` · ${label}$`)}).click();
   await expect(page.getByRole('switch',{name:label,exact:true})).toHaveAttribute('aria-checked','false');
   const removed = page.waitForResponse(response=>response.request().method()==='PATCH'
     && response.url().includes('/api/v2/configuration/profiles/'));

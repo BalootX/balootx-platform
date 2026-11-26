@@ -36974,7 +36974,7 @@
     }
   ],
   "schemaVersion": 1,
-  "sha256": "7839b2995746b4504fe9b3b0752ea1140c282b53b060ade9883492817c557f93",
+  "sha256": "6c60789ae2d0cefa051e34e9bdc66e25fe0b9237b7473cd1ef55ade86746a33c",
   "sources": {
     "schemas/profiles/challenge.schema.json": "5f1c300a375345eea30be2c7bf239903326b0d39edba030be4a195aebd594b46",
     "src/baloot_platform/guide.py": "0a80e1079d71c55a9606d1094f4f7ac798b7507b12af66a058af3ec2134a603e",
@@ -37001,7 +37001,7 @@
     "src/baloot_platform/service/foundry_dashboard/src/features/research/scenarioStudio.tsx": "d017fadbb33fb565712d8a62ec51c265909feff18245c66cc17738332631e107",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/workspace.tsx": "3fee276419a4288ab3ff87509172af3de03461532f8064cb659d7a766c6f54c1",
     "src/baloot_platform/service/foundry_dashboard/src/features/videos/model.ts": "b00bed40ca5b05ec165115949331d4165579b335b37bbc31c2bcd343de7146db",
-    "src/baloot_platform/service/foundry_dashboard/src/main.tsx": "fa9f735f7733d544c8413674c1bdc6320d8692ff6dbaf67fce493b0d31626f5b",
+    "src/baloot_platform/service/foundry_dashboard/src/main.tsx": "29e5f7ed899aae15dc073cb8246526245e900e531085eddc0a131b8402971e2c",
     "src/baloot_platform/service/foundry_dashboard/src/shared/format.ts": "4394ffa5e301f38f310ca7fd54bdf8888c6fba15e4c7b74a17e441501e57437f",
     "src/baloot_platform/service/foundry_dashboard/src/shared/json.ts": "dc8e07997a8b1be3a5229247bbe8c7b4dfe29e8e13681b964f893593b9ce3188",
     "src/baloot_platform/service/foundry_dashboard/src/shared/localization.ts": "7ba906239a3050cedca5961a4f4ff596e30c9c479470cbbfb98c6839879b3393",

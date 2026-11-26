@@ -48,15 +48,16 @@ test('optional proof group can be enabled, configured and removed visually witho
   await page.goto('/foundry?section=settings');
   await page.getByRole('button', {name: /^اختيار التحديات/}).click();
   const research = page.locator('[data-config-path="scenarioResearchV4"]');
-  if (await research.getAttribute('open') === null) await research.locator(':scope > summary').click();
+  const toggle = research.locator(':scope > .config-section-head > button[aria-expanded]');
+  if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
   const quality = page.locator('[data-config-path="scenarioResearchV4.qualityExecution"]');
-  await quality.locator(':scope > summary').click();
+  await quality.locator(':scope > .config-section-head > button[aria-expanded]').click();
   const add = page.locator('#config-scenarioResearchV4-qualityExecution-bidAlternativeProof');
   await expect(add).toHaveAttribute('aria-checked', 'false');
   await add.focus();
   await page.keyboard.press('Space');
   const group = page.locator('[data-config-path="scenarioResearchV4.qualityExecution.bidAlternativeProof"]');
-  await group.locator(':scope > summary').click();
+  await group.locator(':scope > .config-section-head > button[aria-expanded]').click();
   const version = group.getByRole('combobox').first();
   await expect(version).toHaveValue('');
   await version.selectOption('2');
@@ -70,7 +71,7 @@ test('optional proof group can be enabled, configured and removed visually witho
     await field(name).fill(value);
   }
   await group.screenshot({path:test.info().outputPath('configured-proof-group.png')});
-  await group.locator(':scope > summary > button').click();
+  await group.locator(':scope > .config-section-head > button.quiet').click();
   await expect(group).toHaveCount(0);
   await expect(add).toHaveAttribute('aria-checked', 'false');
   expect(writes).toEqual([]);
@@ -901,10 +902,14 @@ async function expectKeyboardWalk(page: Page, scope: Locator, flow: string) {
         const hit = document.elementFromPoint(x, y);
         return Boolean(hit) && (element.contains(hit) || labels.some((label) => label.contains(hit)));
       }));
+      // Name what covers the control and where it sits, so a hidden focus can be traced from the log.
+      const cover = document.elementFromPoint(xs[1], ys[1]);
+      const hidden = `focus hidden behind ${cover ? state.a11yDescribe!(cover) : 'nothing: it is outside the viewport'}`
+        + ` at ${Math.round(rect.left)},${Math.round(rect.top)} in ${state.a11yDescribe!(element.closest('[data-config-path], .panel, aside, header') ?? document.body)}`;
       const found = [
         element.matches(':focus-visible') && style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 2
           ? '' : 'no focus indicator',
-        shown ? '' : 'focus hidden',
+        shown ? '' : hidden,
       ].filter(Boolean);
       return found.length ? `${state.a11yDescribe!(element)}: ${found.join(', ')}` : '';
     });
