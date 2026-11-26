@@ -2,9 +2,12 @@
 import ast
 from importlib.machinery import BYTECODE_SUFFIXES, EXTENSION_SUFFIXES
 import json
+import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -180,6 +183,38 @@ def test_hosted_ci_contract(root):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)
         assert flags and all("-P" in options.split() for options in flags), name
+
+
+def test_preflight_requires_an_approved_pull_request_opener(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    step = jobs["preflight"]["steps"][0]
+    assert step["name"] == "Check pull request opener"
+    assert step["if"] == "github.event_name == 'pull_request'"
+    assert step["env"]["PR_OPENER_ID"] == "${{ github.event.pull_request.user.id }}"
+    assert step["env"]["PR_OPENER_TYPE"] == "${{ github.event.pull_request.user.type }}"
+    allowed = step["env"]["ALLOWED_PR_OPENER_IDS"]
+    approved_ids = allowed.split()
+    assert approved_ids and all(account_id.isascii() and account_id.isdecimal() for account_id in approved_ids)
+    command = shlex.split(step["run"])
+    assert command[:3] == ["python3", "-I", "-c"]
+    cases = [(account_id, "Bot", 0) for account_id in approved_ids] + [
+        (approved_ids[0], "User", 1),
+        (approved_ids[0], "", 1),
+        (approved_ids[0][:-1], "Bot", 1),
+        ("", "Bot", 1),
+    ]
+    for opener_id, opener_type, expected in cases:
+        result = subprocess.run(
+            [sys.executable, *command[1:]],
+            env={
+                **os.environ, "ALLOWED_PR_OPENER_IDS": allowed,
+                "PR_OPENER_ID": opener_id, "PR_OPENER_TYPE": opener_type,
+            },
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == expected, result.stderr
+        if expected:
+            assert result.stderr.strip() == "::error::Open this pull request through an approved GitHub App."
 
 
 @pytest.fixture
