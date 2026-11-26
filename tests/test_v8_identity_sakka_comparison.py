@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 
 from baloot_platform.core.enums import Seat
 
@@ -30,6 +31,12 @@ def test_sakka_comparison_reports_verified_outcome_flip(root: Path, tmp_path: Pa
     room = service.open_room(board.board_id, created_by="USR-A")
     first = service.start_run(room.room_code, subject_id="USR-A", display_name="الأول", is_guest=False)
     second = service.start_run(room.room_code, subject_id="USR-B", display_name="الثاني", is_guest=False)
+
+    run_ids = first["run"]["runId"], second["run"]["runId"]
+    with pytest.raises(PermissionError):
+        service.compare_runs(*run_ids, requester_subject_id="USR-OUTSIDER")
+    with pytest.raises(ValueError, match="completed"):
+        service.compare_runs(*run_ids, requester_subject_id="USR-A")
 
     first = service.apply_action(first["run"]["runId"], subject_id="USR-A", action={"kind": "play", "card": "D10"})
     second = service.apply_action(second["run"]["runId"], subject_id="USR-B", action={"kind": "play", "card": "CA"})

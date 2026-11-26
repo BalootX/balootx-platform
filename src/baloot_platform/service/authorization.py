@@ -127,7 +127,7 @@ RPC_POLICY: dict[str, dict[str, Scope | None]] = {
         "ShareDecision": Scope.PLAY,
         "RecordFeedback": Scope.PLAY,
         "GetLeaderboard": Scope.READ,
-        "CompareRuns": Scope.READ,
+        "CompareRuns": Scope.PLAY,
     },
     "/baloot.v9.SharedPlatform": {
         "ListBoards": Scope.READ,
@@ -147,7 +147,7 @@ RPC_POLICY: dict[str, dict[str, Scope | None]] = {
         "SubmitDecisionReview": Scope.PLAY,
         "ShareDecision": Scope.PLAY,
         "GetLeaderboard": Scope.READ,
-        "CompareRuns": Scope.READ,
+        "CompareRuns": Scope.PLAY,
     },
     "/baloot.v17.BalootOperations": {
         "HealthCheck": None,

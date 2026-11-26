@@ -230,6 +230,19 @@ def test_grpc_policy_covers_every_descriptor_method():
     }
 
 
+@pytest.mark.parametrize(("rpc_service", "http_service"), [
+    ("baloot.v8.SakkaPlatform", "sakka"),
+    ("baloot.v9.SharedPlatform", "shared"),
+])
+def test_run_comparison_uses_the_same_scope_over_http_and_grpc(rpc_service, http_service):
+    from baloot_platform.security import Scope
+    from baloot_platform.service.authorization import http_scope, rpc_scope
+
+    assert rpc_scope(f"/{rpc_service}/CompareRuns") == http_scope(
+        "POST", f"/api/v1/{http_service}/comparisons",
+    ) == Scope.PLAY
+
+
 def test_api_key_reads_real_legacy_board_and_run_over_http_and_grpc(
     legacy_service_records, tmp_path, monkeypatch,
 ):

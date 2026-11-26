@@ -695,11 +695,6 @@ class SakkaService:
             raise KeyError(run_b_id)
         run_a, _ = loaded_a
         run_b, _ = loaded_b
-        if run_a.board_id != run_b.board_id or run_a.comparison_key != run_b.comparison_key:
-            raise ValueError("runs are not comparable because their Sakka identities differ")
-        if run_a.status != "completed" or run_b.status != "completed":
-            raise ValueError("both runs must be completed before comparison")
-
         room_a = self.store.get_room(run_a.room_id)
         room_b = self.store.get_room(run_b.room_id)
         if room_a is None or room_b is None:
@@ -711,6 +706,11 @@ class SakkaService:
             }
             if not any(owns_subject(requester_subject_id, subject) for subject in allowed):
                 raise PermissionError("comparison is available only to room members")
+
+        if run_a.board_id != run_b.board_id or run_a.comparison_key != run_b.comparison_key:
+            raise ValueError("runs are not comparable because their Sakka identities differ")
+        if run_a.status != "completed" or run_b.status != "completed":
+            raise ValueError("both runs must be completed before comparison")
 
         board_item = self.store.get_board(run_a.board_id)
         if board_item is None:
