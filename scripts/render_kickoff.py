@@ -75,6 +75,10 @@ class RenderContentMismatch(ValueError):
     pass
 
 
+class RenderSourceTreeMismatch(ValueError):
+    pass
+
+
 def git(checkout: Path, *args: str, timeout: int, outside_repository: bool = False) -> str:
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
     env.update(
@@ -124,10 +128,14 @@ def new_verdict(source_head: str = "", source_tree: str = "", image_id: str = ""
     }
 
 
-def verify_source_freshness(checkout: Path, source_head: str, policy: dict, verdict: dict) -> None:
+def verify_source_freshness(
+    checkout: Path, source_head: str, source_tree: str, policy: dict, verdict: dict
+) -> None:
     """Apply the public-main source comparison for both renderer and manual pool inputs."""
     if not isinstance(source_head, str) or not SOURCE_SHA.fullmatch(source_head):
         raise ValueError("render source requires a full commit ID")
+    if not isinstance(source_tree, str) or not SOURCE_SHA.fullmatch(source_tree):
+        raise RenderSourceTreeMismatch("render source requires a full tree ID")
     timeouts = policy["gitTimeoutSeconds"]
     paths = [".", *(f":(exclude,top,literal){path}" for path in policy["excludedPaths"])]
     remote = policy["publicRemote"]
@@ -153,8 +161,13 @@ def verify_source_freshness(checkout: Path, source_head: str, policy: dict, verd
             "--no-recurse-submodules", remote, main, timeout=timeouts["fetch"],
         )
 
-    if local_git("rev-parse", "--verify", f"{source_head}^{{commit}}") != source_head:
+    commit, tree = local_git(
+        "rev-parse", f"{source_head}^{{commit}}", f"{source_head}^{{tree}}"
+    ).splitlines()
+    if commit != source_head:
         raise ValueError("render source requires a full commit ID")
+    if tree != source_tree:
+        raise RenderSourceTreeMismatch("render tree does not match the source commit")
 
     script = TRUSTED_ROOT / "scripts/render_kickoff.py"
     for path in (script, POLICY, POLICY_SCHEMA):
@@ -183,7 +196,9 @@ def verify_source_freshness(checkout: Path, source_head: str, policy: dict, verd
             )
             if missing:
                 verdict["missingRendererCommit"] = missing
-                raise ValueError("render source is missing a merged renderer commit; repin and rebuild") from None
+                raise RenderContentMismatch(
+                "render source is missing a merged renderer commit; repin and rebuild"
+            ) from None
         if content_mismatch is not None:
             raise content_mismatch
 
@@ -198,7 +213,7 @@ def verify_kickoff(
         )
         policy = load_policy()
         verify_checkout(checkout, source_head, source_tree, timeout=policy["gitTimeoutSeconds"]["local"])
-        verify_source_freshness(checkout, source_head, policy, verdict)
+        verify_source_freshness(checkout, source_head, source_tree, policy, verdict)
     except ValueError as exc:
         verdict["reason"] = str(exc)
     except (Exception, KeyboardInterrupt):

@@ -662,9 +662,19 @@ def nightly_pick(tmp_path, monkeypatch, capsys, sealed_nightly_pool):
     )
 
 
-@pytest.mark.parametrize("current", [False, True], ids=["stale", "current"])
+@pytest.mark.parametrize(
+    ("case", "reason"),
+    [
+        ("current", None),
+        ("stale", "MANUAL_POOL_STALE: generate and seal a pool from current main"),
+        ("different-tree", "MANUAL_POOL_SOURCE_TREE_MISMATCH: generate and seal a pool from current main"),
+        ("missing-tree", "MANUAL_POOL_SOURCE_TREE_MISMATCH: generate and seal a pool from current main"),
+        ("stale-authority", "MANUAL_POOL_FRESHNESS_UNVERIFIED: update the checkout and restore access to public main before retrying"),
+        ("main-unavailable", "MANUAL_POOL_FRESHNESS_UNVERIFIED: update the checkout and restore access to public main before retrying"),
+    ],
+)
 def test_manual_pool_uses_live_render_source_comparison(
-    tmp_path, monkeypatch, nightly_pick, current
+    tmp_path, monkeypatch, nightly_pick, case, reason
 ):
     public = tmp_path / "public"
     scripts = public / "scripts"
@@ -696,14 +706,21 @@ def test_manual_pool_uses_live_render_source_comparison(
     old = git("rev-parse", "HEAD")
     layout.write_text("fixed renderer", encoding="utf-8")
     git("commit", "-am", "Fix renderer")
-    source = git("rev-parse", "HEAD") if current else old
+    source = old if case == "stale" else git("rev-parse", "HEAD")
+    if case == "stale-authority":
+        render_kickoff.POLICY.write_bytes(render_kickoff.POLICY.read_bytes() + b"\n")
+    if case == "main-unavailable":
+        policy["publicRemote"] = (tmp_path / "absent").as_uri()
 
     pool = nightly_pick.artifact
     index_path = pool / picker.INDEX
     index = json.loads(index_path.read_bytes())
     seal = pool / picker.SEAL
     old_entry = f"{sha256(index_path.read_bytes()).hexdigest()}  {picker.INDEX}"
-    index.update(sourceCommit=source, sourceTree=git("rev-parse", f"{source}^{{tree}}"))
+    tree_commit = old if case == "different-tree" else source
+    index.update(sourceCommit=source, sourceTree=git("rev-parse", f"{tree_commit}^{{tree}}"))
+    if case == "missing-tree":
+        del index["sourceTree"]
     digest = nightly.write_json(index_path, index)["sha256"]
     seal.write_text(
         seal.read_text(encoding="ascii").replace(old_entry, f"{digest}  {picker.INDEX}"),
@@ -711,14 +728,11 @@ def test_manual_pool_uses_live_render_source_comparison(
     )
 
     code, status = nightly_pick.pick(verify_source=True)
-    if current:
+    if reason is None:
         assert (code, status) == (0, "NIGHTLY_PICK_READY")
         assert json.loads(nightly_pick.handoff.read_bytes())["sourceCommit"] == source
     else:
-        assert code == 1
-        assert status == (
-            "NIGHTLY_PICK_HELD MANUAL_POOL_FRESHNESS_UNVERIFIED: reseal the pool from current main"
-        )
+        assert (code, status) == (1, f"NIGHTLY_PICK_HELD {reason}")
         assert not nightly_pick.handoff.exists()
 
 

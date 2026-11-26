@@ -343,11 +343,19 @@ def prepare(args, gate):
             try:
                 render_kickoff.verify_source_freshness(
                     render_kickoff.TRUSTED_ROOT, index.get("sourceCommit"),
-                    render_kickoff.load_policy(), {},
+                    index.get("sourceTree"), render_kickoff.load_policy(), {},
                 )
+            except render_kickoff.RenderSourceTreeMismatch as exc:
+                raise PlanError(
+                    "MANUAL_POOL_SOURCE_TREE_MISMATCH: generate and seal a pool from current main"
+                ) from exc
+            except render_kickoff.RenderContentMismatch as exc:
+                raise PlanError(
+                    "MANUAL_POOL_STALE: generate and seal a pool from current main"
+                ) from exc
             except ValueError as exc:
                 raise PlanError(
-                    "MANUAL_POOL_FRESHNESS_UNVERIFIED: reseal the pool from current main"
+                    "MANUAL_POOL_FRESHNESS_UNVERIFIED: update the checkout and restore access to public main before retrying"
                 ) from exc
         days, fallbacks = select(gate, index["candidates"], captions, live)
         expected = {
