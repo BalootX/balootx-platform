@@ -822,7 +822,7 @@ jobs:
                   "BALOOT_RENDER_BUILD_RECEIPT": f"/receipts/{case}-build.json",
                   "BALOOT_RENDER_KICKOFF_RECEIPT": f"/receipts/{case}-kickoff.json",
               }):
-                  notice.main(public=True, source_head=head, source_tree=tree)
+                  notice.main(source_head=head, source_tree=tree)
 
           source_head, source_tree = sys.argv[1:]
           checkout_renderer = notice.STYLE.parents[1]
@@ -932,10 +932,10 @@ jobs:
           from scripts.nightly_candidates import synthetic_identity
 
           rules = RuleBook.load(notice.ROOT / "configs/rules/saudi_common_v1.yaml")
-          profile = notice.notice_profile(public=True)
+          profile = notice.notice_profile()
           profile["identity"] = synthetic_identity()
           bundle = notice.build_notice_bundle(rules, profile)
-          notice.validate_notice_bundle(bundle, notice.engine_round_result(rules), public=True)
+          notice.validate_notice_bundle(bundle, notice.engine_round_result(rules))
           Path(sys.argv[1]).write_text(json.dumps(bundle.to_dict(), ensure_ascii=False), encoding="utf-8")
           PY
           cd src/baloot_platform/video/remotion
@@ -1011,16 +1011,16 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          REVIEW_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          REVIEW_BASE: ${{ github.event.merge_group.base_sha }}
         run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            if ! REVIEW_BASE=$(git rev-parse --verify 'HEAD^1^{commit}'); then
+              echo '::error::PR merge base is missing from the checkout. Update the PR branch to start a fresh CI run.'
+              exit 1
+            fi
+          fi
           [[ "$REVIEW_BASE" =~ ^[0-9a-f]{40}$ ]]
           base_files=$(git ls-tree --name-only "$REVIEW_BASE" -- ci/critical_review.py ci/critical-paths.json)
-          if [[ -z "$base_files" ]]; then
-            # The first installation is reviewed before these files become the base policy.
-            installed_files=$(git ls-tree --name-only HEAD -- ci/critical_review.py ci/critical-paths.json)
-            test "$installed_files" = $'ci/critical-paths.json\nci/critical_review.py'
-            exit 0
-          fi
           test "$base_files" = $'ci/critical-paths.json\nci/critical_review.py'
           git show "$REVIEW_BASE:ci/critical_review.py" > "$RUNNER_TEMP/critical-review.py"
           python3 -I "$RUNNER_TEMP/critical-review.py"

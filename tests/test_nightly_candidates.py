@@ -12,12 +12,13 @@ import pytest
 from scripts import build_nightly_shadow_day as shadow
 from scripts import nightly_candidates as nightly
 from scripts import pick_nightly_candidates as picker
+from scripts import render_kickoff
 
 
 @pytest.fixture(scope="module")
 def sample(rules, tmp_path_factory):
     engine = nightly.BalootEngine(rules)
-    profile = nightly.notice.notice_profile(public=True)
+    profile = nightly.notice.notice_profile()
     profile["identity"] = nightly.synthetic_identity()
     source = "a" * 40
     seed = 140250512009021371
@@ -170,7 +171,7 @@ def test_hook_check_requires_the_receipt_for_the_exact_bundle(tmp_path, monkeypa
             "mode": "qualification",
             "bundleSha256": "a" * 64,
             "bundleFileSha256": nightly.file_receipt(bundle)["sha256"],
-            "tableSha256": nightly.APPROVED_LAYOUT_TABLE_SHA256,
+            "tableSha256": nightly.file_receipt(table)["sha256"],
         },
     }
 
@@ -204,7 +205,7 @@ def batch(tmp_path, monkeypatch, rules):
     monkeypatch.delenv("BALOOT_NIGHTLY_JOB_DEADLINE", raising=False)
     monkeypatch.setattr(nightly, "signal", SimpleNamespace())
     monkeypatch.setattr(nightly.RuleBook, "load", lambda path: rules)
-    monkeypatch.setattr(nightly.notice, "notice_profile", lambda **kwargs: {})
+    monkeypatch.setattr(nightly.notice, "notice_profile", lambda: {})
     monkeypatch.setattr(
         nightly.UnifiedScenarioProofServiceV1, "from_repository", lambda path: None
     )
@@ -299,7 +300,7 @@ def test_r8_synthetic_fixtures_replay_to_the_exact_expected_scores(rules):
     fixture_dir = nightly.notice.ROOT / "examples" / "research-r8"
     fixtures = sorted(fixture_dir.glob("*.json"))
     assert len(fixtures) == 10
-    profile = nightly.notice.notice_profile(public=True)
+    profile = nightly.notice.notice_profile()
     normalizer = nightly.ExactStateNormalizerV1(rules)
     deal_hashes = set()
     families = set()
@@ -333,9 +334,7 @@ def test_r8_synthetic_fixtures_replay_to_the_exact_expected_scores(rules):
         bundle = nightly.notice.build_notice_bundle(
             rules, profile, fixture=fixture, golden=data["scenarioId"]
         )
-        nightly.notice.validate_notice_bundle(
-            bundle, final, public=True, fixture=fixture
-        )
+        nightly.notice.validate_notice_bundle(bundle, final, fixture=fixture)
 
     assert len(deal_hashes) == len(families) == len(fixtures)
 
@@ -607,7 +606,7 @@ def nightly_pick(tmp_path, monkeypatch, capsys, sealed_nightly_pool):
         monkeypatch.setattr(module, "datetime", clock)
     monkeypatch.setattr(picker, "load_gate", lambda *args: gate)
 
-    def pick(*, download=False):
+    def pick(*, download=False, verify_source=False):
         capsys.readouterr()
         flags = {
             "ledger": ledger,
@@ -630,7 +629,10 @@ def nightly_pick(tmp_path, monkeypatch, capsys, sealed_nightly_pool):
                 ),
             ],
         )
-        code = picker.main()
+        with monkeypatch.context() as context:
+            if not verify_source:
+                context.setattr(render_kickoff, "verify_source_freshness", lambda *args: None)
+            code = picker.main()
         return code, capsys.readouterr().out.strip()
 
     handoff = output / f"pick-{run_id}" / "candidate-pick.json"
@@ -656,6 +658,80 @@ def nightly_pick(tmp_path, monkeypatch, capsys, sealed_nightly_pool):
         artifact=artifact,
         run={"databaseId": run_id, "headSha": source},
     )
+
+
+@pytest.mark.parametrize(
+    ("case", "reason"),
+    [
+        ("current", None),
+        ("stale", "MANUAL_POOL_STALE: generate and seal a pool from current main"),
+        ("different-tree", "MANUAL_POOL_SOURCE_TREE_MISMATCH: generate and seal a pool from current main"),
+        ("missing-tree", "MANUAL_POOL_SOURCE_TREE_MISMATCH: generate and seal a pool from current main"),
+        ("stale-authority", "MANUAL_POOL_FRESHNESS_UNVERIFIED: update the checkout and restore access to public main before retrying"),
+        ("main-unavailable", "MANUAL_POOL_FRESHNESS_UNVERIFIED: update the checkout and restore access to public main before retrying"),
+    ],
+)
+def test_manual_pool_uses_live_render_source_comparison(
+    tmp_path, monkeypatch, nightly_pick, case, reason
+):
+    public = tmp_path / "public"
+    scripts = public / "scripts"
+    scripts.mkdir(parents=True)
+    authority = (
+        render_kickoff.TRUSTED_ROOT / "scripts/render_kickoff.py",
+        render_kickoff.POLICY,
+        render_kickoff.POLICY_SCHEMA,
+    )
+    for path in authority:
+        shutil.copyfile(path, scripts / path.name)
+    policy = {**render_kickoff.load_policy(), "publicRemote": public.as_uri()}
+    monkeypatch.setattr(render_kickoff, "load_policy", lambda: policy)
+    monkeypatch.setattr(render_kickoff, "TRUSTED_ROOT", public)
+    monkeypatch.setattr(render_kickoff, "POLICY", scripts / authority[1].name)
+    monkeypatch.setattr(render_kickoff, "POLICY_SCHEMA", scripts / authority[2].name)
+
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@users.noreply.github.com",
+             "-c", "commit.gpgsign=false", *args], cwd=public, text=True, timeout=10,
+        ).strip()
+
+    git("init", "--initial-branch=main")
+    layout = public / "layout.txt"
+    layout.write_text("old renderer", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-m", "Original renderer")
+    old = git("rev-parse", "HEAD")
+    layout.write_text("fixed renderer", encoding="utf-8")
+    git("commit", "-am", "Fix renderer")
+    source = old if case == "stale" else git("rev-parse", "HEAD")
+    if case == "stale-authority":
+        render_kickoff.POLICY.write_bytes(render_kickoff.POLICY.read_bytes() + b"\n")
+    if case == "main-unavailable":
+        policy["publicRemote"] = (tmp_path / "absent").as_uri()
+
+    pool = nightly_pick.artifact
+    index_path = pool / picker.INDEX
+    index = json.loads(index_path.read_bytes())
+    seal = pool / picker.SEAL
+    old_entry = f"{sha256(index_path.read_bytes()).hexdigest()}  {picker.INDEX}"
+    tree_commit = old if case == "different-tree" else source
+    index.update(sourceCommit=source, sourceTree=git("rev-parse", f"{tree_commit}^{{tree}}"))
+    if case == "missing-tree":
+        del index["sourceTree"]
+    digest = nightly.write_json(index_path, index)["sha256"]
+    seal.write_text(
+        seal.read_text(encoding="ascii").replace(old_entry, f"{digest}  {picker.INDEX}"),
+        encoding="ascii",
+    )
+
+    code, status = nightly_pick.pick(verify_source=True)
+    if reason is None:
+        assert (code, status) == (0, "NIGHTLY_PICK_READY")
+        assert json.loads(nightly_pick.handoff.read_bytes())["sourceCommit"] == source
+    else:
+        assert (code, status) == (1, f"NIGHTLY_PICK_HELD {reason}")
+        assert not nightly_pick.handoff.exists()
 
 
 def test_picker_holds_when_shadow_rejects_stale_history(nightly_pick):
@@ -721,7 +797,7 @@ def test_shadow_checks_approved_names_and_notice(monkeypatch):
     bundle = {
         "identity": {"gameSerial": seed, "players": names},
         "localizations": {
-            "video.notice.sentence": nightly.notice.notice_profile(public=True)[
+            "video.notice.sentence": nightly.notice.notice_profile()[
                 "localizations"
             ]["video.notice.sentence"]
         },

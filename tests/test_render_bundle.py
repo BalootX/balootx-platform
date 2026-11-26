@@ -636,7 +636,7 @@ def test_render_bundle_voice_guard(root: Path, case: str, error: str | None) -> 
 def test_public_notice_profile_builds_a_qualified_bundle_with_the_exact_notice():
     from scripts import render_research_notice as notice
 
-    profile = notice.notice_profile(public=True)
+    profile = notice.notice_profile()
     design = profile["approved_design"]
     assert design["variant"] == "public_v4_no_justification_red_notice"
     assert design["reference_variant"] == "public_v4_no_justification_no_notice"
@@ -644,7 +644,7 @@ def test_public_notice_profile_builds_a_qualified_bundle_with_the_exact_notice()
 
     rules = notice.RuleBook.load(notice.ROOT / "configs/rules/saudi_common_v1.yaml")
     bundle = notice.build_notice_bundle(rules, profile)
-    notice.validate_notice_bundle(bundle, notice.engine_round_result(rules), public=True)
+    notice.validate_notice_bundle(bundle, notice.engine_round_result(rules))
     sentence = bundle.value["localizations"]["video.notice.sentence"]
     assert "video.notice.title" not in profile["localizations"]
     assert "video.notice.title" not in bundle.value["localizations"]
@@ -662,7 +662,7 @@ def test_renderer_rejects_unapproved_layout_table_before_render(
 ):
     from scripts import render_research_notice as notice
 
-    profile = notice.notice_profile(public=True)
+    profile = notice.notice_profile()
     rules = notice.RuleBook.load(root / "configs/rules/saudi_common_v1.yaml")
     bundle = notice.build_notice_bundle(rules, profile)
     renderer = notice.RemotionProfessionalRenderer(profile, repository_root=root)
@@ -698,7 +698,7 @@ def test_public_notice_identity_and_five_visible_voice_phrases(
     from scripts import render_research_notice as notice
 
     rules = notice.RuleBook.load(root / "configs/rules/saudi_common_v1.yaml")
-    profile = notice.notice_profile(public=True)
+    profile = notice.notice_profile()
     if legacy_profile:
         # Recover the pre-guard profile without copying a second justification transcript.
         profile["audio"].update(_RETIRED_VOICE_DEFAULTS, voice_callouts=True, spoken_voice_pack=True)
@@ -741,7 +741,7 @@ def test_public_notice_identity_follows_the_deal_and_name_pool(root: Path) -> No
     from scripts.render_research_scenario_v4_goldens import _fixture_result_code
 
     rules = notice.RuleBook.load(root / "configs/rules/saudi_common_v1.yaml")
-    profile = notice.notice_profile(public=True)
+    profile = notice.notice_profile()
     profile["identity"]["player_name_pool"] = list("ABCD")
     identity = notice.build_notice_bundle(rules, profile).value["identity"]
     assert identity["gameSerial"] == "LAF-98FBED199A"

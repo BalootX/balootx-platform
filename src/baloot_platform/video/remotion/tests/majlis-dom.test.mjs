@@ -1,8 +1,10 @@
 // Server-renders the Majlis frame (no browser) and checks the selectors that
 // playback DOM capture and media checks depend on, plus the palette contract.
 import assert from "node:assert/strict";
-import {copyFileSync, mkdirSync, readFileSync, writeFileSync} from "node:fs";
+import {copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import path from "node:path";
 import {test} from "node:test";
+import {pathToFileURL} from "node:url";
 import ts from "typescript";
 import {checkLayoutGeometry, loadLayoutTable, sha256} from "../scripts/layout-gate.mjs";
 
@@ -403,7 +405,19 @@ test("north tray meets the pill-row bottom", () => {
   assert.ok(Math.abs(top - 420) <= 5, `tray top ${top} should sit near the design's 420`);
 });
 
-test("the calibration table qualifies exact red notice checkpoints and excludes planted contacts", async () => {
+async function isolateLayoutGate(t) {
+  const directory = mkdtempSync(new URL("layout-gate-", out));
+  t.after(() => rmSync(directory, {recursive: true, force: true}));
+  const gate = path.join(directory, "layout-gate.mjs");
+  copyFileSync(new URL("../scripts/layout-gate.mjs", import.meta.url), gate);
+  return {
+    gate: await import(pathToFileURL(gate).href),
+    pin: path.join(directory, "approved-layout-pin.json"),
+    table: path.join(directory, "approved-layout-adjacencies.json"),
+  };
+}
+
+test("the calibration table qualifies exact red notice checkpoints and excludes planted contacts", async t => {
   const table = await loadLayoutTable();
   const widened = JSON.parse(table.bytes);
   widened.rows[0].observedMaxWidth = 200;
@@ -414,6 +428,11 @@ test("the calibration table qualifies exact red notice checkpoints and excludes 
   await assert.rejects(loadLayoutTable(override), /require NEVER_POST measurement mode/);
   const measurementTable = await loadLayoutTable({measure: true, ...override});
   assert.equal(measurementTable.tableSha256, override.expectedSha256);
+  const isolated = await isolateLayoutGate(t);
+  const repinnedBytes = Buffer.concat([table.bytes, Buffer.from("\n")]);
+  writeFileSync(isolated.table, repinnedBytes);
+  writeFileSync(isolated.pin, JSON.stringify({schemaVersion: 1, tableSha256: sha256(repinnedBytes)}));
+  const repinnedTable = await isolated.gate.loadLayoutTable();
   for (const phase of ["hook", "question", "reveal"]) {
     const reveal = phase === "reveal";
     const rect = (left, top, width, height) => ({left, top, right: left + width, bottom: top + height});
@@ -467,6 +486,10 @@ test("the calibration table qualifies exact red notice checkpoints and excludes 
     assert.throws(() => checkLayoutGeometry(taller, expected, table), /notice band height/);
     const tableSha256 = "0".repeat(64);
     assert.throws(() => checkLayoutGeometry(row, {...expected, binding: {...binding, tableSha256}}, table), /binding mismatch/);
+    const repinnedBinding = {...binding, tableSha256: repinnedTable.tableSha256};
+    assert.equal(isolated.gate.checkLayoutGeometry(
+      {...row, binding: repinnedBinding}, {...expected, binding: repinnedBinding}, repinnedTable,
+    ).status, "passed");
   }
 });
 
@@ -479,13 +502,21 @@ test("measurement overrides require an exact SHA-256", async () => {
   await assert.rejects(loadLayoutTable({expectedSha256: table.tableSha256}), /require NEVER_POST measurement mode/);
 });
 
-test("qualification rejects a changed default calibration without environment overrides", async () => {
-  const isolated = new URL("changed-default-layout/", out);
-  mkdirSync(isolated, {recursive: true});
-  const gate = new URL("layout-gate.mjs", isolated);
-  writeFileSync(gate, readFileSync(new URL("../scripts/layout-gate.mjs", import.meta.url)));
+test("qualification accepts only the calibration named by a valid approved pin", async t => {
+  const {gate: {loadLayoutTable: loadChangedDefault}, pin, table} = await isolateLayoutGate(t);
   const approved = await loadLayoutTable();
-  writeFileSync(new URL("approved-layout-adjacencies.json", isolated), Buffer.concat([approved.bytes, Buffer.from("\n")]));
-  const {loadLayoutTable: loadChangedDefault} = await import(gate.href);
+  writeFileSync(table, approved.bytes);
+
+  await assert.rejects(loadChangedDefault(), /approved-layout-pin\.json: restore UTF-8 JSON.*tableSha256/);
+  writeFileSync(pin, "{");
+  await assert.rejects(loadChangedDefault(), /approved-layout-pin\.json: restore UTF-8 JSON.*tableSha256/);
+  writeFileSync(pin, JSON.stringify({schemaVersion: true, tableSha256: approved.tableSha256}));
+  await assert.rejects(loadChangedDefault(), /approved-layout-pin\.json: schemaVersion must be 1/);
+  writeFileSync(pin, JSON.stringify({schemaVersion: 1, tableSha256: `${approved.tableSha256}\n`}));
+  await assert.rejects(loadChangedDefault(), /approved-layout-pin\.json: tableSha256 must be the approved/);
+
+  copyFileSync(new URL("../scripts/approved-layout-pin.json", import.meta.url), pin);
+  assert.equal((await loadChangedDefault()).tableSha256, approved.tableSha256);
+  writeFileSync(table, Buffer.concat([approved.bytes, Buffer.from("\n")]));
   await assert.rejects(loadChangedDefault(), /layout table SHA-256 mismatch/);
 });

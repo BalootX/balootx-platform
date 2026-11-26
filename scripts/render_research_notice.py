@@ -1,4 +1,7 @@
-"""Render the research-notice publish candidate (v4) from the governed synthetic golden.
+"""Render the approved public v4 research notice from a governed synthetic deal.
+
+Requires BALOOT_RENDER_BUILD_RECEIPT, BALOOT_RENDER_IMAGE_ID and
+BALOOT_RENDER_KICKOFF_RECEIPT from the launcher for the pinned Git checkout.
 
 Structure (owner spec v4): pause on the decision with the question, replay the
 recorded round from the bidding (the dealer's أول/ثاني round calls) up to that
@@ -22,7 +25,7 @@ from PIL import Image, ImageDraw, ImageFont
 from baloot_platform.core.rules import RuleBook
 from baloot_platform.research.exact_state import ExactStateNormalizerV1
 from baloot_platform.research.scenario_contracts import canonical_sha256
-from baloot_platform.video.media_validation import APPROVED_LAYOUT_TABLE_SHA256
+from baloot_platform.video.media_validation import approved_layout_table_sha256
 from baloot_platform.video.remotion_renderer import (
     RemotionProfessionalRenderer,
     _json_write,
@@ -36,22 +39,12 @@ from baloot_platform.video.render_bundle import (
 from baloot_platform.video.typography import FONT_BODY_BOLD
 from baloot_platform.video.visual_qa import assert_text_supported, text_bbox
 from scripts.remotion_image_parity import check_parity
-from scripts.render_kickoff import SOURCE_SHA, require_kickoff_receipt, verify_worker_build
+from scripts.render_kickoff import require_kickoff_receipt, verify_worker_build
 from scripts.render_release import render_timeout_seconds
 from scripts.render_research_scenario_v4_goldens import build_golden_bundle
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DESIGN_COMMIT = "4fe1f87b3358142728e07abcc8aea8e3ad115b0a"
-# Deliberate, owner-approved re-pin of the guarded design inputs (the guard stays on).
-DESIGN_CHANGE_REASON = "owner 2026-11-05: fix reveal badge/pill overlap for future videos"
-# The approved v4 render used the v4 pins (prototype 0677b648…, style 66e95f35…; reason:
-# faster plays, play to the round's final score, dealer أول/ثاني calls, one-sentence notice).
-DESIGN_INPUT_SHA256 = {
-    "configs/video/premium.yaml": "5c66c96a091dde077aa48589a33e87e213e2dbff28d6d7e672564b693fdc23c9",
-    "src/baloot_platform/video/remotion/src/professional-prototype.tsx": "0f9e8de6e71627a3ebdd9037209a03a1dedfccbf93da562a67f234d2e5014fcf",
-    "src/baloot_platform/video/remotion/src/style.css": "c924033914a854c863610f31422519abe60d3e7e2d0fe43c41dc51ee477db676",
-}
 FIXTURE = ROOT / "examples/research-scenario-v4-ace-sacrifice-seven.json"
 GOLDEN = "sun-hundred-ace-sacrifice-seven"
 # The approved producer's governed deal source is this set of existing V4
@@ -68,8 +61,6 @@ DEAL_SOURCES = (
         "sun-hundred-ace-sacrifice-two-aces",
     ),
 )
-OUTPUT = ROOT / "outputs/research-notice-4"
-BASENAME = "balootx-research-notice-4"
 CAPTION = (
     "ثلاث أوراق، ولعبة واحدة فقط تفوز في هالتوزيعة… وش تلعب؟ "
     "توزيع افتراضي من BalootX #بلوت #تحدي_بلوت #BalootX"
@@ -187,12 +178,7 @@ def timeline_outline(value: dict) -> list[dict]:
     return rows
 
 
-def notice_profile(*, public: bool = False) -> dict:
-    # Bind the reviewed design bytes, not ancestry.
-    if not public:
-        for name, digest in DESIGN_INPUT_SHA256.items():
-            if _sha256(ROOT / name) != digest:
-                raise ValueError(f"approved Majlis design input changed: {name}")
+def notice_profile() -> dict:
     profile = yaml.safe_load(
         (ROOT / "configs/video/premium.yaml").read_text(encoding="utf-8")
     )
@@ -207,11 +193,10 @@ def notice_profile(*, public: bool = False) -> dict:
     profile["motion"]["flight_steps"] = FLIGHT_STEPS
     profile["presentation"]["show_justification"] = False
     profile["majlis"]["research_notice"] = True
-    if public:
-        profile["approved_design"].update(
-            variant=APPROVED_V4_RED_NOTICE, reference_variant=APPROVED_V4_NO_NOTICE,
-        )
-        validate_approved_v4_public_profile(profile)
+    profile["approved_design"].update(
+        variant=APPROVED_V4_RED_NOTICE, reference_variant=APPROVED_V4_NO_NOTICE,
+    )
+    validate_approved_v4_public_profile(profile)
     return profile
 
 
@@ -270,7 +255,6 @@ def validate_notice_bundle(
     bundle,
     engine_result: dict,
     *,
-    public: bool = False,
     fixture: Path | None = None,
 ) -> None:
     value = bundle.value
@@ -315,7 +299,7 @@ def validate_notice_bundle(
         and value["presentation"]["presentation"]["show_justification_text"] is False
         and not any(cue.get("assetId") == "voice-explanation" for cue in value.get("audioCues") or ())
         and value["presentation"]["majlis"]["research_notice"] is True
-        and (not public or value["presentation"]["majlis"]["id_box"] == "number")
+        and value["presentation"]["majlis"]["id_box"] == "number"
         and fit["widthPx"] <= fit["availablePx"]
         and len(set(value["identity"]["players"].values())) == 4
     ):
@@ -437,7 +421,8 @@ def _release_layout(manifest: dict, video: Path, bundle_sha256: str) -> tuple[di
     geometry = manifest.get("layoutGeometry") or {}
     if geometry.get("mode") == "measurement" or geometry.get("disposition") == "NEVER_POST":
         raise ValueError("layout measurement MP4 is permanently NEVER_POST")
-    if geometry.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256:
+    approved_sha256 = approved_layout_table_sha256()
+    if geometry.get("tableSha256") != approved_sha256:
         raise ValueError("release requires the approved layout table SHA-256")
     video_sha256 = _sha256(video)
     if (
@@ -451,7 +436,7 @@ def _release_layout(manifest: dict, video: Path, bundle_sha256: str) -> tuple[di
     files = manifest["files"]
     paths = []
     for key, pin in (
-        ("layoutTable", APPROVED_LAYOUT_TABLE_SHA256),
+        ("layoutTable", approved_sha256),
         ("layoutGeometry", geometry["evidenceSha256"]),
         *((f"layout:{phase}", files.get(f"layout:{phase}", {}).get("sha256")) for phase in geometry["phases"]),
     ):
@@ -475,76 +460,36 @@ def _release_layout(manifest: dict, video: Path, bundle_sha256: str) -> tuple[di
         evidence.get("status") != "passed"
         or binding.get("mode") != "qualification"
         or binding.get("bundleSha256") != bundle_sha256
-        or binding.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256
+        or binding.get("tableSha256") != approved_sha256
         or evidence.get("videoSha256") != geometry["rendererVideoSha256"]
     ):
         raise ValueError("release layout checkpoint evidence does not match the qualification receipt")
     return geometry, paths
 
 
-def _source_identity(
-    source_head: str | None = None, source_tree: str | None = None
-) -> tuple[str, str]:
-    """Read the pinned source identity from the archive's retained manifest."""
-    if source_head is not None or source_tree is not None:
-        if not all(
-            isinstance(value, str) and SOURCE_SHA.fullmatch(value)
-            for value in (source_head, source_tree)
-        ):
-            raise ValueError("explicit source identity is invalid")
-        return source_head, source_tree
-    if (ROOT / ".git").exists():
-        raise ValueError("explicit source identity is required for a git checkout")
-    try:
-        manifest = json.loads(
-            (ROOT / "release/source-manifest.json").read_text(encoding="utf-8")
-        )
-        source = manifest["source"]
-        revision = source["revision"]
-        tree = source["tree"]
-    except (KeyError, TypeError, OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ValueError("release source manifest identity is invalid") from exc
-    if not all(
-        isinstance(value, str) and SOURCE_SHA.fullmatch(value)
-        for value in (revision, tree)
-    ):
-        raise ValueError("release source manifest identity is invalid")
-    return revision, tree
-
-
 def _write_provenance_notice(
     output: Path,
     *,
-    source_head: str | None = None,
-    source_tree: str | None = None,
-    error: str | None = None,
-    renderer_provenance: dict[str, str] | None = None,
-) -> dict[str, object]:
-    if error is not None:
-        notice = {"schemaVersion": 1, "status": "failed", "error": error}
-    else:
-        try:
-            revision, tree = _source_identity(source_head, source_tree)
-        except ValueError as exc:
-            notice = {"schemaVersion": 1, "status": "failed", "error": str(exc)}
-        else:
-            notice = {
-                "schemaVersion": 1,
-                "status": "passed",
-                "sourceHead": revision,
-                "sourceTree": tree,
-                **(renderer_provenance or {}),
-            }
+    source_head: str,
+    source_tree: str,
+    renderer_provenance: dict[str, str],
+) -> None:
+    notice = {
+        "schemaVersion": 1,
+        "status": "passed",
+        "sourceHead": source_head,
+        "sourceTree": source_tree,
+        **renderer_provenance,
+    }
     (output / "provenance-notice.json").write_text(
         json.dumps(notice, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    return notice
 
 
 def _verify_public_renderer(
     renderer_root: Path, source_head: str, source_tree: str
 ) -> dict[str, str]:
-    """Verify the selected build receipt against the launcher-observed image ID."""
+    """Bind the build and kickoff receipts to the checkout and worker image."""
     receipt_path = os.environ.get("BALOOT_RENDER_BUILD_RECEIPT")
     image_id = os.environ.get("BALOOT_RENDER_IMAGE_ID", "")
     if not receipt_path:
@@ -580,46 +525,31 @@ def _verify_public_renderer(
 def main(
     copy_to: Path | None = None,
     *,
-    public: bool = False,
+    source_head: str,
+    source_tree: str,
     output_dir: Path | None = None,
-    source_head: str | None = None,
-    source_tree: str | None = None,
     deal_id: str | None = None,
     seed: str | int | None = None,
 ) -> None:
-    if deal_id is not None and seed is not None:
-        raise ValueError("deal-id and seed are mutually exclusive")
-    if not public and (deal_id is not None or seed is not None):
-        raise ValueError("deal-id and seed require --public")
     selection = select_deal(deal_id, seed)
     fixture = selection["fixture"]
     golden = selection["golden"]
-    source_identity_error = None
-    try:
-        source_head, source_tree = _source_identity(source_head, source_tree)
-    except ValueError as exc:
-        if public:
-            raise
-        source_identity_error = str(exc)
-        source_head = source_tree = None
     rules = RuleBook.load(ROOT / "configs/rules/saudi_common_v1.yaml")
-    profile = notice_profile(public=public)
+    profile = notice_profile()
     renderer = RemotionProfessionalRenderer(
         profile, repository_root=ROOT, timeout_seconds=render_timeout_seconds(),
-        use_worker_renderer=public,
+        use_worker_renderer=True,
     )
-    renderer_provenance = (
-        _verify_public_renderer(renderer.renderer_root, source_head, source_tree)
-        if public
-        else {}
+    renderer_provenance = _verify_public_renderer(
+        renderer.renderer_root, source_head, source_tree
     )
     bundle = build_notice_bundle(
         rules, profile, fixture=fixture, golden=golden,
     )
     engine_result = engine_round_result(rules, fixture)
-    validate_notice_bundle(bundle, engine_result, public=public, fixture=fixture)
-    output = output_dir.resolve() if output_dir is not None else ROOT / ("outputs/approved-v4-public" if public else "outputs/research-notice-4")
-    basename = "balootx-approved-v4-public" if public else BASENAME
+    validate_notice_bundle(bundle, engine_result, fixture=fixture)
+    output = output_dir.resolve() if output_dir is not None else ROOT / "outputs/approved-v4-public"
+    basename = "balootx-approved-v4-public"
     artifacts = renderer.execute(
         bundle, export_preset="decision_clip", output_dir=output,
         basename=basename, playback_evidence=True,
@@ -680,15 +610,8 @@ def main(
         "thumbnailFrame": rows["hook"]["frame"],
         "qaStillFrames": {phase: rows[phase]["frame"] for phase in PHASES},
         "layoutGeometry": layout,
+        "approvedDesignBinding": profile["approved_design"],
     }
-    if public:
-        receipt["approvedDesignBinding"] = profile["approved_design"]
-    else:
-        receipt.update(
-            approvedDesignCommit=DESIGN_COMMIT,
-            approvedDesignInputs=DESIGN_INPUT_SHA256,
-            approvedDesignChange=DESIGN_CHANGE_REASON,
-        )
     deliverables = [artifacts.video, thumbnail, *stills, artifacts.manifest, *layout_files]
     receipt["files"] = {path.name: _sha256(path) for path in deliverables}
     approval = output / "owner-approval.json"
@@ -699,11 +622,10 @@ def main(
         "".join(f"{_sha256(path)}  {path.name}\n" for path in deliverables), encoding="utf-8",
     )
     deliverables.append(sums)
-    provenance = _write_provenance_notice(
+    _write_provenance_notice(
         output,
         source_head=source_head,
         source_tree=source_tree,
-        error=source_identity_error,
         renderer_provenance=renderer_provenance,
     )
     if copy_to is not None:
@@ -711,24 +633,14 @@ def main(
         for path in (*deliverables, output / "provenance-notice.json"):  # one file at a time
             shutil.copyfile(path, copy_to / path.name)
     print(approval)
-    if provenance["status"] != "passed":
-        raise SystemExit(1)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--copy-to", type=Path, help="Also copy the deliverables to this directory.")
     parser.add_argument("--output", type=Path, help="Write the render and evidence into this directory.")
-    parser.add_argument(
-        "--public",
-        action="store_true",
-        help=(
-            "Render the approved public v4 variant. Requires BALOOT_RENDER_BUILD_RECEIPT, "
-            "BALOOT_RENDER_IMAGE_ID and BALOOT_RENDER_KICKOFF_RECEIPT from the launcher."
-        ),
-    )
-    parser.add_argument("--source-head", help="Pinned source commit SHA for archive execution.")
-    parser.add_argument("--source-tree", help="Pinned source tree SHA for archive execution.")
+    parser.add_argument("--source-head", required=True, help="Pinned source checkout commit SHA.")
+    parser.add_argument("--source-tree", required=True, help="Pinned source checkout tree SHA.")
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument(
         "--deal-id", "--deal-identifier", dest="deal_id",
@@ -736,11 +648,8 @@ if __name__ == "__main__":
     )
     selection.add_argument("--seed", help="Deterministically select a governed V4 deal from the source catalog.")
     args = parser.parse_args()
-    if not args.public and (args.deal_id is not None or args.seed is not None):
-        parser.error("--deal-id/--seed require --public")
     main(
         args.copy_to,
-        public=args.public,
         output_dir=args.output,
         source_head=args.source_head,
         source_tree=args.source_tree,
