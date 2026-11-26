@@ -173,6 +173,10 @@ def test_access_tokens_oidc_pkce_passkeys_and_authorization():
     policy.require(role="player", required=Scope.PLAY, claims=claims)
     with pytest.raises(PermissionError):
         policy.require(role="player", required=Scope.REFEREE, claims=claims)
+    with pytest.raises(PermissionError):
+        policy.require(role="unknown", required=Scope.READ, claims=claims)
+    with pytest.raises(PermissionError):
+        AuthorizationPolicy({"player": ()}).require(role="player", required=Scope.READ, claims=claims)
 
     pkce = PkceTransactionStore(ttl_seconds=60)
     transaction = pkce.create("provider", return_to="/app")

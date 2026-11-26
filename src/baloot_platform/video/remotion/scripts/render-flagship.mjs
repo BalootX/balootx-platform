@@ -82,6 +82,7 @@ await writeRenderEvidence(
 const serveUrl = await bundle({
   entryPoint: path.join(rendererRoot, "src/index.ts"),
   publicDir: assetsRoot,
+  enableCaching: process.env.BALOOTX_DISABLE_BUNDLE_CACHE !== "1",
   onProgress: () => undefined,
 });
 const browser = await openBrowser("chrome", {chromiumOptions});

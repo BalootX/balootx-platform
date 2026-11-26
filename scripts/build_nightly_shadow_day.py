@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from hashlib import sha256
 import json
 from pathlib import Path
-import re
 import shutil
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -34,7 +33,7 @@ from scripts.pick_nightly_candidates import (
     SEAL,
     candidate_binding,
     history,
-    verified_pool,
+    verify_handoff,
 )
 
 
@@ -345,37 +344,16 @@ def build_day(
     }
     pick_raw = pick_path.read_bytes()
     pick = json.loads(pick_raw)
-    require(
-        pick["schemaVersion"] == 1
-        and pick["status"] == "NEVER_POST"
-        and pick["postingAuthorized"] is False
-        and pick["ledgerSha256"] == ledger_digest
-        and pick["captionPoolSha256"] == gate.CAPTION_POOL_SHA,
-        "SHADOW_PICK_BINDING_MISMATCH",
+    pool, index, candidates = verify_handoff(
+        pick_path,
+        pick,
+        ledger_digest,
+        gate.CAPTION_POOL_SHA,
+        day_indices=(day_index,),
     )
-    pool = pick_path.parent / pick["pool"]
-    index, seal = verified_pool(pool)
-    require(
-        (pick["poolSealSha256"], pick["runId"], pick["sourceCommit"])
-        == (seal, index["runId"], index["sourceCommit"]),
-        "SHADOW_POOL_BINDING_MISMATCH",
-    )
-    candidates = {row["id"]: row for row in index["candidates"]}
+    seal = pick["poolSealSha256"]
     primaries, reserves = pick["days"][day_index], pick["fallbacks"]
     choices = primaries + reserves
-    require(
-        len(primaries) == SLOT_COUNT
-        and len(reserves) >= 2
-        and len({row["id"] for row in choices}) == len(choices)
-        and all(
-            row["mechanism"] == candidates[row["id"]]["scoreInputs"]["mechanism"]
-            for row in choices
-        )
-        and all(
-            re.fullmatch(r"[0-9a-f]{64}", row["captionSha256"]) for row in primaries
-        ),
-        "INVALID_SHADOW_PICK",
-    )
 
     combinations, policy = combination_checks(
         gate,
