@@ -4,6 +4,8 @@ import errno
 import os
 from pathlib import Path
 
+import pytest
+
 from baloot_platform import filesystem
 
 
@@ -42,28 +44,31 @@ def test_atomic_write_text_replaces_existing_file(tmp_path: Path) -> None:
     assert not list(tmp_path.glob(".evidence.json.*.tmp"))
 
 
-def test_atomic_write_text_retries_transient_replace_error(
+def test_atomic_write_text_raises_after_one_failed_replace(
     tmp_path: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target = tmp_path / "evidence.json"
-    real_replace = os.replace
+    target.write_text("old", encoding="utf-8")
     attempts = 0
 
     def replace(source: Path, destination: Path) -> None:
         nonlocal attempts
         attempts += 1
-        if attempts == 1:
-            raise OSError(errno.EINVAL, "transient contention")
-        real_replace(source, destination)
+        if attempts > 1:
+            pytest.fail("atomic replacement attempted more than once")
+        raise PermissionError(errno.EACCES, "sharing violation", source, 32, destination)
 
-    monkeypatch.setattr(filesystem, "_retryable_replace_error", lambda exc: True)
-    monkeypatch.setattr(filesystem.os, "replace", replace)
+    monkeypatch.setattr(os, "replace", replace)
 
-    filesystem.atomic_write_text(target, "complete\n")
+    with pytest.raises(PermissionError, match="Close any program using it") as error:
+        filesystem.atomic_write_text(target, "complete\n")
 
-    assert attempts == 2
-    assert target.read_text(encoding="utf-8") == "complete\n"
+    assert attempts == 1
+    assert error.value.errno == errno.EACCES
+    assert error.value.filename is None
+    assert error.value.filename2 is None
+    assert target.read_text(encoding="utf-8") == "old"
     assert not list(tmp_path.glob(".evidence.json.*.tmp"))
 
 
