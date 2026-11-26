@@ -138,18 +138,27 @@ def test_sqlite_oidc_storage_survives_release_roundtrip(root, tmp_path, monkeypa
         monkeypatch.delenv("BALOOT_OIDC_ISSUER")
         with pytest.raises(SQLiteOidcIssuerChange, match="requires its original issuer"):
             runtime.current()
+        unavailable = {"detail": "OIDC provider configuration is unavailable. Contact support to continue."}
+        callback_body = {"providerId": provider, "state": "fixture-state", "code": "fixture-code"}
         with TestClient(app) as client:
-            assert client.post("/api/v1/security/oidc:begin", json={"providerId": provider}).status_code == 503
-            assert client.post(
-                "/api/v1/security/oidc:callback",
-                json={"providerId": provider, "state": "fixture-state", "code": "fixture-code"},
-            ).status_code == 503
+            response = client.post("/api/v1/security/oidc:begin", json={"providerId": provider})
+            assert response.status_code == 503 and response.json() == unavailable
+            response = client.post("/api/v1/security/oidc:callback", json=callback_body)
+            assert response.status_code == 503 and response.json() == unavailable
+
+            # The store must also reject a verified issuer change after runtime selection.
+            verified = {"providerId": provider, "issuer": issuer + "/", "externalSubject": "existing", "claims": {}}
+            callback = SimpleNamespace(complete=lambda **_body: verified)
+            app.state.oidc = SimpleNamespace(current=lambda: callback)
+            response = client.post("/api/v1/security/oidc:callback", json=callback_body)
+            assert response.status_code == 503 and response.json() == unavailable
+            assert "set-cookie" not in response.headers
         with closing(state._connect()) as conn:
             assert conn.execute("SELECT count(*) FROM security_oidc_transactions_v20").fetchone()[0] == 0
         with pytest.raises(SQLiteOidcIssuerChange, match="requires its original issuer"):
             complete_oidc_sign_in(
                 state, IdentityService(identities),
-                {"providerId": provider, "issuer": issuer + "/", "externalSubject": "existing", "claims": {}},
+                verified,
                 display_name="Fixture", user_agent=None,
             )
         with closing(identities._connect()) as conn:
@@ -262,7 +271,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         migrate_legacy_oidc,
         rollback_legacy_oidc,
     )
-    from baloot_platform.security.state_v20 import PostgresSecurityStateStore
+    from baloot_platform.security.state_v20 import OidcIdentityConflict, PostgresSecurityStateStore
     from baloot_platform.storage.request_context import (
         CURRENT_DATABASE_IDENTITY,
         DatabaseIdentityContext,
@@ -659,15 +668,24 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         assert linked_owner(canonical, "old-callback") == legacy_subject
         assert linked_owner(legacy, "new-callback") == new_subject
 
-        def assert_owner_cannot_change(subject, error):
-            with pytest.raises(error, match="already linked"):
+        def assert_owner_cannot_change(subject):
+            with pytest.raises(OidcIdentityConflict, match="already linked"):
                 with store.external_identity_transaction(identity_store, ("default", canonical, subject)) as conn:
                     store.link_external_identity(
                         provider_id="default", issuer=canonical, external_subject=subject,
                         local_subject_id="wrong-account", claims={}, linked_at="2026-01-01T00:00:00Z", connection=conn,
                     )
 
-        assert_owner_cannot_change("new-callback", psycopg.errors.RaiseException)
+        assert_owner_cannot_change("new-callback")
+        conflict = begin(current_client, code="ownership-conflict", subject="new-callback")
+        with monkeypatch.context() as stale_lookup:
+            stale_lookup.setattr(api.SECURITY_STATE, "get_external_identity", lambda *_args, **_kwargs: None)
+            refused = callback(current_client, conflict)
+        assert refused.status_code == 409
+        assert refused.json() == {"detail": "Unable to complete sign-in for this account. Contact support to continue."}
+        assert "set-cookie" not in refused.headers
+        assert callback(current_client, conflict).status_code == 400
+        assert linked_owner(canonical, "new-callback") == new_subject
 
         # An old callback can consume a new transaction and verify PKCE, but RLS still blocks its write.
         wrong_route = begin(current_client, code="wrong-route", subject="legacy-write-denied", issuer=legacy)
@@ -749,7 +767,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         owner, = accounts
         assert complete(current_client, begin(current_client, code="race-retry", subject="same-account")) == owner
         assert linked_owner(canonical, "same-account") == owner
-        assert_owner_cannot_change("same-account", ValueError)
+        assert_owner_cannot_change("same-account")
         with psycopg.connect(dsn, row_factory=dict_row) as conn:
             assert conn.execute(
                 "SELECT count(*) AS n FROM identity.sessions WHERE subject_id=%s", (owner,),
@@ -766,12 +784,14 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         failed = begin(current_client, code="link-failure", subject="retry-account")
 
         def reject_link(**_values):
-            raise RuntimeError("fixture link failure")
+            raise psycopg.OperationalError("internal fixture database detail")
 
         with monkeypatch.context() as failure:
             failure.setattr(api.SECURITY_STATE, "link_external_identity", reject_link)
-            with pytest.raises(RuntimeError, match="fixture link failure"):
-                callback(current_client, failed)
+            refused = callback(current_client, failed)
+        assert refused.status_code == 503
+        assert refused.json() == {"detail": "Sign-in is temporarily unavailable. Start a new sign-in and try again."}
+        assert "set-cookie" not in refused.headers
         assert counts() == previous_counts
         assert callback(current_client, failed).status_code == 400
         assert linked_owner(canonical, "retry-account") is None

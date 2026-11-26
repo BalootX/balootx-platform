@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS security_external_identities_v20(
 """
 
 
+_OIDC_IDENTITY_CONFLICT = "OIDC external identity is already linked to another account"
+
+
+class OidcIdentityConflict(ValueError):
+    """The verified identity cannot be linked to a second account."""
+
+
 class SQLiteOidcIssuerChange(ValueError):
     """An existing SQLite provider cannot switch issuers."""
 
@@ -180,7 +187,7 @@ class SQLiteSecurityStateStore:
                  json.dumps(claims, ensure_ascii=False, sort_keys=True), linked_at),
             )
             if row.rowcount != 1:
-                raise ValueError("OIDC external identity is already linked to another account")
+                raise OidcIdentityConflict(_OIDC_IDENTITY_CONFLICT)
 
     def close(self) -> None: return None
 
@@ -258,17 +265,25 @@ class PostgresSecurityStateStore:
             ).fetchone()
         return {"local_subject_id":row[0],"claims":dict(row[1]),"linked_at":str(row[2])} if row else None
     def link_external_identity(self,*,provider_id,issuer,external_subject,local_subject_id,claims,linked_at,connection=None):
+        from psycopg.errors import RaiseException
+
         with self._link_connection(connection) as conn:
-            row = conn.execute(
-                "INSERT INTO security.external_identities "
-                "(provider_id,issuer,external_subject,local_subject_id,claims_json,linked_at) "
-                "VALUES(%s,%s,%s,%s,%s::jsonb,%s::timestamptz) "
-                "ON CONFLICT(provider_id,issuer,external_subject) DO UPDATE "
-                "SET claims_json=excluded.claims_json "
-                "WHERE security.external_identities.local_subject_id=excluded.local_subject_id",
-                (provider_id, issuer, external_subject, local_subject_id,
-                 json.dumps(claims, ensure_ascii=False), linked_at),
-            )
+            try:
+                row = conn.execute(
+                    "INSERT INTO security.external_identities "
+                    "(provider_id,issuer,external_subject,local_subject_id,claims_json,linked_at) "
+                    "VALUES(%s,%s,%s,%s,%s::jsonb,%s::timestamptz) "
+                    "ON CONFLICT(provider_id,issuer,external_subject) DO UPDATE "
+                    "SET claims_json=excluded.claims_json "
+                    "WHERE security.external_identities.local_subject_id=excluded.local_subject_id",
+                    (provider_id, issuer, external_subject, local_subject_id,
+                     json.dumps(claims, ensure_ascii=False), linked_at),
+                )
+            except RaiseException as exc:
+                # Migration 030 uses PL/pgSQL's default SQLSTATE for a mirror ownership conflict.
+                if exc.diag.message_primary == _OIDC_IDENTITY_CONFLICT:
+                    raise OidcIdentityConflict(_OIDC_IDENTITY_CONFLICT) from exc
+                raise
             if row.rowcount != 1:
-                raise ValueError("OIDC external identity is already linked to another account")
+                raise OidcIdentityConflict(_OIDC_IDENTITY_CONFLICT)
     def close(self): self.pool.close()

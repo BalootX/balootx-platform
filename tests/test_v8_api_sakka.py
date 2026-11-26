@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from security_probe_helpers import security_probe_app
 
 from baloot_platform.service.api import app
 
@@ -203,6 +204,32 @@ def test_http_oidc_profile_lifecycle_requires_config_admin(monkeypatch):
             })
 
 
+def test_http_oidc_registry_key_only_changes_record_the_service_actor(monkeypatch):
+    monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
+    monkeypatch.setenv("BALOOT_RATE_LIMIT_PER_MINUTE", "0")
+    prefix = "/api/v1/configuration-registry/profiles"
+    headers = {"x-api-key": _SERVICE_KEY}
+
+    with TestClient(app) as client:
+        created = client.post(prefix, headers=headers, json={
+            "family": "oidc_providers", "payload": _oidc_test_payload("key-only-audit-fixture"),
+        })
+        assert created.status_code == 201, created.text
+        draft = created.json()
+        assert draft["createdBy"] == _KEY_SERVICE
+        revision = f"{prefix}/{draft['revisionId']}"
+        published = client.post(revision + ":publish", headers=headers, json={"expectedEtag": draft["etag"]})
+        assert published.status_code == 200, published.text
+        assert published.json()["publishedBy"] == _KEY_SERVICE
+        response = client.get(revision + "/events", headers=headers)
+        assert response.status_code == 200, response.text
+        audit = response.json()
+        assert audit["verification"]["valid"]
+        assert [(event["eventType"], event["actorId"]) for event in audit["items"]] == [
+            ("created", _KEY_SERVICE), ("published", _KEY_SERVICE),
+        ]
+
+
 def test_http_configuration_revision_readers_share_sqlite_visibility(monkeypatch):
     from baloot_platform.configuration import SQLiteConfigurationStore
     from baloot_platform.security import Scope, SignedAccessTokenService
@@ -288,13 +315,9 @@ def test_http_configuration_revision_readers_share_sqlite_visibility(monkeypatch
 
 
 def test_http_database_role_ignores_keyless_role_header(monkeypatch):
-    from fastapi import FastAPI
-
-    from baloot_platform.service.api import platform_security
     from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY
 
-    probe = FastAPI()
-    probe.middleware("http")(platform_security)
+    probe = security_probe_app()
 
     @probe.get("/database-role")
     def database_role():

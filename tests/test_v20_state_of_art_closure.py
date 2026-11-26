@@ -19,9 +19,9 @@ import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from hypothesis import given, strategies as st
+from security_probe_helpers import security_probe_app
 
 from baloot_platform.config import build_bundle, platform_root
 from baloot_platform.configuration import SQLiteConfigurationStore, VersionedConfigurationService
@@ -239,8 +239,6 @@ def test_sqlite_profile_visibility_includes_only_published_rows_for_oidc_runtime
 def test_v20_oidc_registry_drives_api_and_preserves_audit(
     tmp_path, monkeypatch, caplog, oidc_configuration
 ):
-    from baloot_platform.service.api import platform_security
-
     monkeypatch.setattr(
         "baloot_platform.configuration.store.utc_now", lambda: "2026-01-01T00:00:00+00:00"
     )
@@ -279,9 +277,7 @@ def test_v20_oidc_registry_drives_api_and_preserves_audit(
     monkeypatch.setenv("BALOOT_API_KEY", "synthetic-test-key")
     container = build_container(writable_root=tmp_path / "data", database_url="")
     try:
-        api = FastAPI()
-
-        api.middleware("http")(platform_security)
+        api = security_probe_app()
 
         api.include_router(
             build_configuration_router(

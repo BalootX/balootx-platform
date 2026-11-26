@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from baloot_platform.identity import IdentityService
+from baloot_platform.observability import log_event
 from baloot_platform.security import (
     AuthorizationPolicy, PasskeyChallengeService, ROLE_SCOPES, Scope,
     SignedAccessTokenService, WebSocketTicketService,
 )
-from baloot_platform.security.state_v20 import SQLiteOidcIssuerChange, complete_oidc_sign_in
+from baloot_platform.security.state_v20 import OidcIdentityConflict, SQLiteOidcIssuerChange, complete_oidc_sign_in
 
 from .auth import require_identity
 
@@ -26,7 +28,7 @@ def _current_oidc(request: Request):
     try:
         return runtime.current()
     except (ValueError, RuntimeError) as exc:
-        raise HTTPException(503, "OIDC provider configuration is unavailable") from exc
+        raise HTTPException(503, "OIDC provider configuration is unavailable. Contact support to continue.") from exc
 
 
 class TokenRequest(BaseModel):
@@ -142,7 +144,15 @@ def build_security_router(
                 security_state, identities, result, display_name=display, user_agent=request.headers.get("user-agent"),
             )
         except SQLiteOidcIssuerChange as exc:
-            raise HTTPException(503, "OIDC provider configuration is unavailable") from exc
+            raise HTTPException(503, "OIDC provider configuration is unavailable. Contact support to continue.") from exc
+        except OidcIdentityConflict as exc:
+            raise HTTPException(409, "Unable to complete sign-in for this account. Contact support to continue.") from exc
+        except Exception as exc:
+            log_event(
+                "oidc.link_failed", level=logging.ERROR, request_id=request.state.request_id,
+                error_type=type(exc).__name__,
+            )
+            raise HTTPException(503, "Sign-in is temporarily unavailable. Start a new sign-in and try again.") from None
         return {**session, "returnTo": result["returnTo"], "providerId": result["providerId"]}
 
     @router.post("/passkeys:begin")
