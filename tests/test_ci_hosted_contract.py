@@ -169,6 +169,7 @@ def test_hosted_ci_contract(root):
     assert 'git show "$REVIEW_BASE:ci/critical_review.py"' in review_step["run"]
     assert 'python3 -I "$RUNNER_TEMP/critical-review.py"' in review_step["run"]
     assert "python3 -I ci/critical_review.py" not in review_step["run"]
+    assert not re.search(r"^\s*exit\s+0\s*$", review_step["run"], re.MULTILINE)
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
         "media-inputs", "media-render", "media-release-smoke", "remotion-image-parity",
