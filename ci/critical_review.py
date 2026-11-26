@@ -161,7 +161,7 @@ def critical_entries(commit, paths):
     return entries
 
 
-def evaluate(event_name, event, repo, ref, candidate, *, comments=None):
+def evaluate(event_name, event, repo, ref, candidate, *, comments=None, expected_pr=None):
     if event_name == "pull_request":
         pr = event["pull_request"]
         number, base, head = pr["number"], pr["base"]["sha"], pr["head"]["sha"]
@@ -183,9 +183,14 @@ def evaluate(event_name, event, repo, ref, candidate, *, comments=None):
         raise ValueError("Missing PR number")
 
     reviewer_ids, patterns = policy(policy_base)
+    expected_base = base if event_name == "pull_request" else None
     if event_name == "merge_group":
         head = queued_pr_head(repo, number, base, candidate)
-    pr_base, critical_changes = critical_paths(repo, number, head, patterns, base if event_name == "pull_request" else None)
+        if expected_pr is not None:
+            expected_head, expected_base = expected_pr
+            if head != expected_head:
+                raise ValueError(f"PR #{number} no longer matches the discovered queue head")
+    pr_base, critical_changes = critical_paths(repo, number, head, patterns, expected_base)
     if not critical_changes:
         return f"No critical paths changed (policy {policy_base[:12]})."
 

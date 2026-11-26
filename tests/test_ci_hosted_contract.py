@@ -340,7 +340,7 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
     ref = f"refs/heads/gh-readonly-queue/main/pr-104-{base}"
     event = {"merge_group": {"base_ref": "refs/heads/main", "base_sha": base, "head_ref": ref, "head_sha": candidate}}
     entry = {"baseCommit": {"oid": base}, "headCommit": {"oid": candidate}}
-    pr = {"mergeQueueEntry": entry, "headRefOid": head}
+    pr = {"mergeQueueEntry": entry, "headRefOid": head, "baseRefOid": base}
     comment = {"user": {"id": next(iter(reviewer_ids))}, "body": f"VERDICT: GO {base}"}
     snapshot = {"number": 104, "state": "open", "head": {"sha": head}, "base": {"sha": base}, "changed_files": 1}
     files = [{"filename": "scripts/render-kickoff.json", "status": "added"}]
@@ -366,6 +366,11 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
     assert review_verdict_poster.decision(
         "test/example", "main", {"number": 104, **pr}, "refs/heads/main", ref, candidate, queue=True,
     )[0] == "success"
+    state, reason = review_verdict_poster.decision(
+        "test/example", "main", {"number": 104, **pr, "headRefOid": "f" * 40},
+        "refs/heads/main", ref, candidate, queue=True,
+    )
+    assert state == "failure" and "discovered queue head" in reason
     files[0]["filename"] = "ci/fixture.json"
     with pytest.raises(ValueError, match="absent from both the PR base and head"):
         critical_review.check(*args)
@@ -390,7 +395,7 @@ def test_critical_review_rejects_wrong_queue_parent(review_history):
     event = {"merge_group": {"base_ref": "refs/heads/main", "base_sha": base, "head_ref": ref, "head_sha": wrong}}
     with pytest.raises(ValueError, match="base parent"):
         critical_review.evaluate("merge_group", event, "test/example", ref, wrong)
-    pr = {"number": 104, "headRefOid": head, "mergeQueueEntry": {"baseCommit": {"oid": base}}}
+    pr = {"number": 104, "headRefOid": head, "baseRefOid": base, "mergeQueueEntry": {"baseCommit": {"oid": base}}}
     state, reason = review_verdict_poster.decision(
         "test/example", "main", pr, "refs/heads/main", ref, wrong, queue=True,
     )
@@ -463,6 +468,7 @@ def test_poster_fails_closed_on_api_error_or_moved_snapshot(review_history, monk
     ("offset shift", "pending"),
     ("cursor drift", "pending"),
     ("missing receipt", "pending"),
+    ("identity drift", "pending"),
 ])
 def test_poster_replaces_both_successes_when_comments_change(review_history, monkeypatch, change, replacement):
     path = "scripts/render-kickoff.json"
@@ -505,14 +511,17 @@ def test_poster_replaces_both_successes_when_comments_change(review_history, mon
     def github(*args):
         if args[:3] == ("--paginate", "--slurp", "graphql"):
             assert args[4] == f"query={review_verdict_poster.QUERY}"
-            snapshot = dict(pr)
-            if clock.now < 30 or change != "missing receipt":
-                snapshot["comments"] = graph_page()
-            return [{"data": {"repository": {"pullRequests": {"nodes": [snapshot]}}}}]
+            return [{"data": {"repository": {"pullRequests": {"nodes": [pr]}}}}]
         if args[0] == "graphql":
-            if args[2] == f"query={review_verdict_poster.MORE_COMMENTS}":
-                assert args[-1] == "cursor=fixture-page-2"
-                return {"data": {"repository": {"pullRequest": {"comments": graph_page(after=100)}}}}
+            if args[2] == f"query={review_verdict_poster.COMMENTS}":
+                assert args[-1] in ("number=104", "cursor=fixture-page-2")
+                after = 100 if args[-1].startswith("cursor=") else 0
+                snapshot = {**pr, "state": "OPEN", "baseRefName": "main"}
+                if clock.now < 30 or change != "missing receipt":
+                    snapshot["comments"] = graph_page(after)
+                if clock.now >= 30 and change == "identity drift" and after:
+                    snapshot["headRefOid"] = "f" * 40
+                return {"data": {"repository": {"pullRequest": snapshot}}}
             return {"data": {"repository": {"pullRequest": pr}}}
         if args == (f"{endpoint}/pulls/104",):
             return {"number": 104, "state": "open", "head": {"sha": head}, "base": {"sha": base}, "changed_files": 1}
@@ -540,11 +549,61 @@ def test_poster_replaces_both_successes_when_comments_change(review_history, mon
     ], writes
 
 
+@pytest.mark.parametrize("fault", ["first comments page", "merge refs", "missing queue base"])
+def test_poster_blocks_discovered_targets_on_cold_start_read_error(monkeypatch, fault):
+    head, queued, base = "a" * 40, "b" * 40, "c" * 40
+    bot_id = 1001
+    pr = {"number": 104, "headRefOid": head, "baseRefOid": base, "mergeQueueEntry": {
+        "headCommit": {"oid": queued}, "baseCommit": None if fault == "missing queue base" else {"oid": base},
+    }}
+    clock = SimpleNamespace(now=0)
+    reads, writes = [], []
+
+    def git(*args):
+        if args[0] == "ls-remote":
+            if fault == "merge refs":
+                raise subprocess.TimeoutExpired("git ls-remote", 10)
+            return f"{base}\trefs/heads/main\n".encode()
+        assert args == ("rev-parse", "refs/heads/main")
+        return base.encode()
+
+    def github(*args):
+        if args[:3] == ("--paginate", "--slurp", "graphql"):
+            assert args[4] == f"query={review_verdict_poster.QUERY}"
+            assert "comments(" not in args[4]
+            reads.append("targets")
+            return [{"data": {"repository": {"pullRequests": {"nodes": [pr]}}}}]
+        if args[0] == "graphql":
+            assert args[2] == f"query={review_verdict_poster.COMMENTS}"
+            assert args[-2:] == ("-F", "number=104")
+            reads.append("first comments page")
+            raise subprocess.CalledProcessError(1, "gh api graphql")
+        if args[:2] == ("--paginate", "--slurp"):
+            assert args[-1] in {f"repos/test/example/commits/{sha}/statuses?per_page=100" for sha in (head, queued)}
+            return [[{"creator": {"id": bot_id}, "context": "review-verdict", "state": "success"}]]
+        assert args[:2] == ("--method", "POST")
+        writes.append((args[2], args[6], args[-1]))
+        return {}
+
+    monkeypatch.setattr(review_verdict_poster, "git", git)
+    monkeypatch.setattr(review_verdict_poster, "github", github)
+    monkeypatch.setattr(review_verdict_poster, "decision", lambda *args, **kwargs: pytest.fail("Evaluated an incomplete snapshot"))
+    monkeypatch.setattr(review_verdict_poster, "time", SimpleNamespace(
+        monotonic=lambda: clock.now, sleep=lambda delay: setattr(clock, "now", clock.now + delay),
+    ))
+    review_verdict_poster.poll("test/example", "main", "https://github.example", bot_id, seconds=1)
+    assert reads == (["targets"] if fault == "merge refs" else ["targets", "first comments page"])
+    assert writes == [
+        (f"repos/test/example/statuses/{sha}", "state=pending", "target_url=https://github.example/test/example/pull/104")
+        for sha in (head, queued)
+    ]
+
+
 @pytest.mark.parametrize("state", ["pending", "failure", "success"])
 def test_status_history_error_only_allows_blocking_writes_and_retries_failed_post(monkeypatch, state):
     head, queued = "a" * 40, "b" * 40
     pr = {"number": 104}
-    found = {head: [(pr, "pr-ref", head, False)], queued: [(pr, "queue-ref", queued, True)]}
+    found = {head: [(pr, False)], queued: [(pr, True)]}
     clock = SimpleNamespace(now=0)
     writes = []
 
@@ -560,6 +619,7 @@ def test_status_history_error_only_allows_blocking_writes_and_retries_failed_pos
         return {}
 
     monkeypatch.setattr(review_verdict_poster, "targets", lambda *args: found)
+    monkeypatch.setattr(review_verdict_poster, "merge_refs", lambda *args: {})
     monkeypatch.setattr(review_verdict_poster, "comment_snapshot", lambda *args: [])
     monkeypatch.setattr(review_verdict_poster, "decision", lambda *args, **kwargs: (state, "fixture result"))
     monkeypatch.setattr(review_verdict_poster, "github", github)

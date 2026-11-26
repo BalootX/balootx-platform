@@ -7,11 +7,10 @@ import time
 
 
 CONTEXT = "review-verdict"
-COMMENT_FIELDS = """
-fragment ReviewComments on IssueCommentConnection {
-  totalCount
-  pageInfo { hasNextPage endCursor }
-  nodes { fullDatabaseId body author { ... on Node { id } } }
+TARGET_FIELDS = """
+fragment ReviewTarget on PullRequest {
+  number headRefOid baseRefOid
+  mergeQueueEntry { baseCommit { oid } headCommit { oid } }
 }
 """
 QUERY = """
@@ -19,24 +18,26 @@ query($owner: String!, $name: String!, $branch: String!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequests(states: OPEN, baseRefName: $branch, first: 100, after: $endCursor) {
       pageInfo { hasNextPage endCursor }
-      nodes {
-        number headRefOid baseRefOid
-        comments(first: 100) { ...ReviewComments }
-        mergeQueueEntry { baseCommit { oid } headCommit { oid } }
+      nodes { ...ReviewTarget }
+    }
+  }
+}
+""" + TARGET_FIELDS
+COMMENTS = """
+query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      ...ReviewTarget
+      state baseRefName
+      comments(first: 100, after: $cursor) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes { fullDatabaseId body author { ... on Node { id } } }
       }
     }
   }
 }
-""" + COMMENT_FIELDS
-MORE_COMMENTS = """
-query($owner: String!, $name: String!, $number: Int!, $cursor: String!) {
-  repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) {
-      comments(first: 100, after: $cursor) { ...ReviewComments }
-    }
-  }
-}
-""" + COMMENT_FIELDS
+""" + TARGET_FIELDS
 
 
 def git(*args):
@@ -56,8 +57,9 @@ def load_review(base):
 
 
 def decision(repo, branch, pr, main_ref, ref, candidate, queue=False, *, comments=None):
-    number, head = pr["number"], pr["headRefOid"]
+    number = pr["number"]
     try:
+        head = pr["headRefOid"]
         if not candidate:
             return "pending", f"Waiting for GitHub's {'queue commit' if queue else 'test merge'} for PR #{number}"
         git("fetch", "--no-tags", "--no-recurse-submodules", "origin", ref)
@@ -82,7 +84,10 @@ def decision(repo, branch, pr, main_ref, ref, candidate, queue=False, *, comment
         # An open PR can be retargeted while its GitHub-generated ref is fetched.
         git("merge-base", "--is-ancestor", base, main_ref)
         git("update-ref", "--no-deref", "HEAD", candidate)
-        return "success", load_review(base)(event_name, event, repo, ref, candidate, comments=comments)
+        expected_pr = (head, pr["baseRefOid"]) if queue else None
+        return "success", load_review(base)(
+            event_name, event, repo, ref, candidate, comments=comments, expected_pr=expected_pr,
+        )
     except json.JSONDecodeError as exc:
         return "pending", f"Verdict not re-checked: {type(exc).__name__}"
     except ValueError as exc:
@@ -116,12 +121,25 @@ def publish(repo, public_url, bot_id, number, target, state, reason):
         time.sleep(1)
 
 
-def comment_snapshot(repo, pr):
+def comment_snapshot(repo, branch, pr):
     number = pr["number"]
     owner, name = repo.split("/", 1)
-    page = pr["comments"]
-    total = page["totalCount"]
     problem = f"PR #{number} comment snapshot is incomplete or has moved"
+    args = ("graphql", "-f", f"query={COMMENTS}", "-f", f"owner={owner}", "-f", f"name={name}",
+            "-F", f"number={number}")
+
+    def read_page(cursor=None):
+        response = github(*args) if cursor is None else github(*args, "-f", f"cursor={cursor}")
+        if response.get("errors"):
+            raise RuntimeError(problem)
+        current = response["data"]["repository"]["pullRequest"]
+        if (current["state"] != "OPEN" or current["baseRefName"] != branch
+                or any(current[field] != pr[field] for field in ("number", "headRefOid", "baseRefOid", "mergeQueueEntry"))):
+            raise RuntimeError(problem)
+        return current["comments"]
+
+    page = read_page()
+    total = page["totalCount"]
     if type(total) is not int or total < 0:
         raise RuntimeError(problem)
     expected = []
@@ -143,11 +161,7 @@ def comment_snapshot(repo, pr):
         if not isinstance(cursor, str) or not cursor or cursor in cursors:
             raise RuntimeError(problem)
         cursors.add(cursor)
-        response = github("graphql", "-f", f"query={MORE_COMMENTS}", "-f", f"owner={owner}", "-f", f"name={name}",
-                          "-F", f"number={number}", "-f", f"cursor={cursor}")
-        if response.get("errors"):
-            raise RuntimeError(problem)
-        page = response["data"]["repository"]["pullRequest"]["comments"]
+        page = read_page(cursor)
 
     # A REST offset page can shift when a comment disappears. Compare every row with the cursor view.
     pages = github("--paginate", "--slurp", f"repos/{repo}/issues/{number}/comments?per_page=100")
@@ -175,13 +189,24 @@ def comment_snapshot(repo, pr):
     return comments
 
 
-def targets(repo, branch, main_ref):
+def targets(repo, branch):
     owner, name = repo.split("/", 1)
     pages = github("--paginate", "--slurp", "graphql", "-f", f"query={QUERY}",
                    "-f", f"owner={owner}", "-f", f"name={name}", "-f", f"branch={branch}")
     if not pages or any(page.get("errors") for page in pages):
         raise RuntimeError("Open PR snapshot is incomplete")
     prs = [pr for page in pages for pr in page["data"]["repository"]["pullRequests"]["nodes"]]
+    found = {}
+    for pr in prs:
+        if head := pr.get("headRefOid"):
+            found.setdefault(head, []).append((pr, False))
+        entry = pr.get("mergeQueueEntry") or {}
+        if queued := (entry.get("headCommit") or {}).get("oid"):
+            found.setdefault(queued, []).append((pr, True))
+    return found
+
+
+def merge_refs(branch, main_ref):
     branch_ref = f"refs/heads/{branch}"
     queue_prefix = f"refs/heads/gh-readonly-queue/{branch}/"
     refs = {ref: oid for oid, ref in (
@@ -191,18 +216,7 @@ def targets(repo, branch, main_ref):
     )}
     if git("rev-parse", main_ref).decode("ascii").strip() != refs[branch_ref]:
         git("fetch", "--no-tags", "--no-recurse-submodules", "origin", f"{branch_ref}:{main_ref}")
-    found = {}
-    for pr in prs:
-        number, head = pr["number"], pr["headRefOid"]
-        ref = f"refs/pull/{number}/merge"
-        found.setdefault(head, []).append((pr, ref, refs.get(ref), False))
-        entry = pr["mergeQueueEntry"]
-        if entry and entry["headCommit"] and entry["baseCommit"]:
-            queued = entry["headCommit"]["oid"]
-            matches = [ref for ref, oid in refs.items() if oid == queued and ref.startswith(f"{queue_prefix}pr-{number}-")]
-            ref, candidate = (matches[0], queued) if len(matches) == 1 else (None, None)
-            found.setdefault(queued, []).append((pr, ref, candidate, True))
-    return found
+    return refs
 
 
 def poll(repo, branch, public_url, bot_id, seconds):
@@ -212,7 +226,9 @@ def poll(repo, branch, public_url, bot_id, seconds):
     while time.monotonic() < end:
         started = time.monotonic()
         try:
-            current = targets(repo, branch, main_ref)
+            # Keep the target SHAs if fetching refs or verifying the verdict fails.
+            current = targets(repo, branch)
+            refs = merge_refs(branch, main_ref)
             outage = None
         except Exception as exc:
             outage = f"Verdict not re-checked: {type(exc).__name__}"
@@ -230,17 +246,24 @@ def poll(repo, branch, public_url, bot_id, seconds):
                     continue
                 state, reason = "failure", "Commit is associated with multiple open review targets"
             else:
-                pr, ref, candidate, queue = entries[0]
+                pr, queue = entries[0]
                 if number not in snapshots:
                     try:
-                        snapshots[number] = (comment_snapshot(repo, pr), None)
+                        snapshots[number] = (comment_snapshot(repo, branch, pr), None)
                     except Exception as exc:
                         snapshots[number] = (None, f"Comment snapshot unavailable: {type(exc).__name__}")
                 comments, snapshot_error = snapshots[number]
                 if snapshot_error:
                     state, reason = "pending", snapshot_error
                 else:
-                    key = (entries, comments)
+                    if queue:
+                        prefix = f"refs/heads/gh-readonly-queue/{branch}/pr-{number}-"
+                        matches = [ref for ref, oid in refs.items() if oid == sha and ref.startswith(prefix)]
+                        ref = matches[0] if len(matches) == 1 else None
+                    else:
+                        ref = f"refs/pull/{number}/merge"
+                    candidate = refs.get(ref)
+                    key = (entries, ref, candidate, comments)
                     if key == seen.get(sha):
                         continue
                     state, reason = decision(repo, branch, pr, main_ref, ref, candidate, queue=queue, comments=comments)
