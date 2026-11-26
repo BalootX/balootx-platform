@@ -21,11 +21,21 @@ class _IdentityLists:
         raise NotImplementedError
 
     def search_subjects(
-        self, query: str, *, exact_username: str, limit: int, maximum_results: int, after: tuple[str, ...] = ()
+        self, query: str, *, limit: int = 20, exact_username: str | None = None,
+        maximum_results: int | None = None, after: tuple[str, ...] = (),
     ) -> list[dict[str, Any]]:
-        needle = "%" + query.translate(str.maketrans({"!": "!!", "%": "!%", "_": "!_"})) + "%"
         p = self.placeholder
         fields = "subject_id,kind,username,display_name,created_at"
+        query = query.strip()
+        if maximum_results is None:
+            needle = f"%{query}%"
+            return self._read_page_rows(
+                f"""SELECT {fields} FROM {self.subjects}
+                    WHERE disabled_at IS NULL AND (display_name {self.like} {p} OR username {self.like} {p})
+                    ORDER BY kind DESC,display_name LIMIT {p}""",
+                (needle, needle, max(1, min(100, int(limit)))),
+            )
+        needle = "%" + query.translate(str.maketrans({"!": "!!", "%": "!%", "_": "!_"})) + "%"
         seek = f"WHERE (search_rank,subject_id)>({p},{p})" if after else ""
         # Cap the candidate set before applying the cursor, including for a forged anchor.
         return self._read_page_rows(

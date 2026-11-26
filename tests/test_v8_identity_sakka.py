@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 from contextlib import closing
+from functools import partial
 from pathlib import Path
 
 import httpx
@@ -100,7 +101,7 @@ def test_python_sdk_forwards_identity_pagination_options():
         ("/api/v1/friends", {}),
         ("/api/v2/friends", {}),
         ("/api/v2/friends/requests", {"cursor": "encoded-_", "limit": "5"}),
-        ("/api/v1/users:search", {"query": "Fixture + sample", "cursor": "encoded-_", "limit": "7"}),
+        ("/api/v2/users:search", {"query": "Fixture + sample", "cursor": "encoded-_", "limit": "7"}),
     ]
 
 
@@ -113,6 +114,8 @@ def test_friend_routes_preserve_service_delegation_and_apply_v2_read_scope(tmp_p
     store = SQLiteIdentityStore(tmp_path / "transport-identity.sqlite3")
     service = IdentityService(store)
     tokens = SignedAccessTokenService(b"synthetic-identity-transport-signing-key")
+    now = 1_767_225_600
+    monkeypatch.setattr(tokens, "verify", partial(tokens.verify, now=now))
     monkeypatch.setattr(api, "IDENTITY", service)
     monkeypatch.setattr(api, "ACCESS_TOKENS", tokens)
     _, legacy = service_subject_ownership({}, configured_key=key)
@@ -132,9 +135,18 @@ def test_friend_routes_preserve_service_delegation_and_apply_v2_read_scope(tmp_p
     delegated = {"x-api-key": key, "x-baloot-subject-id": "SUB-DELEGATED"}
 
     def bearer(role, scope):
-        return {"Authorization": "Bearer " + tokens.issue(subject_id="SUB-DELEGATED", role=role, scopes=[scope])}
+        return {"Authorization": "Bearer " + tokens.issue(subject_id="SUB-DELEGATED", role=role, scopes=[scope], now=now)}
 
     with TestClient(app) as client:
+        v2_search = "/api/v2/users:search"
+        query = {"query": "SUB"}
+        assert client.get(v2_search, params=query).status_code == 401
+        for headers in ({"x-api-key": key}, delegated):
+            assert client.get(v2_search, params=query, headers=headers).status_code == 200
+        for role in ("guest", "player", "expert", "referee", "admin", "service", "unknown"):
+            expected = 403 if role in {"guest", "unknown"} else 200
+            assert client.get(v2_search, params=query, headers=bearer(role, Scope.READ)).status_code == expected
+            assert client.get(v2_search, params=query, headers=bearer(role, Scope.PLAY)).status_code == 403
         for version in ("v1", "v2"):
             for resource in ("friends", "friends/requests"):
                 path = f"/api/{version}/{resource}"
@@ -355,7 +367,7 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                         payload = response.json()
                         assert 0 < len(payload["items"]) <= 17
 
-                search_path = "/api/v1/users:search"
+                search_path = "/api/v2/users:search"
                 friends_path = "/api/v2/friends"
                 requests_path = "/api/v2/friends/requests"
                 assert client.get(friends_path).status_code == 401
@@ -364,6 +376,28 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 client.headers["Authorization"] = "Bearer fixture-guest"
                 assert client.get(friends_path).status_code == 200
                 assert client.get(search_path, params={"query": "Page-Fixture"}).status_code == 403
+
+                def legacy_search(query, limit=None):
+                    params = {"query": query}
+                    if limit is not None:
+                        params["limit"] = limit
+                    response = client.get("/api/v1/users:search", params=params)
+                    assert response.status_code == 200
+                    assert set(response.json()) == {"items"}
+                    return response.json()["items"]
+
+                assert len(legacy_search("")) == 20
+                assert len(legacy_search("  P ")) == 20
+                assert legacy_search("x" * 129) == []
+                assert len(legacy_search("", 1000)) == 100
+                for limit in (0, -1):
+                    assert legacy_search("Page-Fixture", limit) == legacy_search("Page-Fixture", 1)
+                assert len(legacy_search("Page-Fixture", 0)) == 1
+                assert {row["subjectId"] for row in legacy_search("Literal %_!")} == {"SUB-LITERAL", "SUB-SIMILAR"}
+                legacy_order = legacy_search("Page-Fixture", 100)
+                assert {(row["kind"], row["displayName"]) for row in legacy_order} == {("local", "Page-Fixture A")}
+                assert [row["subjectId"] for row in legacy_search("Fixture", 2)] == [legacy, owner]
+
                 guest_app = FastAPI()
                 guest_app.include_router(build_auth_router(
                     service, pagination=pagination.model_copy(update={"allow_guest_search": True}), policy=policy,
@@ -417,7 +451,7 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
 
                 users, search_cursor = collect(search_path, "subjectId", query="Page-Fixture")
                 assert users == ["SUB-USERNAME", *candidates[:63]]
-                exact = service.search("  PAGE-FIXTURE  ", limit=2, maximum_results=64)["items"]
+                exact = service.search_page("  PAGE-FIXTURE  ", limit=2, maximum_results=64)["items"]
                 assert [row["subjectId"] for row in exact] == ["SUB-USERNAME", candidates[0]]
                 literal = client.get(search_path, params={"query": "Literal %_!"}).json()
                 assert [row["subjectId"] for row in literal["items"]] == ["SUB-LITERAL"]
@@ -431,14 +465,21 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 wildcard_only = client.get(search_path, params={"query": "%__%"})
                 assert wildcard_only.status_code == 200
                 assert wildcard_only.json() == {"items": [], "nextCursor": None}
-                for invalid in ("", "  ", "%", "_", "ab"):
+                for invalid in ("", "  ", "%", "_", "ab", "abc\0"):
                     rejection = client.get(search_path, params={"query": invalid})
                     assert rejection.status_code == 422
                     assert "at least 3 characters" in rejection.json()["detail"][0]["msg"]
                 oversized = client.get(search_path, params={"query": "x" * 21})
                 assert oversized.status_code == 422
                 assert "at most 20 characters" in oversized.json()["detail"][0]["msg"]
-                assert client.get(search_path, params={"query": "Changed", "cursor": search_cursor}).status_code == 422
+                wrong_query = client.get(search_path, params={"query": "Changed", "cursor": search_cursor})
+                assert wrong_query.status_code == 422
+                assert "Restart from the first page" in wrong_query.json()["detail"][0]["msg"]
+                for params in ({"limit": 0}, {"limit": -1}, {"limit": "many"}, {"cursor": "@invalid"}, {"cursor": "A" * 2_049}):
+                    rejected = client.get(search_path, params={"query": "Page-Fixture", **params})
+                    assert rejected.status_code == 422
+                    assert rejected.json()["detail"][0]["loc"] == ["query", next(iter(params))]
+                assert client.get(search_path).status_code == 422
                 assert client.get(friends_path, params={"limit": 0}).status_code == 422
                 for bad in ("", "@invalid", request_cursor, "A" * 2_049):
                     assert client.get(friends_path, params={"cursor": bad}).status_code == 422
@@ -451,7 +492,17 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 assert client.get(requests_path).json() == {"items": [], "nextCursor": None}
 
                 service.respond_friend(pending[12], owner, accept=False)
-                assert service.request_page(owner, limit=17, cursor=request_cursor)["items"][0]["request_id"] == pending[13]
+                store.create_friend_request(request_id="REQ-AHEAD", sender_id="SUB-LITERAL", recipient_id=owner,
+                                            created_at="2026-01-03T00:00:00+00:00")
+                store.create_friend_request(request_id="REQ-BEHIND", sender_id="SUB-SIMILAR", recipient_id=owner,
+                                            created_at="2025-12-31T00:00:00+00:00")
+                continuation = []
+                while request_cursor:
+                    request_page = service.request_page(owner, limit=17, cursor=request_cursor)
+                    continuation.extend(row["request_id"] for row in request_page["items"])
+                    request_cursor = request_page["nextCursor"]
+                assert continuation == [*pending[13:], "REQ-BEHIND"]
+                assert service.request_page(owner, limit=1)["items"][0]["request_id"] == "REQ-AHEAD"
         finally:
             SERVICE_SUBJECT_OWNER.reset(ownership_context)
     finally:

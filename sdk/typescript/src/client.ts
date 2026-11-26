@@ -119,7 +119,7 @@ export class BalootClient {
     return this.identityPage('/api/v2/friends/requests',options);
   }
   searchUsers(query:string,options:IdentityPageOptions={}):Promise<IdentityPage>{
-    return this.identityPage('/api/v1/users:search',options,new URLSearchParams({query}));
+    return this.identityPage('/api/v2/users:search',options,new URLSearchParams({query}));
   }
   private identityPage<Item=IdentityItem>(path:string,{cursor,limit}:IdentityPageOptions,params=new URLSearchParams()):Promise<IdentityPage<Item>>{
     if(cursor!==undefined)params.set('cursor',cursor);

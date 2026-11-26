@@ -23,6 +23,6 @@ test('identity SDK sends paging options and retains legacy friends route', async
     ['/api/v1/friends', {}],
     ['/api/v2/friends', {cursor: 'friend-_', limit: '7'}],
     ['/api/v2/friends/requests', {cursor: 'request-_'}],
-    ['/api/v1/users:search', {query: 'Fixture + %_', cursor: 'user-_', limit: '3'}],
+    ['/api/v2/users:search', {query: 'Fixture + %_', cursor: 'user-_', limit: '3'}],
   ]);
 });

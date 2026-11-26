@@ -210,12 +210,17 @@ def build_auth_router(
         response.delete_cookie(COOKIE_NAME, path="/")
         return Response(status_code=204)
 
-    @router.get("/users:search", response_model=IdentityPage)
-    def search_users(
+    @router.get("/users:search")
+    def search_users(request: Request, query: str, limit: int = 20):
+        require_identity(request, service)
+        return {"items": service.search(query, limit=limit)}
+
+    @paged_router.get("/users:search", response_model=IdentityPage)
+    def search_users_page(
         request: Request, query: str, limit: int | None = Query(default=None, ge=1),
         cursor: str | None = Query(default=None, max_length=CURSOR_MAX_LENGTH),
     ):
-        identity = actor(request, Scope.READ)
+        identity = actor(request, Scope.READ, require_signed_scope=True)
         if identity.is_guest and not pagination.allow_guest_search:
             raise HTTPException(403, "sign in to search for users")
         maximum = pagination.maximum_search_query_length
@@ -232,7 +237,7 @@ def build_auth_router(
                 "msg": f"search query must contain at least {minimum} characters and no nulls",
                 "type": "value_error",
             }])
-        return page(partial(service.search, maximum_results=pagination.maximum_search_results), query, limit, cursor)
+        return page(partial(service.search_page, maximum_results=pagination.maximum_search_results), query, limit, cursor)
 
     @router.get("/friends")
     def friends(request: Request):

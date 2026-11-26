@@ -66,4 +66,4 @@ def decode_cursor(
             raise ValueError
         return anchor
     except (ValueError, OverflowError, RecursionError) as exc:
-        raise InvalidIdentityCursor("invalid cursor for this list") from exc
+        raise InvalidIdentityCursor("invalid cursor for this list. Restart from the first page without a cursor.") from exc

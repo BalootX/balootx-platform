@@ -190,7 +190,10 @@ class IdentityService:
             next_cursor = encode_cursor(scope, tuple(items[-1][key] for key in keys))
         return {"items": items, "nextCursor": next_cursor}
 
-    def search(
+    def search(self, query: str, *, limit: int = 20) -> list[dict[str, Any]]:
+        return [self._identity(row).to_dict() for row in self.store.search_subjects(query, limit=limit)]
+
+    def search_page(
         self, query: str, *, limit: int, maximum_results: int, cursor: str | None = None
     ) -> dict[str, Any]:
         page = self._page(

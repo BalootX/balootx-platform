@@ -180,7 +180,7 @@ class BalootClient:
         return cast(PendingRequestPage, self._identity_page("/api/v2/friends/requests", cursor=cursor, limit=limit))
 
     def search_users(self, query: str, *, cursor: str | None = None, limit: int | None = None) -> IdentityPage:
-        return cast(IdentityPage, self._identity_page("/api/v1/users:search", query=query, cursor=cursor, limit=limit))
+        return cast(IdentityPage, self._identity_page("/api/v2/users:search", query=query, cursor=cursor, limit=limit))
 
     def _identity_page(self, path: str, **options: str | int | None) -> dict[str, Any]:
         params = {key: value for key, value in options.items() if value is not None}
