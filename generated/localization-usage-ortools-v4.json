@@ -36973,7 +36973,7 @@
     }
   ],
   "schemaVersion": 1,
-  "sha256": "26f7001c03fa28203f637f0a1019786f9f635f33f94843cfba7eb1b0f631b72a",
+  "sha256": "5f78cc507efeb0dbf3fc1eb5928fd80bb62641f49839a78a4fc1f50862d439b2",
   "sources": {
     "schemas/profiles/challenge.schema.json": "5f1c300a375345eea30be2c7bf239903326b0d39edba030be4a195aebd594b46",
     "src/baloot_platform/guide.py": "0a80e1079d71c55a9606d1094f4f7ac798b7507b12af66a058af3ec2134a603e",
@@ -36985,7 +36985,7 @@
     "src/baloot_platform/research/service.py": "6564891dbf25d27f11200d3c65927d760ba43afad55a7f0d7f7ef5c504b310d0",
     "src/baloot_platform/service/foundry_dashboard/scripts/extract-copy-usage.mjs": "4f656aebeaa7cc559778b818472c9b613eabbd8ae75ffea4a39bc6cef8f57562",
     "src/baloot_platform/service/foundry_dashboard/src/api/research.ts": "f8a64f3c5b3011192a021b35d6632a258e74f63efd12801f6f221c68eb64a65d",
-    "src/baloot_platform/service/foundry_dashboard/src/features/configuration/model.ts": "91f1f0ac7efb81aa720f2b08f958a33d482af5ed17ea250a7a405cb9d49ed1a3",
+    "src/baloot_platform/service/foundry_dashboard/src/features/configuration/model.ts": "cbb26597057d16abc10c0825e9e9d1ad592ea3ac44d7643e292c17b4ba3757b2",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/audit.tsx": "88bc6c262f932825e4944e3db7e6d597a7e31f6c8e8ba1aa9dd6621d33c7724f",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/cardSelector.tsx": "ec719c2af6324a47282d5ce39acd4b4c565a1c09a941b0844c5c4f9cc76a1d84",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/catalog.ts": "35ae5297637aed6b4af9b11aeb78595ca3e6d497a32e7fc5042dcba4305ea1d5",
@@ -37000,7 +37000,7 @@
     "src/baloot_platform/service/foundry_dashboard/src/features/research/scenarioStudio.tsx": "19baf59d73b195d23d0d8249f8d6f2c84f9bccfcb09cc0878a4f1fdfd43e2451",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/workspace.tsx": "3fee276419a4288ab3ff87509172af3de03461532f8064cb659d7a766c6f54c1",
     "src/baloot_platform/service/foundry_dashboard/src/features/videos/model.ts": "b00bed40ca5b05ec165115949331d4165579b335b37bbc31c2bcd343de7146db",
-    "src/baloot_platform/service/foundry_dashboard/src/main.tsx": "8eb164da2ad025bca77e93cb5bf80687ab7b75443d8a8594c43fbfbe32b8c2f9",
+    "src/baloot_platform/service/foundry_dashboard/src/main.tsx": "bc573e79c47492855b9227aa8aeda4e5dafca1830481ad32ded6c0f26e48971e",
     "src/baloot_platform/service/foundry_dashboard/src/shared/format.ts": "4394ffa5e301f38f310ca7fd54bdf8888c6fba15e4c7b74a17e441501e57437f",
     "src/baloot_platform/service/foundry_dashboard/src/shared/json.ts": "dc8e07997a8b1be3a5229247bbe8c7b4dfe29e8e13681b964f893593b9ce3188",
     "src/baloot_platform/service/foundry_dashboard/src/shared/localization.ts": "7ba906239a3050cedca5961a4f4ff596e30c9c479470cbbfb98c6839879b3393",

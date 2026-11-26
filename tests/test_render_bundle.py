@@ -633,6 +633,54 @@ def test_render_bundle_voice_guard(root: Path, case: str, error: str | None) -> 
             bundle.verify(raise_voice_errors=True)
 
 
+def test_public_notice_profile_builds_a_qualified_bundle_with_the_exact_notice():
+    from scripts import render_research_notice as notice
+
+    profile = notice.notice_profile()
+    design = profile["approved_design"]
+    assert design["variant"] == "public_v4_no_justification_red_notice"
+    assert design["reference_variant"] == "public_v4_no_justification_no_notice"
+    assert design["reference_mp4_sha256"] == "15492d3f389fcb07be423fc97a6e46fe0b8e385b5beb173f01073e6d11a87bf9"
+
+    rules = notice.RuleBook.load(notice.ROOT / "configs/rules/saudi_common_v1.yaml")
+    bundle = notice.build_notice_bundle(rules, profile)
+    notice.validate_notice_bundle(bundle, notice.engine_round_result(rules))
+    sentence = bundle.value["localizations"]["video.notice.sentence"]
+    assert "video.notice.title" not in profile["localizations"]
+    assert "video.notice.title" not in bundle.value["localizations"]
+    assert sentence == "هذا الفيديو لأغراض البحث فقط، ويُمنع تداوله أو نشره أو مشاركته"
+    assert len(sentence.encode("utf-8")) == 114
+    assert hashlib.sha256(sentence.encode("utf-8")).hexdigest() == "290e2a2d03424ea7846a71afc80e019140fac3d56e465b4766a89d57a3c3b8ac"
+    assert bundle.value["presentation"]["majlis"]["research_notice"] is True
+    presentation = bundle.value["presentation"]["presentation"]
+    assert presentation["show_justification"] is presentation["show_justification_text"] is False
+
+
+@pytest.mark.parametrize("override", [None, "BALOOTX_LAYOUT_TABLE", "BALOOTX_LAYOUT_TABLE_SHA256"])
+def test_renderer_rejects_unapproved_layout_table_before_render(
+    root, tmp_path, monkeypatch, override
+):
+    from scripts import render_research_notice as notice
+
+    profile = notice.notice_profile()
+    rules = notice.RuleBook.load(root / "configs/rules/saudi_common_v1.yaml")
+    bundle = notice.build_notice_bundle(rules, profile)
+    renderer = notice.RemotionProfessionalRenderer(profile, repository_root=root)
+    table_path = Path("scripts/approved-layout-adjacencies.json")
+    approved_layout_bytes = (renderer.renderer_root / table_path).read_bytes()
+    renderer.renderer_root = tmp_path
+    table = tmp_path / table_path
+    table.parent.mkdir()
+    table.write_bytes(approved_layout_bytes if override else approved_layout_bytes + b"\n")
+    if override:
+        monkeypatch.setenv(override, "unapproved")
+    monkeypatch.setattr(renderer, "_run_renderer", lambda **_: pytest.fail("renderer started"))
+
+    error = "overrides require NEVER_POST" if override else "approved layout table SHA-256 mismatch"
+    with pytest.raises(ValueError, match=error):
+        renderer.execute(bundle, export_preset="decision_clip", output_dir=tmp_path)
+
+
 @pytest.mark.parametrize(
     ("legacy_profile", "timeline_sha"),
     [

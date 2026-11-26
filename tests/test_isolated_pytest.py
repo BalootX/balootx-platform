@@ -27,6 +27,40 @@ def test_solver_work_default_selects_imports(tmp_path, source, expected):
     assert solver_test_module(module) is expected
 
 
+def test_renderer_receipts_and_image_parity_run_without_loading_the_solver(root, tmp_path, capsys):
+    probe = """
+import json
+import sys
+from time import perf_counter
+
+import pytest
+
+class CollectionEnd:
+    def pytest_collection_finish(self, session):
+        self.finished = perf_counter()
+
+collection = CollectionEnd()
+started = perf_counter()
+exit_code = pytest.main(sys.argv[1:], plugins=[collection])
+if exit_code:
+    raise SystemExit(exit_code)
+assert "ortools" not in sys.modules, "renderer receipts or image parity imported OR-Tools"
+print(json.dumps({
+    "setup_and_collection_seconds": collection.finished - started,
+    "execution_and_cleanup_seconds": perf_counter() - collection.finished,
+}))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", probe, "--basetemp", str(tmp_path / "pytest"),
+         "tests/test_research_notice.py", "tests/test_remotion_image_parity.py"],
+        cwd=root, env=lane.isolated_environment(str(tmp_path / "runtime")),
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    with capsys.disabled():
+        print("Renderer receipt and parity timings:", result.stdout.splitlines()[-1])
+
+
 @pytest.mark.parametrize("elapsed,expected", [(0, 600), (500, 340), (839, 1), (840, None)])
 def test_solver_file_budget_never_resets(monkeypatch, elapsed, expected):
     import deterministic_work as work
@@ -50,13 +84,12 @@ def test_work_file_budget_uses_timeout_and_both_duration_histories(timeout, seco
     assert lane.work_file_budget("sample", timeout, history) == expected
 
 
-def test_unified_executor_history_disables_file_cap_without_changing_timeout():
+def test_unified_executor_history_disables_file_cap_even_with_job_time():
     history = json.loads((lane.ROOT / ".github/python-test-durations.json").read_text())
     path = "tests/test_research_ortools_unified_executor.py"
-    timeout = dict(lane.schedule([path], history))[path]
-    assert timeout == 3600
+    assert dict(lane.schedule([path], history))[path] is True
     assert history["shardSeconds"][path] >= lane.FILE_SAFETY_SECONDS
-    assert lane.work_file_budget(path, timeout, history) == 0
+    assert lane.work_file_budget(path, 1320, history) == 0
     for invalid in (-1, float("inf"), float("nan"), "unknown", True):
         with pytest.raises(ValueError, match="finite nonnegative"):
             lane.work_file_budget("sample", 900, {"shardSeconds": {"sample": invalid}})
@@ -222,13 +255,14 @@ def test_parallel_files_keep_all_failures_timeouts_and_runtime_isolation(tmp_pat
         target.touch()
     (tmp_path / ".github").mkdir()
     (tmp_path / "ci").mkdir()
-    (tmp_path / "ci/all-skipped-allowlist.txt").write_text("")
+    (tmp_path / "ci/expected-pytest-skips.txt").write_text("")
     (tmp_path / ".github/python-test-durations.json").write_text(json.dumps({
         "seconds": {files[6]: 2400, files[5]: 1489, files[0]: 100},
         "shardSeconds": {files[4]: 935.58},
         "incompleteFiles": [files[6], files[5]],
     }))
     monkeypatch.setattr(lane, "ROOT", tmp_path)
+    monkeypatch.setattr(lane, "job_seconds_remaining", lambda _: 1320)
     monkeypatch.setattr(os, "sched_getaffinity", lambda _: set(range(16)), raising=False)
     affinities = []
     monkeypatch.setattr(os, "sched_setaffinity", lambda _, cpus: affinities.append(cpus), raising=False)
@@ -262,10 +296,10 @@ def test_parallel_files_keep_all_failures_timeouts_and_runtime_isolation(tmp_pat
     assert len({kwargs["env"]["BALOOT_RUNTIME"] for _, kwargs in calls}) == 8
     assert {command[-1] for command, _ in calls} == set(files)
     assert {command[-1] for command, _ in calls[:4]} == {files[6], files[5], files[4], files[0]}
-    assert [row["timeoutSeconds"] for row in results] == [timeout] * 5 + [3600, 3600, timeout]
+    assert [row["timeoutSeconds"] for row in results] == [timeout] * 5 + [1320, 1320, timeout]
     assert [row["tier"] for row in results] == ["light"] * 5 + ["heavy", "heavy", "light"]
     for command, kwargs in calls:
-        limit = "3600" if command[-1] in {files[6], files[5]} else str(timeout)
+        limit = "1320" if command[-1] in {files[6], files[5]} else str(timeout)
         assert command[:4] == ["timeout", "--signal=TERM", "--kill-after=10s", limit]
         assert command[4:9] == [sys.executable, "-m", "pytest", "-q", "--override-ini=addopts="]
         runtime = kwargs["env"]["BALOOT_RUNTIME"]
@@ -292,8 +326,9 @@ def test_timing_sensitive_files_wait_for_pool_join_and_keep_coverage_and_limits(
         "seconds": {serial[0]: 900.305}, "incompleteFiles": [serial[0]], "serialFiles": serial,
     }))
     (tmp_path / "ci").mkdir()
-    (tmp_path / "ci/all-skipped-allowlist.txt").write_text("")
+    (tmp_path / "ci/expected-pytest-skips.txt").write_text("")
     monkeypatch.setattr(lane, "ROOT", tmp_path)
+    monkeypatch.setattr(lane, "job_seconds_remaining", lambda _: 1100 if not joined else 500)
     monkeypatch.setattr(os, "sched_getaffinity", lambda _: set(range(16)), raising=False)
     affinities = []
     monkeypatch.setattr(os, "sched_setaffinity", lambda _, cpus: affinities.append(cpus), raising=False)
@@ -342,9 +377,10 @@ def test_timing_sensitive_files_wait_for_pool_join_and_keep_coverage_and_limits(
     assert len((output / "results.jsonl").read_text().splitlines()) == len(files)
     assert affinities == [list(range(workers))]
     assert {tuple(command[:4]) for command in calls} == {
-        ("timeout", "--signal=TERM", "--kill-after=10s", limit) for limit in ("900", "3600")}
+        ("timeout", "--signal=TERM", "--kill-after=10s", limit)
+        for limit in ({"500", "900"} if parallel else {"500"})}
     for row in results:
-        assert row["timeoutSeconds"] == (3600 if row["file"] == serial[0] else 900)
+        assert row["timeoutSeconds"] == (500 if row["file"] in serial else 900)
         assert row["timedOut"] is (row["file"] == serial[0])
         assert row["callCount"] == (0 if row["timedOut"] else 1)
 
@@ -364,10 +400,25 @@ def test_invalid_serial_inventory_fails_before_work(tmp_path, monkeypatch, seria
 
 
 @pytest.mark.parametrize("allowlisted", [False, True])
-def test_real_fast_receipts_clean_environment_allow_skips_xfails_and_reject_no_execution(tmp_path, monkeypatch, capsys, allowlisted):
+def test_real_fast_receipts_reject_unexpected_skips_xfails_and_no_execution(tmp_path, monkeypatch, capsys, allowlisted):
     sources = {
-        "test_mixed.py": "import pytest\ndef test_pass(): pass\n@pytest.mark.xfail\ndef test_xfail(): assert False\n@pytest.mark.xfail\ndef test_xpass(): pass\n@pytest.mark.skip(reason='allowed')\ndef test_skip(): pass\n",
-        "test_skipped.py": "import pytest\n@pytest.mark.skip(reason='allowed')\ndef test_skip(): pass\n@pytest.mark.xfail(run=False)\ndef test_xfail(): pass\n",
+        "test_mixed.py": """import pytest
+def test_pass(): pass
+@pytest.mark.skip(reason='Windows-only fixture')
+def test_skip(): pass
+""",
+        "test_skipped.py": """import pytest
+@pytest.mark.skip(reason='Windows-only fixture')
+def test_skip(): pass
+""",
+        "test_xfail.py": """import pytest
+@pytest.mark.xfail
+def test_xfail(): assert False
+""",
+        "test_xpass.py": """import pytest
+@pytest.mark.xfail
+def test_xpass(): pass
+""",
         "test_collect_only.py": "def test_not_run(): raise AssertionError('must not execute')\n",
         "test_empty.py": "# No test cases.\n",
         "test_deselected.py": "def test_kept(): pass\ndef test_filtered(): raise AssertionError('not selected')\n",
@@ -378,8 +429,9 @@ def test_real_fast_receipts_clean_environment_allow_skips_xfails_and_reject_no_e
     (tmp_path / ".github").mkdir()
     (tmp_path / ".github/python-test-durations.json").write_text('{"seconds": {}, "incompleteFiles": []}')
     (tmp_path / "ci").mkdir()
-    (tmp_path / "ci/all-skipped-allowlist.txt").write_text(
-        "tests/test_skipped.py # Windows-only fixture\ntests/test_mixed.py # Now-obsolete fixture exception\n" if allowlisted else "")
+    (tmp_path / "ci/expected-pytest-skips.txt").write_text(
+        "setup tests/test_skipped.py::test_skip # Windows-only fixture\n"
+        "setup tests/test_mixed.py::test_skip # Windows-only fixture\n" if allowlisted else "")
     repository = lane.ROOT
     monkeypatch.setattr(lane, "ROOT", tmp_path)
     monkeypatch.setattr(os, "sched_getaffinity", lambda _: {0}, raising=False)
@@ -404,17 +456,16 @@ def test_real_fast_receipts_clean_environment_allow_skips_xfails_and_reject_no_e
     output = tmp_path / "results"
     assert lane.run([f"tests/{name}" for name in sources], output, workers=1) == 1
     results = {row["file"]: row for row in json.loads((output / "results.json").read_text())}
-    assert results["tests/test_mixed.py"]["returncode"] == 0
-    assert results["tests/test_mixed.py"]["callCount"] == 3
-    assert results["tests/test_mixed.py"]["removableAllowlistEntry"] is allowlisted
+    assert results["tests/test_mixed.py"]["returncode"] == (0 if allowlisted else 1)
+    assert results["tests/test_mixed.py"]["callCount"] == int(allowlisted)
     skipped = results["tests/test_skipped.py"]
-    assert skipped["returncode"] == (0 if allowlisted else 1) and skipped["allSkipped"] and skipped["callCount"] == 0
-    assert skipped["allSkippedAllowlistReason"] == ("Windows-only fixture" if allowlisted else None)
-    if not allowlisted:
-        assert "not in the all-skipped allowlist" in skipped["error"]
+    assert skipped["returncode"] == 1 and skipped["allSkipped"] is allowlisted and skipped["callCount"] == 0
+    assert ("zero call phases" if allowlisted else "unexpected pytest skip") in skipped["error"]
     console = capsys.readouterr().out
-    assert "All-skipped files: tests/test_skipped.py" in console
-    assert ("ALLOWLIST REMOVABLE tests/test_mixed.py" in console) is allowlisted
+    assert ("ALL SKIPPED tests/test_skipped.py" in console) is allowlisted
+    for name in ("test_xfail", "test_xpass"):
+        assert results[f"tests/{name}.py"]["returncode"] == 1
+        assert "unexpected pytest xfail/xpass" in results[f"tests/{name}.py"]["error"]
     assert results["tests/test_collect_only.py"]["returncode"] == 1
     assert "no execution receipt" in results["tests/test_collect_only.py"]["error"]
     assert results["tests/test_empty.py"]["returncode"] == 5
@@ -445,7 +496,7 @@ def test_zero_exit_without_fresh_valid_execution_receipt_fails(tmp_path, monkeyp
     (tmp_path / ".github").mkdir()
     (tmp_path / ".github/python-test-durations.json").write_text('{"seconds": {}, "incompleteFiles": []}')
     (tmp_path / "ci").mkdir()
-    (tmp_path / "ci/all-skipped-allowlist.txt").write_text("")
+    (tmp_path / "ci/expected-pytest-skips.txt").write_text("")
     monkeypatch.setattr(lane, "ROOT", tmp_path)
     monkeypatch.setattr(os, "sched_getaffinity", lambda _: {0}, raising=False)
     monkeypatch.setattr(os, "sched_setaffinity", lambda *_: None, raising=False)
@@ -474,25 +525,27 @@ def test_zero_exit_without_fresh_valid_execution_receipt_fails(tmp_path, monkeyp
     assert result["returncode"] == 1 and result["error"].startswith("invalid execution receipt")
 
 
-def test_all_skipped_allowlist_requires_a_unique_inventory_file_and_reason(tmp_path, monkeypatch):
+def test_expected_skips_require_a_unique_inventory_node_phase_and_reason(tmp_path, monkeypatch):
     monkeypatch.setattr(lane, "ROOT", tmp_path)
     (tmp_path / "ci").mkdir()
-    target = tmp_path / "ci/all-skipped-allowlist.txt"
-    target.write_text("# Explicit exceptions only\ntests/test_sample.py # Windows-only\n")
-    assert lane.all_skipped_allowlist({"tests/test_sample.py"}) == {"tests/test_sample.py": "Windows-only"}
-    for text in ("tests/test_sample.py", "tests/test_sample.py # ", "tests/missing.py # Windows-only",
-                 "tests/test_sample.py # Windows-only\ntests/test_sample.py # Duplicate"):
+    target = tmp_path / "ci/expected-pytest-skips.txt"
+    node = "tests/test_sample.py::test_case"
+    row = f"setup {node} # Windows-only\n"
+    target.write_text("# Explicit exceptions only\n" + row)
+    assert lane.expected_skip_phases({"tests/test_sample.py"}) == {node: ("setup", "Windows-only")}
+    for text in (node, f"setup {node} # ", "setup tests/missing.py::test_case # Windows-only",
+                 "setup tests/test_sample.py # Windows-only", f"teardown {node} # Windows-only", row * 2):
         target.write_text(text)
-        with pytest.raises(ValueError, match="unique test files and a reason"):
-            lane.all_skipped_allowlist({"tests/test_sample.py"})
+        with pytest.raises(ValueError, match="unique repository test nodes, a phase, and a reason"):
+            lane.expected_skip_phases({"tests/test_sample.py"})
 
 
 def test_heavy_schedule_uses_history_threshold_and_incomplete_list_without_deselecting():
     files = ["fast", "scenario", "threshold", "isolated", "below_threshold", "unknown"]
     history = {"seconds": {"fast": 2, "scenario": 2400, "threshold": 900,
                            "isolated": 50, "below_threshold": 899}, "incompleteFiles": ["isolated"]}
-    expected = [("scenario", 3600), ("threshold", 3600), ("isolated", 3600),
-                ("below_threshold", 900), ("fast", 900), ("unknown", 900)]
+    expected = [("scenario", True), ("threshold", True), ("isolated", True),
+                ("below_threshold", False), ("fast", False), ("unknown", False)]
     assert lane.schedule(files, history) == expected
     assert lane.schedule(list(reversed(files)), history) == expected
     assert sorted(path for path, _ in expected) == sorted(files)
@@ -524,16 +577,16 @@ def test_ci_failure_wave_history_preserves_censored_heavy_files_and_serial_budge
     assert excluded == {"tests/test_ortools_scenario_model.py"}
     assert set(history["serialFiles"]) == set(history["serialRationale"]) == serial
     assert heavy <= set(history["incompleteFiles"])
-    assert all(planned[path] == 3600 and 900 <= history["seconds"][path] < 901 for path in heavy)
+    assert all(planned[path] and 900 <= history["seconds"][path] < 901 for path in heavy)
     assert all("40161394797" in history["additionalSources"][path] and
                "censored" in history["additionalSources"][path].lower() for path in heavy)
-    assert all(planned[path] == (3600 if path in heavy else 900) for path in serial)
+    assert all(planned[path] is (path in heavy) for path in serial)
     scenario = "tests/test_research_scenario_v4.py"
     split_scenario = {f"tests/test_research_scenario_v4_{name}.py"
                       for name in ("api_estimate", "api_exact", "api_search", "proof")}
     assert history["splitFileLimitSources"] == dict.fromkeys(split_scenario, scenario)
-    assert all(planned[path] == planned[scenario] == 3600 for path in split_scenario)
-    assert all(lane.work_file_budget(path, planned[path], history) == 0 for path in split_scenario)
+    assert planned[scenario] and all(planned[path] for path in split_scenario)
+    assert all(lane.work_file_budget(path, 1320, history) == 0 for path in split_scenario)
 
 
 @pytest.mark.parametrize(("files", "workers", "timeout"), [([], 4, 900), (["../other.py"], 4, 900),
@@ -643,7 +696,7 @@ def test_timeout_boundary_files_keep_weights_serial_isolation_and_exactly_once_c
     assert all(history["seconds"][path] > 0 and history["shardSeconds"][path] > 0 for path in added)
     assert all("PR17" in history["additionalSources"][path] for path in added)
     assert added <= set(history["serialFiles"]) == set(history["serialRationale"])
-    assert all(dict(lane.schedule(scheduled, history))[path] == 900 for path in added)
+    assert not any(dict(lane.schedule(scheduled, history))[path] for path in added)
 
 
 def test_balancer_counts_serial_tail_in_addition_to_four_worker_pool():

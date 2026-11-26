@@ -15,7 +15,9 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.run_isolated_pytest import clear_outputs, isolated_environment, node_sharded_files, resource_snapshot
+from scripts.run_isolated_pytest import (
+    clear_outputs, isolated_environment, job_seconds_remaining, node_sharded_files, resource_snapshot,
+)
 
 HEAVY_SHARDS = 2
 
@@ -40,6 +42,8 @@ def pytest_runtest_logreport(report):
              "xfail": hasattr(report, "wasxfail"), "seconds": report.duration}
     if report.outcome == "failed":
         event["longrepr"] = str(report.longrepr)
+    elif report.outcome == "skipped" and isinstance(report.longrepr, tuple):
+        event["skipReason"] = report.longrepr[2].removeprefix("Skipped: ")
     _nodes["reports"].setdefault(report.nodeid, []).append(event)
     target = os.environ.get("BALOOT_CI_NODE_RECEIPT")
     if target:
@@ -123,7 +127,10 @@ def run_shard(shard: int, output: Path, versioned: bool = False, *, workers: int
             raise ValueError("node shard is outside the configured range")
         if not files:
             raise ValueError("no configured node-sharded files; refusing implicit full-suite collection")
-        code, collection = _pytest(["--collect-only", *files], output, "collection", 300)
+        collection_limit = min(300, job_seconds_remaining(300))
+        if not collection_limit:
+            raise ValueError("pytest job deadline expired before collection")
+        code, collection = _pytest(["--collect-only", *files], output, "collection", collection_limit)
         if code or collection is None or collection["exitstatus"] or collection["deselected"] or collection["collectionIssues"]:
             raise ValueError("heavy collection failed, skipped, or was incomplete")
         nodes = sorted(collection["collected"])
@@ -131,14 +138,17 @@ def run_shard(shard: int, output: Path, versioned: bool = False, *, workers: int
             raise ValueError("collection escaped the configured heavy files")
         selected = split_nodes(nodes, shard, seconds, shards)
         receipt.update(collected=nodes, selected=selected)
-        print(f"Heavy shard {shard}: {len(selected)}/{len(nodes)} nodes; execution limit {limit}s", flush=True)
+        print(f"Heavy shard {shard}: {len(selected)}/{len(nodes)} nodes", flush=True)
         worker_count = min(workers, len(selected))
         assignments = [split_nodes(selected, index, seconds, worker_count)
                        for index in range(1, worker_count + 1)]
 
         def execute(index, nodes):
             name = "execution" if workers == 1 else f"execution-{index}"
-            return _pytest(nodes, output, name, limit)
+            seconds_left = min(limit, job_seconds_remaining(limit))
+            if not seconds_left:
+                raise ValueError("pytest job deadline expired before node execution")
+            return _pytest(nodes, output, name, seconds_left)
 
         execution = {"exitstatus": 0, "collected": [], "deselected": [], "collectionIssues": [], "reports": {}}
         errors = []
