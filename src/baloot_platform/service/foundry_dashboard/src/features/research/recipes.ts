@@ -1,3 +1,4 @@
+import {isDeadlineError} from '../../../../static/shared/request.js';
 import type {JsonObject, JsonValue} from '../../shared/json';
 import type {
   ResearchRecipe,
@@ -93,6 +94,7 @@ export type ResearchRecipeErrorCode =
   | 'contract_violation';
 
 export type ResearchRecipeErrorCopyKey =
+  | 'helpers.request_timeout'
   | 'workflow.research_idempotency_unavailable'
   | 'workflow.m_303534acbecf';
 
@@ -136,6 +138,10 @@ export class ResearchRecipeContractError extends ResearchRecipeControllerError {
 export function researchRecipeErrorCopyKey(
   error: unknown,
 ): ResearchRecipeErrorCopyKey {
+  // The generated client reports a deadline as the detail of its API error.
+  if (isDeadlineError(error) || isDeadlineError((error as {detail?: unknown} | null)?.detail)) {
+    return 'helpers.request_timeout';
+  }
   return error instanceof ResearchRecipeControllerError
     && error.code === 'persistence_unavailable'
     ? 'workflow.research_idempotency_unavailable'

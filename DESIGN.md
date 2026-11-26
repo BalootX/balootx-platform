@@ -15,3 +15,7 @@
 - Keep scenario authoring, proof, execution and results easy to find. Keep status understandable in text and controls operable by keyboard. Preserve responsive layouts and reduced-motion support.
 - On the overview, keep readiness details disabled while their data loads and the layout is still settling. Once enabled, each detail opens by touch, mouse or keyboard.
 - The page budgets are p75 Largest Contentful Paint under 2.5 seconds and p75 Interaction to Next Paint under 200 ms.
+
+## Browser requests
+
+- The served pages and the Foundry dashboard call the API through the [shared request deadline](src/baloot_platform/service/static/shared/request.js). A request that reaches the deadline ends once, with no retry. It shows the profile's `request_timeout` message, which asks the person to refresh and check the result before trying again.

@@ -10,6 +10,7 @@ import {isOrToolsResearchBackend} from '../features/research/model';
 import type {JsonObject} from '../shared/json';
 import type {Client} from './generated/client';
 import {client as defaultClient} from './generated/client.gen';
+import {fetchWithDeadline} from '../../../static/shared/request.js';
 import {
   createResearchRecipeApiV2ResearchRecipesPost,
   createResearchRunApiV2ResearchRunsPost,
@@ -38,6 +39,9 @@ type GeneratedResult<T> = {
   error?: unknown;
   response?: Response;
 };
+
+// Every generated Research call shares the browser request deadline.
+defaultClient.setConfig({fetch: fetchWithDeadline});
 
 export class ResearchApiError extends Error {
   readonly operation: string;

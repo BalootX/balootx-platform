@@ -77,6 +77,7 @@ markers = ["real_clock: test intentionally exercises wall-clock, timeout, CPU, o
   "static/app/*.html",
   "static/app/*.css",
   "static/app/*.js",
+  "static/shared/*.js",
   "static/scene-preview/*.html",
   "static/scene-preview/*.css",
   "static/scene-preview/*.js",

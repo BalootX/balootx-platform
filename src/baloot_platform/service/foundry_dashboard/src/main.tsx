@@ -55,7 +55,8 @@ import {researchRecipeErrorMessage} from './features/research/errorCopy';
 import {researchRecipeApi} from './api/research';
 import {ResearchPerformanceSummary, ResearchStudio} from './features/research/workspace';
 import {copyJson, isSeatName, type JsonObject, type JsonValue, type SeatName} from './shared/json';
-import {date, number, hasFoundryCopy, t, tCatalog, tVariant, useResearchWorkflowCopyRevision} from './shared/localization';
+import {date, number, hasFoundryCopy, requestTimeoutMessage, t, tCatalog, tVariant, useResearchWorkflowCopyRevision} from './shared/localization';
+import {fetchWithDeadline, isDeadlineError} from '../../static/shared/request.js';
 import {
   renderJobReferencesResearch,
   renderJobReferencesSource,
@@ -926,16 +927,20 @@ const thrillFieldAr: Record<string, string> = {
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {'accept': 'application/json', ...(init?.body ? {'content-type': 'application/json'} : {}), ...init?.headers},
-  });
-  if (!response.ok) {
-    let message = (t("helpers.m_dc85c66d7c4d") + response.status + ")");
-    try { const body = await response.json(); message = body.detail || message; } catch { /* response is not JSON */ }
-    throw new Error(message);
+  try {
+    const response = await fetchWithDeadline(path, {
+      ...init,
+      headers: {'accept': 'application/json', ...(init?.body ? {'content-type': 'application/json'} : {}), ...init?.headers},
+    });
+    if (!response.ok) {
+      let message = (t("helpers.m_dc85c66d7c4d") + response.status + ")");
+      try { const body = await response.json(); message = body.detail || message; } catch (error) { if (isDeadlineError(error)) throw error; /* response is not JSON */ }
+      throw new Error(message);
+    }
+    return await response.json() as T;
+  } catch (error) {
+    throw isDeadlineError(error) ? new Error(requestTimeoutMessage()) : error;
   }
-  return response.json() as Promise<T>;
 }
 
 const loadResearchPerspectives = (code: string, seat: SeatName) =>

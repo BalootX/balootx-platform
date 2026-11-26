@@ -19,11 +19,13 @@
 
   function show(name){ views.forEach(v=>v.classList.toggle('active',v.id===`${name}-view`)); document.body.classList.toggle('game-active',name==='game'); window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'}); }
   function toast(msg){ const el=$('toast'); el.textContent=msg; el.classList.add('show'); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2200); }
+  const requestModule = import('/shared-assets/request.js');
   async function api(path, options={}){
     const headers = {'content-type':'application/json',...(options.headers||{})};
     if(state.csrf && !['GET','HEAD'].includes((options.method||'GET').toUpperCase())) headers['x-csrf-token']=state.csrf;
-    const res=await fetch(path,{credentials:'include',...options,headers});
-    const text=await res.text(); let data=null; try{data=text?JSON.parse(text):null}catch{data={detail:text}}
+    const {fetchWithDeadline,isDeadlineError}=await requestModule;
+    let res,text; try{res=await fetchWithDeadline(path,{credentials:'include',...options,headers}); text=await res.text()}catch(error){throw isDeadlineError(error)?new Error(copy('request_timeout')):error}
+    let data=null; try{data=text?JSON.parse(text):null}catch{data={detail:text}}
     if(!res.ok) throw new Error(copy('request_error',{status:res.status})); return data;
   }
   async function ensureIdentity(){
@@ -166,12 +168,12 @@
   $('create-form').addEventListener('submit',async e=>{e.preventDefault(); const f=new FormData(e.currentTarget); try{const board=await api('/api/v1/sakka/boards',{method:'POST',body:JSON.stringify({source:'new',label:f.get('label')||null,scope:f.get('scope'),rulesProfile:f.get('rulesProfile'),observerSeat:f.get('observerSeat'),usScore:+f.get('usScore'),themScore:+f.get('themScore'),seed:+f.get('seed'),visibility:f.get('visibility'),maximumRounds:16})}); const room=await api('/api/v1/sakka/rooms',{method:'POST',body:JSON.stringify({boardIdentifier:board.boardId,mode:'async',maxPlayers:16,allowGuests:true})}); await loadRoom(room.room.roomCode);}catch(err){toast(err.message)}});
   $('join-form').addEventListener('submit',async e=>{e.preventDefault(); const code=$('room-code').value.trim().toUpperCase(); if(!code)return; try{await loadRoom(code)}catch(err){toast(err.message)}});
   $('copy-code').onclick=async()=>{const text=state.room?.roomCode||'';try{await navigator.clipboard.writeText(text);toast(copy('player_code_copied'))}catch{toast(text)}};
-  $('refresh-lobby').onclick=async()=>{if(state.room)renderLobby(await api(`/api/v1/sakka/rooms/${state.room.roomCode}`))};
+  $('refresh-lobby').onclick=async()=>{try{if(state.room)renderLobby(await api(`/api/v1/sakka/rooms/${state.room.roomCode}`))}catch(err){toast(err.message)}};
   $('compare-top').onclick=compareTopRuns;
   $('start-run').onclick=async()=>{try{renderGame(await api(`/api/v1/sakka/rooms/${state.room.roomCode}/runs`,{method:'POST',body:'{}'}))}catch(err){toast(err.message)}};
   $('play-selected').onclick=()=>{if(state.selectedPlay)act(state.selectedPlay,{sourceButton:document.querySelector('#hand .playing-card.selected'),swiped:true})};
-  $('leave-game').onclick=()=>{if(state.room)loadRoom(state.room.roomCode)};
-  $('show-leaderboard').onclick=()=>loadRoom(state.room.roomCode); $('home-button').onclick=()=>show('home');
+  $('leave-game').onclick=()=>{if(state.room)loadRoom(state.room.roomCode).catch(err=>toast(err.message))};
+  $('show-leaderboard').onclick=()=>loadRoom(state.room.roomCode).catch(err=>toast(err.message)); $('home-button').onclick=()=>show('home');
   $('verify-run').onclick=async()=>{try{$('verify-run').disabled=true;const check=await api(`/api/v1/sakka/runs/${state.run.runId}/verification`);const line=$('run-verification');line.hidden=false;line.className=`verification-line result-verification ${check.valid?'valid':'invalid'}`;line.textContent=check.valid?copy('player_replay_verified',{actions:check.actionCount}):copy('player_replay_failed',{issues:(check.issues||[]).map(i=>i.code).join(' · ')})}catch(e){toast(e.message)}finally{$('verify-run').disabled=false}};
   $('analyze-run').onclick=async()=>{try{$('analyze-run').disabled=true;$('analyze-run').textContent=copy('player_analyzing');const report=await api(`/api/v1/sakka/runs/${state.run.runId}:audit`,{method:'POST',body:JSON.stringify({deep:false,maximumDecisions:32})});renderAudit(report)}catch(e){toast(e.message)}finally{$('analyze-run').disabled=false;$('analyze-run').textContent=copy('player_analyze_decisions')}};
 

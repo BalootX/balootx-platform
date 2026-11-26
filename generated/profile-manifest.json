@@ -252,7 +252,7 @@
           "family": "video",
           "id": "premium_video",
           "path": "configs/video/premium.yaml",
-          "sha256": "ed7fe7d99c451c499701bd82b11df9b0a50cc5f8cd5815cef37c01586597013c",
+          "sha256": "0236a74c7ec32262cc8973958ed1089753ceec2795e4a9c149c2f9f775828024",
           "status": "governed_candidate",
           "version": "21.3.5"
         }
@@ -263,7 +263,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "c892b22d66994a4b00cae61ddcc4fd13bef6ed56b9223445d0e5dde59f4bea64"
+      "sha256": "975f4c4e62e50227d39d66057a3688358ce937edc3bdc381f059b2bb54cf3cc9"
     },
     "hokum_only": {
       "components": {
@@ -517,7 +517,7 @@
           "family": "video",
           "id": "premium_video",
           "path": "configs/video/premium.yaml",
-          "sha256": "ed7fe7d99c451c499701bd82b11df9b0a50cc5f8cd5815cef37c01586597013c",
+          "sha256": "0236a74c7ec32262cc8973958ed1089753ceec2795e4a9c149c2f9f775828024",
           "status": "governed_candidate",
           "version": "21.3.5"
         }
@@ -528,7 +528,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "c2b4adb1e1dcf2ffb1941ec83e2aa48a6b46564f2e5d0d29220d441c4e487e97"
+      "sha256": "05abe22c9db6c4d91dd6ba67e222f6575cb5373def069a0338b4107fd9e46f26"
     },
     "sun_only": {
       "components": {
@@ -782,7 +782,7 @@
           "family": "video",
           "id": "premium_video",
           "path": "configs/video/premium.yaml",
-          "sha256": "ed7fe7d99c451c499701bd82b11df9b0a50cc5f8cd5815cef37c01586597013c",
+          "sha256": "0236a74c7ec32262cc8973958ed1089753ceec2795e4a9c149c2f9f775828024",
           "status": "governed_candidate",
           "version": "21.3.5"
         }
@@ -793,7 +793,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "3a8fed6c39f2a4ccea035a283cc6f78a3b69e0d3810333380ce55d01088335a0"
+      "sha256": "9608ef37ba6939b70129ca99a629d8c559407c83e43860a52b1368da7ee0225d"
     }
   },
   "schemaVersion": 1

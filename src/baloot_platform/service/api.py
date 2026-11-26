@@ -449,6 +449,11 @@ if _PLAYER_STATIC.exists():
 _APP_STATIC = Path(__file__).resolve().parent / "static" / "app"
 if _APP_STATIC.exists():
     app.mount("/app-assets", StaticFiles(directory=_APP_STATIC), name="app-assets")
+_SHARED_STATIC = Path(__file__).resolve().parent / "static" / "shared"
+if _SHARED_STATIC.exists():
+    app.mount(
+        "/shared-assets", StaticFiles(directory=_SHARED_STATIC), name="shared-assets"
+    )
 _CHALLENGE_STATIC = Path(__file__).resolve().parent / "static" / "challenge"
 if _CHALLENGE_STATIC.exists():
     app.mount(
@@ -514,7 +519,19 @@ def configuration_studio():
 def unified_app():
     if not _APP_STATIC.exists():
         raise HTTPException(404, "application assets are unavailable")
-    return FileResponse(_APP_STATIC / "index.html")
+    template = (_APP_STATIC / "index.html").read_text(encoding="utf-8")
+    serialized = (
+        json.dumps(
+            dict(ACTIVE_BUNDLE.video["challenge_copy"]),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        .replace("<", "\\u003c")
+        .replace("&", "\\u0026")
+    )
+    rendered = template.replace("{{app_copy_json}}", serialized)
+    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
 
 
 app.include_router(build_auth_router(IDENTITY))

@@ -204,6 +204,32 @@ def test_video_and_playable_copy_have_no_second_authority_in_source(root: Path) 
     assert "copy('request_error'" in challenge_script
 
 
+def test_active_browser_api_helpers_share_one_request_deadline(root: Path) -> None:
+    service = root / "src/baloot_platform/service"
+    shared = (service / "static/shared/request.js").read_text(encoding="utf-8")
+    assert shared.count("REQUEST_DEADLINE_MS =") == 1
+    assert "AbortSignal.timeout(REQUEST_DEADLINE_MS)" in shared
+    assert "AbortSignal.any([caller, deadline])" in shared
+
+    bare_fetch = re.compile(r"(?<![.\w])fetch\(")
+    for page in ("app", "challenge", "player"):
+        script = (service / f"static/{page}/app.js").read_text(encoding="utf-8")
+        assert "import('/shared-assets/request.js')" in script, page
+        assert "request_timeout" in script, page
+        assert not bare_fetch.search(script), page
+
+    foundry = service / "foundry_dashboard/src"
+    for source in sorted(foundry.rglob("*.ts*")):
+        if "generated" not in source.parts:
+            assert not bare_fetch.search(source.read_text(encoding="utf-8")), source
+    assert "defaultClient.setConfig({fetch: fetchWithDeadline})" in (
+        foundry / "api/research.ts"
+    ).read_text(encoding="utf-8")
+    assert '"static/shared/*.js"' in (root / "pyproject.toml").read_text(
+        encoding="utf-8"
+    )
+
+
 def test_mobile_choice_breakdown_uses_bounded_card_geometry(root: Path) -> None:
     styles = (root / "src/baloot_platform/service/static/challenge/app.css").read_text(
         encoding="utf-8"
