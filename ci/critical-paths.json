@@ -37,6 +37,7 @@
       "scripts/render_research_notice.py",
       "scripts/render_kickoff.py",
       "scripts/render-kickoff.json",
+      "scripts/render-kickoff.schema.json",
       "src/baloot_platform/challenge/publication_service.py",
       "src/baloot_platform/research/slot_sequencer.py",
       "src/baloot_platform/video/captions.py",
