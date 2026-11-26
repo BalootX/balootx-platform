@@ -5,78 +5,483 @@ from __future__ import annotations
 import hmac
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
+
+from starlette._utils import get_route_path
+from starlette.routing import Match, Router
+from starlette.types import Scope as ASGIScope
 
 from baloot_platform.identity import Identity, IdentityService
 from baloot_platform.security import AccessClaims, AuthorizationPolicy, Scope, SignedAccessTokenService
 
 DEFAULT_TENANT = "default"
 
-PUBLIC_HTTP_READS = frozenset({
-    "/", "/app", "/studio", "/foundry", "/configuration-studio", "/play",
-    "/guide", "/learn", "/replay", "/challenges", "/decision-workbench",
-    "/hitl-studio", "/docs", "/redoc", "/openapi.json", "/favicon.ico",
-    "/healthz", "/readyz", "/api/v1/health", "/api/v1/options",
-    "/api/v1/engine-guide", "/api/v1/foundry-copy", "/api/v1/challenge-copy",
-    "/api/v1/auth/me", "/api/v1/security/capabilities", "/api/v1/capabilities",
-})
-PUBLIC_HTTP_BOOTSTRAP = frozenset({
-    "/api/v1/auth/guest", "/api/v1/auth/register", "/api/v1/auth/login",
-    "/api/v1/security/oidc:begin", "/api/v1/security/oidc:callback",
-})
-PUBLIC_HTTP_ASSETS = (
-    "/app-assets/", "/play-assets/", "/guide-assets/", "/foundry-assets/",
-    "/foundry-fonts/", "/card-assets/", "/challenge-assets/",
-    "/challenge-card-faces/", "/challenge-video-assets/",
-)
-PUBLIC_CHALLENGE_READ = re.compile(
-    r"/c/[^/]+|/api/v2/challenge-locators/[^/:]+(?:/attempt)?"
-)
-
 HISTORY_GAME_REOPEN_PATH = "/api/v1/history/games/{identifier}:reopen"
 HISTORY_GAME_AUDIT_PATH = "/api/v1/history/games/{identifier}:audit"
 _JOB_HTTP = re.compile(r"/api/v1/(?:jobs/[^/:]+|video-jobs/[^/:]+(?:/events)?)")
-_ARCHIVE_HTTP_READ = re.compile(
-    r"/api/v1/history/games/[^/:]+(?:/(?:replay|audits|verification))?"
-)
 _JOB_RPC = "/baloot.v2.BalootPlatform/GetJob"
 
 
-def public_http(method: str, path: str) -> bool:
-    if method == "POST":
-        return path in PUBLIC_HTTP_BOOTSTRAP
-    return method in {"GET", "HEAD"} and (
-        path in PUBLIC_HTTP_READS
-        or path.startswith(PUBLIC_HTTP_ASSETS)
-        or PUBLIC_CHALLENGE_READ.fullmatch(path) is not None
-    )
+# None marks explicitly public access. Keys use the registered route template.
+HTTP_POLICY: dict[tuple[str, str], Scope | None] = {
+    ("GET", "/"): None,
+    ("POST", "/api/v1/auth/guest"): None,
+    ("POST", "/api/v1/auth/login"): None,
+    ("GET", "/api/v1/auth/me"): None,
+    ("POST", "/api/v1/auth/register"): None,
+    ("GET", "/api/v1/capabilities"): None,
+    ("GET", "/api/v1/challenge-copy"): None,
+    ("GET", "/api/v1/engine-guide"): None,
+    ("GET", "/api/v1/foundry-copy"): None,
+    ("GET", "/api/v1/health"): None,
+    ("GET", "/api/v1/options"): None,
+    ("GET", "/api/v1/security/capabilities"): None,
+    ("POST", "/api/v1/security/oidc:begin"): None,
+    ("POST", "/api/v1/security/oidc:callback"): None,
+    ("GET", "/api/v2/challenge-locators/{code}"): None,
+    ("GET", "/api/v2/challenge-locators/{code}/attempt"): None,
+    ("GET", "/app"): None,
+    ("GET", "/app-assets"): None,
+    ("HEAD", "/app-assets"): None,
+    ("GET", "/c/{code}"): None,
+    ("GET", "/card-assets"): None,
+    ("HEAD", "/card-assets"): None,
+    ("GET", "/challenge-assets"): None,
+    ("HEAD", "/challenge-assets"): None,
+    ("GET", "/challenge-card-faces"): None,
+    ("HEAD", "/challenge-card-faces"): None,
+    ("GET", "/challenge-video-assets"): None,
+    ("HEAD", "/challenge-video-assets"): None,
+    ("GET", "/challenges"): None,
+    ("GET", "/configuration-studio"): None,
+    ("GET", "/decision-workbench"): None,
+    ("GET", "/docs"): None,
+    ("GET", "/favicon.ico"): None,
+    ("GET", "/foundry"): None,
+    ("GET", "/foundry-assets"): None,
+    ("HEAD", "/foundry-assets"): None,
+    ("GET", "/foundry-fonts"): None,
+    ("HEAD", "/foundry-fonts"): None,
+    ("GET", "/guide"): None,
+    ("GET", "/guide-assets"): None,
+    ("HEAD", "/guide-assets"): None,
+    ("GET", "/healthz"): None,
+    ("GET", "/hitl-studio"): None,
+    ("GET", "/learn"): None,
+    ("GET", "/openapi.json"): None,
+    ("HEAD", "/openapi.json"): None,
+    ("GET", "/play"): None,
+    ("GET", "/play-assets"): None,
+    ("HEAD", "/play-assets"): None,
+    ("GET", "/readyz"): None,
+    ("GET", "/redoc"): None,
+    ("GET", "/replay"): None,
+    ("GET", "/studio"): None,
+
+    ("GET", "/api/v1/adaptive/challenges/next"): Scope.READ,
+    ("GET", "/api/v1/adjudication/cases"): Scope.READ,
+    ("GET", "/api/v1/adjudication/cases/{case_id}"): Scope.READ,
+    ("GET", "/api/v1/adjudication/cases/{case_id}/directive"): Scope.READ,
+    ("GET", "/api/v1/adjudication/cases/{case_id}/recommendation"): Scope.READ,
+    ("GET", "/api/v1/adjudication/cases/{case_id}/verification"): Scope.READ,
+    ("GET", "/api/v1/agents/profiles"): Scope.READ,
+    ("GET", "/api/v1/audits/{audit_id}"): Scope.READ,
+    ("GET", "/api/v1/benchmark/profile"): Scope.READ,
+    ("GET", "/api/v1/bundles/current"): Scope.READ,
+    ("GET", "/api/v1/canonical-history/{identifier}/lineage"): Scope.READ,
+    ("GET", "/api/v1/canonical-history/{identifier}/snapshot"): Scope.READ,
+    ("GET", "/api/v1/canonical-history/{identifier}/verification"): Scope.READ,
+    ("GET", "/api/v1/certification/profile"): Scope.READ,
+    ("GET", "/api/v1/challenges"): Scope.READ,
+    ("GET", "/api/v1/challenges/{challenge_id}"): Scope.READ,
+    ("GET", "/api/v1/challenges/{challenge_id}/difficulty"): Scope.READ,
+    ("GET", "/api/v1/challenges/{challenge_id}/publication-reviews"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/bundles"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/bundles/{revision_id}"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/bundles/{revision_id}:resolve"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/bundles/{revision_id}:resolve-v2"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/bundles/{revision_id}/events"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/profile"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/profile-schemas/{family}"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/profiles"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/profiles:compare"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/profiles:resolve"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/profiles/{revision_id}"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/profiles/{revision_id}/events"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/resolve"): Scope.READ,
+    ("GET", "/api/v1/configuration-registry/resolve-v2"): Scope.READ,
+    ("GET", "/api/v1/friends"): Scope.READ,
+    ("GET", "/api/v1/friends/requests"): Scope.READ,
+    ("GET", "/api/v1/games"): Scope.READ,
+    ("GET", "/api/v1/games/{game_id}"): Scope.READ,
+    ("GET", "/api/v1/games/{game_id}/audit"): Scope.READ,
+    ("GET", "/api/v1/games/{game_id}/decisions"): Scope.READ,
+    ("GET", "/api/v1/games/{game_id}/versions"): Scope.READ,
+    ("GET", "/api/v1/history/decisions/{decision_id}"): Scope.READ,
+    ("GET", "/api/v1/history/decisions/{decision_id}/audits"): Scope.READ,
+    ("GET", "/api/v1/history/decisions/{decision_id}/comparison"): Scope.READ,
+    ("GET", "/api/v1/history/decisions/{decision_id}/difficulty"): Scope.READ,
+    ("GET", "/api/v1/history/games/{identifier}"): Scope.READ,
+    ("GET", "/api/v1/history/games/{identifier}/audits"): Scope.READ,
+    ("GET", "/api/v1/history/games/{identifier}/replay"): Scope.READ,
+    ("GET", "/api/v1/history/games/{identifier}/verification"): Scope.READ,
+    ("GET", "/api/v1/hitl/cases"): Scope.READ,
+    ("GET", "/api/v1/hitl/cases/{case_id}"): Scope.READ,
+    ("GET", "/api/v1/hitl/cases/{case_id}/verification"): Scope.READ,
+    ("GET", "/api/v1/hitl/consent"): Scope.READ,
+    ("GET", "/api/v1/hitl/improvements"): Scope.READ,
+    ("GET", "/api/v1/hitl/improvements/{proposal_id}"): Scope.READ,
+    ("GET", "/api/v1/hitl/profile"): Scope.READ,
+    ("GET", "/api/v1/hitl/reviewers/{subject_id}"): Scope.READ,
+    ("GET", "/api/v1/live/rooms"): Scope.READ,
+    ("GET", "/api/v1/live/rooms/{identifier}"): Scope.READ,
+    ("GET", "/api/v1/live/rooms/{identifier}/verification"): Scope.READ,
+    ("GET", "/api/v1/operations/profile"): Scope.READ,
+    ("GET", "/api/v1/performance/profile"): Scope.READ,
+    ("GET", "/api/v1/platform/capabilities"): Scope.READ,
+    ("GET", "/api/v1/plugins"): Scope.READ,
+    ("GET", "/api/v1/plugins-legacy"): Scope.READ,
+    ("GET", "/api/v1/sakka/boards"): Scope.READ,
+    ("GET", "/api/v1/sakka/boards/{identifier}"): Scope.READ,
+    ("GET", "/api/v1/sakka/boards/{identifier}/verification"): Scope.READ,
+    ("GET", "/api/v1/sakka/rooms/{identifier}"): Scope.READ,
+    ("GET", "/api/v1/sakka/rooms/{identifier}/events"): Scope.READ,
+    ("GET", "/api/v1/sakka/rooms/{identifier}/leaderboard"): Scope.READ,
+    ("GET", "/api/v1/sakka/runs/{run_id}"): Scope.READ,
+    ("GET", "/api/v1/sakka/runs/{run_id}/audit"): Scope.READ,
+    ("GET", "/api/v1/sakka/runs/{run_id}/verification"): Scope.READ,
+    ("GET", "/api/v1/security/passkeys"): Scope.READ,
+    ("GET", "/api/v1/shared/boards"): Scope.READ,
+    ("GET", "/api/v1/shared/boards/{identifier}"): Scope.READ,
+    ("GET", "/api/v1/shared/boards/{identifier}/verification"): Scope.READ,
+    ("GET", "/api/v1/shared/rooms/{identifier}"): Scope.READ,
+    ("GET", "/api/v1/shared/rooms/{identifier}/events"): Scope.READ,
+    ("GET", "/api/v1/shared/rooms/{identifier}/leaderboard"): Scope.READ,
+    ("GET", "/api/v1/shared/runs/{run_id}"): Scope.READ,
+    ("GET", "/api/v1/shared/runs/{run_id}/decisions/{decision_id}/explanation"): Scope.READ,
+    ("GET", "/api/v1/shared/runs/{run_id}/decisions/{decision_id}/reviews"): Scope.READ,
+    ("GET", "/api/v1/shared/runs/{run_id}/review"): Scope.READ,
+    ("GET", "/api/v1/shared/runs/{run_id}/verification"): Scope.READ,
+    ("GET", "/api/v1/users:search"): Scope.READ,
+
+    ("POST", "/api/v1/adjudication/cases"): Scope.PLAY,
+    ("POST", "/api/v1/adjudication/cases/{case_id}/appeals"): Scope.PLAY,
+    ("POST", "/api/v1/adjudication/cases/{case_id}/appeals:resolve"): Scope.PLAY,
+    ("POST", "/api/v1/adjudication/cases/{case_id}/evidence"): Scope.PLAY,
+    ("POST", "/api/v1/adjudication/cases/{case_id}/rulings"): Scope.PLAY,
+    ("POST", "/api/v1/analyses"): Scope.PLAY,
+    ("POST", "/api/v1/auth/logout"): Scope.PLAY,
+    ("POST", "/api/v1/benchmark/evaluations"): Scope.PLAY,
+    ("POST", "/api/v1/canonical-history/{identifier}/branches"): Scope.PLAY,
+    ("POST", "/api/v1/canonical-history/{identifier}/corrections"): Scope.PLAY,
+    ("POST", "/api/v1/certification/candidates:verify"): Scope.PLAY,
+    ("POST", "/api/v1/challenges/{challenge_id}:approve"): Scope.PLAY,
+    ("POST", "/api/v1/challenges/{challenge_id}:publish"): Scope.PLAY,
+    ("POST", "/api/v1/challenges/{challenge_id}:retire"): Scope.PLAY,
+    ("POST", "/api/v1/challenges/{challenge_id}:status"): Scope.PLAY,
+    ("POST", "/api/v1/challenges/{challenge_id}/attempts"): Scope.PLAY,
+    ("POST", "/api/v1/challenges/{challenge_id}/publication-reviews"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry:bootstrap"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry/bootstrap"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry/bundles"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:compile"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:publish"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:reject"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:retire"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:rollback"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry/profiles"): Scope.PLAY,
+    ("PATCH", "/api/v1/configuration-registry/profiles/{revision_id}"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry/profiles/{revision_id}:publish"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry/profiles/{revision_id}:reject"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry/profiles/{revision_id}:retire"): Scope.PLAY,
+    ("POST", "/api/v1/configuration-registry/profiles/{revision_id}:validate"): Scope.PLAY,
+    ("POST", "/api/v1/configuration:validate"): Scope.PLAY,
+    ("POST", "/api/v1/contexts:continue"): Scope.PLAY,
+    ("POST", "/api/v1/contexts:validate"): Scope.PLAY,
+    ("POST", "/api/v1/friends/requests"): Scope.PLAY,
+    ("POST", "/api/v1/friends/requests/{request_id}:respond"): Scope.PLAY,
+    ("POST", "/api/v1/games"): Scope.PLAY,
+    ("POST", "/api/v1/games/{game_id}:archive"): Scope.PLAY,
+    ("POST", "/api/v1/games/{game_id}/actions"): Scope.PLAY,
+    ("POST", "/api/v1/games/{game_id}/bids"): Scope.PLAY,
+    ("POST", "/api/v1/games/{game_id}/bots:advance"): Scope.PLAY,
+    ("POST", "/api/v1/games/{game_id}/deal:annul"): Scope.PLAY,
+    ("POST", "/api/v1/games/{game_id}/rounds:next"): Scope.PLAY,
+    ("POST", "/api/v1/games/{game_id}/versions/{version}:branch"): Scope.PLAY,
+    ("POST", "/api/v1/history/decisions/{decision_id}:explain"): Scope.PLAY,
+    ("POST", "/api/v1/history/decisions/{decision_id}:fork"): Scope.PLAY,
+    ("POST", "/api/v1/history/decisions/{decision_id}:reanalyze"): Scope.PLAY,
+    ("POST", "/api/v1/history/decisions/{decision_id}/attempts"): Scope.PLAY,
+    ("POST", "/api/v1/history/decisions/{decision_id}/feedback"): Scope.PLAY,
+    ("POST", "/api/v1/history/decisions/{decision_id}/intent"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/cases"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/cases/{case_id}/adjudications"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/cases/{case_id}/assignments"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/cases/{case_id}/consensus"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/cases/{case_id}/moderation-flags"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/cases/{case_id}/submissions"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/cases/{case_id}/training-candidates"): Scope.PLAY,
+    ("PUT", "/api/v1/hitl/consent"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/improvements"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/improvements/{proposal_id}:approve"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/improvements/{proposal_id}:finalize"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/improvements/{proposal_id}/evaluations"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/moderation-flags/{flag_id}:resolve"): Scope.PLAY,
+    ("PUT", "/api/v1/hitl/reviewers/{subject_id}"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/training-candidates/{candidate_id}:accept"): Scope.PLAY,
+    ("POST", "/api/v1/hitl/training-candidates/{candidate_id}/evaluations"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms/{identifier}/actions"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms/{identifier}/deadline:enforce"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms/{identifier}/disconnect"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms/{identifier}/disconnects:enforce"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms/{identifier}/pause"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms/{identifier}/ready"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms/{identifier}/reconnect"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms/{identifier}/referee"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms/{identifier}/resume"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms/{identifier}/seats"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms/{identifier}/spectators"): Scope.PLAY,
+    ("POST", "/api/v1/live/rooms/{identifier}/start"): Scope.PLAY,
+    ("POST", "/api/v1/performance/quick"): Scope.PLAY,
+    ("POST", "/api/v1/sakka/boards"): Scope.PLAY,
+    ("POST", "/api/v1/sakka/comparisons"): Scope.PLAY,
+    ("POST", "/api/v1/sakka/rooms"): Scope.PLAY,
+    ("POST", "/api/v1/sakka/rooms/{identifier}:join"): Scope.PLAY,
+    ("POST", "/api/v1/sakka/rooms/{identifier}/runs"): Scope.PLAY,
+    ("POST", "/api/v1/sakka/runs/{run_id}:audit"): Scope.PLAY,
+    ("POST", "/api/v1/sakka/runs/{run_id}/actions"): Scope.PLAY,
+    ("POST", "/api/v1/sakka/runs/{run_id}/actions/{sequence}:share"): Scope.PLAY,
+    ("POST", "/api/v1/sakka/runs/{run_id}/actions/{sequence}/feedback"): Scope.PLAY,
+    ("POST", "/api/v1/security/passkeys:authenticate:finish"): Scope.PLAY,
+    ("POST", "/api/v1/security/passkeys:begin"): Scope.PLAY,
+    ("POST", "/api/v1/security/passkeys:register:finish"): Scope.PLAY,
+    ("POST", "/api/v1/security/tokens"): Scope.PLAY,
+    ("POST", "/api/v1/security/websocket-tickets"): Scope.PLAY,
+    ("POST", "/api/v1/shared/boards"): Scope.PLAY,
+    ("POST", "/api/v1/shared/comparisons"): Scope.PLAY,
+    ("POST", "/api/v1/shared/rooms"): Scope.PLAY,
+    ("POST", "/api/v1/shared/rooms/{identifier}:join"): Scope.PLAY,
+    ("POST", "/api/v1/shared/rooms/{identifier}/runs"): Scope.PLAY,
+    ("POST", "/api/v1/shared/runs/{run_id}/actions"): Scope.PLAY,
+    ("POST", "/api/v1/shared/runs/{run_id}/actions/{sequence}:share"): Scope.PLAY,
+    ("POST", "/api/v1/shared/runs/{run_id}/decisions/{decision_id}/reviews"): Scope.PLAY,
+    ("POST", "/api/v2/challenge-locators/{code}/attempts"): Scope.PLAY,
+
+    ("POST", "/api/v1/challenge-jobs"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/challenges/{challenge_id}:recalibrate"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/challenges/{challenge_id}:render"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/history/decisions/{decision_id}/video-jobs"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v1/history/decisions/{decision_id}/videos"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v1/history/games"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/history/games/{identifier}/video-jobs"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v1/history/games/{identifier}/video-records"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v1/history/games/{identifier}/videos"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v1/jobs/{job_id}"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v1/observability/snapshot"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/video-jobs"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v1/video-jobs/{job_id}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/video-jobs/{job_id}:cancel"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v1/video-jobs/{job_id}/events"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v1/videos/{video_id}"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v1/videos/{video_id}/audit-map"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v1/videos/{video_id}/timeline"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/analysis-batches"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/analysis-batches"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/analysis-batches/{job_id}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/analysis-batches/{job_id}:cancel"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/analysis-batches/{job_id}:execute"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/analysis-batches/{job_id}/candidates"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/analysis-batches/{job_id}/candidates/{candidate_hash}:prepare"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/campaign-equivalence-proofs"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/campaigns"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/campaigns"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/campaigns/{campaign_hash}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/campaigns/{campaign_hash}:cancel"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/campaigns/{campaign_hash}:execute"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/campaigns/{campaign_hash}/attempts"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/campaigns/{campaign_hash}/shards"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/challenge-locators"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/challenge-locators/{code}:revoke"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/comparison-campaigns"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/comparison-campaigns"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/comparison-campaigns/{campaign_code}"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/comparison-campaigns/{campaign_code}/events"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/config-revisions"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/configuration/bundles"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/configuration/bundles"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/configuration/bundles/{revision_id}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/configuration/bundles/{revision_id}:compile"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/configuration/bundles/{revision_id}:publish"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/configuration/bundles/{revision_id}:retire"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/configuration/profile-schemas/{family}"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/configuration/profiles"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/configuration/profiles"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/configuration/profiles/{revision_id}"): Scope.CONFIG_ADMIN,
+    ("PATCH", "/api/v2/configuration/profiles/{revision_id}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/configuration/profiles/{revision_id}:publish"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/configuration/profiles/{revision_id}:retire"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/configuration/profiles/{revision_id}:validate"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/context-searches"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/context-searches/{job_id}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/context-searches/{job_id}:cancel"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/context-searches/{job_id}/events"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/corrections"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/corrections"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/datasets"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/datasets"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/domain-capabilities"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/domain-compilations/{compilation_hash}"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/domain-compilations/{compilation_hash}/coverage"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/finalist-validations"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/finalist-validations"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/finalist-validations/{job_id}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/finalist-validations/{job_id}:cancel"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/finalist-validations/{job_id}:prepare-best"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/foundry-catalogs"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/foundry-catalogs/{catalog_hash}"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/foundry-profile"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/laffat"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/laffat/{identifier}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/laffat/{identifier}:prepare-render"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/laffat/{identifier}/complete-trace"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/laffat/{identifier}/decisions"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/laffat/{identifier}/evidence"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/laffat/{identifier}/perspectives"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/laffat/{identifier}/renders"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/laffat/{identifier}/scenario-graph"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/models"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/models"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/plugins"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/publications"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/publications"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/qualified-laffat"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/render-batches"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/render-batches"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/render-batches/{job_id}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/render-batches/{job_id}:cancel"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/render-batches/{job_id}/events"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/research-exact-traces:preview-legal-actions"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-recipes"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/research-recipes"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/research-recipes:estimate"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/research-recipes:validate"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-recipes/{code}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/research-recipes/{code}:preview-v4-conversion"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/research-recipes/{code}:retire"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-results"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-results/{code}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/research-results/{code}:prepare-render"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/research-results/{code}:verify-play-compiler"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-results/{code}/decisions"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-results/{code}/decisions/{ordinal}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/research-results/{code}/decisions/{ordinal}:prepare-render"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-results/{code}/exact-state"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-results/{code}/perspectives"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-results/{code}/renders"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-results/{result_code}/operator-audit"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-results/{result_code}/quality-audit"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-runs"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/research-runs"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-runs/{run_code}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/research-runs/{run_code}:cancel"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/research-runs/{run_code}:render-selected"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-runs/{run_code}/events"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-runs/{run_code}/sequential-search-receipts"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-runs/{run_code}/stats"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/research-stats"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/rule-primitives"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/sakka-generations"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/sakka-generations/{job_id}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/sakka-generations/{job_id}:cancel"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/sakka-generations/{job_id}/events"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/sakkas"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/sakkas/{sakka_hash}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/sakkas/curated"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/sakkas/natural"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/score-reachability-catalogs"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/score-reachability-catalogs/{catalog_hash}:prove"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/semantic-disagreements"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/shards"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/shards:claim"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/shards/{spec_hash}:commit"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/shards/{spec_hash}:heartbeat"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/trace-import-catalogs"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/video-production-batches"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/video-production-batches"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/video-production-batches/{job_id}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/video-production-batches/{job_id}:cancel"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v2/video-production-batches/{job_id}:resume"): Scope.CONFIG_ADMIN,
+    ("GET", "/api/v2/video-production-batches/{job_id}/events"): Scope.CONFIG_ADMIN,
+    ("GET", "/metrics"): Scope.CONFIG_ADMIN,
+    ("GET", "/outputs"): Scope.CONFIG_ADMIN,
+    ("HEAD", "/outputs"): Scope.CONFIG_ADMIN,
+    ("POST", HISTORY_GAME_AUDIT_PATH): Scope.CONFIG_ADMIN,
+    ("POST", HISTORY_GAME_REOPEN_PATH): Scope.CONFIG_ADMIN,
+
+    ("POST", "/api/v1/hitl/cases/{case_id}/review-clip"): Scope.MODEL_ADMIN,
+    ("GET", "/api/v1/learning/datasets"): Scope.MODEL_ADMIN,
+    ("POST", "/api/v1/learning/datasets"): Scope.MODEL_ADMIN,
+    ("GET", "/api/v1/learning/models"): Scope.MODEL_ADMIN,
+    ("POST", "/api/v1/learning/models:train"): Scope.MODEL_ADMIN,
+    ("POST", "/api/v1/learning/models/{model_id}:evaluate"): Scope.MODEL_ADMIN,
+    ("POST", "/api/v1/learning/models/{model_id}:promote"): Scope.MODEL_ADMIN,
+    ("GET", "/api/v1/learning/queue"): Scope.MODEL_ADMIN,
+}
 
 
-def http_scope(method: str, path: str) -> Scope:
-    if method in {"GET", "HEAD"} and _ARCHIVE_HTTP_READ.fullmatch(path):
-        return Scope.READ
-    if path.startswith("/api/v1/hitl/") and path.endswith("/review-clip"):
-        return Scope.MODEL_ADMIN
-    if (
-        path == "/metrics"
-        or path == "/outputs" or path.startswith("/outputs/")
-        or path.startswith((
-            "/api/v1/jobs/", "/api/v1/video-jobs", "/api/v1/videos/",
-            "/api/v1/challenge-jobs", "/api/v1/observability/", "/api/v1/history/games",
-        ))
-        or (path.startswith("/api/v2/") and not (
-            path.startswith("/api/v2/challenge-locators/")
-            and path.endswith("/attempts")
-        ))
-        or (path.startswith("/api/v1/history/") and path.endswith(
-            ("/video-jobs", "/video-records", "/videos")
-        ))
-        or (path.startswith("/api/v1/challenges/") and path.endswith(":render"))
+def http_scope(method: str, route_path: str) -> Scope | None:
+    return HTTP_POLICY.get((method, route_path), Scope.CONFIG_ADMIN)
+
+
+def http_routes(router: Router) -> Iterator[Any]:
+    for route in router.routes:
+        # FastAPI can keep included routers grouped instead of copying their routes.
+        effective_routes = getattr(route, "effective_route_contexts", None)
+        if effective_routes is None:
+            yield route
+        else:
+            for context in effective_routes():
+                yield context.starlette_route or context
+
+
+def http_request_scope(router: Router, asgi_scope: ASGIScope) -> Scope | None:
+    method = asgi_scope["method"]
+    path = get_route_path(asgi_scope)
+    partial = False
+    get_route = None
+    for route in http_routes(router):
+        match, _ = route.matches(asgi_scope)
+        if match is Match.FULL:
+            return _matched_http_scope(method, route.path, path)
+        if match is Match.PARTIAL:
+            partial = True
+            if get_route is None and "GET" in route.methods:
+                get_route = route.path
+    if method == "HEAD" and get_route is not None:
+        return _matched_http_scope("GET", get_route, path)
+
+    if not partial and router.redirect_slashes and path != "/" and path.endswith("/"):
+        redirect_scope = {**asgi_scope, "path": asgi_scope["path"].rstrip("/")}
+        for route in http_routes(router):
+            if route.matches(redirect_scope)[0] is Match.FULL:
+                return _matched_http_scope(method, route.path, path) or Scope.CONFIG_ADMIN
+    return Scope.CONFIG_ADMIN
+
+
+def _matched_http_scope(method: str, route_path: str, path: str) -> Scope | None:
+    scope = http_scope(method, route_path)
+    if method == "GET" and (
+        (route_path.startswith("/api/v2/challenge-locators/") and ":" in path)
+        or (
+            route_path.startswith("/api/v1/history/games/")
+            and (":" in path or path.endswith("/"))
+        )
     ):
         return Scope.CONFIG_ADMIN
-    return Scope.READ if method in {"GET", "HEAD", "OPTIONS"} else Scope.PLAY
+    return scope
 
 
 # None marks an explicitly public method. A missing entry has no policy.

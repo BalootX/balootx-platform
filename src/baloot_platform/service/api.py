@@ -122,11 +122,9 @@ from baloot_platform.service.authorization import (
     DEFAULT_TENANT,
     HISTORY_GAME_AUDIT_PATH,
     HISTORY_GAME_REOPEN_PATH,
-    PUBLIC_HTTP_BOOTSTRAP,
     credentials,
     history_without_media,
-    http_scope,
-    public_http,
+    http_request_scope,
     tenant_job_http,
 )
 from baloot_platform.service.client_identity import (
@@ -822,15 +820,16 @@ async def platform_security(request: Request, call_next):
         identity is not None and identity_session is not None
     ) or access_claims is not None
     path = get_route_path(request.scope)
-    auth_bootstrap = request.method == "POST" and path in PUBLIC_HTTP_BOOTSTRAP
-    if not public_http(request.method, path):
+    required_scope = http_request_scope(request.app.router, request.scope)
+    auth_bootstrap = request.method == "POST" and required_scope is None
+    if required_scope is not None:
         if not auth.authenticated:
             return JSONResponse(
                 {"detail": "authentication required", "requestId": request_id},
                 status_code=401,
             )
         denial = auth.denial(
-            AUTHORIZATION_POLICY, http_scope(request.method, path),
+            AUTHORIZATION_POLICY, required_scope,
             tenant_job=tenant_job_http(request.method, path),
         )
         if denial is not None:

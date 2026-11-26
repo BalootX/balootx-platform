@@ -230,6 +230,91 @@ def test_grpc_policy_covers_every_descriptor_method():
     }
 
 
+def test_http_policy_covers_every_registered_route():
+    from fastapi.staticfiles import StaticFiles
+    from starlette.routing import Mount, WebSocketRoute
+
+    from baloot_platform.service.authorization import HTTP_POLICY, http_routes
+
+    registered = set()
+    for route in http_routes(app.router):
+        if isinstance(route, Mount):
+            assert isinstance(route.app, StaticFiles)
+            methods = {"GET", "HEAD"}
+        elif isinstance(route, WebSocketRoute):
+            continue
+        else:
+            methods = route.methods
+            assert methods, route
+        registered.update((method, route.path) for method in methods)
+
+    assert registered <= HTTP_POLICY.keys()
+
+
+@pytest.mark.parametrize(("role", "operator_scope"), [
+    ("anonymous", None),
+    ("guest", None),
+    ("player", None),
+    ("admin", "baloot.model.admin"),
+    ("admin", "baloot.config.admin"),
+])
+def test_http_operator_route_scopes(monkeypatch, role, operator_scope):
+    from starlette.responses import Response
+    from starlette.routing import Route
+
+    from baloot_platform.service import api
+
+    learning = "/api/v1/learning"
+    operations = {
+        ("GET", f"{learning}/queue"): "baloot.model.admin",
+        ("GET", f"{learning}/datasets"): "baloot.model.admin",
+        ("POST", f"{learning}/datasets"): "baloot.model.admin",
+        ("GET", f"{learning}/models"): "baloot.model.admin",
+        ("POST", f"{learning}/models:train"): "baloot.model.admin",
+        ("POST", f"{learning}/models/{{model_id}}:evaluate"): "baloot.model.admin",
+        ("POST", f"{learning}/models/{{model_id}}:promote"): "baloot.model.admin",
+        ("POST", "/api/v1/challenges/{challenge_id}:recalibrate"): "baloot.config.admin",
+    }
+    # Exercise dispatch through the policy while keeping the service operations inert.
+    for method, path in operations:
+        route = next(
+            route for route in app.routes
+            if getattr(route, "path", None) == path and method in route.methods
+        )
+        monkeypatch.setattr(route, "app", Response(status_code=204))
+
+    unlisted = Route(
+        "/api/v1/games/policy-fixture", lambda _: Response(status_code=204), methods=["GET"],
+    )
+    monkeypatch.setattr(app.router, "routes", [unlisted, *app.routes])
+    operations[("GET", unlisted.path)] = "baloot.config.admin"
+
+    headers = {}
+    if role == "guest":
+        token = api.IDENTITY.create_guest("Policy fixture")["session"]["token"]
+    elif role == "player":
+        account = api.IDENTITY.register(f"fixture_{uuid.uuid4().hex[:8]}", "fixture-password")
+        token = account["session"]["token"]
+    elif operator_scope is not None:
+        token = api.ACCESS_TOKENS.issue(
+            subject_id="fixture-operator", role=role, scopes=[operator_scope],
+        )
+    else:
+        token = None
+    if token is not None:
+        headers["authorization"] = f"Bearer {token}"
+
+    with TestClient(app, headers=headers) as client:
+        for (method, path), scope in operations.items():
+            path = path.format(model_id="fixture-model", challenge_id="fixture-challenge")
+            if role == "anonymous":
+                expected = 401
+            else:
+                expected = 204 if operator_scope == scope else 403
+            response = client.request(method, path)
+            assert response.status_code == expected, (method, path, response.text)
+
+
 @pytest.mark.parametrize(("rpc_service", "http_service"), [
     ("baloot.v8.SakkaPlatform", "sakka"),
     ("baloot.v9.SharedPlatform", "shared"),
