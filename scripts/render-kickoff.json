@@ -1,0 +1,11 @@
+{
+  "publicRemote": "https://github.com/BalootX/balootx-platform.git",
+  "mainRef": "refs/heads/main",
+  "maxReceiptAgeSeconds": 900,
+  "gitTimeoutSeconds": {
+    "local": 10,
+    "discovery": 30,
+    "fetch": 60
+  },
+  "excludedPaths": ["docs", "tests"]
+}
