@@ -177,6 +177,12 @@ try {
     if (-not [FixtureDacl]::SetKernelObjectSecurity($denied.Handle, 4, $descriptor)) {
         throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error())
     }
+    # .NET Framework process discovery enables debug privilege, which bypasses the DACL.
+    [void][Diagnostics.Process]::GetCurrentProcess().ProcessorAffinity
+    try { [Diagnostics.Process]::LeaveDebugMode() }
+    catch [ComponentModel.Win32Exception] {
+        if ($_.Exception.GetBaseException().NativeErrorCode -ne 1300) { throw } # Privilege is absent.
+    }
     $olderRow = [pscustomobject]@{
         ProcessId = $deniedRow.ProcessId
         ParentProcessId = $deniedRow.ParentProcessId
