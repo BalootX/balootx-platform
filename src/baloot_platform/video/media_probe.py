@@ -10,32 +10,46 @@ from typing import Any, Mapping
 
 
 MEASUREMENT_MP4_MARKER = "balootx-layout-measurement-never-post"
+FFMPEG_RUNTIME_PROFILE = "scripts/ffmpeg-runtime.json"
+_FFMPEG_RUNTIME_PATH = Path(__file__).with_name("remotion") / FFMPEG_RUNTIME_PROFILE
+
+
+def _ffmpeg_thread_count() -> str:
+    profile = json.loads(_FFMPEG_RUNTIME_PATH.read_text(encoding="utf-8"))
+    threads = profile.get("threads") if isinstance(profile, dict) else None
+    if (
+        type(threads) not in (int, float)
+        or not 1 <= threads <= 2_147_483_647
+        or threads % 1
+    ):
+        raise ValueError(f"{_FFMPEG_RUNTIME_PATH}: threads must be a positive 32-bit integer")
+    return str(int(threads))
 
 
 def run_media_command(
     command: list[str],
     **kwargs: Any,
 ) -> subprocess.CompletedProcess[Any]:
-    """Run FFmpeg-family tools through a Windows long-path-safe boundary."""
+    """Run FFmpeg-family tools with the configured cap and Windows long paths."""
     arguments = list(command)
     if not arguments:
         raise ValueError("media command cannot be empty")
     executable = os.fspath(arguments[0])
-    if os.environ.get("CI") == "true":
-        tool = Path(executable).stem.lower()
-        if tool == "ffmpeg" and "-i" in arguments:
-            # FFmpeg decoder options are per input; encoder options are per output.
-            inputs = []
-            for argument in arguments[1:-1]:
-                if argument == "-i":
-                    inputs.extend(["-threads", "4"])
-                inputs.append(argument)
-            arguments = [
-                executable, "-filter_threads", "4", "-filter_complex_threads", "4",
-                *inputs, "-threads", "4", arguments[-1],
-            ]
-        elif tool == "ffprobe" and "-count_frames" in arguments:
-            arguments[1:1] = ["-threads", "4"]
+    tool = Path(executable).stem.lower()
+    if tool == "ffmpeg" and "-i" in arguments:
+        threads = _ffmpeg_thread_count()
+        # FFmpeg decoder options are per input; encoder options are per output.
+        inputs = []
+        for argument in arguments[1:-1]:
+            if argument == "-i":
+                inputs.extend(["-threads", threads])
+            inputs.append(argument)
+        arguments = [
+            executable, "-filter_threads", threads, "-filter_complex_threads", threads,
+            *inputs, "-threads", threads, arguments[-1],
+        ]
+    elif tool == "ffprobe" and "-count_frames" in arguments:
+        arguments[1:1] = ["-threads", _ffmpeg_thread_count()]
     if os.name == "nt" and os.path.isabs(executable):
         if executable.startswith("\\\\?\\"):
             extended = executable

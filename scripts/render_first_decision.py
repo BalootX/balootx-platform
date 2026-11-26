@@ -67,8 +67,7 @@ def main() -> None:
     verifier.main()
     ffmpeg = media_tool(ROOT, "ffmpeg")
     run_media_command([
-        str(ffmpeg), "-v", "error", "-threads", "4", "-i", str(video),
-        "-filter_threads", "4", "-filter_complex_threads", "4", "-threads", "4",
+        str(ffmpeg), "-v", "error", "-i", str(video),
         "-c:v", "rawvideo", "-c:a", "pcm_s16le", "-f", "null", "-",
     ], check=True)
     sheet = Image.new("RGB", (810, 960))
