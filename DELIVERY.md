@@ -34,6 +34,11 @@ The Foundry job discovers the Vitest suite under `tests/frontend` using the same
 
 After rendering and uploading the governed media, the decision shard checks a synthetic play bundle from the research-notice release builder. It samples the first, steady and last frames of the hook, question and reveal and checks the rendered timer and layout on both sides of every countdown change. A test-only moving prompt must trigger the prompt and notice overlap check at the first countdown change. The `media-stage-logs-decision` artifact retains the bundle and pinned layout table copies, frame results, measured boxes and PNGs under `transition-layout/`, including when a frame check fails.
 
+For visual review, download these two artifacts from the same successful `main` CI run.
+
+- `foundry-test-receipts` also includes the synthetic Arabic RTL screenshots captured by the desktop and 390 × 844 mobile Playwright journeys. Look for `library-1440.png` and `library-390.png` in the library results, and `delayed-payoff-controls.png` in a `mobile-touch-chrome` result directory.
+- `media-render-decision` includes `media-shard.tar` and the validated synthetic notice-on PNGs under `notice-on-hook-frames/`. Download it within its one-day retention window.
+
 The main ruleset's CodeQL rule evaluates each PR at admission and blocks new high or critical alerts on lines the PR changes. The main-push scan surfaces alerts that arise only in the combined commit.
 
 The concurrency key uses the PR number to keep same-named branches from different forks in separate groups. A new run supersedes only the same PR's older run. Each push, merge-group and manual CI run has its own group and cannot cancel another run.

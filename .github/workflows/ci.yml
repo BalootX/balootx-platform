@@ -231,6 +231,7 @@ jobs:
             ${{ runner.temp }}/foundry-playwright.xml
             ${{ runner.temp }}/foundry-live-result-latency.json
             ${{ runner.temp }}/foundry-playwright-output/**/audit-*.png
+            ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && job.status == 'success' && format('{0}/foundry-playwright-output/**/*.png', runner.temp) || '' }}
           if-no-files-found: error
       - name: Upload Foundry Playwright failure diagnostics
         if: ${{ !cancelled() && steps.foundry-playwright.outcome == 'failure' }}
@@ -887,7 +888,10 @@ jobs:
           digest-mismatch: error
       - name: Check synthetic hook layouts
         if: matrix.shard == 'decision'
-        run: node tests/hook-layout.integration.mjs ../../../../outputs/professional-video-prototypes/render-bundle-decision.json
+        run: >-
+          node tests/hook-layout.integration.mjs ../../../../outputs/professional-video-prototypes/render-bundle-decision.json "$HOOK_FRAMES_DIR"
+        env:
+          HOOK_FRAMES_DIR: ${{ runner.temp }}/notice-on-hook-frames
       - name: Render the governed media shard
         working-directory: .
         env:
@@ -911,7 +915,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: media-render-${{ matrix.shard }}
-          path: ${{ runner.temp }}/media-shard.tar
+          path: |
+            ${{ runner.temp }}/media-shard.tar
+            ${{ matrix.shard == 'decision' && github.event_name == 'push' && github.ref == 'refs/heads/main' && format('{0}/notice-on-hook-frames/*.png', runner.temp) || '' }}
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
