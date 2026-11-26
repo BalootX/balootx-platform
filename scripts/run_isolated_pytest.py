@@ -37,7 +37,8 @@ def fast_files(history: dict) -> list[str]:
 
 
 def isolated_environment(runtime: str) -> dict[str, str]:
-    env = {**{name: value for name, value in os.environ.items() if not name.startswith("PYTEST_")},
+    env = {**{name: value for name, value in os.environ.items()
+              if not name.startswith("PYTEST_") and name != "BALOOT_PYTEST_DEADLINE"},
            "BALOOT_DATA_DIR": runtime, "BALOOT_RUNTIME": runtime,
            "BALOOT_OUTPUTS": str(Path(runtime) / "outputs"),
            "BALOOT_NATIVE_LIBRARY": str(ROOT / "build/native-release/libbaloot_native.so"),
@@ -75,10 +76,17 @@ def resource_snapshot() -> dict:
             "files": files}
 
 
-def validate_execution(execution: dict) -> dict:
-    if (execution["exitstatus"] not in (0, 1) or execution["deselected"] or
-            any(issue["outcome"] != "skipped" for issue in execution["collectionIssues"])):
-        raise ValueError("pytest failed, deselected tests, or failed collection")
+def job_seconds_remaining(fallback: int) -> int:
+    deadline = os.environ.get("BALOOT_PYTEST_DEADLINE")
+    if deadline is None:
+        return fallback
+    return max(0, int(int(deadline) - time.time()))
+
+
+def validate_execution(execution: dict, expected_skips: dict | None = None) -> dict:
+    if execution["exitstatus"] not in (0, 1) or execution["deselected"] or execution["collectionIssues"]:
+        raise ValueError("pytest failed, deselected tests, or skipped/failed collection")
+    expected_skips = expected_skips or {}
     nodes, reports = execution["collected"], execution["reports"]
     if not nodes or len(nodes) != len(set(nodes)) or set(nodes) != set(reports):
         raise ValueError("no tests executed or collected tests have no execution receipt")
@@ -86,12 +94,20 @@ def validate_execution(execution: dict) -> dict:
     for node, phases in reports.items():
         if not phases:
             raise ValueError(f"incomplete test phases: {node}")
-        expected = ["setup", "teardown"] if (phases[0]["outcome"] == "skipped" or is_known(node, phases[0])) else ["setup", "call", "teardown"]
-        if ([event["phase"] for event in phases] != expected or
-                any(event["outcome"] not in ("passed", "skipped") and not is_known(node, event) for event in phases)):
+        expected = ["setup", "teardown"] if phases[0]["outcome"] != "passed" else ["setup", "call", "teardown"]
+        if [event["phase"] for event in phases] != expected:
             raise ValueError(f"incomplete or failed test phases: {node}")
-        if any(is_known(node, event) for event in phases):
-            known.append(node)
+        for event in phases:
+            phase, outcome = event["phase"], event["outcome"]
+            if event.get("xfail"):
+                raise ValueError(f"unexpected pytest xfail/xpass in {phase}: {node}")
+            if outcome == "skipped":
+                if phase not in {"setup", "call"} or expected_skips.get(node) != (phase, event.get("skipReason")):
+                    raise ValueError(f"unexpected pytest skip in {phase}: {node}: {event.get('skipReason')}")
+            elif outcome != "passed":
+                if not is_known(node, event):
+                    raise ValueError(f"incomplete or failed test phases: {node}")
+                known.append(node)
     if bool(execution["exitstatus"]) != bool(known):
         raise ValueError("pytest failed outside the known resource failures")
     calls = sum(event["phase"] == "call" for phases in reports.values() for event in phases)
@@ -99,22 +115,25 @@ def validate_execution(execution: dict) -> dict:
     if not calls and not all_skipped and not known:
         raise ValueError("no test call executed and tests were not all skipped")
     return {"callCount": calls, "allSkipped": all_skipped,
-            **({"knownFailures": sorted(known)} if known else {})}
+            **({"knownFailures": sorted(set(known))} if known else {})}
 
 
-def all_skipped_allowlist(available: set[str]) -> dict[str, str]:
+def expected_skip_phases(available: set[str]) -> dict[str, tuple[str, str]]:
     allowed = {}
-    for line in (ROOT / "ci/all-skipped-allowlist.txt").read_text(encoding="utf-8").splitlines():
+    for line in (ROOT / "ci/expected-pytest-skips.txt").read_text(encoding="utf-8").splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        path, separator, reason = line.partition(" # ")
-        if not separator or not reason.strip() or path not in available or path in allowed:
-            raise ValueError("all-skipped allowlist requires unique test files and a reason per file")
-        allowed[path] = reason.strip()
+        entry, separator, reason = line.partition(" # ")
+        phase, _, node = entry.partition(" ")
+        path, marker, test = node.partition("::")
+        if (not separator or not reason.strip() or path not in available or not marker or not test
+                or phase not in {"setup", "call"} or node in allowed):
+            raise ValueError("expected skips require unique repository test nodes, a phase, and a reason")
+        allowed[node] = phase, reason.strip()
     return allowed
 
 
-def schedule(files: list[str], history: dict, light_timeout: int = 900) -> list[tuple[str, int]]:
+def schedule(files: list[str], history: dict) -> list[tuple[str, bool]]:
     seconds = history["seconds"]
     weights = history.get("shardSeconds", seconds)
     if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
@@ -123,7 +142,7 @@ def schedule(files: list[str], history: dict, light_timeout: int = 900) -> list[
     heavy = set(history["incompleteFiles"]) | {path for path, value in seconds.items() if value >= 900}
     heavy |= {file for file, source in history.get("splitFileLimitSources", {}).items() if source in heavy}
     ordered = sorted(files, key=lambda path: (path not in heavy, -weights.get(path, seconds.get(path, 0)), path))
-    return [(path, 3600 if path in heavy else light_timeout) for path in ordered]
+    return [(path, path in heavy) for path in ordered]
 
 
 def work_file_budget(path: str, timeout: int, history: dict) -> float:
@@ -185,8 +204,8 @@ def run(files: list[str], output: Path, workers: int = 4, timeout: int = 900) ->
     if len(serial) != len(set(serial)) or not set(serial) <= available:
         raise ValueError("serial files must be unique repository test files")
     serial = set(serial)
-    allowed = all_skipped_allowlist(available)
-    planned = schedule(files, history, timeout)
+    allowed = expected_skip_phases(available)
+    planned = schedule(files, history)
     resources = {"beforeAffinity": resource_snapshot()}
     # Descendants inherit this affinity even if a native library ignores thread caps.
     os.sched_setaffinity(0, sorted(os.sched_getaffinity(0))[:workers])
@@ -197,7 +216,9 @@ def run(files: list[str], output: Path, workers: int = 4, timeout: int = 900) ->
     (output / "resources.json").write_text(json.dumps(resources, indent=2) + "\n", encoding="utf-8")
     print("Resource scope: " + json.dumps(resources), flush=True)
 
-    def execute(path: str, file_timeout: int) -> dict:
+    def execute(path: str, heavy: bool) -> dict:
+        remaining = job_seconds_remaining(timeout)
+        file_timeout = remaining if heavy else min(timeout, remaining)
         print(f"START {path} (timeout {file_timeout}s)", flush=True)
         started = time.monotonic()
         log = output / (Path(path).stem + ".log")
@@ -211,6 +232,8 @@ def run(files: list[str], output: Path, workers: int = 4, timeout: int = 900) ->
             env["BALOOT_PYTEST_FILE_BUDGET"] = "1" if work_file_budget(path, file_timeout, history) else "0"
             with log.open("w", encoding="utf-8") as capture:
                 try:
+                    if not file_timeout:
+                        raise TimeoutError("pytest job deadline expired before the file could run")
                     result = subprocess.run(
                         ["timeout", "--signal=TERM", "--kill-after=10s", str(file_timeout),
                          sys.executable, "-m", "pytest", "-q", "--override-ini=addopts=",
@@ -222,20 +245,21 @@ def run(files: list[str], output: Path, workers: int = 4, timeout: int = 900) ->
                     code = result.returncode
                     if code in (0, 1):
                         try:
-                            evidence = validate_execution(json.loads(execution.read_text(encoding="utf-8")))
-                            if evidence["callCount"] == 0 and path not in allowed and not evidence.get("knownFailures"):
-                                raise ValueError("zero call phases: file is not in the all-skipped allowlist")
+                            evidence = validate_execution(json.loads(execution.read_text(encoding="utf-8")), allowed)
+                            if evidence["callCount"] == 0 and not evidence.get("knownFailures"):
+                                raise ValueError("zero call phases: no tests executed in file")
                         except (OSError, ValueError, KeyError, TypeError) as exc:
                             code, error = 1, f"invalid execution receipt: {exc}"
                             capture.write("\n" + error + "\n")
+                except TimeoutError as exc:
+                    code, error = 124, str(exc)
+                    capture.write(error)
                 except OSError as exc:
                     capture.write(str(exc))
                     code = 127
         return {"file": path, "seconds": round(time.monotonic() - started, 3),
                 "returncode": code, "timedOut": code == 124, "timeoutSeconds": file_timeout,
-                "tier": "heavy" if file_timeout == 3600 else "light", **evidence, "error": error,
-                "allSkippedAllowlistReason": allowed.get(path),
-                "removableAllowlistEntry": path in allowed and evidence["callCount"] > 0}
+                "tier": "heavy" if heavy else "light", **evidence, "error": error}
 
     results = []
 
@@ -249,8 +273,6 @@ def run(files: list[str], output: Path, workers: int = 4, timeout: int = 900) ->
             print("Known resource failures: " + ", ".join(result["knownFailures"]), flush=True)
         if result["allSkipped"]:
             print(f"ALL SKIPPED {result['file']}", flush=True)
-        if result["removableAllowlistEntry"]:
-            print(f"ALLOWLIST REMOVABLE {result['file']}: call phases executed", flush=True)
         if status == "FAIL":
             print(f"::error file={result['file']}::exit {result['returncode']}; timeout={result['timedOut']}", flush=True)
             with (output / (Path(result["file"]).stem + ".log")).open("rb") as capture:
@@ -259,13 +281,13 @@ def run(files: list[str], output: Path, workers: int = 4, timeout: int = 900) ->
                 print(capture.read().decode("utf-8", errors="replace"), flush=True)
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        pending = [pool.submit(execute, path, file_timeout) for path, file_timeout in planned if path not in serial]
+        pending = [pool.submit(execute, path, heavy) for path, heavy in planned if path not in serial]
         for future in as_completed(pending):
             record(future.result())
     # Timing assertions and native deadlines must not compete with pooled files.
-    for path, file_timeout in planned:
+    for path, heavy in planned:
         if path in serial:
-            record(execute(path, file_timeout))
+            record(execute(path, heavy))
     (output / "results.json").write_text(json.dumps(sorted(results, key=lambda row: row["file"]), indent=2) + "\n", encoding="utf-8")
     failed = sum(row["returncode"] != 0 and not row.get("knownFailures") for row in results)
     resources["afterTests"] = resource_snapshot()
@@ -278,7 +300,8 @@ def run(files: list[str], output: Path, workers: int = 4, timeout: int = 900) ->
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--timeout", type=int, default=900, help="Light-file limit in seconds; historical heavy files receive 3600")
+    parser.add_argument("--timeout", type=int, default=900,
+                        help="File limit in seconds without a job deadline, and the cap for light files")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--shard", type=int, choices=range(1, FAST_SHARDS + 1))
     args = parser.parse_args()
