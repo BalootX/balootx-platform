@@ -770,6 +770,12 @@ jobs:
       - name: Check synthetic hook layouts
         if: matrix.shard == 'decision'
         run: node tests/hook-layout.integration.mjs ../../../../outputs/professional-video-prototypes/render-bundle-decision.json
+      - name: Check synthetic transition layouts
+        if: matrix.shard == 'decision'
+        run: |
+          node tests/transition-layout.integration.mjs \
+            ../../../../outputs/professional-video-prototypes/render-bundle-decision.json \
+            "$RUNNER_TEMP/media-stage-logs/transition-layout"
       - name: Render the governed media shard
         working-directory: .
         env:

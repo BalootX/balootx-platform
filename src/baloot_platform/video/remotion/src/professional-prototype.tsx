@@ -5,6 +5,7 @@ import {
   derivePlaybackState,
   collectionOpacity,
   playbackMotionTiming,
+  questionTimer,
   type PlaybackPlay as PublicPlay,
   type PlaybackTrick as PublicTrick,
   type Seat,
@@ -598,7 +599,7 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
         completedPlayCount = pausePlayIndex;
         showPrompt = true;
         currentPlayer = actingSeat;
-        promptTimer = String(Math.max(1, Math.ceil((segmentDuration - segmentFrame) / bundle.render.fps)));
+        promptTimer = questionTimer(segmentDuration, segmentFrame, bundle.render.fps);
         promptFraction = clamp((segmentDuration - segmentFrame) / segmentDuration, 0, 1);
       } else if (timelineStage === "reveal") {
         completedPlayCount = pausePlayIndex;
