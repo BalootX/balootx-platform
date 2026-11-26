@@ -1158,7 +1158,14 @@ function App() {
   const [qualifiedLaffatLoading, setQualifiedLaffatLoading] = useState(false);
   const [videoBatchTarget, setVideoBatchTarget] = useState<number | null>(null);
   const [videoBatchSeed, setVideoBatchSeed] = useState(0);
-  const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [drawer, setDrawerState] = useState<DrawerState>(null);
+  const drawerIntent = useRef(0);
+  // Every open or close is a new intent; a loader drops its late result once the returned check is false.
+  const setDrawer = useCallback((value: DrawerState) => {
+    const intent = ++drawerIntent.current;
+    setDrawerState(value);
+    return () => intent === drawerIntent.current;
+  }, []);
   const [openHelp, setOpenHelp] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -1451,7 +1458,7 @@ function App() {
 
   useEffect(() => {
     if (!drawer || drawer.kind !== 'campaign' || !selected) return;
-    setDrawer((current) => current?.kind === 'campaign' ? {
+    setDrawerState((current) => current?.kind === 'campaign' ? {
       ...current,
       title: campaignNames.get(selected.campaignHash) || t("workflow.m_7255069a0d81"),
       content: <CampaignDetails campaign={selected} shards={shards} attempts={attempts} />,
@@ -1461,7 +1468,7 @@ function App() {
 
   useEffect(() => {
     if (!renderJob) return;
-    setDrawer((current) => current?.kind === 'render' ? {
+    setDrawerState((current) => current?.kind === 'render' ? {
       ...current,
       subtitle: statusLabel[renderJob.status] || renderJob.status,
       content: <JsonSummary value={renderJob.result || {status:renderJob.status} as JsonObject} />,
@@ -2148,7 +2155,7 @@ function App() {
   };
 
   const openResearchRun = async (item: ResearchRun) => {
-    setDrawer({
+    const stillOpen = setDrawer({
       kind:'research-run',
       title:`${t("workflow.research_run_details")} · ${item.runCode}`,
       subtitle:researchRunStatusLabel(item),
@@ -2161,13 +2168,14 @@ function App() {
         api<ResearchStats>(`/api/v2/research-runs/${item.runCode}/stats`),
         hydrateResearchRecipe(item.recipeCode),
       ]);
+      if (!stillOpen()) return;
       setDrawer({
         kind:'research-run', title:`${t("workflow.research_run_details")} · ${current.runCode}`,
         subtitle:researchRunStatusLabel(current),
-        content:<ResearchRunDetails key={current.runCode} run={current} recipe={recipe} stats={stats} busy={busy} onCancel={cancelResearchRun} onRetry={retryResearchRun} onResults={()=>{setDrawer(null);selectView('research');}} loadSequentialSearchReceipts={()=>api<ResearchSequentialSearchReceiptPage>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}/sequential-search-receipts?offset=0&limit=25`)} loadRun={()=>api<ResearchRun>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}`)} loadStats={()=>api<ResearchStats>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}/stats`)} onSnapshot={(nextRun, nextStats)=>setDrawer((open)=>open?.kind === 'research-run' ? {...open, subtitle:researchRunStatusLabel(nextRun), audit:{run:nextRun as unknown as JsonValue,stats:nextStats ?? (open.audit?.stats as JsonValue)}} : open)} PerformanceSummary={ResearchPerformanceSummary} />,
+        content:<ResearchRunDetails key={current.runCode} run={current} recipe={recipe} stats={stats} busy={busy} onCancel={cancelResearchRun} onRetry={retryResearchRun} onResults={()=>{setDrawer(null);selectView('research');}} loadSequentialSearchReceipts={()=>api<ResearchSequentialSearchReceiptPage>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}/sequential-search-receipts?offset=0&limit=25`)} loadRun={()=>api<ResearchRun>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}`)} loadStats={()=>api<ResearchStats>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}/stats`)} onSnapshot={(nextRun, nextStats)=>setDrawerState((open)=>open?.kind === 'research-run' ? {...open, subtitle:researchRunStatusLabel(nextRun), audit:{run:nextRun as unknown as JsonValue,stats:nextStats ?? (open.audit?.stats as JsonValue)}} : open)} PerformanceSummary={ResearchPerformanceSummary} />,
         audit:{run:current as unknown as JsonValue,stats},
       });
-    } catch(error) { setMessage(researchRecipeErrorMessage(error)); }
+    } catch(error) { if (stillOpen()) setMessage(researchRecipeErrorMessage(error)); }
   };
 
   const openResearchDisagreement = (item: SemanticDisagreement) => {

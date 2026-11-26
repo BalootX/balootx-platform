@@ -375,9 +375,12 @@ async function holdFirstRunDetails(page: Page) {
       await expect(currentDialog.locator('section.research-run-events')).toBeVisible();
     },
     async deliverStaleDetails() {
+      const focused = await page.evaluateHandle(() => document.activeElement);
       const answered = page.waitForResponse((response) => new URL(response.url()).pathname === staleStatsPath);
       releaseStaleDetails();
       await (await answered).finished();
+      // A discarded late response must leave keyboard focus where the user put it.
+      expect(await focused.evaluate((element) => element === document.activeElement)).toBe(true);
     },
     completeCurrentRun() {
       currentRunTerminal = true;
