@@ -130,7 +130,9 @@ def critical_paths(repo, number, head, patterns, expected_base=None):
     for path in filenames:
         if not isinstance(path, str) or "\0" in path or {"", ".", ".."} & set(path.split("/")):
             raise ValueError(f"PR #{number} has an invalid changed-file path")
-    return {path.encode("utf-8") for path in filenames if any(pattern.fullmatch(path) for pattern in patterns)}
+    return snapshot[1], {
+        path.encode("utf-8") for path in filenames if any(pattern.fullmatch(path) for pattern in patterns)
+    }
 
 
 def critical_entries(commit, paths):
@@ -171,16 +173,24 @@ def check(event_name, event, repo, ref, candidate):
     reviewer_ids, patterns = policy(base)
     if event_name == "merge_group":
         head = queued_pr_head(repo, number, base, candidate)
-    critical_changes = critical_paths(repo, number, head, patterns, base if event_name == "pull_request" else None)
+    pr_base, critical_changes = critical_paths(repo, number, head, patterns, base if event_name == "pull_request" else None)
     if not critical_changes:
         print("No critical paths changed.")
         return
+
+    head_entries = critical_entries(head, critical_changes)
+    missing = critical_changes.difference(head_entries)
+    if missing:
+        unresolved = missing.difference(critical_entries(pr_base, missing))
+        if unresolved:
+            raise ValueError(
+                f"PR #{number} lists {len(unresolved)} critical changed paths absent from both the PR base and head"
+            )
 
     pages = github("--paginate", "--slurp", f"repos/{repo}/issues/{number}/comments?per_page=100")
     # GitHub lists issue comments in ascending ID order across pages.
     newest_first = (comment for page in reversed(pages) for comment in reversed(page))
     reviewed = reviewed_sha(newest_first, reviewer_ids, number)
-    head_entries = critical_entries(head, critical_changes)
     reviewed_entries = head_entries if reviewed == head else critical_entries(reviewed, critical_changes)
     if head_entries != reviewed_entries:
         raise ValueError(f"PR #{number} has changed or missing critical paths relative to the GO on {reviewed}")
