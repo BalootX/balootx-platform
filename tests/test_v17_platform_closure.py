@@ -341,6 +341,7 @@ def test_v17_api_routes_and_unified_arabic_app(monkeypatch):
     for label in ("شارك لفة أو صكّة", "صكّة كاملة", "ليش لعبها؟", "طاولة مباشرة"):
         assert label in text
     assert '"request_timeout":' in text and "{{" not in text
+    assert '<html lang="ar" dir="rtl">' in text and 'id="shareCode" dir="ltr"' in text
     shared = client.get("/shared-assets/request.js")
     assert shared.status_code == 200 and "REQUEST_DEADLINE_MS" in shared.text
     openapi = client.get("/openapi.json").json()

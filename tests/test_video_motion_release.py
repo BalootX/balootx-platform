@@ -136,6 +136,8 @@ def test_video_and_playable_copy_have_no_second_authority_in_source(root: Path) 
         root / "src/baloot_platform/service/static/challenge/index.html",
         root / "src/baloot_platform/service/static/challenge/app.js",
         root / "src/baloot_platform/challenge/analysis_catalog.py",
+        root / "src/baloot_platform/service/static/app/index.html",
+        root / "src/baloot_platform/service/static/app/app.js",
     ]
     for path in sources:
         source = path.read_text(encoding="utf-8")
@@ -186,6 +188,16 @@ def test_video_and_playable_copy_have_no_second_authority_in_source(root: Path) 
     assert (
         placeholders - {"player_copy_json", "player_asset_version"} <= configured_keys
     )
+
+    app_template = sources[7].read_text(encoding="utf-8")
+    assert '<html lang="ar" dir="rtl">' in app_template
+    assert 'id="shareCode" dir="ltr"' in app_template
+    app_placeholders = set(re.findall(r"\{\{([a-zA-Z0-9_]+)\}\}", app_template))
+    assert app_placeholders - {"app_copy_json"} <= set(profile["challenge_copy"])
+    app_keys = set(
+        re.findall(r"copy\('([a-zA-Z0-9_]+)'", sources[8].read_text(encoding="utf-8"))
+    )
+    assert app_keys and app_keys <= set(profile["challenge_copy"])
 
     challenge_template = sources[4].read_text(encoding="utf-8")
     challenge_placeholders = set(

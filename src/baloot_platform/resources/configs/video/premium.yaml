@@ -438,6 +438,141 @@ challenge_copy:
   player_replay_failed: '⚠ فشل التحقق: {issues}'
   player_analyzing: جارٍ التحليل…
   player_login_success: تم تسجيل الدخول
+  app_title: منصة البلوت
+  app_tagline: لعب · تحدّي · تعلّم
+  app_nav_shared: شارك لفة أو صكّة
+  app_live_title: طاولة مباشرة
+  app_replay_title: الإعادات و«ليش؟»
+  app_nav_learn: التعلّم
+  app_referee_title: الحكم والمراجعة
+  app_identity_anonymous: غير مسجّل
+  app_identity_optional: الدخول اختياري
+  app_guest_start: ابدأ كضيف
+  app_view_home_title: جاهز للعب؟
+  app_view_home_subtitle: ابدأ بسرعة أو شارك نفس البداية مع أصحابك.
+  app_standard_setup: الإعداد القياسي · ١٥٢
+  app_hero_eyebrow: نفس الورق، القرار هو الفرق
+  app_hero_title: اختبر مهارتك في بيئة موحّدة
+  app_hero_body: شارك لفة أو صكّة كاملة. كل لاعب يحصل على نفس الورق، نفس الإعدادات، نفس اللاعبين الآليين ونفس ترتيب التوزيع.
+  app_hero_share: شارك الآن
+  app_hero_live: افتح طاولة مباشرة
+  app_table_preview_aria: معاينة طاولة بلوت
+  app_preview_north: شمال
+  app_preview_west: غرب
+  app_preview_east: شرق
+  app_feature_round_mark: ١
+  app_feature_round_title: لفة موحّدة
+  app_feature_round_body: جولة واحدة بنفس البداية للمقارنة العادلة.
+  app_feature_match_mark: ١٥٢
+  app_feature_match_body: تسلسل لفات ثابت حتى نهاية الصكّة.
+  app_feature_why_mark: ليش؟
+  app_feature_why_title: شرح بسيط
+  app_feature_why_body: افتح أي قرار بعد اللعب واعرف سببه بلغة واضحة.
+  app_shared_eyebrow: إنشاء تحدّي
+  app_shared_title: وش تبي تشارك؟
+  app_shared_dealer: البداية
+  app_seat_east: الشرق
+  app_seat_north: الشمال
+  app_seat_west: الغرب
+  app_seat_south: الجنوب
+  app_shared_us_score: نقاطنا
+  app_shared_them_score: نقاطهم
+  app_shared_rules: النمط
+  app_shared_rules_full: كامل
+  app_shared_visibility: الظهور
+  app_shared_visibility_unlisted: برمز فقط
+  app_shared_visibility_private: خاص
+  app_shared_visibility_public: عام
+  app_shared_submit: أنشئ البداية الموحّدة
+  app_shared_code_label: الكود
+  app_shared_code_hint: بعد الإنشاء يظهر الكود هنا، وتبقى الأوراق المستقبلية مخفية ومثبتة بالتعهد.
+  app_shared_copy_code: نسخ الكود
+  app_join_body: انضم لتحدّي أرسله لك أحد أصحابك.
+  app_join_placeholder: 'مثال: AB12CD34'
+  app_open: فتح
+  app_live_eyebrow: أربعة لاعبين
+  app_live_body: كل مقعد يتحكم به لاعب واحد، مع جاهزية، مؤقت، عودة بعد الانقطاع وحكم اختياري.
+  app_live_turn_seconds: المهلة لكل دور
+  app_live_spectators: السماح بالمشاهدين
+  app_yes: نعم
+  app_no: لا
+  app_live_create: إنشاء طاولة
+  app_live_join_eyebrow: انضمام
+  app_live_join_title: ادخل للطاولة
+  app_live_room_code: رمز الغرفة
+  app_live_seat: المقعد
+  app_live_take_seat: احجز المقعد
+  app_live_empty: لا توجد طاولة مفتوحة
+  app_status_waiting: انتظار
+  app_live_table: الطاولة
+  app_replay_eyebrow: الإعادة
+  app_replay_heading: افتح أي لعبة أو قرار
+  app_replay_placeholder: رقم اللعبة أو الرمز
+  app_replay_knew_title: وش كان يعرف؟
+  app_replay_knew_body: يعرض النظام المعلومات العامة المتاحة لحظة القرار فقط.
+  app_replay_why_title: ليش لعبها؟
+  app_replay_why_body: حقائق اللعب، حساب المحرك، قراءة محتملة، أو سبب سجله اللاعب.
+  app_learn_eyebrow: حلقة التعلّم
+  app_learn_title: اقتراح أفضل من اللاعب أو الخبير
+  app_learn_body: لا يتحول أي اقتراح إلى حقيقة تلقائيا. يفحص قانونيا، يسجل سببه، يراجع، ثم يدخل بيانات التدريب بعد تحقق الإجماع.
+  app_reason_card_count: عدّ الورق
+  app_reason_partner_signal: إشارة الخوي
+  app_reason_trump_control: التحكم بالحكم
+  app_reason_score: النتيجة
+  app_reason_risk: المخاطرة
+  app_metric_violations_value: ٠
+  app_metric_violations_label: مخالفات قانونية مسموحة للنموذج
+  app_metric_versions_value: نسخ
+  app_metric_versions_label: كل نموذج قابل للرجوع
+  app_metric_lineage_value: تتبّع
+  app_metric_lineage_label: كل بيانات التدريب لها أصل
+  app_case_title: قضية موثّقة بدون حذف التاريخ
+  app_case_game_id: رقم اللعبة
+  app_case_violation: نوع الحالة
+  app_violation_illegal_card: ورقة غير قانونية
+  app_violation_out_of_turn: لعب خارج الدور
+  app_violation_misdeal: خلل توزيع
+  app_violation_timeout: تأخير
+  app_violation_disconnect: انقطاع
+  app_violation_score_dispute: اعتراض حسبة
+  app_case_description: الوصف
+  app_case_submit: فتح قضية
+  app_community_title: مراجعة المجتمع
+  app_community_body: اقترح لعبًا أفضل وشارك في تعلّم محكوم.
+  app_community_link: افتح مراجعات اللعب ←
+  app_room_summary_code: 'رمز الغرفة: {code}'
+  app_summary_status: 'الحالة: {status}'
+  app_room_summary_players: 'المشاركون: {count}'
+  app_room_summary_version: 'النسخة: {version}'
+  app_shared_summary_code: 'الرمز: {code}'
+  app_summary_kind: 'النوع: {kind}'
+  app_status_ready: جاهزة
+  app_shared_summary_fixed: 'البداية الموحّدة: محفوظة ومثبتة'
+  app_replay_summary_game: 'اللعبة: {game}'
+  app_replay_summary_phase: 'المرحلة: {phase}'
+  app_replay_summary_score: 'النتيجة: {score}'
+  app_replay_summary_turn: 'الدور: {turn}'
+  app_replay_summary_hint: يمكن فتح التفاصيل والتحليل من «ليش؟» بعد انتهاء القرار.
+  app_case_summary_id: 'رقم القضية: {case}'
+  app_status_open: مفتوحة
+  app_case_summary_saved: تم حفظ القضية بدون تعديل التاريخ الأصلي.
+  app_view_shared_title: شارك نفس البداية
+  app_view_shared_subtitle: لفة واحدة أو صكّة كاملة ببيئة ثابتة.
+  app_view_live_subtitle: أربعة لاعبين، أربعة مقاعد، ومحرك واحد للحقيقة.
+  app_view_replay_subtitle: افتح كل قرار بعد اللعب من غير كشف مبكر.
+  app_view_learn_title: التعلّم المنضبط
+  app_view_learn_subtitle: ملاحظات قابلة للتدقيق قبل أن تدخل التدريب.
+  app_view_referee_subtitle: قرارات وتصحيحات بدون مسح التاريخ.
+  app_guest_name: ضيف البلوت
+  app_guest_started: تم بدء الجلسة كضيف
+  app_guest_failed: تعذر بدء جلسة الضيف
+  app_shared_message_match: نفس تسلسل اللفات والإعدادات حتى ١٥٢.
+  app_shared_message_round: نفس الورق والإعدادات لهذه اللفة.
+  app_shared_created: تم إنشاء البداية الموحّدة
+  app_live_room_heading: الغرفة {code}
+  app_live_created: تم إنشاء الطاولة
+  app_live_seat_taken: تم حجز المقعد
+  app_case_opened: تم فتح القضية وحفظ أثرها
 preview_copy:
   page_title: BalootX — معاينة الفيديو
   brand_name: BalootX

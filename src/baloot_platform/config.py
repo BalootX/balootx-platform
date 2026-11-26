@@ -73,6 +73,18 @@ _VIDEO_TEMPLATE_FIELDS: dict[tuple[str, str], frozenset[str]] = {
     ("challenge_copy", "player_share_created"): frozenset({"code"}),
     ("challenge_copy", "player_replay_verified"): frozenset({"actions"}),
     ("challenge_copy", "player_replay_failed"): frozenset({"issues"}),
+    ("challenge_copy", "app_case_summary_id"): frozenset({"case"}),
+    ("challenge_copy", "app_live_room_heading"): frozenset({"code"}),
+    ("challenge_copy", "app_replay_summary_game"): frozenset({"game"}),
+    ("challenge_copy", "app_replay_summary_phase"): frozenset({"phase"}),
+    ("challenge_copy", "app_replay_summary_score"): frozenset({"score"}),
+    ("challenge_copy", "app_replay_summary_turn"): frozenset({"turn"}),
+    ("challenge_copy", "app_room_summary_code"): frozenset({"code"}),
+    ("challenge_copy", "app_room_summary_players"): frozenset({"count"}),
+    ("challenge_copy", "app_room_summary_version"): frozenset({"version"}),
+    ("challenge_copy", "app_shared_summary_code"): frozenset({"code"}),
+    ("challenge_copy", "app_summary_kind"): frozenset({"kind"}),
+    ("challenge_copy", "app_summary_status"): frozenset({"status"}),
 }
 _TEMPLATE_FIELD = re.compile(r"\{([a-zA-Z0-9_]+)\}")
 

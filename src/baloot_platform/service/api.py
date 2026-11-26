@@ -531,6 +531,13 @@ def unified_app():
         .replace("&", "\\u0026")
     )
     rendered = template.replace("{{app_copy_json}}", serialized)
+    for key, value in ACTIVE_BUNDLE.video["challenge_copy"].items():
+        rendered = rendered.replace(
+            "{{" + str(key) + "}}",
+            html.escape(str(value), quote=True),
+        )
+    if "{{" in rendered or "}}" in rendered:
+        raise HTTPException(503, "application copy profile is incomplete")
     return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
 
 

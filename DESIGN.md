@@ -19,3 +19,7 @@
 ## Browser requests
 
 - The served pages and the Foundry dashboard call the API through the [shared request deadline](src/baloot_platform/service/static/shared/request.js). A request that reaches the deadline ends once, with no retry. It shows the profile's `request_timeout` message, which asks the person to refresh and check the result before trying again.
+
+## Served pages
+
+- The `/app`, `/play` and `/c` pages take their visible copy from `challenge_copy` in the [premium profile](configs/video/premium.yaml). The page templates and scripts hold copy keys only. Keep the Arabic pages right-to-left, and mark room codes, game numbers and case numbers left-to-right.

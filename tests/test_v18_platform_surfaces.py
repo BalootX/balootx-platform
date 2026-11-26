@@ -44,7 +44,7 @@ def test_public_card_pack_policy_is_redistributable_and_configurable(root: Path)
 def test_unified_arabic_application_links_hitl_and_core_workflows(root: Path):
     app = (root / "src/baloot_platform/service/static/app/index.html").read_text(encoding="utf-8")
     assert "hitl-studio" in app
-    assert "لفة" in app and "صكّة" in app
+    assert "{{app_nav_shared}}" in app and "{{player_scope_match}}" in app
     studio = (root / "src/baloot_platform/service/static/hitl_studio.html").read_text(encoding="utf-8")
     assert "موافقة" in studio and "التدريب" in studio
 
