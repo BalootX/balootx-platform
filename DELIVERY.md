@@ -69,6 +69,8 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 
 [The service authorization policy](src/baloot_platform/service/authorization.py) defines an explicit rule for each HTTP route and gRPC method. HTTP requests without a policy entry require operator authorization. gRPC requires a policy entry before dispatch. Protected requests use a Baloot session, a scoped Baloot access token, or the configured service API key. Give the Foundry operator UI a same-origin authenticated gateway for its API, event, and media requests. Keep the service credential on the gateway.
 
+Legacy gRPC game writes require the configured service key. SDK logout revokes the supplied session and clears its cookie without a CSRF token. Other session writes follow the active CSRF policy.
+
 Durable job reads are restricted to operators in the job's tenant. Signed token claims select the tenant. Installation-wide render outputs and video records are available to default-tenant operators. The trusted-context setting or key adds a separate requirement for operations that use complete hands.
 
 Shared-run owners can read the archived game and replay after the run completes. Render records within those responses require operator access.

@@ -138,16 +138,16 @@ def test_friend_routes_preserve_service_delegation_and_require_read_scope(tmp_pa
         return {"Authorization": "Bearer " + tokens.issue(subject_id="SUB-DELEGATED", role=role, scopes=[scope], now=now)}
 
     with TestClient(app) as client:
-        v2_search = "/api/v2/users:search"
         query = {"query": "SUB"}
-        assert client.get(v2_search, params=query).status_code == 401
-        for headers in ({"x-api-key": key}, delegated):
-            assert client.get(v2_search, params=query, headers=headers).status_code == 200
-        for role in ("guest", "player", "expert", "referee", "admin", "service", "unknown"):
-            expected = 403 if role in {"guest", "unknown"} else 200
-            assert client.get(v2_search, params=query, headers=bearer(role, Scope.READ)).status_code == expected
-            assert client.get(v2_search, params=query, headers=bearer(role, Scope.PLAY)).status_code == 403
         for version in ("v1", "v2"):
+            search = f"/api/{version}/users:search"
+            assert client.get(search, params=query).status_code == 401
+            for headers in ({"x-api-key": key}, delegated):
+                assert client.get(search, params=query, headers=headers).status_code == 200
+            for role in ("guest", "player", "expert", "referee", "admin", "service", "unknown"):
+                denied = role == "unknown" or (version == "v2" and role == "guest")
+                assert client.get(search, params=query, headers=bearer(role, Scope.READ)).status_code == (403 if denied else 200)
+                assert client.get(search, params=query, headers=bearer(role, Scope.PLAY)).status_code == 403
             for resource in ("friends", "friends/requests"):
                 path = f"/api/{version}/{resource}"
                 assert client.get(path).status_code == 401
@@ -177,6 +177,41 @@ def test_friend_routes_preserve_service_delegation_and_require_read_scope(tmp_pa
         response = client.post(f"/api/v1/friends/requests/{pending['request_id']}:respond", json={"accept": False}, headers=delegated)
         assert response.status_code == 200
         assert client.get("/api/v1/friends/requests", headers=delegated).json() == {"items": []}
+
+
+@pytest.mark.parametrize("credential", ["cookie", "bearer"])
+def test_sdk_logout_revokes_session_with_production_csrf(tmp_path, monkeypatch, credential):
+    from baloot_platform.service import api
+
+    monkeypatch.setenv("BALOOT_ENV", "production")
+    monkeypatch.setenv("BALOOT_RATE_LIMIT_PER_MINUTE", "0")
+    service = IdentityService(SQLiteIdentityStore(tmp_path / "logout-identity.sqlite3"))
+    monkeypatch.setattr(api, "IDENTITY", service)
+    app = security_probe_app()
+    app.include_router(build_auth_router(
+        service, pagination=api.CONTAINER.identity_pagination, policy=api.AUTHORIZATION_POLICY,
+    ))
+
+    with TestClient(app, base_url="https://testserver") as client:
+        guest = client.post("/api/v1/auth/guest", json={"displayName": "Logout fixture"})
+        assert guest.status_code == 201, guest.text
+        bearer = {"authorization": f"Bearer {guest.json()['accessToken']}"}
+        headers = {}
+        if credential == "bearer":
+            client.cookies.clear()
+            headers = bearer
+        assert client.get("/api/v1/friends", headers=headers).status_code == 200
+        mutation = client.post(
+            "/api/v1/friends/requests", headers=headers, json={"recipientId": "SUB-FIXTURE"},
+        )
+        assert mutation.status_code == 403
+        assert mutation.json()["detail"] == "csrf token required"
+
+        response = client.post("/api/v1/auth/logout", headers=headers)
+        assert response.status_code == 204, response.text
+        assert "Max-Age=0" in response.headers["set-cookie"]
+        assert client.get("/api/v1/friends").status_code == 401
+        assert client.get("/api/v1/friends", headers=bearer).status_code == 401
 
 
 def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):

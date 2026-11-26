@@ -21,8 +21,8 @@ from baloot_platform.config import data_root, platform_root
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER, owns_subject
 from baloot_platform.security import Scope
 from baloot_platform.service.authorization import (
-    DEFAULT_TENANT, Credentials, claims_identity, credentials, history_without_media, rpc_scope,
-    tenant_job_rpc,
+    DEFAULT_TENANT, RPC_SERVICE_KEY_METHODS, Credentials, claims_identity, credentials,
+    history_without_media, rpc_scope, tenant_job_rpc,
 )
 from baloot_platform.service.client_identity import (
     initialize_service_subject_ownership,
@@ -1699,7 +1699,9 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 authorization = metadata.get("authorization", "")
                 token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else None
                 auth = credentials(metadata, token, IDENTITY, ACCESS_TOKENS)
-                if not auth.authenticated:
+                if not auth.authenticated or (
+                    method in RPC_SERVICE_KEY_METHODS and not auth.api_key_valid
+                ):
                     await context.abort(grpc.StatusCode.UNAUTHENTICATED, "authentication required")
                 denial = auth.denial(AUTHORIZATION_POLICY, scope, tenant_job=tenant_job_rpc(method))
                 if denial is not None:

@@ -203,10 +203,11 @@ def build_auth_router(
         }
 
     @router.post("/auth/logout", status_code=204)
-    def logout(request: Request, response: Response):
+    def logout(request: Request):
         service.logout(request_token(request))
-        response.delete_cookie(COOKIE_NAME, path="/")
-        return Response(status_code=204)
+        response = Response(status_code=204)
+        response.delete_cookie(COOKIE_NAME, path="/", httponly=True, secure=_cookie_secure(request))
+        return response
 
     @router.get("/users:search")
     def search_users(request: Request, query: str, limit: int = 20):

@@ -119,6 +119,7 @@ from baloot_platform.service.container import PlatformContainer, build_container
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER
 from baloot_platform.security import Scope
 from baloot_platform.service.authorization import (
+    AUTH_LOGOUT_PATH,
     DEFAULT_TENANT,
     HISTORY_GAME_AUDIT_PATH,
     HISTORY_GAME_REOPEN_PATH,
@@ -821,7 +822,9 @@ async def platform_security(request: Request, call_next):
     ) or access_claims is not None
     path = get_route_path(request.scope)
     required_scope = http_request_scope(request.app.router, request.scope)
-    auth_bootstrap = request.method == "POST" and required_scope is None
+    csrf_exempt = request.method == "POST" and (
+        required_scope is None or path == AUTH_LOGOUT_PATH
+    )
     if required_scope is not None:
         if not auth.authenticated:
             return JSONResponse(
@@ -845,7 +848,7 @@ async def platform_security(request: Request, call_next):
         and session_valid
         and not api_key_valid
         and access_claims is None
-        and not auth_bootstrap
+        and not csrf_exempt
         and enforce_csrf
     ):
         supplied_csrf = request.headers.get("x-csrf-token", "")

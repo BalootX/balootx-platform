@@ -17,6 +17,7 @@ from baloot_platform.identity import Identity, IdentityService
 from baloot_platform.security import AccessClaims, AuthorizationPolicy, Scope, SignedAccessTokenService
 
 DEFAULT_TENANT = "default"
+AUTH_LOGOUT_PATH = "/api/v1/auth/logout"
 
 HISTORY_GAME_REOPEN_PATH = "/api/v1/history/games/{identifier}:reopen"
 HISTORY_GAME_AUDIT_PATH = "/api/v1/history/games/{identifier}:audit"
@@ -171,34 +172,17 @@ HTTP_POLICY: dict[tuple[str, str], Scope | None] = {
 
     ("POST", "/api/v1/adjudication/cases"): Scope.PLAY,
     ("POST", "/api/v1/adjudication/cases/{case_id}/appeals"): Scope.PLAY,
-    ("POST", "/api/v1/adjudication/cases/{case_id}/appeals:resolve"): Scope.PLAY,
     ("POST", "/api/v1/adjudication/cases/{case_id}/evidence"): Scope.PLAY,
-    ("POST", "/api/v1/adjudication/cases/{case_id}/rulings"): Scope.PLAY,
     ("POST", "/api/v1/analyses"): Scope.PLAY,
-    ("POST", "/api/v1/auth/logout"): Scope.PLAY,
-    ("POST", "/api/v1/benchmark/evaluations"): Scope.PLAY,
+    ("POST", AUTH_LOGOUT_PATH): Scope.PLAY,
     ("POST", "/api/v1/canonical-history/{identifier}/branches"): Scope.PLAY,
     ("POST", "/api/v1/canonical-history/{identifier}/corrections"): Scope.PLAY,
-    ("POST", "/api/v1/certification/candidates:verify"): Scope.PLAY,
     ("POST", "/api/v1/challenges/{challenge_id}:approve"): Scope.PLAY,
     ("POST", "/api/v1/challenges/{challenge_id}:publish"): Scope.PLAY,
     ("POST", "/api/v1/challenges/{challenge_id}:retire"): Scope.PLAY,
     ("POST", "/api/v1/challenges/{challenge_id}:status"): Scope.PLAY,
     ("POST", "/api/v1/challenges/{challenge_id}/attempts"): Scope.PLAY,
     ("POST", "/api/v1/challenges/{challenge_id}/publication-reviews"): Scope.PLAY,
-    ("POST", "/api/v1/configuration-registry:bootstrap"): Scope.PLAY,
-    ("POST", "/api/v1/configuration-registry/bootstrap"): Scope.PLAY,
-    ("POST", "/api/v1/configuration-registry/bundles"): Scope.PLAY,
-    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:compile"): Scope.PLAY,
-    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:publish"): Scope.PLAY,
-    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:reject"): Scope.PLAY,
-    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:retire"): Scope.PLAY,
-    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:rollback"): Scope.PLAY,
-    ("POST", "/api/v1/configuration-registry/profiles"): Scope.PLAY,
-    ("PATCH", "/api/v1/configuration-registry/profiles/{revision_id}"): Scope.PLAY,
-    ("POST", "/api/v1/configuration-registry/profiles/{revision_id}:publish"): Scope.PLAY,
-    ("POST", "/api/v1/configuration-registry/profiles/{revision_id}:reject"): Scope.PLAY,
-    ("POST", "/api/v1/configuration-registry/profiles/{revision_id}:retire"): Scope.PLAY,
     ("POST", "/api/v1/configuration-registry/profiles/{revision_id}:validate"): Scope.PLAY,
     ("POST", "/api/v1/configuration:validate"): Scope.PLAY,
     ("POST", "/api/v1/contexts:continue"): Scope.PLAY,
@@ -220,7 +204,6 @@ HTTP_POLICY: dict[tuple[str, str], Scope | None] = {
     ("POST", "/api/v1/history/decisions/{decision_id}/feedback"): Scope.PLAY,
     ("POST", "/api/v1/history/decisions/{decision_id}/intent"): Scope.PLAY,
     ("POST", "/api/v1/hitl/cases"): Scope.PLAY,
-    ("POST", "/api/v1/hitl/cases/{case_id}/adjudications"): Scope.PLAY,
     ("POST", "/api/v1/hitl/cases/{case_id}/assignments"): Scope.PLAY,
     ("POST", "/api/v1/hitl/cases/{case_id}/consensus"): Scope.PLAY,
     ("POST", "/api/v1/hitl/cases/{case_id}/moderation-flags"): Scope.PLAY,
@@ -248,7 +231,6 @@ HTTP_POLICY: dict[tuple[str, str], Scope | None] = {
     ("POST", "/api/v1/live/rooms/{identifier}/seats"): Scope.PLAY,
     ("POST", "/api/v1/live/rooms/{identifier}/spectators"): Scope.PLAY,
     ("POST", "/api/v1/live/rooms/{identifier}/start"): Scope.PLAY,
-    ("POST", "/api/v1/performance/quick"): Scope.PLAY,
     ("POST", "/api/v1/sakka/boards"): Scope.PLAY,
     ("POST", "/api/v1/sakka/comparisons"): Scope.PLAY,
     ("POST", "/api/v1/sakka/rooms"): Scope.PLAY,
@@ -273,9 +255,28 @@ HTTP_POLICY: dict[tuple[str, str], Scope | None] = {
     ("POST", "/api/v1/shared/runs/{run_id}/decisions/{decision_id}/reviews"): Scope.PLAY,
     ("POST", "/api/v2/challenge-locators/{code}/attempts"): Scope.PLAY,
 
+    ("POST", "/api/v1/adjudication/cases/{case_id}/appeals:resolve"): Scope.REFEREE,
+    ("POST", "/api/v1/adjudication/cases/{case_id}/rulings"): Scope.REFEREE,
+    ("POST", "/api/v1/hitl/cases/{case_id}/adjudications"): Scope.REFEREE,
+
+    ("POST", "/api/v1/benchmark/evaluations"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/certification/candidates:verify"): Scope.CONFIG_ADMIN,
     ("POST", "/api/v1/challenge-jobs"): Scope.CONFIG_ADMIN,
     ("POST", "/api/v1/challenges/{challenge_id}:recalibrate"): Scope.CONFIG_ADMIN,
     ("POST", "/api/v1/challenges/{challenge_id}:render"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/configuration-registry:bootstrap"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/configuration-registry/bootstrap"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/configuration-registry/bundles"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:compile"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:publish"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:reject"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:retire"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/configuration-registry/bundles/{revision_id}:rollback"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/configuration-registry/profiles"): Scope.CONFIG_ADMIN,
+    ("PATCH", "/api/v1/configuration-registry/profiles/{revision_id}"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/configuration-registry/profiles/{revision_id}:publish"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/configuration-registry/profiles/{revision_id}:reject"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/configuration-registry/profiles/{revision_id}:retire"): Scope.CONFIG_ADMIN,
     ("POST", "/api/v1/history/decisions/{decision_id}/video-jobs"): Scope.CONFIG_ADMIN,
     ("GET", "/api/v1/history/decisions/{decision_id}/videos"): Scope.CONFIG_ADMIN,
     ("GET", "/api/v1/history/games"): Scope.CONFIG_ADMIN,
@@ -284,6 +285,7 @@ HTTP_POLICY: dict[tuple[str, str], Scope | None] = {
     ("GET", "/api/v1/history/games/{identifier}/videos"): Scope.CONFIG_ADMIN,
     ("GET", "/api/v1/jobs/{job_id}"): Scope.CONFIG_ADMIN,
     ("GET", "/api/v1/observability/snapshot"): Scope.CONFIG_ADMIN,
+    ("POST", "/api/v1/performance/quick"): Scope.CONFIG_ADMIN,
     ("POST", "/api/v1/video-jobs"): Scope.CONFIG_ADMIN,
     ("GET", "/api/v1/video-jobs/{job_id}"): Scope.CONFIG_ADMIN,
     ("POST", "/api/v1/video-jobs/{job_id}:cancel"): Scope.CONFIG_ADMIN,
@@ -485,6 +487,14 @@ def _matched_http_scope(method: str, route_path: str, path: str) -> Scope | None
     ):
         return Scope.CONFIG_ADMIN
     return scope
+
+
+# These game mutations require a service key until they enforce game ownership.
+RPC_SERVICE_KEY_METHODS = frozenset({
+    "/baloot.v2.BalootPlatform/CreateGame",
+    "/baloot.v2.BalootPlatform/SubmitBid",
+    "/baloot.v2.BalootPlatform/PlayCard",
+})
 
 
 # None marks an explicitly public method. A missing entry has no policy.

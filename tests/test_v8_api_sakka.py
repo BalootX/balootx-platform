@@ -315,6 +315,29 @@ def test_http_operator_route_scopes(monkeypatch, role, operator_scope):
             assert response.status_code == expected, (method, path, response.text)
 
 
+@pytest.mark.parametrize(("path", "body", "role", "scope", "missing_detail"), [
+    (
+        "/api/v1/configuration-registry/profiles/CPR-POLICY-FIXTURE:publish",
+        {"expectedEtag": 1}, "admin", "baloot.config.admin", "configuration profile revision not found",
+    ),
+    (
+        "/api/v1/adjudication/cases/CASE-POLICY-FIXTURE/rulings",
+        {"outcome": "no_violation", "reasonAr": "Fixture ruling"}, "referee",
+        "baloot.referee", "adjudication case not found",
+    ),
+])
+def test_http_privileged_operations_accept_their_own_scope(path, body, role, scope, missing_detail):
+    from baloot_platform.service.api import ACCESS_TOKENS
+
+    with TestClient(app) as client:
+        for grant, expected in ((scope, 404), ("baloot.play", 403)):
+            token = ACCESS_TOKENS.issue(subject_id="fixture-operator", role=role, scopes=[grant])
+            response = client.post(path, headers={"authorization": f"Bearer {token}"}, json=body)
+            assert response.status_code == expected, response.text
+            detail = missing_detail if grant == scope else f"missing required scope: {scope}"
+            assert response.json()["detail"] == detail
+
+
 @pytest.mark.parametrize(("rpc_service", "http_service"), [
     ("baloot.v8.SakkaPlatform", "sakka"),
     ("baloot.v9.SharedPlatform", "shared"),
@@ -430,6 +453,54 @@ def test_grpc_requires_a_real_credential_without_configured_service_key(tmp_path
         assert rejected.value.code() == grpc.StatusCode.NOT_FOUND
 
     _grpc_probe(tmp_path, monkeypatch, probe)
+
+
+def test_grpc_game_mutations_require_a_configured_service_key(tmp_path, monkeypatch):
+    from baloot_platform.generated import platform_pb2, platform_pb2_grpc
+    from baloot_platform.security import Scope
+    from baloot_platform.service.api import ACCESS_TOKENS, IDENTITY
+
+    register = platform_pb2_grpc.add_BalootPlatformServicer_to_server
+
+    async def inert_mutation(_request, _context):
+        return platform_pb2.GameState(phase="fixture")
+
+    def register_fixture(servicer, server):
+        servicer.CreateGame = servicer.SubmitBid = servicer.PlayCard = inert_mutation
+        register(servicer, server)
+
+    monkeypatch.setattr(platform_pb2_grpc, "add_BalootPlatformServicer_to_server", register_fixture)
+    monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
+    guest = IDENTITY.create_guest("Game authorization fixture")["session"]["token"]
+    signed = ACCESS_TOKENS.issue(subject_id="fixture-player", role="player", scopes=[Scope.PLAY])
+    service_key = (("x-api-key", _SERVICE_KEY),)
+    denied_metadata = (
+        (),
+        (("x-api-key", "unconfigured-fixture-key"),),
+        (("authorization", f"Bearer {guest}"),),
+        (("authorization", f"Bearer {signed}"),),
+    )
+
+    async def probe(grpc, stub):
+        mutations = (
+            (stub.CreateGame, platform_pb2.CreateGameRequest()),
+            (stub.SubmitBid, platform_pb2.BidAction()),
+            (stub.PlayCard, platform_pb2.PlayAction()),
+        )
+        for call, request in mutations:
+            for metadata in denied_metadata:
+                with pytest.raises(grpc.aio.AioRpcError) as rejected:
+                    await call(request, metadata=metadata, timeout=5)
+                assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED
+            assert (await call(request, metadata=service_key, timeout=5)).phase == "fixture"
+
+        monkeypatch.delenv("BALOOT_API_KEY")
+        for call, request in mutations:
+            with pytest.raises(grpc.aio.AioRpcError) as rejected:
+                await call(request, metadata=service_key, timeout=5)
+            assert rejected.value.code() == grpc.StatusCode.UNAUTHENTICATED
+
+    _grpc_probe(tmp_path, monkeypatch, probe, stub_type=platform_pb2_grpc.BalootPlatformStub)
 
 
 @pytest.fixture(params=["sqlite", "postgres"])
