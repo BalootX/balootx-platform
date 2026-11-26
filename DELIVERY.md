@@ -82,6 +82,44 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 - The clip gate keeps its audit rows in a private evidence store. Each row records the gate and ledger hashes.
 - Require independent media QA, [engine-interest and viewer-seat proof](docs/RESEARCH_SCENARIO_V4.md#engine-interest-v1), the [approved clip presentation](DESIGN.md#rendered-clips), caption policy and a current per-platform publication history. Hold a failing or unverified clip and record the reason.
 
+### Manual render kickoff
+
+At each batch kickoff, run the following as the source checkout owner from a trusted public-main checkout with the project dependencies installed. Set `WORKER_IMAGE` to the selected local video-worker image. Use absolute paths for the clean, full-history `SOURCE_CHECKOUT`, the selected `BUILD_RECEIPT`, the new `KICKOFF_RECEIPT`, and the pre-created `OUTPUT_DIR`. Keep both receipts and the output directory outside the checkout. The [shared preflight](scripts/render_kickoff.py) writes its verdict to the kickoff receipt.
+
+```sh
+set -eu
+IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$WORKER_IMAGE")
+SOURCE_HEAD=$(git -C "$SOURCE_CHECKOUT" rev-parse HEAD)
+SOURCE_TREE=$(git -C "$SOURCE_CHECKOUT" rev-parse 'HEAD^{tree}')
+
+python -I -B scripts/render_kickoff.py --checkout "$SOURCE_CHECKOUT" \
+  --source-head "$SOURCE_HEAD" --source-tree "$SOURCE_TREE" \
+  --build-receipt "$BUILD_RECEIPT" --image-id "$IMAGE_ID" > "$KICKOFF_RECEIPT"
+```
+
+The command resolves public `main` outside any Git checkout and fetches the observed commit into the selected checkout's Git object store if needed. It checks its own script, policy and schema against that commit. The selected checkout must be clean and its pinned tree must match public `main` across the repository, subject to the [reviewed exclusions](scripts/render-kickoff.json). A pin outside main's history must contain every merged commit affecting that scope. The verdict identifies a missing merged commit when available and binds the input commit and tree to the selected worker image.
+
+Stdout always carries one JSON verdict with `schemaVersion` (`1`), `status`, `sourceHead`, `sourceTree`, `imageId`, `packageLockSha256`, `mainHead`, `checkedAt` (UTC), `missingRendererCommit`, and `reason`. Unavailable evidence is `null`. Exit `0` carries `passed` or `help`, exit `1` carries a refusal, and exit `2` carries a usage error. Proceed with a `passed` verdict. The producer checks its own commit and tree and rejects future-dated receipts or receipts older than the configured limit. Run kickoff again before starting a producer with an expired receipt.
+
+In the same shell, launch the producer with the inspected image ID. UID `10001` must own the checkout, be able to read both receipts, and have write access to the output directory.
+
+```sh
+docker run --rm --pull=never --network none --read-only --user 10001 \
+  --workdir /checkout --tmpfs /tmp \
+  --mount "type=bind,source=$SOURCE_CHECKOUT,target=/checkout,readonly" \
+  --mount "type=bind,source=$BUILD_RECEIPT,target=/build-receipt.json,readonly" \
+  --mount "type=bind,source=$KICKOFF_RECEIPT,target=/kickoff-receipt.json,readonly" \
+  --mount "type=bind,source=$OUTPUT_DIR,target=/output" \
+  --env BALOOT_ROOT=/checkout --env PYTHONPATH=/checkout/src \
+  --env BALOOT_RENDER_BUILD_RECEIPT=/build-receipt.json \
+  --env BALOOT_RENDER_KICKOFF_RECEIPT=/kickoff-receipt.json \
+  --env "BALOOT_RENDER_IMAGE_ID=$IMAGE_ID" \
+  "$IMAGE_ID" python -B -m scripts.render_research_notice --public \
+    --source-head "$SOURCE_HEAD" --source-tree "$SOURCE_TREE" --output /output
+```
+
+The producer runs the image's installed Remotion package and verifies its locked dependency tree while reading render inputs and assets from the pinned checkout. The worker disables [persistent bundle caching](https://www.remotion.dev/docs/bundle#enablecaching) to keep the installed runtime read-only. The hosted `remotion-image-parity` job exercises this public producer preflight with the image's default user.
+
 ## Rollback
 
 - Revert the change that broke main or the queue if the failure remains after 30 minutes. For a bad code release, start a revert branch at current `main`, run `git revert <squash-merge-sha>` and submit the revert through the [merge queue](#merge).

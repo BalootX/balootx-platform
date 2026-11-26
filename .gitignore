@@ -19,7 +19,7 @@ dist/
 .playwright-cli/
 node_modules/
 output/
-outputs/**/.baloot-remotion-*/
+/outputs/
 studio-js*/
 test-lanes*/
 work/
