@@ -21,6 +21,7 @@ const cases = [
   {name: "viewer-dealer-east-buyer", observer: "west", buyer: "south", dealer: "west", contract: "ashkal", pause: 27},
   {name: "east-dealer-and-buyer", observer: "north", buyer: "west", dealer: "west", contract: "sun", pause: 27},
   {name: "west-buyer", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26},
+  {name: "west-buyer-without-safe-areas", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26, omitSafeAreas: true},
   {name: "viewer-buyer", observer: "south", buyer: "south", dealer: "east", contract: "sun", allPhases: true},
   {name: "wide-west-buyer", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26, wideName: true},
   {name: "uncalibrated-prompt-hud-contact", observer: "south", buyer: "west", dealer: "east", contract: "sun", pause: 26, reject: true},
@@ -28,12 +29,13 @@ const cases = [
 
 try {
   if (screenshotDir) mkdirSync(screenshotDir, {recursive: true});
-  for (const {name, observer, buyer, dealer, contract, pause, allPhases, wideName, reject} of cases) {
+  for (const {name, observer, buyer, dealer, contract, pause, allPhases, wideName, reject, omitSafeAreas} of cases) {
     const {bundleSha256: _, ...fixture} = structuredClone(prototype);
     fixture.observerSeat = observer;
     fixture.identity.players = {north: "Zayd", west: wideName ? "Alexandria Example" : "Khalid", south: "Omar", east: "Salem"};
     fixture.presentation.majlis.research_notice = true;
     fixture.presentation.presentation.show_justification_text = false;
+    if (omitSafeAreas) delete fixture.presentation.safe_areas;
     // Lift the synthetic south stack until the rendered prompt intersects the HUD.
     if (reject) fixture.presentation.safe_areas.bottom_px = 1310;
     fixture.audioCues = [];
@@ -102,7 +104,7 @@ try {
 
 function checkSeatLayout(item, fixture, name) {
   const label = `${name} ${item.phase}`;
-  const {left_px, right_px, top_px, bottom_px} = fixture.presentation.safe_areas;
+  const {left_px, right_px, top_px, bottom_px} = fixture.presentation.safe_areas ?? prototype.presentation.safe_areas;
   const controls = ["promptPill", "namePills", "buyerBadge", "dealerBadge", "choiceBox"]
     .flatMap(role => item.roles[role].items.filter(box => box.visible));
   const hand = item.observerCards.filter(box => box.visible);

@@ -630,6 +630,8 @@
   position: absolute;
   z-index: 55;
   right: 0;
+  /* Use the vertical_social_v1 inset when a V1 bundle omits safe_areas. */
+  bottom: 300px;
   left: 0;
   display: grid;
   gap: 12px;
