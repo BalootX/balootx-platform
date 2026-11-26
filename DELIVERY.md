@@ -141,3 +141,4 @@ The producer runs the image's installed Remotion package and verifies its locked
 | Scoped URL and IP literal check | The push guard checks private values. The source literal check and committed allowlist are pending. | 2026-12-04 |
 | Configured no-reply domains for commit identities and trailers | The push guard checks commit metadata with a fixed address policy. | 2026-12-04 |
 | Affected CI on draft PRs | The affected checks start when a PR is ready. | 2026-12-04 |
+| PR feedback (`ci-gate`) p50 under 1 min and p95 under 2 min | Measured on 2026-11-26 over 149 of the last 150 first attempts: p50 20.0 min, p95 28.7 min. `ci-gate` reports only after every affected job finishes, including the Python shards, the Foundry Playwright suite and the media renders. The delivery board item "Meet the PR and merge-queue CI feedback targets" (due 2026-12-03) brings it down. | 2026-12-03 |
