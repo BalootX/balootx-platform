@@ -1,11 +1,11 @@
-import {mkdir, readFile} from "node:fs/promises";
+import {readFile} from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import {bundle} from "@remotion/bundler";
 import {openBrowser, renderMedia, renderStill, selectComposition} from "@remotion/renderer";
 import {bt709FfmpegOverride} from "./ffmpeg-profile.mjs";
-import {writeFileWithRetry} from "./fs-safe.mjs";
 import {governedH264Options, parseValidatedRenderBundle} from "./render-options.mjs";
+import {createRenderOutput, writeRenderEvidence} from "./render-output.mjs";
 import {checkLayoutGeometry, fileSha256, layoutFrames, layoutMeasurementMarker, loadLayoutTable, pngHash, propsSha256, sha256} from "./layout-gate.mjs";
 
 const rendererRoot = process.cwd();
@@ -50,7 +50,7 @@ const layoutEvidence = table && {
   ...(hookOnly ? {scope: "hook", postingAuthorized: false} : {}),
 };
 const layoutPath = path.join(outputDir, hookOnly ? "hook-layout-evidence.json" : measure ? "layout-measurement.json" : "layout-evidence.json");
-const saveLayout = () => writeFileWithRetry(layoutPath, `${JSON.stringify(layoutEvidence, null, 2)}\n`, "utf8");
+const saveLayout = () => writeRenderEvidence(layoutPath, `${JSON.stringify(layoutEvidence, null, 2)}\n`);
 const mediaRenderOptions = hookOnly ? null : governedH264Options(bundleData.render);
 const inputProps = {
   bundle: bundleData,
@@ -71,9 +71,9 @@ const timestamp = frames => {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 };
 
-await mkdir(outputDir, {recursive: !layoutOnly});
+await createRenderOutput(outputDir, outputBase);
 if (table) {
-  await writeFileWithRetry(path.join(outputDir, "layout-table.json"), table.bytes);
+  await writeRenderEvidence(path.join(outputDir, "layout-table.json"), table.bytes);
   await saveLayout();
 }
 const revealScene = bundleData.scenes.find((scene) => scene.stage === "reveal");
@@ -86,12 +86,11 @@ if (!hookOnly) {
     ? bundleData.localizations[analysisLayer?.content?.reasonKey ?? "video.analysis.expert_reason"]
     : "";
   if (showJustification && !captionText) throw new Error("Missing governed reveal localization");
-  await writeFileWithRetry(
+  await writeRenderEvidence(
     path.join(outputDir, `${outputBase}.ar.vtt`),
     showJustification
       ? `WEBVTT\n\n${timestamp(captionSegment.startFrame)} --> ${timestamp(captionSegment.startFrame + Math.min(240, captionSegment.durationFrames))}\n${captionText}\n`
       : "WEBVTT\n\n",
-    "utf8",
   );
 }
 const serveUrl = await bundle({
@@ -207,8 +206,8 @@ if (table) {
   layoutEvidence.status = "stills_passed";
   await saveLayout();
 }
-if (playbackEvidence) await writeFileWithRetry(path.join(outputDir, "playback-evidence.json"),
-  `${JSON.stringify({schemaVersion: 1, items: evidence}, null, 2)}\n`, "utf8");
+if (playbackEvidence) await writeRenderEvidence(path.join(outputDir, "playback-evidence.json"),
+  `${JSON.stringify({schemaVersion: 1, items: evidence}, null, 2)}\n`);
 if (hookOnly) {
   process.stdout.write(`${layoutPath}\n`);
 } else if (!stillsOnly) {

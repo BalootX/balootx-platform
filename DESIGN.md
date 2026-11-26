@@ -14,4 +14,5 @@
 
 - The [Foundry dashboard](src/baloot_platform/service/foundry_dashboard/index.html) uses an Arabic, right-to-left layout. The [Foundry styles](src/baloot_platform/service/foundry_dashboard/src/styles.css) use Noto Sans Arabic, dark green surfaces, gold accents and semantic colors for status. Follow the existing panel, form and table patterns.
 - Keep scenario authoring, proof, execution and results easy to find. Keep status understandable in text and controls operable by keyboard. Preserve responsive layouts and reduced-motion support.
+- On the overview, keep readiness details disabled while their data loads and the layout is still settling. Once enabled, each detail opens by touch, mouse or keyboard.
 - The page budgets are p75 Largest Contentful Paint under 2.5 seconds and p75 Interaction to Next Paint under 200 ms.

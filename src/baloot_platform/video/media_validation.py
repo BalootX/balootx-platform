@@ -17,6 +17,7 @@ from typing import Any, Mapping
 from PIL import Image, ImageChops, ImageStat
 
 from baloot_platform.video.media_probe import (
+    FFMPEG_RUNTIME_PROFILE,
     probe_media as probe_media,
     run_media_command as run_media_command,
     validate_media_probe as validate_media_probe,
@@ -45,6 +46,7 @@ def renderer_source_files(root: Path) -> tuple[Path, ...]:
         package / "package-lock.json",
         package / "tsconfig.json",
         package / APPROVED_LAYOUT_TABLE,
+        package / FFMPEG_RUNTIME_PROFILE,
     ]
     values.extend(sorted((package / "scripts").glob("*.mjs")))
     values.extend(sorted((package / "src").glob("*.ts")))

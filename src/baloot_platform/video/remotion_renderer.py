@@ -961,9 +961,10 @@ class RemotionProfessionalRenderer:
         with tempfile.TemporaryDirectory(
             prefix=".baloot-remotion-", dir=output_dir
         ) as temporary:
-            work = Path(temporary)
-            qr_validation_path = work / "qr-validation.json"
-            bundle_path = work / "render-bundle.json"
+            scratch = Path(temporary)
+            work = scratch / "rendered"
+            qr_validation_path = scratch / "qr-validation.json"
+            bundle_path = scratch / "render-bundle.json"
             _json_write(bundle_path, bundle.to_dict())
             self._run_renderer(
                 script=self.renderer_root / "scripts" / script_name,

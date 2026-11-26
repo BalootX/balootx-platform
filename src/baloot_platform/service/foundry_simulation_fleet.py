@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from baloot_platform.observability import run_worker
 from baloot_platform.service.container import build_container
 
 
@@ -131,7 +132,7 @@ def _release_owned_claims(
     return released
 
 
-def main() -> None:  # pragma: no cover - operational process
+def _run() -> None:
     spec = FoundrySimulationFleetSpecV1.from_environment()
     initial_status, existing_workers, lanes = _campaign_snapshot(spec.campaign_hash)
     expected_workers = spec.expected_worker_ids(os.environ, lanes)
@@ -240,6 +241,10 @@ def main() -> None:  # pragma: no cover - operational process
         "attestedWorkers": list(attested_workers),
         "status": final_status,
     }, sort_keys=True, separators=(",", ":")))
+
+
+def main() -> None:
+    run_worker("foundry_simulation_fleet", _run)
 
 
 if __name__ == "__main__":  # pragma: no cover - module execution
