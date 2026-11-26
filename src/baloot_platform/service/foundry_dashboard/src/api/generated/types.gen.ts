@@ -20360,11 +20360,7 @@ export type SearchUsersApiV1UsersSearchGetData = {
         /**
          * Limit
          */
-        limit?: number | null;
-        /**
-         * Cursor
-         */
-        cursor?: string | null;
+        limit?: number;
     };
     url: '/api/v1/users:search';
 };
@@ -20382,10 +20378,8 @@ export type SearchUsersApiV1UsersSearchGetResponses = {
     /**
      * Successful Response
      */
-    200: IdentityPage;
+    200: unknown;
 };
-
-export type SearchUsersApiV1UsersSearchGetResponse = SearchUsersApiV1UsersSearchGetResponses[keyof SearchUsersApiV1UsersSearchGetResponses];
 
 export type CreateVideoJobApiV1VideoJobsPostData = {
     body: VideoJobRequest;
@@ -24688,6 +24682,44 @@ export type CreateTraceImportCatalogApiV2TraceImportCatalogsPostResponses = {
 };
 
 export type CreateTraceImportCatalogApiV2TraceImportCatalogsPostResponse = CreateTraceImportCatalogApiV2TraceImportCatalogsPostResponses[keyof CreateTraceImportCatalogApiV2TraceImportCatalogsPostResponses];
+
+export type SearchUsersPageApiV2UsersSearchGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Query
+         */
+        query: string;
+        /**
+         * Limit
+         */
+        limit?: number | null;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+    };
+    url: '/api/v2/users:search';
+};
+
+export type SearchUsersPageApiV2UsersSearchGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SearchUsersPageApiV2UsersSearchGetError = SearchUsersPageApiV2UsersSearchGetErrors[keyof SearchUsersPageApiV2UsersSearchGetErrors];
+
+export type SearchUsersPageApiV2UsersSearchGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: IdentityPage;
+};
+
+export type SearchUsersPageApiV2UsersSearchGetResponse = SearchUsersPageApiV2UsersSearchGetResponses[keyof SearchUsersPageApiV2UsersSearchGetResponses];
 
 export type ListFoundryVideoProductionBatchesApiV2VideoProductionBatchesGetData = {
     body?: never;

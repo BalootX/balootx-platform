@@ -497,7 +497,10 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
                 store.create_friend_request(request_id="REQ-BEHIND", sender_id="SUB-SIMILAR", recipient_id=owner,
                                             created_at="2025-12-31T00:00:00+00:00")
                 continuation = []
+                seen_cursors = set()
                 while request_cursor:
+                    assert request_cursor not in seen_cursors
+                    seen_cursors.add(request_cursor)
                     request_page = service.request_page(owner, limit=17, cursor=request_cursor)
                     continuation.extend(row["request_id"] for row in request_page["items"])
                     request_cursor = request_page["nextCursor"]

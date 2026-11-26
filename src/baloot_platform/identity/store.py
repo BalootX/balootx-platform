@@ -27,11 +27,13 @@ class _IdentityLists:
         p = self.placeholder
         fields = "subject_id,kind,username,display_name,created_at"
         query = query.strip()
+        escape = " ESCAPE '!'" if maximum_results is not None else ""
+        matches = f"disabled_at IS NULL AND (display_name {self.like} {p}{escape} OR username {self.like} {p}{escape})"
         if maximum_results is None:
             needle = f"%{query}%"
             return self._read_page_rows(
                 f"""SELECT {fields} FROM {self.subjects}
-                    WHERE disabled_at IS NULL AND (display_name {self.like} {p} OR username {self.like} {p})
+                    WHERE {matches}
                     ORDER BY kind DESC,display_name LIMIT {p}""",
                 (needle, needle, max(1, min(100, int(limit)))),
             )
@@ -46,8 +48,7 @@ class _IdentityLists:
                 ), matches AS (
                   SELECT '1' AS search_rank,{fields}
                   FROM {self.subjects}
-                  WHERE disabled_at IS NULL AND
-                    (display_name {self.like} {p} ESCAPE '!' OR username {self.like} {p} ESCAPE '!')
+                  WHERE {matches}
                     AND subject_id NOT IN (SELECT subject_id FROM exact)
                   ORDER BY subject_id LIMIT ({p} - (SELECT count(*) FROM exact))
                 )
