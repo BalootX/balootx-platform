@@ -166,9 +166,14 @@ def test_hosted_ci_contract(root):
         "(github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'merge_group'"
     )
     assert review_step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert review_step["env"]["REVIEW_BASE"] == "${{ github.event.merge_group.base_sha }}"
+    resolve_base, _ = review_step["run"].split("base_files=", 1)
+    assert 'if [[ "$GITHUB_EVENT_NAME" == pull_request ]]' in resolve_base
+    assert "git rev-parse --verify 'HEAD^1^{commit}'" in resolve_base
     assert 'git show "$REVIEW_BASE:ci/critical_review.py"' in review_step["run"]
     assert 'python3 -I "$RUNNER_TEMP/critical-review.py"' in review_step["run"]
     assert "python3 -I ci/critical_review.py" not in review_step["run"]
+    assert not re.search(r"^\s*exit\s+0\s*$", review_step["run"], re.MULTILINE)
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
         "media-inputs", "media-render", "media-release-smoke", "remotion-image-parity",
@@ -292,12 +297,41 @@ def test_critical_review_on_pull_request(review_history, monkeypatch, path, foll
     else:
         critical_review.check(*args)
     state, reason = review_verdict_poster.decision(
-        repo, "main", {"number": 104, "headRefOid": head}, "refs/heads/main", args[3], candidate,
+        repo, "main", {"number": 104, "headRefOid": head, "baseRefOid": base}, "refs/heads/main", args[3], candidate,
     )
     if error:
         assert state == "failure" and error in reason
     else:
         assert state == "success"
+
+
+def test_pull_request_review_uses_merge_base_and_binds_head(review_history, monkeypatch):
+    path = "scripts/render_kickoff.py"
+    base, _, head, candidate = review_history(path)
+    pr = {"number": 104, "base": {"sha": "f" * 40}, "head": {"sha": head}}
+    endpoint = "repos/test/example/pulls/104"
+
+    def github(*args):
+        if args == (endpoint,):
+            return {**pr, "state": "open", "changed_files": 1}
+        if args == ("--paginate", "--slurp", f"{endpoint}/files?per_page=100"):
+            return [[{"filename": path, "status": "modified"}]]
+        assert args == ("--paginate", "--slurp", "repos/test/example/issues/104/comments?per_page=100")
+        return []
+
+    monkeypatch.setattr(critical_review, "github", github)
+    args = ("pull_request", {"pull_request": pr}, "test/example", "refs/pull/104/merge", candidate)
+    with pytest.raises(ValueError, match="needs a VERDICT"):
+        critical_review.check(*args)
+    state, reason = review_verdict_poster.decision(
+        args[2], "main", {"number": 104, "headRefOid": head, "baseRefOid": pr["base"]["sha"]},
+        "refs/heads/main", args[3], candidate,
+    )
+    assert state == "failure" and "needs a VERDICT" in reason
+
+    pr["head"]["sha"] = base
+    with pytest.raises(ValueError, match="second parent.*Update the PR branch"):
+        critical_review.check(*args)
 
 
 def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatch):
@@ -332,6 +366,9 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
     assert review_verdict_poster.decision(
         "test/example", "main", {"number": 104, **pr}, "refs/heads/main", ref, candidate, queue=True,
     )[0] == "success"
+    files[0]["filename"] = "ci/fixture.json"
+    with pytest.raises(ValueError, match="absent from both the PR base and head"):
+        critical_review.check(*args)
     files[0]["filename"] = "README.md"
     critical_review.check(*args)
     snapshot["changed_files"] = 2
@@ -382,7 +419,8 @@ def test_poster_does_not_load_a_base_outside_main(review_history, monkeypatch):
 
     monkeypatch.setattr(review_verdict_poster, "load_review", load_review)
     assert review_verdict_poster.decision(
-        "test/example", "main", {"number": 104, "headRefOid": base}, "refs/heads/main", ref, merge,
+        "test/example", "main", {"number": 104, "headRefOid": base, "baseRefOid": base},
+        "refs/heads/main", ref, merge,
     )[0] == "pending"
 
 
@@ -408,13 +446,68 @@ def test_poster_fails_closed_on_api_error_or_moved_snapshot(review_history, monk
 
     monkeypatch.setattr(critical_review, "github", github)
     result = review_verdict_poster.decision(
-        "test/example", "main", {"number": 104, "headRefOid": head}, "refs/heads/main", ref, candidate,
+        "test/example", "main", {"number": 104, "headRefOid": head, "baseRefOid": base},
+        "refs/heads/main", ref, candidate,
     )
     assert result[0] == state
     if error:
         assert result[1] == f"Verdict not re-checked: {type(error).__name__}"
     else:
         assert "snapshot is incomplete or has moved" in result[1]
+
+
+@pytest.mark.parametrize("change", ["edit", "delete"])
+def test_poster_replaces_both_successes_after_an_older_verdict_changes(review_history, monkeypatch, change):
+    path = "scripts/render-kickoff.json"
+    base, _, head, queued = review_history(path, squash=True)
+    git = critical_review.git
+    merge = git("commit-tree", f"{queued}^{{tree}}", "-p", base, "-p", head, "-m", "test merge").decode().strip()
+    git("update-ref", "refs/pull/104/merge", merge)
+    bot_id = 1001
+    pr = {"number": 104, "headRefOid": head, "baseRefOid": base, "mergeQueueEntry": {
+        "baseCommit": {"oid": base}, "headCommit": {"oid": queued},
+    }}
+    endpoint = "repos/test/example"
+    clock = SimpleNamespace(now=0)
+    writes = []
+
+    def comments():
+        effective = "NO_GO" if clock.now >= 30 and change == "edit" else "GO"
+        verdict = {"id": 1, "user": {"id": bot_id}, "body": f"VERDICT: {effective} {head}"}
+        unrelated = {"id": 2, "user": {"id": 1002}, "body": "Unrelated comment"}
+        return [unrelated] if clock.now >= 30 and change == "delete" else [verdict, unrelated]
+
+    def github(*args):
+        if args[:3] == ("--paginate", "--slurp", "graphql"):
+            query = args[4]
+            assert "comments(first: 100) { totalCount nodes { id body } }" in query
+            rows = comments()
+            snapshot = {**pr, "comments": {"totalCount": len(rows), "nodes": [
+                {"id": str(row["id"]), "body": row["body"]} for row in rows
+            ]}}
+            return [{"data": {"repository": {"pullRequests": {"nodes": [snapshot]}}}}]
+        if args[0] == "graphql":
+            return {"data": {"repository": {"pullRequest": pr}}}
+        if args == (f"{endpoint}/pulls/104",):
+            return {"number": 104, "state": "open", "head": {"sha": head}, "base": {"sha": base}, "changed_files": 1}
+        if args[-1] == f"{endpoint}/pulls/104/files?per_page=100":
+            return [[{"filename": path, "status": "added"}]]
+        if args[-1] == f"{endpoint}/issues/104/comments?per_page=100":
+            return [comments()]
+        if args[:2] == ("--method", "POST"):
+            writes.append((args[2].rsplit("/", 1)[1], args[6].removeprefix("state=")))
+            return {}
+        target = args[-1].split("/")[-2]
+        assert args[-1] == f"{endpoint}/commits/{target}/statuses?per_page=100"
+        return [[{"creator": {"id": bot_id}, "context": "review-verdict", "state": state}
+                 for sha, state in reversed(writes) if sha == target]]
+
+    monkeypatch.setattr(critical_review, "github", github)
+    monkeypatch.setattr(review_verdict_poster, "github", github)
+    monkeypatch.setattr(review_verdict_poster.time, "monotonic", lambda: clock.now)
+    monkeypatch.setattr(review_verdict_poster.time, "sleep", lambda delay: setattr(clock, "now", clock.now + delay))
+    review_verdict_poster.poll("test/example", "main", "https://github.example", bot_id, seconds=31)
+    assert writes == [(head, "success"), (queued, "success"), (head, "failure"), (queued, "failure")]
 
 
 @pytest.mark.parametrize(("previous", "state", "posts"), [
@@ -819,7 +912,7 @@ def test_gate_requires_exact_scoped_producers(root, paths, producers):
     "tests/conftest.py", "tests/test_ci_hosted_contract.py", "tests/test_core.py",
     "tests/test_research_ortools_unified_executor.py", "tests/test_unmeasured.py",
     "docs/architecture/authority-map.json", "src/baloot_platform/core/rules.py",
-    "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py",
+    "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py", "tests/test_v8_identity_sakka.py",
     "src/baloot_platform/video/remotion/package.json", "src/baloot_platform/video/remotion/package-lock.json",
     "LICENSE", "THIRD-PARTY-NOTICES", "native/CMakeLists.txt", "configs/runtime/docker_v1.yaml",
     "schemas/version.schema.json", "generated/openapi.json", "proto/baloot.proto", "migrations/001_initial.sql",

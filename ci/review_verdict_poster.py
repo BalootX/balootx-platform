@@ -14,7 +14,7 @@ query($owner: String!, $name: String!, $branch: String!, $endCursor: String) {
       pageInfo { hasNextPage endCursor }
       nodes {
         number headRefOid baseRefOid
-        comments(last: 1) { totalCount nodes { id updatedAt } }
+        comments(first: 100) { totalCount nodes { id body } }
         mergeQueueEntry { baseCommit { oid } headCommit { oid } }
       }
     }
@@ -59,7 +59,9 @@ def decision(repo, branch, pr, main_ref, ref, candidate, queue=False):
                 return "pending", f"Waiting for GitHub's test merge of {head[:12]}"
             base = parents[1]
             event_name = "pull_request"
-            event = {"pull_request": {"number": number, "base": {"sha": base}, "head": {"sha": head}}}
+            event = {"pull_request": {
+                "number": number, "base": {"sha": pr["baseRefOid"]}, "head": {"sha": head},
+            }}
 
         # An open PR can be retargeted while its GitHub-generated ref is fetched.
         git("merge-base", "--is-ancestor", base, main_ref)
@@ -146,7 +148,10 @@ def poll(repo, branch, public_url, bot_id, seconds):
                 state, reason = decision(repo, branch, pr, main_ref, ref, candidate, queue=queue)
             try:
                 publish(repo, public_url, bot_id, number, sha, state, reason)
-                if state != "pending":
+                # A partial comment list cannot establish that a verdict is unchanged.
+                if state != "pending" and all(
+                    len(pr["comments"]["nodes"]) == pr["comments"]["totalCount"] for pr, *_ in entries
+                ):
                     seen[sha] = entries
                     continue
             except Exception as exc:

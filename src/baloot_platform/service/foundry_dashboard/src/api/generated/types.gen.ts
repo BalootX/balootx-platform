@@ -3668,6 +3668,54 @@ export type HistoricalReplayRenderRequest = {
 };
 
 /**
+ * IdentityItem
+ */
+export type IdentityItem = {
+    /**
+     * Authenticated
+     */
+    authenticated: boolean;
+    /**
+     * Createdat
+     */
+    createdAt: string | null;
+    /**
+     * Displayname
+     */
+    displayName: string;
+    /**
+     * Guest
+     */
+    guest: boolean;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Subjectid
+     */
+    subjectId: string;
+    /**
+     * Username
+     */
+    username: string | null;
+};
+
+/**
+ * IdentityPage
+ */
+export type IdentityPage = {
+    /**
+     * Items
+     */
+    items: Array<IdentityItem>;
+    /**
+     * Nextcursor
+     */
+    nextCursor: string | null;
+};
+
+/**
  * ImprovementEvaluationRequest
  */
 export type ImprovementEvaluationRequest = {
@@ -4571,6 +4619,54 @@ export type PauseRequest = {
      * Reason
      */
     reason: string;
+};
+
+/**
+ * PendingRequestItem
+ */
+export type PendingRequestItem = {
+    /**
+     * Createdat
+     */
+    createdAt: string;
+    /**
+     * Recipientid
+     */
+    recipientId: string;
+    /**
+     * Requestid
+     */
+    requestId: string;
+    /**
+     * Senderdisplayname
+     */
+    senderDisplayName: string;
+    /**
+     * Senderid
+     */
+    senderId: string;
+    /**
+     * Senderusername
+     */
+    senderUsername: string | null;
+    /**
+     * Status
+     */
+    status: 'pending';
+};
+
+/**
+ * PendingRequestPage
+ */
+export type PendingRequestPage = {
+    /**
+     * Items
+     */
+    items: Array<PendingRequestItem>;
+    /**
+     * Nextcursor
+     */
+    nextCursor: string | null;
 };
 
 /**
@@ -22192,6 +22288,74 @@ export type GetFoundryRuntimeProfileApiV2FoundryProfileGetResponses = {
 
 export type GetFoundryRuntimeProfileApiV2FoundryProfileGetResponse = GetFoundryRuntimeProfileApiV2FoundryProfileGetResponses[keyof GetFoundryRuntimeProfileApiV2FoundryProfileGetResponses];
 
+export type FriendsPageApiV2FriendsGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number | null;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+    };
+    url: '/api/v2/friends';
+};
+
+export type FriendsPageApiV2FriendsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type FriendsPageApiV2FriendsGetError = FriendsPageApiV2FriendsGetErrors[keyof FriendsPageApiV2FriendsGetErrors];
+
+export type FriendsPageApiV2FriendsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: IdentityPage;
+};
+
+export type FriendsPageApiV2FriendsGetResponse = FriendsPageApiV2FriendsGetResponses[keyof FriendsPageApiV2FriendsGetResponses];
+
+export type FriendRequestsPageApiV2FriendsRequestsGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number | null;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+    };
+    url: '/api/v2/friends/requests';
+};
+
+export type FriendRequestsPageApiV2FriendsRequestsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type FriendRequestsPageApiV2FriendsRequestsGetError = FriendRequestsPageApiV2FriendsRequestsGetErrors[keyof FriendRequestsPageApiV2FriendsRequestsGetErrors];
+
+export type FriendRequestsPageApiV2FriendsRequestsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: PendingRequestPage;
+};
+
+export type FriendRequestsPageApiV2FriendsRequestsGetResponse = FriendRequestsPageApiV2FriendsRequestsGetResponses[keyof FriendRequestsPageApiV2FriendsRequestsGetResponses];
+
 export type ListLaffatApiV2LaffatGetData = {
     body?: never;
     path?: never;
@@ -24518,6 +24682,44 @@ export type CreateTraceImportCatalogApiV2TraceImportCatalogsPostResponses = {
 };
 
 export type CreateTraceImportCatalogApiV2TraceImportCatalogsPostResponse = CreateTraceImportCatalogApiV2TraceImportCatalogsPostResponses[keyof CreateTraceImportCatalogApiV2TraceImportCatalogsPostResponses];
+
+export type SearchUsersPageApiV2UsersSearchGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Query
+         */
+        query: string;
+        /**
+         * Limit
+         */
+        limit?: number | null;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+    };
+    url: '/api/v2/users:search';
+};
+
+export type SearchUsersPageApiV2UsersSearchGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SearchUsersPageApiV2UsersSearchGetError = SearchUsersPageApiV2UsersSearchGetErrors[keyof SearchUsersPageApiV2UsersSearchGetErrors];
+
+export type SearchUsersPageApiV2UsersSearchGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: IdentityPage;
+};
+
+export type SearchUsersPageApiV2UsersSearchGetResponse = SearchUsersPageApiV2UsersSearchGetResponses[keyof SearchUsersPageApiV2UsersSearchGetResponses];
 
 export type ListFoundryVideoProductionBatchesApiV2VideoProductionBatchesGetData = {
     body?: never;
