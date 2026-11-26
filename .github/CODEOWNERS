@@ -84,6 +84,9 @@
 /scripts/generate_openapi.py @BalootX/maintainers
 /scripts/generate_professional_video_prototypes.py @BalootX/maintainers
 /scripts/render_release.py @BalootX/maintainers
+/scripts/render_kickoff.py @BalootX/maintainers
+/scripts/render-kickoff.json @BalootX/maintainers
+/scripts/render-kickoff.schema.json @BalootX/maintainers
 /scripts/render_research_notice.py @BalootX/maintainers
 /scripts/render_research_scenario_v4_goldens.py @BalootX/maintainers
 /scripts/render_remotion_plugin_parity.py @BalootX/maintainers
