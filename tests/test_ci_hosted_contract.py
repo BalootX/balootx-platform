@@ -601,6 +601,28 @@ def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):
     assert jobs["media-render"]["timeout-minutes"] == 25
 
 
+def test_main_ci_retains_synthetic_visual_evidence(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    main_push = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    foundry = next(step for step in jobs["foundry"]["steps"] if step.get("name") == "Upload Foundry test receipts")
+    assert foundry["if"] == "${{ !cancelled() }}"
+    assert foundry["with"]["path"].splitlines()[-1] == (
+        "${{ " + main_push + " && success() && 'output/playwright/acc19/**/*.png' || "
+        "'output/playwright/acc19/**/audit-*.png' }}"
+    )
+    media_steps = jobs["media-render"]["steps"]
+    hook = next(step for step in media_steps if step.get("name") == "Check synthetic hook layouts")
+    assert hook["if"] == "matrix.shard == 'decision'"
+    assert hook["env"]["HOOK_FRAMES_DIR"] == "${{ runner.temp }}/notice-on-hook-frames"
+    assert hook["run"].endswith(' "$HOOK_FRAMES_DIR"')
+    shard = next(step for step in media_steps if step.get("name") == "Upload shard media")
+    assert shard["with"]["path"].splitlines() == [
+        "${{ runner.temp }}/media-shard.tar",
+        "${{ matrix.shard == 'decision' && " + main_push + " && "
+        "format('{0}/notice-on-hook-frames/*.png', runner.temp) || '' }}",
+    ]
+
+
 @pytest.mark.parametrize("event", ["pull_request", "push", "workflow_dispatch", "merge_group"])
 def test_gate_rejects_unproven_full_producers(event):
     plan = {key: json.dumps(value) for key, value in ci_scope.current_plan().items()}

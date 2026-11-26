@@ -24,6 +24,11 @@ The address-sanitizer job requires both verifier pytest nodes to pass against it
 
 The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples. The `pagePerformance` section of `foundry-live-result-latency.json` records Chromium timings for fresh visits to the overview and one click per visit to open the research workspace. It compares nearest-rank p75 with the [Foundry page budgets](DESIGN.md#foundry-dashboard) and reports headroom during baseline collection.
 
+For visual review, download these two artifacts from the same successful `main` CI run.
+
+- `foundry-test-receipts` also includes the synthetic Arabic RTL screenshots captured by the desktop and 390 × 844 mobile Playwright journeys. Look for `library-1440.png` and `library-390.png` in the library results, and `delayed-payoff-controls.png` in a `mobile-touch-chrome` result directory.
+- `media-render-decision` includes `media-shard.tar` and the validated synthetic notice-on PNGs under `notice-on-hook-frames/`. Download it within its one-day retention window.
+
 The main ruleset's CodeQL rule evaluates each PR at admission and blocks new high or critical alerts on lines the PR changes. The main-push scan surfaces alerts that arise only in the combined commit.
 
 The concurrency key uses the PR number to keep same-named branches from different forks in separate groups. A new run supersedes only the same PR's older run. Each push, merge-group and manual CI run has its own group and cannot cancel another run.
