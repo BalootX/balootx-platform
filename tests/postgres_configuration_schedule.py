@@ -692,7 +692,45 @@ finally:
                 service.retire_bundle(scheduled["revisionId"], expected_etag=stale_etag, actor_id="TEST", reason="Stale retirement")
         assert store.events("bundle", scheduled["revisionId"]) == history
         assert service.resolve(bundle_id=original["bundleId"], at_time="2026-07-01T16:00Z")["bundle"]["revisionId"] == scheduled["revisionId"]
-        service.retire_bundle(competing["revisionId"], expected_etag=competing["etag"], actor_id="TEST", reason="Remove later window")
+
+        competing_id = competing["revisionId"]
+        selection = {"bundle_id": original["bundleId"], "at_time": "2026-07-02T00:00:00Z"}
+        assert service.resolve(**selection)["bundle"]["revisionId"] == competing_id
+        before = store.list_bundles(bundle_id=original["bundleId"])
+        audit_before = {row.revision_id: store.events("bundle", row.revision_id) for row in before}
+        epoch_before = store.get_invalidation_epoch()
+        reason = "Remove later window. " + "x" * 2000
+        retirement = {
+            "revision_id": competing_id, "expected_etag": competing["etag"], "actor_id": "TEST", "reason": reason,
+        }
+        append_event = store._append_event_tx
+
+        def fail_retirement_reason(conn, aggregate_type, aggregate_id, event_type, actor_id, payload):
+            if event_type == "retirement_reason" and aggregate_id == competing_id:
+                raise RuntimeError("retirement audit unavailable")
+            return append_event(conn, aggregate_type, aggregate_id, event_type, actor_id, payload)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(store, "_append_event_tx", fail_retirement_reason)
+            with pytest.raises(RuntimeError, match="retirement audit unavailable"):
+                service.retire_bundle(**retirement)
+        assert store.list_bundles(bundle_id=original["bundleId"]) == before
+        assert {key: store.events("bundle", key) for key in audit_before} == audit_before
+        assert store.get_invalidation_epoch() == epoch_before
+        assert service.resolve(**selection)["bundle"]["revisionId"] == competing_id
+
+        retired = service.retire_bundle(**retirement)
+        assert retired["status"] == "retired" and retired["etag"] == competing["etag"] + 1
+        events = store.events("bundle", competing_id)
+        assert events[:-2] == audit_before[competing_id]
+        assert [(event["eventType"], event["payload"]) for event in events[-2:]] == [
+            ("retired", {"etag": retired["etag"], "status": "retired"}),
+            ("retirement_reason", {"reason": reason[:2000]}),
+        ]
+        assert all(event["actorId"] == "TEST" for event in events[-2:])
+        assert store.get_invalidation_epoch() == epoch_before + 1
+        assert service.resolve(**selection)["bundle"]["revisionId"] == original["revisionId"]
+        print(f"retirementAuditAtomicity: {backend}")
 
         scheduled_profile_id = scheduled["componentRevisions"]["performance"]
         scheduled_profile = store.get_profile(scheduled_profile_id)

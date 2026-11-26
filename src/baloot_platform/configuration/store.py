@@ -1548,6 +1548,7 @@ class SQLiteConfigurationStore:
         expected_etag: int,
         status: str,
         actor_id: str,
+        retirement_reason: str | None = None,
     ) -> BundleRevision:
         if status == "published":
             return self.publish_bundle(
@@ -1567,6 +1568,8 @@ class SQLiteConfigurationStore:
                 conn.execute("ROLLBACK")
                 raise RuntimeError("configuration revision etag conflict")
             if status == "retired":
+                if retirement_reason is None:
+                    raise ValueError("configuration bundle retirement requires an audit reason")
                 current = self._bundle(row)
                 assert current is not None
                 dimensions = _bundle_dimensions(current)
@@ -1601,6 +1604,10 @@ class SQLiteConfigurationStore:
                 actor_id,
                 {"etag": result.etag, "status": result.status},
             )
+            if status == "retired":
+                self._append_event_tx(
+                    conn, "bundle", revision_id, "retirement_reason", actor_id, {"reason": retirement_reason},
+                )
             self._bump_invalidation_epoch_tx(conn)
             conn.execute("COMMIT")
         return result
@@ -2895,6 +2902,7 @@ class PostgresConfigurationStore:
         expected_etag: int,
         status: str,
         actor_id: str,
+        retirement_reason: str | None = None,
     ) -> BundleRevision:
         if status == "published":
             return self.publish_bundle(
@@ -2905,6 +2913,8 @@ class PostgresConfigurationStore:
             if current.etag != int(expected_etag):
                 raise RuntimeError("configuration revision etag conflict")
             if status == "retired":
+                if retirement_reason is None:
+                    raise ValueError("configuration bundle retirement requires an audit reason")
                 dimensions = _bundle_dimensions(current)
                 anchor = self._published_bundle_tx(conn, dimensions)
                 if anchor is None:
@@ -2932,6 +2942,10 @@ class PostgresConfigurationStore:
                 actor_id,
                 {"etag": result.etag, "status": result.status},
             )
+            if status == "retired":
+                self._append_event_tx(
+                    conn, "bundle", revision_id, "retirement_reason", actor_id, {"reason": retirement_reason},
+                )
             self._bump_invalidation_epoch_tx(conn)
             return result
 

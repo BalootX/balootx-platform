@@ -849,13 +849,7 @@ class VersionedConfigurationService:
             expected_etag=expected_etag,
             status=RevisionStatus.RETIRED.value,
             actor_id=actor_id,
-        )
-        self.store.append_event(
-            "bundle",
-            revision_id,
-            "retirement_reason",
-            actor_id,
-            {"reason": str(reason)[:2000]},
+            retirement_reason=str(reason)[:2000],
         )
         self._invalidate_cache()
         return result.to_dict()
