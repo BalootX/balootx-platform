@@ -305,6 +305,9 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
         critical_review.check(*args)
     comment["body"] = f"VERDICT: GO {head}"
     critical_review.check(*args)
+    files[0]["filename"] = "ci/fixture.json"
+    with pytest.raises(ValueError, match="absent from both the PR base and head"):
+        critical_review.check(*args)
     files[0]["filename"] = "README.md"
     critical_review.check(*args)
     snapshot["changed_files"] = 2
@@ -690,7 +693,7 @@ def test_gate_requires_exact_scoped_producers(root, paths, producers):
     "tests/conftest.py", "tests/test_ci_hosted_contract.py", "tests/test_core.py",
     "tests/test_research_ortools_unified_executor.py", "tests/test_unmeasured.py",
     "docs/architecture/authority-map.json", "src/baloot_platform/core/rules.py",
-    "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py",
+    "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py", "tests/test_v8_identity_sakka.py",
     "src/baloot_platform/video/remotion/package.json", "src/baloot_platform/video/remotion/package-lock.json",
     "LICENSE", "THIRD-PARTY-NOTICES", "native/CMakeLists.txt", "configs/runtime/docker_v1.yaml",
     "schemas/version.schema.json", "generated/openapi.json", "proto/baloot.proto", "migrations/001_initial.sql",

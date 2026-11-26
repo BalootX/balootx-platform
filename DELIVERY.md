@@ -20,9 +20,15 @@ The [FFmpeg runtime profile](src/baloot_platform/video/remotion/scripts/ffmpeg-r
 
 The `docker-constraints` job dry-runs pip with the Python base image, exact constraints and extras shared by the Docker test and verifier stages. It runs when its Docker, dependency or CI inputs change on a PR, when CI cannot resolve the diff, and on main and merge groups.
 
+The full profile includes `identity-postgres`, which applies and replays the migrations using the [PostgreSQL proof's pinned image](scripts/verify_live_postgres_research.py) and the driver versions in [the Docker constraints](requirements-docker.txt). It verifies paging and query plans with an ICU collation. The [identity migration notes](docs/IDENTITY_PAGINATION.md#migration-notes) cover deployment and reversal.
+
+An active identity profile must declare its pagination policy. Before activating a custom bundle, validate its identity revision against the [identity profile schema](schemas/profiles/identity.schema.json). The [identity pagination release note](docs/IDENTITY_PAGINATION.md#release-note) defines the v1 compatibility contract and the v2 read scope.
+
 The address-sanitizer job requires both verifier pytest nodes to pass against its own build. The Windows job uses a [CPU fixture](ci/windows-ci-local-cpu.json) for its four-vCPU checkout and runs the inherited-limit test through the capped launcher. Both jobs require passing phase receipts for every selected node.
 
-The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples. The `pagePerformance` section of `foundry-live-result-latency.json` records Chromium timings for fresh visits to the overview and one click per visit to open the research workspace. It compares nearest-rank p75 with the [Foundry page budgets](DESIGN.md#foundry-dashboard) and reports headroom during baseline collection.
+The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples. The `pagePerformance` section of `foundry-live-result-latency.json` records Chromium timings for fresh visits to the overview and one click per visit to open the research workspace. It compares nearest-rank p75 with the [Foundry page budgets](DESIGN.md#foundry-dashboard) and reports headroom during baseline collection. When the Playwright suite fails, the `foundry-playwright-failure-diagnostics` artifact contains its traces and screenshots.
+
+After rendering and uploading the governed media, the decision shard checks a synthetic play bundle from the research-notice release builder. It samples the first, steady and last frames of the hook, question and reveal and checks the rendered timer and layout on both sides of every countdown change. A test-only moving prompt must trigger the prompt and notice overlap check at the first countdown change. The `media-stage-logs-decision` artifact retains the bundle and pinned layout table copies, frame results, measured boxes and PNGs under `transition-layout/`, including when a frame check fails.
 
 The main ruleset's CodeQL rule evaluates each PR at admission and blocks new high or critical alerts on lines the PR changes. The main-push scan surfaces alerts that arise only in the combined commit.
 
@@ -65,6 +71,8 @@ A Due is the latest finish. Start Ready work at once and ship as soon as its che
 - For everything else, the thread that made the change opens its own PR and enables auto-merge at once. The PR merges through the queue once the required CI checks are green, with no review.
 - Delivery owns the queue, admission gates, pipeline faults, CI health and speed, releases, deploys, rollback and alerts. Workers handle each PR.
 - Use `Closes #n` in the PR body only if merging meets the item's whole Done-when. Otherwise use `Refs #n`.
+
+Every listed critical changed path must exist at the PR base or head. The review gate checks this before applying the verdict, including when the PR deletes a file.
 
 ## GitHub Releases
 
@@ -142,3 +150,4 @@ The producer runs the image's installed Remotion package and verifies its locked
 | Scoped URL and IP literal check | The push guard checks private values. The source literal check and committed allowlist are pending. | 2026-12-04 |
 | Configured no-reply domains for commit identities and trailers | The push guard checks commit metadata with a fixed address policy. | 2026-12-04 |
 | Affected CI on draft PRs | The affected checks start when a PR is ready. | 2026-12-04 |
+| PR feedback (`ci-gate`) p50 under 1 min and p95 under 2 min | Measured on 2026-11-26 over 149 of the last 150 first attempts: p50 20.0 min, p95 28.7 min. `ci-gate` reports only after every affected job finishes, including the Python shards, the Foundry Playwright suite and the media renders. The delivery board item "Meet the PR and merge-queue CI feedback targets" (due 2026-12-03) brings it down. | 2026-12-03 |
