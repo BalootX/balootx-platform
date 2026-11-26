@@ -62,6 +62,11 @@
       "configurationInput": "EffectiveRuntimeConfigV2",
       "duplicateAuthorityAllowed": false
     },
+    "approvedLayoutTablePin": {
+      "owner": "src/baloot_platform/video/remotion/scripts/approved-layout-pin.json",
+      "consumers": ["JavaScript layout gate", "Python media and release validation"],
+      "duplicateAuthorityAllowed": false
+    },
     "publicEngineGuide": {
       "owner": "baloot_platform.guide.build_engine_guide",
       "behaviorAuthorities": [

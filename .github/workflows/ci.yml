@@ -109,6 +109,31 @@ jobs:
       - *checkout
       - run: docker build --progress=plain --target docker-constraints .
 
+  identity-postgres:
+    needs: [plan, preflight]
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - *checkout
+      - *py313
+      - run: python -m pip install -c requirements-docker.txt '.[dev,postgres]'
+      - name: Verify paging and migration replay against PostgreSQL
+        run: |
+          image="$(python -c 'from scripts.verify_live_postgres_research import POSTGRES_IMAGE_TAG, EXPECTED_POSTGRES_INDEX_DIGEST; print(f"{POSTGRES_IMAGE_TAG}@{EXPECTED_POSTGRES_INDEX_DIGEST}")')"
+          container="$(docker run --rm --detach --publish 127.0.0.1::5432 \
+            -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -e 'POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C --locale-provider=icu --icu-locale=en-US' \
+            "$image")"
+          trap 'docker rm --force "$container"' EXIT
+          if ! timeout 30s bash -c 'until docker exec "$1" pg_isready -q -h 127.0.0.1 -U postgres; do sleep 1; done' -- "$container"; then
+            docker logs "$container"
+            exit 1
+          fi
+          endpoint="$(docker port "$container" 5432/tcp)"
+          export BALOOT_IDENTITY_TEST_POSTGRES="dbname=postgres host=127.0.0.1 port=${endpoint##*:} user=postgres connect_timeout=5"
+          python -m pytest -s tests/test_v8_identity_sakka.py -k identity_pagination_large_lists_and_plans
+
   foundry:
     needs: [plan, python-wheelhouse]
     if: >-
@@ -227,6 +252,7 @@ jobs:
           go-version: '1.23'
           cache: false
       - run: npx --yes --package typescript@5.8.3 tsc -p sdk/typescript/tsconfig.json --noEmit
+      - run: node --experimental-strip-types --test sdk/typescript/src/client.test.mjs
       - run: go test ./...
         working-directory: sdk/go
 
@@ -595,7 +621,7 @@ jobs:
 
   python-backend-run:
     # Let the short producers clear capacity before the widest matrix starts.
-    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages, preflight, sdks, foundry, remotion-checks, native-sanitizers, python-windows]
+    needs: [plan, python-wheelhouse, native-build, ffmpeg-packages, preflight, sdks, foundry, remotion-checks, native-sanitizers, python-windows, identity-postgres]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: &backend-timeout 30
@@ -889,6 +915,29 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
+      - name: Check synthetic transition layouts
+        if: matrix.shard == 'decision'
+        working-directory: .
+        run: |
+          bundle="$RUNNER_TEMP/transition-layout-bundle.json"
+          PYTHONPATH="$PWD:$PWD/src" python -P - "$bundle" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          from baloot_platform.core.rules import RuleBook
+          from scripts import render_research_notice as notice
+          from scripts.nightly_candidates import synthetic_identity
+
+          rules = RuleBook.load(notice.ROOT / "configs/rules/saudi_common_v1.yaml")
+          profile = notice.notice_profile(public=True)
+          profile["identity"] = synthetic_identity()
+          bundle = notice.build_notice_bundle(rules, profile)
+          notice.validate_notice_bundle(bundle, notice.engine_round_result(rules), public=True)
+          Path(sys.argv[1]).write_text(json.dumps(bundle.to_dict(), ensure_ascii=False), encoding="utf-8")
+          PY
+          cd src/baloot_platform/video/remotion
+          node tests/transition-layout.integration.mjs "$bundle" "$RUNNER_TEMP/media-stage-logs/transition-layout"
       - name: Retain render stage logs
         if: '!cancelled()'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -943,7 +992,7 @@ jobs:
 
   ci-gate:
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}
-    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-windows, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
+    needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, identity-postgres, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-windows, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
     if: ${{ always() && !inputs.viewer-seat-proof }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -960,16 +1009,16 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          REVIEW_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          REVIEW_BASE: ${{ github.event.merge_group.base_sha }}
         run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            if ! REVIEW_BASE=$(git rev-parse --verify 'HEAD^1^{commit}'); then
+              echo '::error::PR merge base is missing from the checkout. Update the PR branch to start a fresh CI run.'
+              exit 1
+            fi
+          fi
           [[ "$REVIEW_BASE" =~ ^[0-9a-f]{40}$ ]]
           base_files=$(git ls-tree --name-only "$REVIEW_BASE" -- ci/critical_review.py ci/critical-paths.json)
-          if [[ -z "$base_files" ]]; then
-            # The first installation is reviewed before these files become the base policy.
-            installed_files=$(git ls-tree --name-only HEAD -- ci/critical_review.py ci/critical-paths.json)
-            test "$installed_files" = $'ci/critical-paths.json\nci/critical_review.py'
-            exit 0
-          fi
           test "$base_files" = $'ci/critical-paths.json\nci/critical_review.py'
           git show "$REVIEW_BASE:ci/critical_review.py" > "$RUNNER_TEMP/critical-review.py"
           python3 -I "$RUNNER_TEMP/critical-review.py"

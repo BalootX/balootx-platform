@@ -49,8 +49,8 @@ from .render_bundle import (
 from .audio_postprocess import finish_remotion_audio
 from .media_validation import (
     APPROVED_LAYOUT_TABLE,
-    APPROVED_LAYOUT_TABLE_SHA256,
     REMOTION_RENDERER_VERSION,
+    approved_layout_table_sha256,
     compare_source_frame,
     media_tool,
     probe_media,
@@ -120,11 +120,12 @@ def _qualified_layout_evidence(
     if binding.get("mode") != "qualification" or evidence.get("disposition") == "NEVER_POST":
         raise ValueError("layout measurement MP4 is permanently NEVER_POST")
     table_path = work / "layout-table.json"
+    approved_sha256 = approved_layout_table_sha256()
     if (
         evidence.get("schemaVersion") != 1
         or evidence.get("status") != "passed"
-        or binding.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256
-        or _sha256(table_path) != APPROVED_LAYOUT_TABLE_SHA256
+        or binding.get("tableSha256") != approved_sha256
+        or _sha256(table_path) != approved_sha256
         or binding.get("bundleFileSha256") != _sha256(bundle_path)
         or binding.get("bundleSha256") != bundle_sha256
         or evidence.get("videoSha256") != _sha256(work / "render.mp4")
@@ -139,7 +140,7 @@ def _qualified_layout_evidence(
         if (
             not source or Path(source).name != source or not source.endswith(".png")
             or row.get("binding") != binding
-            or validation.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256
+            or validation.get("tableSha256") != approved_sha256
             or validation.get("status") != "passed"
             or _sha256(work / source) != row.get("pngSha256")
         ):
@@ -960,7 +961,7 @@ class RemotionProfessionalRenderer:
         if qualify_layout:
             if "BALOOTX_LAYOUT_TABLE" in os.environ or "BALOOTX_LAYOUT_TABLE_SHA256" in os.environ:
                 raise ValueError("layout table overrides require NEVER_POST measurement mode")
-            if _sha256(self.renderer_root / APPROVED_LAYOUT_TABLE) != APPROVED_LAYOUT_TABLE_SHA256:
+            if _sha256(self.renderer_root / APPROVED_LAYOUT_TABLE) != approved_layout_table_sha256():
                 raise ValueError("approved layout table SHA-256 mismatch")
         layout_files: dict[str, Path] = {}
         layout_geometry = None
