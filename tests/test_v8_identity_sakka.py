@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
 
@@ -28,7 +29,7 @@ from baloot_platform.learning.store import LearningStore
 from baloot_platform.sakka import SakkaService, SQLiteSakkaStore
 from baloot_platform.security import AuthorizationPolicy, Scope, SignedAccessTokenService
 from baloot_platform.service.game import GameManager
-from baloot_platform.service.routes.auth import PendingRequestItem, build_auth_router
+from baloot_platform.service.routes.auth import COOKIE_NAME, PendingRequestItem, build_auth_router
 from baloot_platform.storage.game_store import SQLiteGameStore
 
 
@@ -180,12 +181,26 @@ def test_friend_routes_preserve_service_delegation_and_require_read_scope(tmp_pa
 
 
 @pytest.mark.parametrize("credential", ["cookie", "bearer"])
-def test_sdk_logout_revokes_session_with_production_csrf(tmp_path, monkeypatch, credential):
+def test_sdk_logout_is_idempotent_and_revokes_valid_sessions(tmp_path, monkeypatch, credential):
+    from baloot_platform.identity import service as identity_service
     from baloot_platform.service import api
 
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    class FixtureClock(datetime):
+        @classmethod
+        def now(cls, tz=timezone.utc):
+            return now.astimezone(tz)
+
+    def session_headers(token):
+        if credential == "cookie":
+            return {"cookie": f"{COOKIE_NAME}={token}"}
+        return {"authorization": f"Bearer {token}"}
+
+    monkeypatch.setattr(identity_service, "datetime", FixtureClock)
     monkeypatch.setenv("BALOOT_ENV", "production")
     monkeypatch.setenv("BALOOT_RATE_LIMIT_PER_MINUTE", "0")
-    service = IdentityService(SQLiteIdentityStore(tmp_path / "logout-identity.sqlite3"))
+    service = IdentityService(SQLiteIdentityStore(tmp_path / "logout-identity.sqlite3"), guest_hours=1)
     monkeypatch.setattr(api, "IDENTITY", service)
     app = security_probe_app()
     app.include_router(build_auth_router(
@@ -195,11 +210,11 @@ def test_sdk_logout_revokes_session_with_production_csrf(tmp_path, monkeypatch, 
     with TestClient(app, base_url="https://testserver") as client:
         guest = client.post("/api/v1/auth/guest", json={"displayName": "Logout fixture"})
         assert guest.status_code == 201, guest.text
-        bearer = {"authorization": f"Bearer {guest.json()['accessToken']}"}
+        token = guest.json()["accessToken"]
         headers = {}
         if credential == "bearer":
             client.cookies.clear()
-            headers = bearer
+            headers = session_headers(token)
         assert client.get("/api/v1/friends", headers=headers).status_code == 200
         mutation = client.post(
             "/api/v1/friends/requests", headers=headers, json={"recipientId": "SUB-FIXTURE"},
@@ -209,9 +224,21 @@ def test_sdk_logout_revokes_session_with_production_csrf(tmp_path, monkeypatch, 
 
         response = client.post("/api/v1/auth/logout", headers=headers)
         assert response.status_code == 204, response.text
+        assert response.headers["set-cookie"].startswith(f"{COOKIE_NAME}=")
         assert "Max-Age=0" in response.headers["set-cookie"]
-        assert client.get("/api/v1/friends").status_code == 401
-        assert client.get("/api/v1/friends", headers=bearer).status_code == 401
+        assert client.cookies.get(COOKIE_NAME) is None
+        assert client.get("/api/v1/friends", headers=session_headers(token)).status_code == 401
+
+        expired = service.create_guest("Expired logout fixture")["session"]["token"]
+        assert client.get("/api/v1/friends", headers=session_headers(expired)).status_code == 200
+        now += timedelta(hours=1)
+        assert client.get("/api/v1/friends", headers=session_headers(expired)).status_code == 401
+
+        for stale in ({}, session_headers(token), session_headers(expired)):
+            repeated = client.post("/api/v1/auth/logout", headers=stale)
+            assert repeated.status_code == 204, repeated.text
+            assert repeated.headers["set-cookie"].startswith(f"{COOKIE_NAME}=")
+            assert "Max-Age=0" in repeated.headers["set-cookie"]
 
 
 def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):

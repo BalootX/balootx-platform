@@ -17,7 +17,6 @@ from baloot_platform.identity import Identity, IdentityService
 from baloot_platform.security import AccessClaims, AuthorizationPolicy, Scope, SignedAccessTokenService
 
 DEFAULT_TENANT = "default"
-AUTH_LOGOUT_PATH = "/api/v1/auth/logout"
 
 HISTORY_GAME_REOPEN_PATH = "/api/v1/history/games/{identifier}:reopen"
 HISTORY_GAME_AUDIT_PATH = "/api/v1/history/games/{identifier}:audit"
@@ -30,6 +29,7 @@ HTTP_POLICY: dict[tuple[str, str], Scope | None] = {
     ("GET", "/"): None,
     ("POST", "/api/v1/auth/guest"): None,
     ("POST", "/api/v1/auth/login"): None,
+    ("POST", "/api/v1/auth/logout"): None,
     ("GET", "/api/v1/auth/me"): None,
     ("POST", "/api/v1/auth/register"): None,
     ("GET", "/api/v1/capabilities"): None,
@@ -174,7 +174,6 @@ HTTP_POLICY: dict[tuple[str, str], Scope | None] = {
     ("POST", "/api/v1/adjudication/cases/{case_id}/appeals"): Scope.PLAY,
     ("POST", "/api/v1/adjudication/cases/{case_id}/evidence"): Scope.PLAY,
     ("POST", "/api/v1/analyses"): Scope.PLAY,
-    ("POST", AUTH_LOGOUT_PATH): Scope.PLAY,
     ("POST", "/api/v1/canonical-history/{identifier}/branches"): Scope.PLAY,
     ("POST", "/api/v1/canonical-history/{identifier}/corrections"): Scope.PLAY,
     ("POST", "/api/v1/challenges/{challenge_id}:approve"): Scope.PLAY,
@@ -206,18 +205,11 @@ HTTP_POLICY: dict[tuple[str, str], Scope | None] = {
     ("POST", "/api/v1/hitl/cases"): Scope.PLAY,
     ("POST", "/api/v1/hitl/cases/{case_id}/assignments"): Scope.PLAY,
     ("POST", "/api/v1/hitl/cases/{case_id}/consensus"): Scope.PLAY,
-    ("POST", "/api/v1/hitl/cases/{case_id}/moderation-flags"): Scope.PLAY,
     ("POST", "/api/v1/hitl/cases/{case_id}/submissions"): Scope.PLAY,
     ("POST", "/api/v1/hitl/cases/{case_id}/training-candidates"): Scope.PLAY,
     ("PUT", "/api/v1/hitl/consent"): Scope.PLAY,
     ("POST", "/api/v1/hitl/improvements"): Scope.PLAY,
     ("POST", "/api/v1/hitl/improvements/{proposal_id}:approve"): Scope.PLAY,
-    ("POST", "/api/v1/hitl/improvements/{proposal_id}:finalize"): Scope.PLAY,
-    ("POST", "/api/v1/hitl/improvements/{proposal_id}/evaluations"): Scope.PLAY,
-    ("POST", "/api/v1/hitl/moderation-flags/{flag_id}:resolve"): Scope.PLAY,
-    ("PUT", "/api/v1/hitl/reviewers/{subject_id}"): Scope.PLAY,
-    ("POST", "/api/v1/hitl/training-candidates/{candidate_id}:accept"): Scope.PLAY,
-    ("POST", "/api/v1/hitl/training-candidates/{candidate_id}/evaluations"): Scope.PLAY,
     ("POST", "/api/v1/live/rooms"): Scope.PLAY,
     ("POST", "/api/v1/live/rooms/{identifier}/actions"): Scope.PLAY,
     ("POST", "/api/v1/live/rooms/{identifier}/deadline:enforce"): Scope.PLAY,
@@ -426,7 +418,14 @@ HTTP_POLICY: dict[tuple[str, str], Scope | None] = {
     ("POST", HISTORY_GAME_AUDIT_PATH): Scope.CONFIG_ADMIN,
     ("POST", HISTORY_GAME_REOPEN_PATH): Scope.CONFIG_ADMIN,
 
+    ("POST", "/api/v1/hitl/cases/{case_id}/moderation-flags"): Scope.MODEL_ADMIN,
     ("POST", "/api/v1/hitl/cases/{case_id}/review-clip"): Scope.MODEL_ADMIN,
+    ("POST", "/api/v1/hitl/improvements/{proposal_id}:finalize"): Scope.MODEL_ADMIN,
+    ("POST", "/api/v1/hitl/improvements/{proposal_id}/evaluations"): Scope.MODEL_ADMIN,
+    ("POST", "/api/v1/hitl/moderation-flags/{flag_id}:resolve"): Scope.MODEL_ADMIN,
+    ("PUT", "/api/v1/hitl/reviewers/{subject_id}"): Scope.MODEL_ADMIN,
+    ("POST", "/api/v1/hitl/training-candidates/{candidate_id}:accept"): Scope.MODEL_ADMIN,
+    ("POST", "/api/v1/hitl/training-candidates/{candidate_id}/evaluations"): Scope.MODEL_ADMIN,
     ("GET", "/api/v1/learning/datasets"): Scope.MODEL_ADMIN,
     ("POST", "/api/v1/learning/datasets"): Scope.MODEL_ADMIN,
     ("GET", "/api/v1/learning/models"): Scope.MODEL_ADMIN,
