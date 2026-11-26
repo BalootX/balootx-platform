@@ -607,7 +607,7 @@ def test_main_ci_retains_synthetic_visual_evidence(root):
     foundry = next(step for step in jobs["foundry"]["steps"] if step.get("name") == "Upload Foundry test receipts")
     assert foundry["if"] == "${{ !cancelled() }}"
     assert foundry["with"]["path"].splitlines()[-1] == (
-        "${{ " + main_push + " && success() && 'output/playwright/acc19/**/*.png' || "
+        "${{ " + main_push + " && job.status == 'success' && 'output/playwright/acc19/**/*.png' || "
         "'output/playwright/acc19/**/audit-*.png' }}"
     )
     media_steps = jobs["media-render"]["steps"]

@@ -203,7 +203,7 @@ jobs:
             ${{ runner.temp }}/foundry-vitest.xml
             ${{ runner.temp }}/foundry-playwright.xml
             ${{ runner.temp }}/foundry-live-result-latency.json
-            ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && success() && 'output/playwright/acc19/**/*.png' || 'output/playwright/acc19/**/audit-*.png' }}
+            ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && job.status == 'success' && 'output/playwright/acc19/**/*.png' || 'output/playwright/acc19/**/audit-*.png' }}
           if-no-files-found: error
 
   sdks:
