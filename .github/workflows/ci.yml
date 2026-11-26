@@ -188,9 +188,11 @@ jobs:
         run: git show HEAD^1:src/baloot_platform/service/foundry_dashboard/src/styles.css > "$RUNNER_TEMP/foundry-audit-base.css"
       - name: Run Foundry Playwright suite
         if: ${{ !cancelled() && steps.playwright-install.outcome == 'success' }}
+        id: foundry-playwright
         run: npm run test:operator-e2e -- --reporter=list,junit
         env:
           BALOOT_OPERATOR_E2E_FOUNDRY_DIR: ${{ runner.temp }}/foundry-dashboard
+          BALOOT_OPERATOR_E2E_OUTPUT_DIR: ${{ runner.temp }}/foundry-playwright-output
           BALOOT_LIVE_RESULT_LATENCY_SAMPLE_OUTPUT: ${{ runner.temp }}/foundry-live-result-latency.json
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/foundry-playwright.xml
           BALOOT_FOUNDRY_AUDIT_BASE_CSS: ${{ github.event_name == 'pull_request' && format('{0}/foundry-audit-base.css', runner.temp) || '' }}
@@ -203,8 +205,14 @@ jobs:
             ${{ runner.temp }}/foundry-vitest.xml
             ${{ runner.temp }}/foundry-playwright.xml
             ${{ runner.temp }}/foundry-live-result-latency.json
-            output/playwright/acc19/**/audit-*.png
+            ${{ runner.temp }}/foundry-playwright-output/**/audit-*.png
           if-no-files-found: error
+      - name: Upload Foundry Playwright failure diagnostics
+        if: ${{ !cancelled() && steps.foundry-playwright.outcome == 'failure' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: foundry-playwright-failure-diagnostics
+          path: ${{ runner.temp }}/foundry-playwright-output
 
   sdks:
     needs: plan
