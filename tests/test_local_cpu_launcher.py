@@ -144,6 +144,118 @@ def test_verified_inherited_cpu_ceiling_skips_nested_launcher(monkeypatch):
         config._enforce_local_cpu_ceiling.cache_clear()
 
 
+def _assert_attach_handles_process_lifetimes(launcher):
+    # Shadow CIM in this shell only. The launcher still opens and caps real processes.
+    command = r"""
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class FixtureDacl {
+    [DllImport("advapi32.dll", SetLastError=true)]
+    public static extern bool SetKernelObjectSecurity(IntPtr handle, uint information, byte[] descriptor);
+}
+'@
+$start = [Diagnostics.ProcessStartInfo]::new($env:BALOOT_FIXTURE_PYTHON, '-c "import sys; sys.stdin.read()"')
+$start.UseShellExecute = $false
+$start.RedirectStandardInput = $true
+$start.CreateNoWindow = $true
+$exiting = [Diagnostics.Process]::Start($start)
+$denied = [Diagnostics.Process]::Start($start)
+$late = [Diagnostics.Process]::Start($start)
+try {
+    $rootRow = Get-CimInstance Win32_Process -Filter "ProcessId = $PID"
+    $exitingRow = Get-CimInstance Win32_Process -Filter "ProcessId = $($exiting.Id)"
+    $deniedRow = Get-CimInstance Win32_Process -Filter "ProcessId = $($denied.Id)"
+    $lateRow = Get-CimInstance Win32_Process -Filter "ProcessId = $($late.Id)"
+    foreach ($row in @($exitingRow, $deniedRow, $lateRow)) {
+        if ($row.ParentProcessId -ne $PID) { throw 'Fixture is not a child of the attach root.' }
+    }
+    $dacl = [Security.AccessControl.RawSecurityDescriptor]::new('D:')
+    $descriptor = [byte[]]::new($dacl.BinaryLength)
+    $dacl.GetBinaryForm($descriptor, 0)
+    if (-not [FixtureDacl]::SetKernelObjectSecurity($denied.Handle, 4, $descriptor)) {
+        throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+    }
+    # .NET Framework process discovery enables debug privilege, which bypasses the DACL.
+    [void][Diagnostics.Process]::GetCurrentProcess().ProcessorAffinity
+    try { [Diagnostics.Process]::LeaveDebugMode() }
+    catch [ComponentModel.Win32Exception] {
+        if ($_.Exception.GetBaseException().NativeErrorCode -ne 1300) { throw } # Privilege is absent.
+    }
+    $olderRow = [pscustomobject]@{
+        ProcessId = $deniedRow.ProcessId
+        ParentProcessId = $deniedRow.ParentProcessId
+        Name = $deniedRow.Name
+        CreationDate = $rootRow.CreationDate.AddSeconds(-1)
+    }
+    $fixture = @{ IncludeExitingRow = $true; ChildRow = $olderRow; ShowLateOnRead = 0; Reads = 0 }
+    function Get-CimInstance {
+        param([string]$ClassName, [string]$Filter, [string[]]$Property)
+        if ($ClassName -ne 'Win32_Process') {
+            CimCmdlets\Get-CimInstance -ClassName $ClassName
+            return
+        }
+        $rootRow
+        if ($Filter) { return }
+        $fixture.Reads++
+        if ($fixture.IncludeExitingRow) {
+            $fixture.IncludeExitingRow = $false
+            $exiting.StandardInput.Close()
+            if (-not $exiting.WaitForExit(5000)) { throw 'Fixture child did not exit.' }
+            $exiting.Dispose()
+            $exitingRow
+        }
+        $fixture.ChildRow
+        if ($fixture.Reads -eq $fixture.ShowLateOnRead) { $lateRow }
+    }
+    & $env:BALOOT_FIXTURE_LAUNCHER -AttachRootId $PID
+
+    $fixture.ShowLateOnRead = $fixture.Reads + 2
+    try {
+        & $env:BALOOT_FIXTURE_LAUNCHER -AttachRootId $PID
+        throw 'The readback accepted an uncapped descendant.'
+    } catch {
+        if ($_.Exception.Message -notmatch 'CPU job membership verification failed for') { throw }
+        'Uncapped descendant detected at readback'
+    }
+
+    $fixture.ChildRow = $deniedRow
+    $created = $deniedRow.CreationDate.ToUniversalTime()
+    "Denied fixture: $($deniedRow.ProcessId) ($($deniedRow.Name), parent $PID, created $($created.ToString('o')))"
+    & $env:BALOOT_FIXTURE_LAUNCHER -AttachRootId $PID
+} finally {
+    $exiting.Dispose()
+    $late.StandardInput.Close()
+    $late.Dispose()
+    try {
+        if ($denied.HasExited) { throw 'Access-denied fixture exited before the check.' }
+        $denied.StandardInput.Close()
+        if (-not $denied.WaitForExit(5000)) { throw 'Access-denied fixture did not exit.' }
+    } finally { $denied.Dispose() }
+}
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+        env={
+            **os.environ,
+            "BALOOT_FIXTURE_LAUNCHER": str(launcher),
+            "BALOOT_FIXTURE_PYTHON": sys.executable,
+        },
+        capture_output=True,
+        text=True,
+        timeout=30,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    assert result.stdout.count("Verified CPU ceiling:") == 1, result.stderr
+    assert "attached tree: 1 processes." in result.stdout
+    assert "Uncapped descendant detected at readback" in result.stdout
+    assert result.returncode != 0, result
+    assert "Denied fixture: " in result.stdout, result
+    identity = result.stdout.split("Denied fixture: ", 1)[1].splitlines()[0]
+    assert f"OpenProcess (Win32 5) for process {identity}" in " ".join(result.stderr.split())
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job Objects")
 def test_local_cpu_cap_rejects_invalid_config_and_is_inherited(tmp_path):
     root = Path(__file__).resolve().parents[1]
@@ -267,3 +379,4 @@ print("HEADLESS_STDERR_OK", file=sys.stderr)
         assert result.stdout.count("INHERITED_HARD_CAP_OK") == 2
         assert result.stderr.count("HEADLESS_STDERR_OK") == 2
         assert "VoidTaskResult" not in result.stdout
+    _assert_attach_handles_process_lifetimes(launcher)
