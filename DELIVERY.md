@@ -22,6 +22,8 @@ The `docker-constraints` job dry-runs pip with the Python base image, exact cons
 
 The address-sanitizer job requires both verifier pytest nodes to pass against its own build. The Windows job uses a [CPU fixture](ci/windows-ci-local-cpu.json) for its four-vCPU checkout and runs the inherited-limit test through the capped launcher. Both jobs require passing phase receipts for every selected node.
 
+Foundry restores Chromium and its Ubuntu packages from an exact Actions cache keyed by the Playwright version in the dashboard lockfile and the hosted runner image and architecture. On a cache miss, the locked Playwright installer fetches Chromium and its dependencies. Only main pushes save the cache. A hit installs the saved Ubuntu packages locally and checks that the restored Chromium launches.
+
 The Foundry job discovers the Vitest suite under `tests/frontend` using the same configuration as the release verifier. It runs the Playwright suite against the synthetic operator server and the dashboard built from the checkout. The `foundry-test-receipts` artifact contains per-case JUnit results for both runners and the browser latency samples. The `pagePerformance` section of `foundry-live-result-latency.json` records Chromium timings for fresh visits to the overview and one click per visit to open the research workspace. It compares nearest-rank p75 with the [Foundry page budgets](DESIGN.md#foundry-dashboard) and reports headroom during baseline collection.
 
 The main ruleset's CodeQL rule evaluates each PR at admission and blocks new high or critical alerts on lines the PR changes. The main-push scan surfaces alerts that arise only in the combined commit.

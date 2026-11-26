@@ -359,6 +359,34 @@ def test_workflow_only_cancels_superseded_runs_of_the_same_pr(root):
     assert all("concurrency" not in job for job in workflow["jobs"].values())
 
 
+def test_foundry_reuses_the_locked_browser_and_system_packages(root):
+    job = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]["foundry"]
+    assert job["timeout-minutes"] == 10
+    steps = job["steps"]
+    identity = next(step for step in steps if step.get("id") == "playwright-runtime")
+    restore = next(step for step in steps if step.get("id") == "playwright-cache")
+    install = next(step for step in steps if step.get("id") == "playwright-install")
+    save = steps[steps.index(install) + 1]
+    assert "require('./package-lock.json').packages['node_modules/playwright'].version" in identity["run"]
+    assert "$RUNNER_ARCH-${ImageVersion:?}-playwright-chromium-$version" in identity["run"]
+    assert restore["with"] == save["with"] == {
+        "key": "${{ steps.playwright-runtime.outputs.key }}",
+        "path": "${{ runner.temp }}/playwright-browsers\n${{ runner.temp }}/playwright-debs/*.deb\n",
+    }
+    assert restore["uses"].startswith("actions/cache/restore@")
+    assert save["uses"].startswith("actions/cache/save@")
+    assert save["if"] == (
+        "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
+        "steps.playwright-cache.outputs.cache-hit != 'true'"
+    )
+    offline, cold = install["run"].split("\nelse\n", 1)
+    assert install["env"]["CACHE_HIT"] == "${{ steps.playwright-cache.outputs.cache-hit }}"
+    assert 'dpkg --skip-same-version --install "${packages[@]}"' in offline
+    assert "playwright install" not in offline
+    assert "playwright install --with-deps chromium" in cold
+    assert cold.index("\nfi\n") < cold.index(".chromium.launch()")
+
+
 def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
     parity = jobs["remotion-image-parity"]
