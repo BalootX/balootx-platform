@@ -8,9 +8,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from tzdata import IANA_VERSION
 
+from .models import BundleRevision, ProfileRevision
+
 
 class ConfigurationIntegrityError(Exception):
-    """A saved configuration schedule cannot be verified."""
+    """Configuration has no verified revision for use at runtime."""
 
     def __init__(self, revision_id: str, detail: str):
         self.revision_id = revision_id
@@ -146,3 +148,12 @@ def verify_schedule(
             f"the saved schedule cannot be verified with IANA {IANA_VERSION}. "
             f"Create a replacement revision with a verified schedule. {exc}",
         ) from exc
+
+
+def verify_revision_schedule(revision: BundleRevision | ProfileRevision) -> None:
+    verify_schedule(
+        revision.revision_id,
+        revision.effective_from,
+        revision.effective_until,
+        revision.local_schedule,
+    )

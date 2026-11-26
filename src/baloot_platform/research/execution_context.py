@@ -958,6 +958,7 @@ class ResearchExecutionContextFactoryV1:
         resolved = self.configuration_service.resolve(
             revision_id=str(bundle_revision_id), allow_draft=False,
             allow_retired=not require_published,
+            allow_scheduled_predecessor=require_published,
         )
         if str(resolved["bundle"]["revisionId"]) != str(bundle_revision_id):
             raise KeyError("exact Research configuration bundle revision not found")

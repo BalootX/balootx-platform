@@ -25,6 +25,16 @@ Nonexistent and ambiguous local times are rejected with the field name. For a
 repeated hour, choose an unambiguous wall time or specify the intended instant
 with its explicit offset.
 
+A bounded bundle publication records the revision it replaces in the same
+scope. Before the window opens and after it expires, resolution checks the
+recorded predecessors in order and uses the first one whose window includes the
+requested instant. An immediate, unscheduled publication ends that handoff.
+The selected revision remains subject to its rollout policy. The registry
+preserves revision history, while effective resolution reports the
+selected predecessor as published for the time it remains in use. Processes
+load a verified runtime bundle at startup. Restart them at a scheduled boundary
+to load the newly effective bundle.
+
 New revisions retain the wall times and zone in `localSchedule` and continue
 returning UTC instants in `effectiveFrom` and `effectiveUntil`. Identical
 content and schedules reuse the existing revision. A different schedule for
@@ -42,9 +52,10 @@ see the failed revision or research environment in the REST diagnosis. Other
 callers receive a safe message and a request ID. Startup logs record the
 revision ID and environment as structured fields.
 
-If the runtime bundle fails verification at startup, HTTP serves liveness,
-readiness, metrics and the authenticated configuration-admin recovery routes.
-Readiness returns HTTP 503 for runtime and research schedule failures. The
+If no runtime bundle is effective or its verification fails at startup, HTTP
+serves liveness, readiness, metrics and the authenticated configuration-admin
+recovery routes.
+Readiness returns HTTP 503 when configuration is unavailable. The
 `baloot_research_configuration_unavailable` gauge counts affected research
 environments. A research-only failure leaves the verified runtime's HTTP
 routes available. The gRPC service exits before binding a port and the video
@@ -53,18 +64,22 @@ worker exits before claiming a job when either startup check fails.
 To recover, authenticate as a configuration administrator and inspect
 `/readyz` and the configuration registry's profile and bundle lists. Use
 the v1 registry or v2 configuration create routes with `publish: true` to
-publish a replacement bundle with verified component revisions. To restore
-known-good content, use the v1 registry's `POST /bundles/{revisionId}:rollback`
+publish a currently effective replacement bundle with verified component
+revisions. A refused publication leaves the active revision and audit history
+intact. To restore known-good content, use the v1 registry's
+`POST /bundles/{revisionId}:rollback`
 with a new version. It publishes a fresh, unscheduled revision.
 Restart affected processes after publishing and verify readiness.
 
-Apply PostgreSQL migration 033 with the current migration runner before
-starting new service code. It follows the two identity index migrations. The
+Apply PostgreSQL migrations 033 and 034 with the current migration runner before
+starting new service code. They follow the two identity index migrations. The
 runner needs permission to create its receipt schema and records checksums so
 later runs can verify previously recorded migrations. SQLite adds the nullable
 column on open and converts historical empty bounds to NULL. Historical bounds
 retain their effective instants and carry no local schedule. SQLite reads legacy
-text without a UTC offset as UTC.
+text without a UTC offset as UTC and an empty bound as absent. Older timed
+publications without a recorded predecessor enter the recovery flow when their
+window has no effective bundle.
 
 The schema retains content-only uniqueness. The PostgreSQL CI job writes
 schedules with the new code, runs the previous revision's migration runner,

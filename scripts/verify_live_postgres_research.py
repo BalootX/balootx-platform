@@ -83,6 +83,9 @@ REQUIRED_MIGRATION_HASHES = {
     "033_configuration_local_schedule.sql": (
         "314fde4a8203348f10791f2494933b7cba7b0b57e36f0914c57d7a0177b3acf6"
     ),
+    "034_configuration_schedule_handoff.sql": (
+        "f7255a3ef28fc777339ab34e1a260dcd76a5c5e87998d1cbf950513c9f16cf74"
+    ),
 }
 CONFIGURATION_V25_CONSTRAINTS = frozenset(
     {
@@ -118,7 +121,7 @@ CONFIGURATION_SCHEDULE_TRIGGERS = frozenset(
         "O",
     )
     for kind in ("bundle", "profile")
-)
+) | {("bundle_revisions", "trg_configuration_scheduled_predecessor_immutable", "guard_scheduled_predecessor", "O")}
 CONFIGURATION_V25_POLICIES = frozenset(
     {
         ("bundle_revisions", "configuration_bundle_context_read_v25", "SELECT"),

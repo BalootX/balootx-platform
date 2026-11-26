@@ -10,7 +10,7 @@ from typing import Any, Iterable, Mapping, TypeVar
 from baloot_platform.storage.request_context import contextual_connection
 
 from .models import BundleRevision, ProfileRevision, canonical, digest, utc_now
-from .schedule import ConfigurationScheduleConflict, normalize_schedule
+from .schedule import ConfigurationScheduleConflict, normalize_schedule, verify_revision_schedule
 
 
 _UNSET = object()
@@ -27,7 +27,7 @@ _POSTGRES_BUNDLE_COLUMNS = """
 revision_id,bundle_id,version,mode,scope,scope_key,tenant_id,environment,
 status,components,content_sha256,sequence,effective_from,effective_until,
 local_schedule,rollout_percentage,rollout_seed,created_by,created_at,updated_at,published_by,
-published_at,supersedes_revision_id,etag
+published_at,supersedes_revision_id,etag,scheduled_predecessor_id
 """.replace("\n", "")
 
 _POSTGRES_EVENT_COLUMNS = (
@@ -70,7 +70,7 @@ def _timestamp_text(value: Any) -> str:
 
 
 def _optional_timestamp_text(value: Any) -> str | None:
-    return None if value is None else _timestamp_text(value)
+    return _timestamp_text(value) if value else None
 
 
 def _same_schedule(
@@ -355,6 +355,15 @@ class SQLiteConfigurationStore:
                     "FOR EACH ROW WHEN NEW.local_schedule IS NOT OLD.local_schedule "
                     "BEGIN SELECT RAISE(ABORT, 'local_schedule is immutable'); END"
                 )
+                if kind == "bundle" and "scheduled_predecessor_id" not in columns:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN scheduled_predecessor_id TEXT")
+            conn.execute(
+                "CREATE TRIGGER IF NOT EXISTS trg_configuration_scheduled_predecessor_immutable "
+                "BEFORE UPDATE OF scheduled_predecessor_id ON configuration_bundle_revisions "
+                "FOR EACH ROW WHEN OLD.status <> 'draft' "
+                "AND NEW.scheduled_predecessor_id IS NOT OLD.scheduled_predecessor_id "
+                "BEGIN SELECT RAISE(ABORT, 'scheduled_predecessor_id is immutable after publication'); END"
+            )
             conn.execute("COMMIT")
 
     @staticmethod
@@ -391,6 +400,7 @@ class SQLiteConfigurationStore:
             updated_at=_timestamp_text(value["updated_at"]), published_by=value["published_by"], published_at=_optional_timestamp_text(value["published_at"]),
             supersedes_revision_id=value["supersedes_revision_id"], etag=int(value["etag"]),
             local_schedule=_loads(value["local_schedule"], None),
+            scheduled_predecessor_id=value["scheduled_predecessor_id"],
         )
 
     @staticmethod
@@ -689,7 +699,7 @@ class SQLiteConfigurationStore:
         component_revisions: Mapping[str, str],
         *,
         allowed_statuses: tuple[str, ...],
-    ) -> None:
+    ) -> list[ProfileRevision]:
         revision_ids = sorted(set(component_revisions.values()))
         if not revision_ids:
             raise ValueError("configuration bundle requires component revisions")
@@ -701,8 +711,9 @@ class SQLiteConfigurationStore:
         ).fetchall()
         profiles = [item for row in rows if (item := cls._profile(row)) is not None]
         _validate_component_revisions(
-            component_revisions, profiles, allowed_statuses=allowed_statuses
+            component_revisions, profiles, allowed_statuses=allowed_statuses,
         )
+        return profiles
 
     def create_profile(self, *, family: str, profile_id: str, version: str, scope: str,
                        tenant_id: str | None, payload: dict[str, Any], status: str,
@@ -1086,7 +1097,7 @@ class SQLiteConfigurationStore:
         content_hash = digest({"mode": mode, "components": component_revisions})
         with self._lock, self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            self._lock_bundle_components_tx(
+            profiles = self._lock_bundle_components_tx(
                 conn,
                 component_revisions,
                 allowed_statuses=tuple(sorted(set(allowed_component_statuses))),
@@ -1103,6 +1114,9 @@ class SQLiteConfigurationStore:
                 if result is not None:
                     conn.execute("COMMIT")
                     return result
+            if status == "published":
+                for profile in profiles:
+                    verify_revision_schedule(profile)
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) FROM configuration_bundle_revisions "
                 "WHERE bundle_id=? AND scope=? AND scope_key=? "
@@ -1123,8 +1137,9 @@ class SQLiteConfigurationStore:
                         "sequence": sequence}
             revision_id = f"CBR-{digest(identity)[:24].upper()}"
             now = utc_now()
+            superseded = []
             if status == "published":
-                self._supersede_published_bundles_tx(
+                superseded = self._supersede_published_bundles_tx(
                     conn,
                     bundle_id=bundle_id,
                     scope=scope,
@@ -1138,13 +1153,13 @@ class SQLiteConfigurationStore:
                 """INSERT INTO configuration_bundle_revisions(
                    revision_id,bundle_id,version,mode,scope,scope_key,tenant_id,environment,status,
                    components_json,content_sha256,sequence,effective_from,effective_until,local_schedule,rollout_percentage,rollout_seed,
-                   created_by,created_at,updated_at,published_by,published_at,supersedes_revision_id,etag)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)""",
+                   created_by,created_at,updated_at,published_by,published_at,supersedes_revision_id,scheduled_predecessor_id,etag)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)""",
                 (revision_id, bundle_id, version, mode, scope, scope_key, tenant_id, environment, status,
                  canonical(component_revisions), content_hash, sequence, start, end, canonical(local) if local is not None else None,
                  float(rollout_percentage), rollout_seed, created_by, now, now,
                  created_by if status == "published" else None, now if status == "published" else None,
-                 supersedes_revision_id),
+                 supersedes_revision_id, superseded[0] if superseded and (start or end) else None),
             )
             row = conn.execute("SELECT * FROM configuration_bundle_revisions WHERE revision_id=?", (revision_id,)).fetchone()
             result = self._bundle(row)
@@ -1225,13 +1240,17 @@ class SQLiteConfigurationStore:
             if row["status"] != "draft":
                 conn.execute("ROLLBACK")
                 raise ValueError("only draft revisions can be published")
-            component_revisions = _loads(row["components_json"], {})
-            self._lock_bundle_components_tx(
+            current = self._bundle(row)
+            assert current is not None
+            verify_revision_schedule(current)
+            profiles = self._lock_bundle_components_tx(
                 conn,
-                component_revisions,
+                current.component_revisions,
                 allowed_statuses=("published",),
             )
-            self._supersede_published_bundles_tx(
+            for profile in profiles:
+                verify_revision_schedule(profile)
+            superseded = self._supersede_published_bundles_tx(
                 conn,
                 bundle_id=row["bundle_id"],
                 scope=row["scope"],
@@ -1244,9 +1263,11 @@ class SQLiteConfigurationStore:
             cursor = conn.execute(
                 "UPDATE configuration_bundle_revisions "
                 "SET status='published',updated_at=?,etag=etag+1,"
-                "published_by=?,published_at=? "
+                "published_by=?,published_at=?,scheduled_predecessor_id=? "
                 "WHERE revision_id=? AND etag=? AND status='draft'",
-                (now, actor_id, now, revision_id, expected_etag),
+                (now, actor_id, now,
+                 superseded[0] if superseded and (current.effective_from or current.effective_until) else None,
+                 revision_id, expected_etag),
             )
             if cursor.rowcount != 1:
                 conn.execute("ROLLBACK")
@@ -1399,6 +1420,7 @@ class PostgresConfigurationStore:
             published_by=d.get("published_by"), published_at=_optional_timestamp_text(d.get("published_at")),
             supersedes_revision_id=d.get("supersedes_revision_id"), etag=int(d["etag"]),
             local_schedule=_loads(d.get("local_schedule"), None),
+            scheduled_predecessor_id=d.get("scheduled_predecessor_id"),
         )
 
     @staticmethod
@@ -1732,7 +1754,7 @@ class PostgresConfigurationStore:
         component_revisions: Mapping[str, str],
         *,
         allowed_statuses: tuple[str, ...],
-    ) -> None:
+    ) -> list[ProfileRevision]:
         revision_ids = sorted(set(component_revisions.values()))
         if not revision_ids:
             raise ValueError("configuration bundle requires component revisions")
@@ -1744,8 +1766,9 @@ class PostgresConfigurationStore:
         ).fetchall()
         profiles = [item for row in rows if (item := cls._profile(row)) is not None]
         _validate_component_revisions(
-            component_revisions, profiles, allowed_statuses=allowed_statuses
+            component_revisions, profiles, allowed_statuses=allowed_statuses,
         )
+        return profiles
 
     def create_profile(self, **kwargs: Any) -> ProfileRevision:
         schedule = normalize_schedule(kwargs.get("effective_from"), kwargs.get("effective_until"), kwargs.get("local_schedule"))
@@ -2229,7 +2252,7 @@ class PostgresConfigurationStore:
             (bundle_id, scope, scope_key, tenant_id, environment, content_hash)
         )
         with contextual_connection(self.pool) as conn:
-            self._lock_bundle_components_tx(
+            profiles = self._lock_bundle_components_tx(
                 conn,
                 kwargs["component_revisions"],
                 allowed_statuses=tuple(
@@ -2252,6 +2275,9 @@ class PostgresConfigurationStore:
                 )
                 if result is not None:
                     return result
+            if kwargs["status"] == "published":
+                for profile in profiles:
+                    verify_revision_schedule(profile)
             self._lock_head(conn, "bundle", logical_identity)
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) AS max_sequence "
@@ -2281,8 +2307,9 @@ class PostgresConfigurationStore:
             }
             revision_id = f"CBR-{digest(identity)[:24].upper()}"
             now = utc_now()
+            superseded = []
             if kwargs["status"] == "published":
-                self._supersede_published_bundles_tx(
+                superseded = self._supersede_published_bundles_tx(
                     conn,
                     bundle_id=bundle_id,
                     scope=scope,
@@ -2297,10 +2324,10 @@ class PostgresConfigurationStore:
                 "(revision_id,bundle_id,version,mode,scope,scope_key,tenant_id,"
                 "environment,status,components,content_sha256,sequence,effective_from,"
                 "effective_until,local_schedule,rollout_percentage,rollout_seed,created_by,created_at,"
-                "updated_at,published_by,published_at,supersedes_revision_id,etag) "
+                "updated_at,published_by,published_at,supersedes_revision_id,scheduled_predecessor_id,etag) "
                 "VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,"
                 "%s::timestamptz,%s::timestamptz,%s::jsonb,%s,%s,%s,%s::timestamptz,"
-                "%s::timestamptz,%s,%s::timestamptz,%s,1) "
+                "%s::timestamptz,%s,%s::timestamptz,%s,%s,1) "
                 f"RETURNING {_POSTGRES_BUNDLE_COLUMNS}",
                 (
                     revision_id,
@@ -2326,6 +2353,7 @@ class PostgresConfigurationStore:
                     kwargs["created_by"] if kwargs["status"] == "published" else None,
                     now if kwargs["status"] == "published" else None,
                     kwargs.get("supersedes_revision_id"),
+                    superseded[0] if superseded and (start or end) else None,
                 ),
             ).fetchone()
             result = self._bundle(row)
@@ -2448,11 +2476,14 @@ class PostgresConfigurationStore:
                 raise RuntimeError("configuration revision etag conflict")
             if current.status != "draft":
                 raise ValueError("only draft revisions can be published")
-            self._lock_bundle_components_tx(
+            verify_revision_schedule(current)
+            profiles = self._lock_bundle_components_tx(
                 conn,
                 current.component_revisions,
                 allowed_statuses=("published",),
             )
+            for profile in profiles:
+                verify_revision_schedule(profile)
             logical_identity = _aggregate_identity(
                 (
                     current.bundle_id,
@@ -2463,7 +2494,7 @@ class PostgresConfigurationStore:
                 )
             )
             self._lock_head(conn, "bundle", logical_identity)
-            self._supersede_published_bundles_tx(
+            superseded = self._supersede_published_bundles_tx(
                 conn,
                 bundle_id=current.bundle_id,
                 scope=current.scope,
@@ -2477,10 +2508,12 @@ class PostgresConfigurationStore:
             updated = conn.execute(
                 "UPDATE configuration.bundle_revisions "
                 "SET status='published',updated_at=%s::timestamptz,etag=etag+1,"
-                "published_by=%s,published_at=%s::timestamptz "
+                "published_by=%s,published_at=%s::timestamptz,scheduled_predecessor_id=%s "
                 "WHERE revision_id=%s AND etag=%s AND status='draft' "
                 f"RETURNING {_POSTGRES_BUNDLE_COLUMNS}",
-                (now, actor_id, now, revision_id, expected_etag),
+                (now, actor_id, now,
+                 superseded[0] if superseded and (current.effective_from or current.effective_until) else None,
+                 revision_id, expected_etag),
             ).fetchone()
             result = self._bundle(updated)
             if result is None:

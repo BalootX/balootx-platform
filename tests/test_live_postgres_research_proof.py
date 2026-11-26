@@ -867,10 +867,11 @@ def test_current_migration_stage_freezes_complete_inventory_and_required_tail(
         if item["name"] in proof.REQUIRED_MIGRATION_HASHES
     } == proof.REQUIRED_MIGRATION_HASHES
     assert names.index("029_shared_run_game_access.sql") < names.index("031_identity_list_pagination.sql")
-    assert names[-3:] == [
+    assert names[-4:] == [
         "031_identity_list_pagination.sql",
         "032_identity_pending_requests_index.sql",
         "033_configuration_local_schedule.sql",
+        "034_configuration_schedule_handoff.sql",
     ]
     assert (
         proof.REQUIRED_MIGRATION_HASHES["029_shared_run_game_access.sql"]
@@ -974,7 +975,7 @@ def test_current_migration_policy_contract_is_final_and_deterministic(
     assert first == second
     assert (
         first["sha256"]
-        == "55aeba613b919752173665d31599e517bc74a3b62489a62c858267aa22247e3b"
+        == "2aef297746610cc95a6a27dc0ba7920e1f36295ced34353f5c157efa020004a8"
     )
     assert policies.isdisjoint(legacy_configuration_policies)
     assert configuration_v25_policies.issubset(policies)
@@ -1970,7 +1971,7 @@ def test_configuration_v25_schema_probe_is_exact_and_fail_closed(
         ),
         "rolloutPercentageNumeric": True,
         "validatedConstraintCount": 6,
-        "immutabilityTriggerCount": 4,
+        "immutabilityTriggerCount": 5,
         "policyCount": 6,
         "forcedRlsRelationCount": 3,
         "invalidationEpochPresent": True,

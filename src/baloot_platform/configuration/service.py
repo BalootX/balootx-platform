@@ -9,7 +9,7 @@ import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from baloot_platform.config import (
     PROFILE_FAMILIES,
@@ -19,13 +19,15 @@ from baloot_platform.config import (
 )
 
 from .models import (
+    BundleRevision,
     ConfigScope,
     EffectiveRuntimeConfigV2,
+    ProfileRevision,
     ResolutionContext,
     RevisionStatus,
     digest,
 )
-from .schedule import parse_instant, verify_schedule
+from .schedule import ConfigurationIntegrityError, parse_instant, verify_revision_schedule
 
 _SEMVER = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
@@ -41,6 +43,14 @@ _PRECEDENCE_KEYS = {
     "global_published",
     "file_bundle_fallback",
 }
+
+
+class _NoEffectiveBundle(KeyError):
+    """The registry has no eligible publication for this context."""
+
+    def __init__(self, revision_id: str | None):
+        super().__init__("published configuration bundle not found")
+        self.revision_id = revision_id
 
 
 class VersionedConfigurationService:
@@ -408,24 +418,13 @@ class VersionedConfigurationService:
         return result.to_dict()
 
     @staticmethod
-    def _verify_schedule(revision: Any) -> None:
-        verify_schedule(
-            revision.revision_id,
-            revision.effective_from,
-            revision.effective_until,
-            revision.local_schedule,
-        )
-
-    @staticmethod
-    def _eligible(revision: Any, context: ResolutionContext) -> bool:
-        VersionedConfigurationService._verify_schedule(revision)
-        now = parse_instant(context.at_time, "atTime") or datetime.now(timezone.utc)
+    def _inside_window(revision: BundleRevision | ProfileRevision, at_time: datetime) -> bool:
         start = parse_instant(revision.effective_from, f"{revision.revision_id}.effectiveFrom")
         end = parse_instant(revision.effective_until, f"{revision.revision_id}.effectiveUntil")
-        if start and now < start:
-            return False
-        if end and now >= end:
-            return False
+        return (start is None or start <= at_time) and (end is None or at_time < end)
+
+    @staticmethod
+    def _in_rollout(revision: BundleRevision | ProfileRevision, context: ResolutionContext) -> bool:
         percentage = float(revision.rollout_percentage)
         if percentage >= 100:
             return True
@@ -438,6 +437,44 @@ class VersionedConfigurationService:
             int.from_bytes(hashlib.sha256(raw).digest()[:8], "big") % 10_000 / 100.0
         )
         return bucket < percentage
+
+    def _scheduled_bundle_history(self, head: BundleRevision) -> Iterator[BundleRevision]:
+        dimensions = (head.bundle_id, head.scope, head.scope_key, head.tenant_id, head.environment)
+        seen = {head.revision_id}
+        yield head
+        predecessor_id = head.scheduled_predecessor_id
+        while predecessor_id is not None:
+            predecessor = self.store.get_bundle(predecessor_id)
+            if (
+                predecessor_id in seen
+                or predecessor is None
+                or predecessor.status != RevisionStatus.SUPERSEDED.value
+                or (predecessor.bundle_id, predecessor.scope, predecessor.scope_key,
+                    predecessor.tenant_id, predecessor.environment) != dimensions
+            ):
+                raise ConfigurationIntegrityError(
+                    head.revision_id,
+                    "The scheduled predecessor could not be verified. Publish a current replacement or roll back.",
+                )
+            seen.add(predecessor_id)
+            yield predecessor
+            predecessor_id = predecessor.scheduled_predecessor_id
+
+    def _effective_scheduled_bundle(
+        self, head: BundleRevision, context: ResolutionContext, now: datetime,
+        trace: list[dict[str, Any]],
+    ) -> BundleRevision | None:
+        for revision in self._scheduled_bundle_history(head):
+            verify_revision_schedule(revision)
+            in_window = self._inside_window(revision, now)
+            eligible = in_window and self._in_rollout(revision, context)
+            trace.append({
+                "scope": revision.scope, "scopeKey": revision.scope_key,
+                "revisionId": revision.revision_id, "eligible": eligible,
+            })
+            if in_window:
+                return revision if eligible else None
+        return None
 
     def _scope_candidates(
         self, context: ResolutionContext
@@ -555,7 +592,7 @@ class VersionedConfigurationService:
                 raise PermissionError(
                     "runtime resolution requires a published revision"
                 )
-            self._verify_schedule(revision)
+            verify_revision_schedule(revision)
             result = revision.to_dict()
             result["resolutionTrace"] = [
                 {"scope": "exact_revision", "revisionId": revision_id}
@@ -563,6 +600,7 @@ class VersionedConfigurationService:
             self._cache_put(key, result)
             return result
         trace = []
+        now = parse_instant(context.at_time, "atTime") or datetime.now(timezone.utc)
         for (
             scope,
             scope_key,
@@ -581,7 +619,8 @@ class VersionedConfigurationService:
                 exact_dimensions=True,
             )
             for revision in rows:
-                eligible = self._eligible(revision, context)
+                verify_revision_schedule(revision)
+                eligible = self._inside_window(revision, now) and self._in_rollout(revision, context)
                 trace.append(
                     {
                         "scope": scope,
@@ -895,6 +934,7 @@ class VersionedConfigurationService:
         at_time: str | None = None,
         allow_draft: bool = False,
         allow_retired: bool = False,
+        allow_scheduled_predecessor: bool = False,
     ) -> dict[str, Any]:
         if allow_retired and revision_id is None:
             raise ValueError("retired configuration requires an exact bundle revision")
@@ -915,10 +955,12 @@ class VersionedConfigurationService:
             bundle_id or "",
             bool(allow_draft),
             bool(allow_retired),
+            bool(allow_scheduled_predecessor),
             epoch,
             *context.cache_key(),
         )
-        if not allow_draft:
+        cacheable = not allow_draft
+        if cacheable:
             cached = self._cache_get(key)
             if cached is not None:
                 return cached
@@ -932,7 +974,9 @@ class VersionedConfigurationService:
         ):
             raise KeyError(revision_id or bundle_id)
         trace = []
+        selected_predecessor = False
         if bundle is None:
+            now = parse_instant(context.at_time, "atTime") or datetime.now(timezone.utc)
             for (
                 scope,
                 scope_key,
@@ -949,23 +993,32 @@ class VersionedConfigurationService:
                     limit=100,
                     exact_dimensions=True,
                 )
-                for item in rows:
-                    eligible = self._eligible(item, context)
-                    trace.append(
-                        {
-                            "scope": scope,
-                            "scopeKey": scope_key,
-                            "revisionId": item.revision_id,
-                            "eligible": eligible,
-                        }
-                    )
-                    if eligible:
-                        bundle = item
+                for head in rows:
+                    # Clock changes do not bump the registry epoch.
+                    if context.at_time is None and (head.effective_from or head.effective_until):
+                        cacheable = False
+                    bundle = self._effective_scheduled_bundle(head, context, now, trace)
+                    if bundle is not None:
+                        selected_predecessor = bundle.revision_id != head.revision_id
                         break
                 if bundle is not None:
                     break
         if bundle is None:
-            raise KeyError("published configuration bundle not found")
+            raise _NoEffectiveBundle(trace[0]["revisionId"] if trace else None)
+        if (
+            allow_scheduled_predecessor and revision_id
+            and bundle.status == RevisionStatus.SUPERSEDED.value
+        ):
+            cacheable = False
+            heads = self.store.list_bundles(
+                bundle_id=bundle.bundle_id, scope=bundle.scope, scope_key=bundle.scope_key,
+                tenant_id=bundle.tenant_id, environment=bundle.environment,
+                status=RevisionStatus.PUBLISHED.value, limit=1, exact_dimensions=True,
+            )
+            if heads and heads[0].scheduled_predecessor_id is not None:
+                now = parse_instant(context.at_time, "atTime") or datetime.now(timezone.utc)
+                selected = self._effective_scheduled_bundle(heads[0], context, now, trace)
+                selected_predecessor = selected is not None and selected.revision_id == revision_id
         exact_historical = (
             revision_id is not None and (
                 bundle.status == RevisionStatus.SUPERSEDED.value
@@ -975,13 +1028,14 @@ class VersionedConfigurationService:
         if (
             bundle.status != RevisionStatus.PUBLISHED.value
             and not exact_historical
+            and not selected_predecessor
             and not allow_draft
         ):
             raise PermissionError(
                 "unpublished configuration bundle requires explicit preview access"
             )
         if revision_id is not None:
-            self._verify_schedule(bundle)
+            verify_revision_schedule(bundle)
         profiles = {}
         identities = {}
         for family, rid in bundle.component_revisions.items():
@@ -990,7 +1044,7 @@ class VersionedConfigurationService:
                 raise RuntimeError(
                     f"configuration bundle references missing revision {rid}"
                 )
-            self._verify_schedule(revision)
+            verify_revision_schedule(revision)
             if (
                 revision.status
                 not in {
@@ -1006,6 +1060,8 @@ class VersionedConfigurationService:
             profiles[family] = copy.deepcopy(dict(revision.payload))
             identities[family] = revision.to_dict(include_payload=False)
         bundle_document = bundle.to_dict()
+        if selected_predecessor:
+            bundle_document["status"] = RevisionStatus.PUBLISHED.value
         effective_hash = digest(
             {
                 "bundleAuthority": {
@@ -1034,7 +1090,7 @@ class VersionedConfigurationService:
             }
         )
         result = {
-            "bundle": bundle.to_dict(),
+            "bundle": bundle_document,
             "profiles": profiles,
             "profileRevisions": identities,
             "effectiveHash": effective_hash,
@@ -1043,7 +1099,7 @@ class VersionedConfigurationService:
             or [{"scope": "exact_revision", "revisionId": bundle.revision_id}],
             "invalidationEpoch": epoch,
         }
-        if not allow_draft:
+        if cacheable:
             self._cache_put(key, result)
         return result
 
@@ -1172,8 +1228,11 @@ class VersionedConfigurationService:
                     expected_etag=existing_bundle.etag,
                     actor_id=actor_id,
                 )
-            if existing_bundle.status == RevisionStatus.PUBLISHED.value:
-                rid = existing_bundle.revision_id
-            else:
-                return self.resolve(bundle_id=bundle_id, tenant_id=tenant_id, environment=environment)
-        return self.resolve(revision_id=rid)
+            rid = existing_bundle.revision_id
+        try:
+            return self.resolve(bundle_id=bundle_id, tenant_id=tenant_id, environment=environment)
+        except _NoEffectiveBundle as exc:
+            raise ConfigurationIntegrityError(
+                exc.revision_id or rid,
+                "No configuration bundle is effective. Publish a current replacement or roll back.",
+            ) from exc

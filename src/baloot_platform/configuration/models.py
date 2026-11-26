@@ -144,6 +144,7 @@ class BundleRevision:
     supersedes_revision_id: str | None = None
     etag: int = 1
     local_schedule: Mapping[str, str] | None = None
+    scheduled_predecessor_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result = {

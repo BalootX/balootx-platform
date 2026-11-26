@@ -15,7 +15,8 @@ from scripts import migrate_postgres
 
 MIGRATION_NAME = "025_configuration_store_contract.sql"
 SHARED_RUN_MIGRATION_NAME = "029_shared_run_game_access.sql"
-LATEST_MIGRATION_NAME = "033_configuration_local_schedule.sql"
+SCHEDULE_MIGRATION_NAME = "033_configuration_local_schedule.sql"
+LATEST_MIGRATION_NAME = "034_configuration_schedule_handoff.sql"
 FROZEN_PREDECESSOR_HASHES = {
     "011_configuration_registry_v19.sql": (
         "1e79c94b6244244afe0a2fd1f9ef421dcfadca6c32a48bd4c7f4b8fee97b9931"
@@ -94,7 +95,7 @@ def test_shared_run_access_migration_matches_store_bootstrap(
 
 
 def test_local_schedule_migration_preserves_rows_and_content_uniqueness(root: Path) -> None:
-    sql = (root / "migrations" / LATEST_MIGRATION_NAME).read_text(encoding="utf-8")
+    sql = (root / "migrations" / SCHEDULE_MIGRATION_NAME).read_text(encoding="utf-8")
     normalized = _normalized(sql)
     assert normalized.startswith("BEGIN;")
     assert normalized.endswith("COMMIT;")
@@ -122,12 +123,13 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
     root: Path, monkeypatch, capsys,
 ) -> None:
     expected_paths = sorted((root / "migrations").glob("*.sql"))
-    expected_sql = []
+    sql_by_name = {}
     for path in expected_paths:
         sql = path.read_bytes().decode("utf-8").strip()
         if sql.startswith("BEGIN;") and sql.endswith("COMMIT;"):
             sql = sql[len("BEGIN;"):-len("COMMIT;")]
-        expected_sql.append(sql)
+        sql_by_name[path.name] = sql
+    expected_sql = list(sql_by_name.values())
     receipts: dict[str, str] = {}
     executed: list[str] = []
     indexes: dict[str, bool] = {}
@@ -212,9 +214,7 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
     migrate_postgres.main()
     assert executed == expected_sql + [
         f"DROP INDEX CONCURRENTLY {index}",
-        next(sql for sql in expected_sql if sql.startswith(
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_identity_pending_requests "
-        )),
+        sql_by_name["032_identity_pending_requests_index.sql"],
     ]
     assert indexes[index] is True
     assert "repaired 032_identity_pending_requests_index.sql" in capsys.readouterr().out.splitlines()

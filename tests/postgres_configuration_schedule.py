@@ -1,9 +1,11 @@
 """Configuration integration tests for the disposable PostgreSQL CI service."""
+import copy
 import hashlib
 import os
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import psycopg
@@ -17,9 +19,11 @@ from baloot_platform.configuration import (
     PostgresConfigurationStore,
     SQLiteConfigurationStore,
     VersionedConfigurationService,
+    schedule as configuration_schedule,
+    service as configuration_service,
     store as configuration_store,
 )
-from baloot_platform.configuration.schedule import ConfigurationScheduleConflict
+from baloot_platform.configuration.schedule import ConfigurationIntegrityError, ConfigurationScheduleConflict
 from baloot_platform.identity import IdentityService, SQLiteIdentityStore
 from baloot_platform.security import AuthorizationPolicy
 from baloot_platform.service.routes.configuration import (
@@ -156,7 +160,7 @@ def test_configuration_schedule_migrates_populated_postgres_and_round_trips(
     schema_contract = _migration_schema_contract(root)
     assert _assert_schema_contract(migrator_dsn, schema_contract)["tableCount"] == len(schema_contract["tables"])
     schema_proof = _prove_configuration_v25_schema(migrator_dsn)
-    assert schema_proof["immutabilityTriggerCount"] == 4
+    assert schema_proof["immutabilityTriggerCount"] == 5
     store = PostgresConfigurationStore(app_dsn)
     try:
         with store.pool.connection() as connection:
@@ -263,6 +267,186 @@ def test_rollback_publishes_new_revision_without_target_schedule(
         for field in ("effectiveFrom", "effectiveUntil", "localSchedule"):
             assert previous.get(field) == target.get(field)
         assert store.events("bundle", restored["revisionId"])[-1]["eventType"] == "rollback_created"
+    finally:
+        CURRENT_DATABASE_IDENTITY.reset(token)
+        store.close()
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "postgres"])
+@pytest.mark.parametrize("operation", ["create", "publish", "rollback"])
+def test_bundle_publication_refuses_invalid_component_without_changes(
+    root: Path, tmp_path: Path, migrated_postgres: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch, backend: str, operation: str,
+) -> None:
+    store = (
+        PostgresConfigurationStore(migrated_postgres[1]) if backend == "postgres"
+        else SQLiteConfigurationStore(tmp_path / "publication.sqlite3")
+    )
+    token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id="TEST", role="service"))
+    try:
+        service = VersionedConfigurationService(store, root=root, profile=build_bundle(root).component("configuration"))
+        baseline = service.bootstrap_packaged_bundle(actor_id="TEST")
+        components = baseline["bundle"]["componentRevisions"]
+        payload = copy.deepcopy(baseline["profiles"]["performance"])
+        payload["profile"].update({"id": f"schedule-review-{operation}", "version": "99.7.1"})
+        suspect = service.create_profile(
+            family="performance", payload=payload, created_by="TEST", publish=True,
+            local_schedule={"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00"},
+        )
+        bundle_id = f"schedule-review-{operation}"
+        defaults = {"bundle_id": bundle_id, "mode": "full", "created_by": "TEST"}
+        invalid_components = {**components, "performance": suspect["revisionId"]}
+        if operation != "create":
+            target = service.create_bundle(
+                **defaults, component_revisions=invalid_components, version="1.0.0",
+                publish=operation == "rollback",
+            )
+        working = service.create_bundle(
+            **defaults, component_revisions=components, version="1.0.1", publish=True,
+        )
+
+        def snapshot():
+            rows = store.list_bundles(bundle_id=bundle_id)
+            return rows, {row.revision_id: store.events("bundle", row.revision_id) for row in rows}
+
+        before = snapshot()
+        zone = configuration_schedule._zone
+        monkeypatch.setattr(
+            configuration_schedule, "_zone", lambda name: zone("UTC" if name == "America/New_York" else name),
+        )
+        with pytest.raises(ConfigurationIntegrityError, match="maps to a different UTC instant"):
+            if operation == "create":
+                service.create_bundle(
+                    **defaults, component_revisions=invalid_components, version="1.0.2", publish=True,
+                )
+            elif operation == "publish":
+                store.publish_bundle(target["revisionId"], expected_etag=target["etag"], actor_id="TEST")
+            else:
+                service.rollback_bundle(target["revisionId"], new_version="1.0.2", actor_id="TEST")
+        assert snapshot() == before
+        assert service.resolve(bundle_id=bundle_id)["bundle"]["revisionId"] == working["revisionId"]
+    finally:
+        CURRENT_DATABASE_IDENTITY.reset(token)
+        store.close()
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "postgres"])
+def test_runtime_boot_and_recovery_across_scheduled_handoff(
+    root: Path, tmp_path: Path, migrated_postgres: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch, backend: str,
+) -> None:
+    store = (
+        PostgresConfigurationStore(migrated_postgres[1]) if backend == "postgres"
+        else SQLiteConfigurationStore(tmp_path / "configuration.sqlite3")
+    )
+    token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id="TEST", role="service"))
+    instant = "2026-07-01T15:59:59+00:00"
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromisoformat(instant).astimezone(tz)
+
+    def probe(expected: str, *, recovery_target: str = "") -> None:
+        subprocess.run(
+            [sys.executable, "-c", """
+import sys
+from datetime import datetime
+
+from baloot_platform.configuration import service
+
+instant, expected, recovery_target = sys.argv[1:]
+
+class Clock(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return datetime.fromisoformat(instant).astimezone(tz)
+
+service.datetime = Clock
+from fastapi.testclient import TestClient
+from baloot_platform.service.api import CONFIGURATION, FOUNDRY_PROFILE, RESEARCH, app
+from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
+
+admin = {'x-api-key': 'test', 'x-baloot-role': 'admin'}
+with TestClient(app) as client:
+    assert client.get('/healthz').status_code == 200
+    ready = client.get('/readyz')
+    if not recovery_target:
+        assert ready.status_code == 200, ready.text
+        assert FOUNDRY_PROFILE['runtimeBundleRevisionId'] == expected
+        assert client.get('/api/v1/options').status_code == 200
+        if CONFIGURATION.store.get_bundle(expected).status == 'superseded':
+            assert CONFIGURATION.resolve(revision_id=expected)['bundle']['status'] == 'superseded'
+            _, research = RESEARCH.execution_context_factory.resolve_bundle_revision(expected)
+            assert research.bundle_revision_id == expected
+    else:
+        assert ready.status_code == 503, ready.text
+        assert expected not in ready.text
+        assert ready.json()['requestId'] == ready.headers['x-request-id']
+        diagnosis = client.get('/readyz', headers=admin).json()['detail']
+        assert expected in diagnosis and 'No configuration bundle is effective' in diagnosis
+        rollback = f'/api/v1/configuration-registry/bundles/{recovery_target}:rollback'
+        body = {'newVersion': '99.7.9'}
+
+        def snapshot():
+            token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id='TEST', role='service'))
+            try:
+                bundle = CONFIGURATION.store.get_bundle(expected)
+                rows = CONFIGURATION.store.list_bundles(bundle_id=bundle.bundle_id)
+                events = [CONFIGURATION.store.events('bundle', row.revision_id) for row in rows]
+                return rows, events
+            finally:
+                CURRENT_DATABASE_IDENTITY.reset(token)
+
+        before = snapshot()
+        for headers in ({}, {**admin, 'x-baloot-role': 'player'}):
+            assert client.post(rollback, headers=headers, json=body).status_code == 503
+        assert snapshot() == before
+        restored = client.post(rollback, headers=admin, json=body)
+        assert restored.status_code == 201, restored.text
+        assert CONFIGURATION.resolve(bundle_id=restored.json()['bundleId'])['bundle']['revisionId'] == restored.json()['revisionId']
+""", instant, expected, recovery_target],
+            env={**os.environ, "BALOOT_ROOT": str(root), "BALOOT_DATA_DIR": str(tmp_path),
+                 "BALOOT_RUNTIME": str(tmp_path), "BALOOT_OUTPUTS": str(tmp_path / "outputs"),
+                 "BALOOT_DATABASE_URL": os.environ["BALOOT_TEST_POSTGRES_URL"] if backend == "postgres" else "",
+                 "BALOOT_API_KEY": "test", "BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT": "true"},
+            check=True,
+        )
+
+    monkeypatch.setattr(configuration_service, "datetime", Clock)
+    try:
+        service = VersionedConfigurationService(store, root=root, profile=build_bundle(root).component("configuration"))
+        baseline = service.bootstrap_packaged_bundle(actor_id="TEST")
+        original = baseline["bundle"]
+        defaults = {"bundle_id": original["bundleId"], "mode": original["mode"], "created_by": "TEST", "publish": True}
+
+        def new_components(version: str):
+            payload = copy.deepcopy(baseline["profiles"]["performance"])
+            payload["profile"].update({"id": "schedule-handoff-performance", "version": version})
+            revision = service.create_profile(family="performance", payload=payload, created_by="TEST", publish=True)
+            return {**original["componentRevisions"], "performance": revision["revisionId"]}
+
+        scheduled = service.create_bundle(
+            **defaults, version="99.7.6", component_revisions=new_components("99.7.6"),
+            local_schedule={"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00", "effectiveUntil": "2026-07-01T13:00"},
+        )
+        for instant, expected in (
+            ("2026-07-01T15:59:59+00:00", original["revisionId"]),
+            ("2026-07-01T16:00:00+00:00", scheduled["revisionId"]),
+            ("2026-07-01T17:00:00+00:00", original["revisionId"]),
+        ):
+            assert service.resolve(bundle_id=original["bundleId"])["bundle"]["revisionId"] == expected
+            probe(expected)
+
+        service.retire_bundle(scheduled["revisionId"], expected_etag=scheduled["etag"], actor_id="TEST", reason="Test expiry without predecessor")
+        expiring = service.create_bundle(
+            **defaults, version="99.7.7", component_revisions=new_components("99.7.7"),
+            effective_until="2026-07-01T17:00:00Z",
+        )
+        probe(expiring["revisionId"], recovery_target=original["revisionId"])
+        recovered = service.resolve(bundle_id=original["bundleId"])["bundle"]["revisionId"]
+        assert recovered not in {expiring["revisionId"], original["revisionId"]}
+        probe(recovered)
     finally:
         CURRENT_DATABASE_IDENTITY.reset(token)
         store.close()
