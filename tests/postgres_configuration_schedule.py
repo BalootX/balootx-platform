@@ -1,6 +1,7 @@
 """Configuration integration tests for the disposable PostgreSQL CI service."""
 import copy
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -458,7 +459,7 @@ admin = {'x-api-key': 'test', 'x-baloot-role': 'admin'}
 with TestClient(app) as client:
     assert client.get('/healthz').status_code == 200
     ready = client.get('/readyz')
-    if not recovery_target:
+    if not diagnostic:
         assert ready.status_code == 200, ready.text
         assert FOUNDRY_PROFILE['runtimeBundleRevisionId'] == expected
         assert client.get('/api/v1/options').status_code == 200
@@ -470,6 +471,7 @@ with TestClient(app) as client:
         assert ready.json()['requestId'] == ready.headers['x-request-id']
         diagnosis = client.get('/readyz', headers=admin).json()['detail']
         assert expected in diagnosis and diagnostic in diagnosis
+    if recovery_target:
         rollback = f'/api/v1/configuration-registry/bundles/{recovery_target}:rollback'
         body = {'newVersion': '99.7.9'}
 
@@ -508,7 +510,7 @@ with TestClient(app) as client:
 
         def new_components(version: str):
             payload = copy.deepcopy(baseline["profiles"]["performance"])
-            payload["profile"].update({"id": "schedule-handoff-performance", "version": version})
+            payload["profile"].update({"id": f"schedule-handoff-performance-{version}", "version": version})
             revision = service.create_profile(family="performance", payload=payload, created_by="TEST", publish=True)
             return {**original["componentRevisions"], "performance": revision["revisionId"]}
 
@@ -528,6 +530,28 @@ with TestClient(app) as client:
             probe(expected)
             probe(original["revisionId"], source=previous)
         print(f"previousReleaseScheduledHandoffStartup: {backend} before, during and after")
+
+        stale_etag = scheduled["etag"]
+        history = store.events("bundle", scheduled["revisionId"])
+        transition = store.set_bundle_status
+        competing = {}
+
+        def publish_before_retiring(*args, **kwargs):
+            competing.update(service.create_bundle(
+                **defaults, version="99.7.10", component_revisions=new_components("99.7.10"),
+                effective_from="2026-07-02T00:00:00Z",
+            ))
+            stale = store.get_bundle(scheduled["revisionId"])
+            assert stale.etag == stale_etag and stale.status == "superseded"
+            return transition(*args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(store, "set_bundle_status", publish_before_retiring)
+            with pytest.raises(ValueError, match="only published bundle revisions can be retired"):
+                service.retire_bundle(scheduled["revisionId"], expected_etag=stale_etag, actor_id="TEST", reason="Stale retirement")
+        assert store.events("bundle", scheduled["revisionId"]) == history
+        assert service.resolve(bundle_id=original["bundleId"], at_time="2026-07-01T16:00Z")["bundle"]["revisionId"] == scheduled["revisionId"]
+        service.retire_bundle(competing["revisionId"], expected_etag=competing["etag"], actor_id="TEST", reason="Remove later window")
 
         scheduled_profile_id = scheduled["componentRevisions"]["performance"]
         scheduled_profile = store.get_profile(scheduled_profile_id)
@@ -551,15 +575,82 @@ with TestClient(app) as client:
 
         interim = service.create_bundle(**defaults, version="99.7.7", component_revisions=new_components("99.7.7"))
         service.retire_bundle(interim["revisionId"], expected_etag=interim["etag"], actor_id="TEST", reason="Test expiry without predecessor")
-        expiring = service.create_bundle(
-            **defaults, version="99.7.8", component_revisions=new_components("99.7.8"),
-            effective_until="2026-07-01T17:00:00Z",
+        request = {
+            **defaults, "version": "99.7.8", "component_revisions": new_components("99.7.8"),
+            "effective_until": "2026-07-01T17:00:00Z",
+        }
+        before = store.list_bundles(bundle_id=original["bundleId"])
+        audit_before = [store.events("bundle", row.revision_id) for row in before]
+        with pytest.raises(ConfigurationScheduleConflict, match="requires an unbounded published bundle at full rollout"):
+            service.create_bundle(**request)
+        assert store.list_bundles(bundle_id=original["bundleId"]) == before
+        assert [store.events("bundle", row.revision_id) for row in before] == audit_before
+
+        draft = service.create_bundle(**{**request, "publish": False})
+        draft_before = store.get_bundle(draft["revisionId"])
+        draft_audit = store.events("bundle", draft["revisionId"])
+        with pytest.raises(ConfigurationScheduleConflict, match="requires an unbounded published bundle at full rollout"):
+            store.publish_bundle(draft["revisionId"], expected_etag=draft["etag"], actor_id="TEST")
+        assert store.get_bundle(draft["revisionId"]) == draft_before
+        assert store.events("bundle", draft["revisionId"]) == draft_audit
+
+        # The previous release could write a window without an underlying publication.
+        expired = subprocess.run(
+            [sys.executable, "-c", """
+import json
+import os
+import sys
+from pathlib import Path
+
+import baloot_platform
+from baloot_platform.config import build_bundle
+from baloot_platform.configuration import PostgresConfigurationStore, SQLiteConfigurationStore, VersionedConfigurationService
+from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
+
+root = Path(os.environ['BALOOT_ROOT'])
+assert Path(baloot_platform.__file__).resolve().is_relative_to(root.resolve() / 'src')
+dsn = os.environ['BALOOT_DATABASE_URL']
+store = PostgresConfigurationStore(dsn) if dsn else SQLiteConfigurationStore(Path(os.environ['BALOOT_RUNTIME']) / 'configuration.sqlite3')
+CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id='TEST', role='service'))
+try:
+    service = VersionedConfigurationService(store, root=root, profile=build_bundle(root).component('configuration'))
+    print(service.create_bundle(**json.loads(sys.argv[1]), force_new_revision=True)['revisionId'])
+finally:
+    store.close()
+""", json.dumps(request)],
+            cwd=previous,
+            env={**startup_environment, "BALOOT_ROOT": str(previous), "PYTHONPATH": str(previous / "src")},
+            check=True, capture_output=True, text=True,
         )
+        expiring_id = expired.stdout.strip()
         instant = "2026-07-01T17:00:00+00:00"
-        probe(expiring["revisionId"], recovery_target=original["revisionId"], diagnostic="No configuration bundle is effective")
+        probe(expiring_id, recovery_target=original["revisionId"], diagnostic="No configuration bundle is effective")
         recovered = service.resolve(bundle_id=original["bundleId"])["bundle"]["revisionId"]
-        assert recovered not in {expiring["revisionId"], original["revisionId"]}
+        assert recovered not in {expiring_id, original["revisionId"]}
         probe(recovered)
+        probe(recovered, source=previous)
+
+        partial = service.create_bundle(
+            **defaults, version="99.7.11", component_revisions=new_components("99.7.11"), rollout_percentage=10,
+        )
+        exact = service.resolve(revision_id=partial["revisionId"])
+        assert exact["bundle"]["scope"] == original["scope"]
+        assert exact["resolutionTrace"] == [{"scope": "exact_revision", "revisionId": partial["revisionId"]}]
+        with pytest.raises(KeyError, match="published configuration bundle not found"):
+            service.resolve(bundle_id=original["bundleId"])
+        with pytest.raises(ConfigurationIntegrityError, match="No configuration bundle is effective"):
+            service.bootstrap_packaged_bundle(actor_id="TEST")
+        probe(partial["revisionId"], diagnostic="No configuration bundle is effective")
+        bounded_components = new_components("99.7.12")
+        before = store.list_bundles(bundle_id=original["bundleId"])
+        audit_before = [store.events("bundle", row.revision_id) for row in before]
+        with pytest.raises(ConfigurationScheduleConflict, match="requires an unbounded published bundle at full rollout"):
+            service.create_bundle(
+                **defaults, version="99.7.12", component_revisions=bounded_components,
+                effective_from="2026-07-02T00:00:00Z",
+            )
+        assert store.list_bundles(bundle_id=original["bundleId"]) == before
+        assert [store.events("bundle", row.revision_id) for row in before] == audit_before
     finally:
         CURRENT_DATABASE_IDENTITY.reset(token)
         store.close()

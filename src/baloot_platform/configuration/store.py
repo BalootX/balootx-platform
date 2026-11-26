@@ -230,11 +230,28 @@ def _require_profile_unreferenced(conn: Any, sql: str, revision_id: str) -> None
 
 def _successor_after_retirement(anchor: BundleRevision, current: BundleRevision) -> str | None:
     if anchor.revision_id == current.revision_id:
-        raise ValueError("configuration bundle supports a scheduled publication. Retire the schedule or publish a replacement first.")
+        if anchor.scheduled_successor_id is not None:
+            raise ValueError("configuration bundle supports a scheduled publication. Retire the schedule or publish a replacement first.")
+        return None
     if anchor.scheduled_successor_id != current.revision_id:
-        return anchor.scheduled_successor_id
+        raise ValueError("only published bundle revisions can be retired")
     predecessor = current.scheduled_predecessor_id
     return None if predecessor == anchor.revision_id else predecessor
+
+
+def _require_runtime_anchor(anchor: BundleRevision | None) -> BundleRevision:
+    if (
+        anchor is None
+        or anchor.effective_from is not None
+        or anchor.effective_until is not None
+        or anchor.rollout_percentage != 100
+    ):
+        raise ConfigurationScheduleConflict(
+            "A timed runtime publication requires an unbounded published bundle at full rollout. "
+            "Publish a verified replacement first."
+        )
+    verify_revision_schedule(anchor)
+    return anchor
 
 
 class SQLiteConfigurationStore:
@@ -778,6 +795,32 @@ class SQLiteConfigurationStore:
         if updated.rowcount != 1:
             raise RuntimeError("configuration publication changed")
 
+    def register_runtime_bundle(self, dimensions: tuple[Any, ...]) -> None:
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO configuration_aggregate_heads(aggregate_key,next_sequence,etag,updated_at) "
+                "VALUES(?,1,1,?)",
+                (_aggregate_key("runtime_bundle", dimensions), utc_now()),
+            )
+
+    def _verify_runtime_anchor_tx(
+        self,
+        conn: sqlite3.Connection,
+        dimensions: tuple[Any, ...],
+        anchor: BundleRevision | None,
+    ) -> None:
+        registered = conn.execute(
+            "SELECT 1 FROM configuration_aggregate_heads WHERE aggregate_key=?",
+            (_aggregate_key("runtime_bundle", dimensions),),
+        ).fetchone()
+        if registered is None:
+            return
+        anchor = _require_runtime_anchor(anchor)
+        for profile in self._lock_bundle_components_tx(
+            conn, anchor.component_revisions, allowed_statuses=("published", "superseded"),
+        ):
+            verify_revision_schedule(profile)
+
     @classmethod
     def _lock_bundle_components_tx(
         cls,
@@ -1209,6 +1252,8 @@ class SQLiteConfigurationStore:
                 for profile in profiles:
                     verify_revision_schedule(profile)
             anchor = self._published_bundle_tx(conn, dimensions) if published and (start or end or rollback_target_revision_id) else None
+            if published and (start or end):
+                self._verify_runtime_anchor_tx(conn, dimensions, anchor)
             if rollback_target_revision_id is not None:
                 target = self._bundle(conn.execute(
                     "SELECT * FROM configuration_bundle_revisions WHERE revision_id=?", (rollback_target_revision_id,),
@@ -1368,6 +1413,8 @@ class SQLiteConfigurationStore:
                 self._published_bundle_tx(conn, _bundle_dimensions(current))
                 if current.effective_from or current.effective_until else None
             )
+            if current.effective_from or current.effective_until:
+                self._verify_runtime_anchor_tx(conn, _bundle_dimensions(current), anchor)
             predecessor = (anchor.scheduled_successor_id or anchor.revision_id) if anchor else None
             if anchor is None:
                 self._supersede_published_bundles_tx(
@@ -1434,10 +1481,11 @@ class SQLiteConfigurationStore:
                 current = self._bundle(row)
                 assert current is not None
                 anchor = self._published_bundle_tx(conn, _bundle_dimensions(current))
-                if anchor is not None and anchor.scheduled_successor_id is not None:
-                    successor = _successor_after_retirement(anchor, current)
-                    if successor != anchor.scheduled_successor_id:
-                        self._set_scheduled_successor_tx(conn, anchor.revision_id, successor)
+                if anchor is None:
+                    raise ValueError("only published bundle revisions can be retired")
+                successor = _successor_after_retirement(anchor, current)
+                if successor != anchor.scheduled_successor_id:
+                    self._set_scheduled_successor_tx(conn, anchor.revision_id, successor)
             cursor = conn.execute(
                 "UPDATE configuration_bundle_revisions "
                 "SET status=?,updated_at=?,etag=etag+1 "
@@ -1905,6 +1953,28 @@ class PostgresConfigurationStore:
         if updated.rowcount != 1:
             raise RuntimeError("configuration publication changed")
 
+    def register_runtime_bundle(self, dimensions: tuple[Any, ...]) -> None:
+        logical_identity = _aggregate_identity(dimensions)
+        with contextual_connection(self.pool) as conn:
+            self._lock_head(conn, "bundle", logical_identity)
+            self._lock_head(conn, "runtime_bundle", logical_identity)
+
+    def _verify_runtime_anchor_tx(
+        self, conn: Any, logical_identity: str, anchor: BundleRevision | None,
+    ) -> None:
+        registered = conn.execute(
+            "SELECT 1 FROM configuration.aggregate_heads WHERE aggregate_type='runtime_bundle' AND aggregate_id=%s",
+            (logical_identity,),
+        ).fetchone()
+        if registered is None:
+            return
+        anchor = _require_runtime_anchor(anchor)
+        # The published reference already prevents retirement. Keep the writer's lock order.
+        for profile in self._lock_bundle_components_tx(
+            conn, anchor.component_revisions, allowed_statuses=("published", "superseded"), lock=False,
+        ):
+            verify_revision_schedule(profile)
+
     @classmethod
     def _lock_bundle_components_tx(
         cls,
@@ -1912,6 +1982,7 @@ class PostgresConfigurationStore:
         component_revisions: Mapping[str, str],
         *,
         allowed_statuses: tuple[str, ...],
+        lock: bool = True,
     ) -> list[ProfileRevision]:
         revision_ids = sorted(set(component_revisions.values()))
         if not revision_ids:
@@ -1919,7 +1990,7 @@ class PostgresConfigurationStore:
         rows = conn.execute(
             f"SELECT {_POSTGRES_PROFILE_COLUMNS} "
             "FROM configuration.profile_revisions "
-            "WHERE revision_id=ANY(%s) ORDER BY revision_id FOR SHARE",
+            "WHERE revision_id=ANY(%s) ORDER BY revision_id" + (" FOR SHARE" if lock else ""),
             (revision_ids,),
         ).fetchall()
         profiles = [item for row in rows if (item := cls._profile(row)) is not None]
@@ -2442,6 +2513,8 @@ class PostgresConfigurationStore:
                     verify_revision_schedule(profile)
             self._lock_head(conn, "bundle", logical_identity)
             anchor = self._published_bundle_tx(conn, dimensions) if published and (start or end or rollback_target) else None
+            if published and (start or end):
+                self._verify_runtime_anchor_tx(conn, logical_identity, anchor)
             supersedes_revision_id = kwargs.get("supersedes_revision_id")
             if rollback_target is not None:
                 target = self._bundle(conn.execute(
@@ -2658,11 +2731,15 @@ class PostgresConfigurationStore:
             )
             for profile in profiles:
                 verify_revision_schedule(profile)
-            self._lock_head(conn, "bundle", _aggregate_identity(_bundle_dimensions(current)))
+            dimensions = _bundle_dimensions(current)
+            logical_identity = _aggregate_identity(dimensions)
+            self._lock_head(conn, "bundle", logical_identity)
             anchor = (
-                self._published_bundle_tx(conn, _bundle_dimensions(current))
+                self._published_bundle_tx(conn, dimensions)
                 if current.effective_from or current.effective_until else None
             )
+            if current.effective_from or current.effective_until:
+                self._verify_runtime_anchor_tx(conn, logical_identity, anchor)
             predecessor = (anchor.scheduled_successor_id or anchor.revision_id) if anchor else None
             if anchor is None:
                 self._supersede_published_bundles_tx(
@@ -2716,10 +2793,11 @@ class PostgresConfigurationStore:
                 raise RuntimeError("configuration revision etag conflict")
             if status == "retired":
                 anchor = self._published_bundle_tx(conn, _bundle_dimensions(current))
-                if anchor is not None and anchor.scheduled_successor_id is not None:
-                    successor = _successor_after_retirement(anchor, current)
-                    if successor != anchor.scheduled_successor_id:
-                        self._set_scheduled_successor_tx(conn, anchor.revision_id, successor)
+                if anchor is None:
+                    raise ValueError("only published bundle revisions can be retired")
+                successor = _successor_after_retirement(anchor, current)
+                if successor != anchor.scheduled_successor_id:
+                    self._set_scheduled_successor_tx(conn, anchor.revision_id, successor)
             updated = conn.execute(
                 "UPDATE configuration.bundle_revisions "
                 "SET status=%s,updated_at=%s::timestamptz,etag=etag+1 "

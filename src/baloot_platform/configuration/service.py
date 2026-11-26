@@ -1145,6 +1145,10 @@ class VersionedConfigurationService:
             tenant_id=tenant_id,
             environment=environment,
         )
+        profile = dict(packaged.bundle_profile.get("profile") or {})
+        bundle_id = str(profile.get("id") or "packaged_bundle")
+        version = str(profile.get("version") or "0.0.0")
+        self.store.register_runtime_bundle((bundle_id, scope, scope_key, tenant_id, environment))
         revision_ids = {}
         for family in PROFILE_FAMILIES:
             if family == "rules":
@@ -1180,9 +1184,6 @@ class VersionedConfigurationService:
                         actor_id=actor_id,
                     )
                 revision_ids[family] = existing.revision_id
-        profile = dict(packaged.bundle_profile.get("profile") or {})
-        bundle_id = str(profile.get("id") or "packaged_bundle")
-        version = str(profile.get("version") or "0.0.0")
         content_hash = digest({"mode": mode, "components": revision_ids})
         existing_bundle = self.store.find_bundle_by_content(
             bundle_id=bundle_id,
@@ -1220,13 +1221,11 @@ class VersionedConfigurationService:
             environment=environment, status=RevisionStatus.PUBLISHED.value, limit=1, exact_dimensions=True,
         )
         anchor = rows[0] if rows else None
-        selected = anchor
-        if anchor is not None:
-            if anchor.scheduled_successor_id or anchor.effective_from or anchor.effective_until:
-                context = ResolutionContext(tenant_id=tenant_id, environment=environment)
-                selected = self._effective_scheduled_bundle(anchor, context, datetime.now(timezone.utc), [])
-            else:
-                verify_revision_schedule(anchor)
+        context = ResolutionContext(tenant_id=tenant_id, environment=environment)
+        selected = (
+            self._effective_scheduled_bundle(anchor, context, datetime.now(timezone.utc), [])
+            if anchor is not None else None
+        )
         if selected is None:
             raise ConfigurationIntegrityError(
                 anchor.revision_id if anchor is not None else rid,

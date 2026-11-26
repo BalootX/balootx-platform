@@ -26,14 +26,21 @@ repeated hour, choose an unambiguous wall time or specify the intended instant
 with its explicit offset.
 
 A bounded bundle publication keeps the existing publication for the previous
-release and records the scheduled revision in the same scope. The current
+release and records the scheduled revision in the same scope. In a scope used
+by packaged runtime bootstrap, publish a verified replacement with no time
+bounds and 100% rollout before publishing or promoting a bounded revision.
+If that underlying publication is missing or unusable, the store refuses the
+bounded publication before changing the bundle or its audit history. The current
 release checks the scheduled revision and its predecessors in publication
 order and uses the first one whose window includes the requested instant.
 The selected revision remains subject to its rollout policy. An immediate,
 unscheduled publication ends the schedule. The previous release continues to
 use the underlying publication before, during and after a scheduled window.
 Processes load a verified runtime bundle at startup. Restart them at a
-scheduled boundary to load the newly effective bundle.
+scheduled boundary to load the newly effective bundle. Startup selects within
+its configured scope and has no rollout subject, so a partial rollout cannot
+become effective for startup. Historical replay can still read the exact
+revision by ID.
 
 New revisions retain the wall times and zone in `localSchedule` and continue
 returning UTC instants in `effectiveFrom` and `effectiveUntil`. Identical
@@ -68,6 +75,8 @@ publish a currently effective replacement bundle with verified component
 revisions. A refused publication leaves the active revision and audit history
 intact. Replace any published bundle that uses a component before retiring
 that component. This includes the underlying and reachable scheduled revisions.
+A retirement request for a scheduled bundle is refused if a later publication
+has already displaced it, even if the revision's ETag is unchanged.
 To restore known-good content, use the v1 registry's
 `POST /bundles/{revisionId}:rollback`
 with a new version. It publishes a fresh, unscheduled revision and records the
