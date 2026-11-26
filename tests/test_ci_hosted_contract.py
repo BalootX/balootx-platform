@@ -15,8 +15,7 @@ import pytest
 import yaml
 from jsonschema import Draft202012Validator, ValidationError
 
-from ci import critical_review
-from ci import review_verdict_poster
+from ci import commit_screen, critical_review, review_verdict_poster
 from scripts import ci_scope
 from scripts import run_required_pytest
 from scripts import verify_qa_journey
@@ -152,6 +151,218 @@ def test_commit_identity_schema_limits_dependabot_signoff(root, commit_identity_
             validator.validate({**policy, "identities": [{**scoped, field: invalid}]})
 
 
+def test_commit_screen_workflow_contract(root):
+    caller = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
+    shared = yaml.safe_load((root / ".github/workflows/commit-screen.yml").read_bytes())
+    assert "pull_request_target" not in caller[True]
+    assert shared[True] == {"push": {"branches": ["**", "!main"]}, "workflow_call": None}
+    assert shared["concurrency"] == {
+        "group": "${{ github.workflow }}-${{ github.run_id }}", "cancel-in-progress": False,
+    }
+    call = caller["jobs"]["commit-screen"]
+    assert call == {
+        "if": "github.event_name != 'workflow_dispatch'",
+        "uses": "./.github/workflows/commit-screen.yml",
+    }
+    assert "commit-screen" in caller["jobs"]["ci-gate"]["needs"]
+    assert "secrets" not in json.dumps(shared).lower()
+    assert "github.token" not in json.dumps(shared).lower()
+    assert shared["permissions"] == {"contents": "read"}
+    assert set(shared["jobs"]) == {"screen"}
+    job = shared["jobs"]["screen"]
+    assert "permissions" not in job and job["timeout-minutes"] > 0
+    assert not job.get("continue-on-error")
+    assert job["steps"][0]["with"] == {"fetch-depth": 0, "persist-credentials": False}
+    assert job["steps"][-1]["run"] == "python -I ci/commit_screen.py"
+    for step in job["steps"]:
+        assert not step.get("continue-on-error")
+        if "uses" in step:
+            assert re.fullmatch(r"[0-9a-f]{40}", step["uses"].rsplit("@", 1)[-1])
+    config = json.loads((root / critical_review.POLICY_PATH).read_bytes())
+    assert {commit_screen.POLICY_PATH, commit_screen.SCHEMA_PATH, "ci/commit_screen.py"} <= set(
+        config["classes"]["repo-settings-branch-protection-and-release-gates"]
+    )
+
+
+SCREEN_NAME = "Screen Fixture Bot"
+SCREEN_DOMAIN = "example.test"
+SCREEN_ADDRESS = f"noreply@{SCREEN_DOMAIN}"
+SCREEN_IDENTITY = f"{SCREEN_NAME} <{SCREEN_ADDRESS}>"
+OTHER_ADDRESS = f"unlisted@{SCREEN_DOMAIN}"
+DEPENDABOT_NAME = "dependabot[bot]"
+
+
+@pytest.fixture
+def screen_history(tmp_path, monkeypatch, root, commit_identity_policy):
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True, timeout=10).stdout
+
+    def commit(message, *, author=SCREEN_IDENTITY, committer=SCREEN_ADDRESS, committer_name=SCREEN_NAME):
+        git("-c", f"user.name={committer_name}", "-c", f"user.email={committer}", "commit",
+            "--allow-empty", "-qm", message, f"--author={author}")
+        return git("rev-parse", "HEAD").decode("ascii").strip()
+
+    git("init", "-qb", "main")
+    git("config", "user.name", SCREEN_NAME)
+    git("config", "user.email", SCREEN_ADDRESS)
+    git("config", "commit.gpgsign", "false")
+    monkeypatch.setenv("GIT_AUTHOR_DATE", "2025-01-01T00:00:00Z")
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2025-01-01T00:00:00Z")
+    legacy = commit("Existing history", author=f"Unlisted <{OTHER_ADDRESS}>")
+    schema = tmp_path / commit_screen.SCHEMA_PATH
+    schema.parent.mkdir(parents=True)
+    schema.write_bytes((root / commit_screen.SCHEMA_PATH).read_bytes())
+    policy = tmp_path / commit_screen.POLICY_PATH
+    policy.parent.mkdir()
+    row = {"name": SCREEN_NAME, "email": SCREEN_ADDRESS, "use": "all", "reason": "Synthetic test identity"}
+    provider_rows = [
+        entry for entry in commit_identity_policy["identities"] if entry["name"] in {DEPENDABOT_NAME, "GitHub"}
+    ]
+    provider_addresses = {(entry["name"], entry["use"]): entry["email"] for entry in provider_rows}
+    policy.write_text(json.dumps({"schemaVersion": 1, "identities": [row, *provider_rows]}), encoding="utf-8")
+    git("add", ".")
+    base = commit("Install identity policy")
+    git("update-ref", "refs/remotes/origin/main", base)
+    git("switch", "-qc", "topic")
+    monkeypatch.setattr(commit_screen, "git", git)
+    return SimpleNamespace(git=git, commit=commit, base=base, legacy=legacy, policy=policy, schema=schema, row=row,
+                           provider_addresses=provider_addresses)
+
+
+def screen_push(before, head, *, branch="topic", commits=()):
+    return {
+        "ref": f"refs/heads/{branch}", "after": head, "before": before,
+        "created": before == commit_screen.ZERO, "deleted": False, "repository": {"default_branch": "main"},
+        "commits": [{"id": sha} for sha in commits],
+    }
+
+
+@pytest.mark.parametrize(("message", "overrides", "field"), [
+    ("Change", {"author": f"Other Bot <{SCREEN_ADDRESS}>"}, "author"),
+    ("Change", {"committer": OTHER_ADDRESS}, "committer"),
+    (f"Change\n\nCo-authored-by: Wrong Bot <{SCREEN_ADDRESS}>", {}, "Co-authored-by"),
+    (f"Change\n\nSigned-off-by: Screen Fixture Bot <{OTHER_ADDRESS}>", {}, "Signed-off-by"),
+    (f"Change\n\nReviewed-by: Screen Fixture Bot <{OTHER_ADDRESS}>", {}, "trailer #1"),
+    ("Change\n\nSigned-off-by: Missing address", {}, "Signed-off-by"),
+    (f"Change\n\nContact {OTHER_ADDRESS} for details.", {}, "message"),
+    (f"Change\n\nCo-authored-by: {SCREEN_IDENTITY}\nSigned-off-by: {SCREEN_IDENTITY}\n"
+     f"Reviewed-by: {SCREEN_IDENTITY}\nRefs: #1", {}, None),
+])
+def test_commit_screen_checks_identity_pairs_and_message(screen_history, message, overrides, field, capsys):
+    history = screen_history
+    head = history.commit(message, **overrides)
+    event = screen_push(history.base, head)
+    if field is None:
+        commit_screen.screen("push", event, head)
+        assert "Screened 1 commits" in capsys.readouterr().out
+    else:
+        with pytest.raises(commit_screen.ScreenError, match=f"Commit {head} {field}") as error:
+            commit_screen.screen("push", event, head)
+        assert OTHER_ADDRESS not in str(error.value)
+
+
+@pytest.mark.parametrize("squash", [False, True], ids=["dependabot-branch", "dependabot-squash"])
+def test_commit_screen_accepts_dependabot_signoff_shapes(screen_history, squash, capsys):
+    history = screen_history
+    author_address = history.provider_addresses[(DEPENDABOT_NAME, "all")]
+    signer_address = history.provider_addresses[(DEPENDABOT_NAME, "Signed-off-by")]
+    author = f"{DEPENDABOT_NAME} <{author_address}>"
+    message = f"Update a dependency\n\nSigned-off-by: {DEPENDABOT_NAME} <{signer_address}>"
+    if squash:
+        message += f"\nCo-authored-by: {author}"
+    head = history.commit(message, author=author, committer_name="GitHub",
+                          committer=history.provider_addresses[("GitHub", "all")])
+    if squash:
+        commit_screen.screen("merge_group", {"merge_group": {"base_sha": history.base, "head_sha": head}}, head)
+    else:
+        commit_screen.screen("push", screen_push(history.base, head), head)
+    assert "Screened 1 commits" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("case", [
+    "author", "committer", "co-author", "other-trailer", "message", "wrong-name", "lookalike",
+])
+def test_commit_screen_restricts_the_dependabot_signoff_use(screen_history, case):
+    history = screen_history
+    mailbox = history.provider_addresses[(DEPENDABOT_NAME, "Signed-off-by")]
+    signer = f"{DEPENDABOT_NAME} <{mailbox}>"
+    local, domain = mailbox.split("@", 1)
+    lookalike = f"{local}+fixture@{domain}"
+    cases = {
+        "author": ("Update", {"author": signer}, "author"),
+        "committer": ("Update", {"committer_name": DEPENDABOT_NAME, "committer": mailbox}, "committer"),
+        "co-author": (f"Update\n\nCo-authored-by: {signer}", {}, "Co-authored-by"),
+        "other-trailer": (f"Update\n\nReviewed-by: {signer}", {}, "trailer #1"),
+        "message": (f"Update\n\nContact {mailbox} for details.\n\nSigned-off-by: {signer}", {}, "message"),
+        "wrong-name": (f"Update\n\nSigned-off-by: Dependabot Fixture <{mailbox}>", {}, "Signed-off-by"),
+        "lookalike": (f"Update\n\nSigned-off-by: {DEPENDABOT_NAME} <{lookalike}>", {}, "Signed-off-by"),
+    }
+    message, overrides, field = cases[case]
+    head = history.commit(message, **overrides)
+    with pytest.raises(commit_screen.ScreenError, match=f"Commit {head} {field}") as error:
+        commit_screen.screen("push", screen_push(history.base, head), head)
+    assert mailbox not in str(error.value)
+    assert lookalike not in str(error.value)
+
+
+def test_commit_screen_checks_the_merge_group_range(screen_history):
+    history = screen_history
+    earlier = history.commit("Earlier group entry", author=f"Wrong Bot <{SCREEN_ADDRESS}>")
+    head = history.commit(f"Queue candidate\n\nCo-authored-by: Wrong Bot <{SCREEN_ADDRESS}>")
+    event = {"merge_group": {"base_sha": history.base, "head_sha": head}}
+    with pytest.raises(commit_screen.ScreenError) as error:
+        commit_screen.screen("merge_group", event, head)
+    assert f"Commit {earlier} author" in str(error.value)
+    assert f"Commit {head} Co-authored-by" in str(error.value)
+    assert history.legacy not in str(error.value)
+
+
+def test_commit_screen_for_a_new_branch_uses_the_push_commits(screen_history, capsys):
+    history = screen_history
+    history.commit("Existing topic commit", author=f"Wrong Bot <{SCREEN_ADDRESS}>")
+    first = history.commit("First pushed commit")
+    head = history.commit("Last pushed commit")
+    event = screen_push(commit_screen.ZERO, head, commits=(first, head))
+    commit_screen.screen("push", event, head)
+    assert "Screened 2 commits" in capsys.readouterr().out
+    broken = history.commit("Later push", author=f"Wrong Bot <{SCREEN_ADDRESS}>")
+    event = screen_push(commit_screen.ZERO, broken, commits=(first, head, broken))
+    with pytest.raises(commit_screen.ScreenError, match=f"Commit {broken} author"):
+        commit_screen.screen("push", event, broken)
+
+
+@pytest.mark.parametrize("event_name", ["pull_request", "push"])
+def test_commit_screen_does_not_use_candidate_policy(screen_history, event_name):
+    history = screen_history
+    changed_row = {**history.row, "name": "Wrong Bot"}
+    history.policy.write_text(json.dumps({"schemaVersion": 1, "identities": [changed_row]}), encoding="utf-8")
+    history.schema.write_text("{}", encoding="utf-8")
+    history.git("add", ".")
+    head = history.commit("Change the identity policy", author=f"Wrong Bot <{SCREEN_ADDRESS}>")
+    if event_name == "pull_request":
+        history.git("switch", "-q", "main")
+        history.git("merge", "--no-ff", "topic", "-m", "PR merge checkout")
+        candidate = history.git("rev-parse", "HEAD").decode("ascii").strip()
+        event = {"pull_request": {"base": {"sha": history.base}, "head": {"sha": head}}}
+    else:
+        candidate = head
+        history.git("update-ref", "refs/remotes/origin/main", candidate)
+        event = screen_push(history.base, candidate, branch="main")
+    with pytest.raises(commit_screen.ScreenError, match=f"Commit {head} author"):
+        commit_screen.screen(event_name, event, candidate)
+
+
+def test_commit_screen_requires_a_valid_base_policy(screen_history):
+    history = screen_history
+    with pytest.raises(commit_screen.ScreenError, match="needs a valid base"):
+        commit_screen.load_identities(history.legacy)
+    history.policy.write_text('{"schemaVersion": 1, "identities": []}', encoding="utf-8")
+    history.git("add", ".")
+    invalid = history.commit("Invalid policy")
+    with pytest.raises(commit_screen.ScreenError, match="needs a valid base"):
+        commit_screen.load_identities(invalid)
+
+
 def test_hosted_ci_contract(root):
     workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
     triggers = workflow[True]  # PyYAML's YAML 1.1 spelling of on.
@@ -163,8 +374,8 @@ def test_hosted_ci_contract(root):
     jobs = workflow["jobs"]
     main_push = "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
     for name, job in jobs.items():
-        if name == "viewer-seat-proof":
-            continue  # Checked with the nightly caller and shared workflow below.
+        if name in {"viewer-seat-proof", "commit-screen"}:
+            continue  # Reusable workflow jobs have their own contract tests.
         assert job["runs-on"] == ("windows-latest" if name == "python-windows" else "ubuntu-24.04"), name
         assert job["timeout-minutes"] > 0
         for step in job["steps"]:
@@ -204,7 +415,7 @@ def test_hosted_ci_contract(root):
     draft_guard, gate_command = gate_step["run"].split("python3 -P scripts/ci_scope.py gate")
     assert "exit 1" in draft_guard and not gate_command.strip()
     expected_producers = ci_scope.FULL | ci_scope.SCOPED.keys() | {
-        "plan", "preflight", "dependency-review", "python-version-smoke", "python-affected",
+        "plan", "preflight", "commit-screen", "dependency-review", "python-version-smoke", "python-affected",
     }
     assert set(jobs["ci-gate"]["needs"]) == expected_producers == jobs.keys() - {
         "ci-gate", "viewer-seat-proof", "qa-journey",
@@ -1204,7 +1415,7 @@ def test_viewer_seat_proof_dispatch_and_nightly_use_the_same_pinned_cohort(root)
         "if": "${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof && " + NO_QA_JOURNEY + " }}",
     }
     assert {name for name, job in jobs.items() if "needs" not in job} == {
-        "plan", "preflight", "dependency-review", "viewer-seat-proof", "qa-journey",
+        "plan", "preflight", "commit-screen", "dependency-review", "viewer-seat-proof", "qa-journey",
     }
     nightly = yaml.safe_load((root / ".github/workflows/nightly-candidates.yml").read_bytes())
     assert nightly["jobs"]["viewer-seat-proof"] == workflow_call
@@ -1326,11 +1537,12 @@ def test_main_ci_retains_synthetic_visual_evidence(root):
 def test_gate_rejects_unproven_full_producers(event):
     plan = {key: json.dumps(value) for key, value in ci_scope.current_plan().items()}
     results = {job: {"result": "success"} for job in ci_scope.FULL | ci_scope.SCOPED.keys()
-               | {"plan", "preflight", "dependency-review", "python-affected", "python-version-smoke"}}
+               | {"plan", "preflight", "commit-screen", "dependency-review", "python-affected", "python-version-smoke"}}
     results["plan"]["outputs"] = plan
     results["dependency-review"]["result"] = ("success" if event == "pull_request" else "skipped")
     results["python-affected"]["result"] = "skipped"
     results["python-version-smoke"]["result"] = results["dependency-review"]["result"]
+    results["commit-screen"]["result"] = "skipped" if event == "workflow_dispatch" else "success"
     ci_scope.validate_results(event, results)
     with pytest.raises(ValueError, match="its outputs are unavailable"):
         ci_scope.validate_results(event, {**results, "plan": {"result": "success"}})
@@ -1376,7 +1588,7 @@ def test_gate_rejects_unproven_full_producers(event):
 def test_gate_requires_exact_scoped_producers(root, paths, producers):
     selection = ci_scope.scoped_plan(paths)
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
-    required = producers | {"plan", "preflight", "dependency-review", "python-version-smoke"}
+    required = producers | {"plan", "preflight", "commit-screen", "dependency-review", "python-version-smoke"}
     results = {job: {"result": "success" if job in required else "skipped"} for job in jobs["ci-gate"]["needs"]}
     results["plan"]["outputs"] = {key: json.dumps(value) for key, value in selection.items()}
     ci_scope.validate_results("pull_request", results)

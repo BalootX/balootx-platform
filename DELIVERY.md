@@ -75,6 +75,8 @@ The Python shards share a deadline derived from each job's timeout. The full mat
 
 [Commit identities](ci/commit-identities.json) lists exact name and address pairs for public project, bot and AI-tool attribution. A row's `use` applies to all checked fields or only the `Signed-off-by` trailer. The no-reply rule and the approved Dependabot deviation are recorded below. Preflight validates the rows against the [commit identity schema](schemas/contracts/commit-identities-v1.schema.json). Policy changes follow the [critical path review procedure](#merge).
 
+The [hosted screening workflow](.github/workflows/commit-screen.yml) checks commit messages, authors, committers and identity-bearing trailers on every branch push, pull request and merge group. It reads the policy and schema from the default branch for topic pushes, the pre-push tip for default-branch pushes, the merge parent for pull requests and the event base for merge groups. The merge-group range includes the candidate commit. `ci-gate` requires screening on CI events, and topic pushes run screening on its own.
+
 ## Work scheduling
 
 A Due is the latest finish. Start Ready work at once and ship as soon as its checks pass. Every hold names its blocker and what clears it.

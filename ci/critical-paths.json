@@ -56,6 +56,7 @@
       "ci/**",
       "ci/review_verdict_poster.py",
       "ci/commit-identities.json",
+      "ci/commit_screen.py",
       "schemas/contracts/commit-identities-v1.schema.json",
       "scripts/ci_scope.py",
       "scripts/ci_known_failures.py",
