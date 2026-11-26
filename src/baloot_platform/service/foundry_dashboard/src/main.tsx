@@ -1625,6 +1625,8 @@ function App() {
     if (!identity.identity) await api('/api/v1/auth/guest', {method: 'POST', body: JSON.stringify({displayName: t("workflow.m_a53a7869033a")})});
   };
   const openCampaign = useCallback(async (campaign: Campaign) => {
+    // No drawer shows while a campaign loads, so the request itself is the intent a later open or close replaces.
+    const stillOpen = setDrawer(null);
     setSelected(campaign);
     const campaignAnalysis = analysisHistory.find((item) => item.request?.campaignHash === campaign.campaignHash) || null;
     setAnalysisJob(campaignAnalysis);
@@ -1640,6 +1642,8 @@ function App() {
       api<{shards: Shard[]}>(`/api/v2/campaigns/${campaign.campaignHash}/shards`),
       api<{attempts: Attempt[]}>(`/api/v2/campaigns/${campaign.campaignHash}/attempts`),
     ]);
+    // The selected campaign's own effect keeps its shards current; a late answer must not overwrite them.
+    if (!stillOpen()) return;
     setShards(shardPage.shards); setAttempts(attemptPage.attempts);
     setDrawer({
       kind: 'campaign', title: campaignNames.get(campaign.campaignHash) || t("workflow.m_7255069a0d81"), subtitle: t("workflow.m_97bed3db6a66"),
@@ -1974,12 +1978,13 @@ function App() {
   };
   const openSakka = async (item: FoundrySakka) => {
     const title = sakkaNames.get(item.catalogHash) || t("workflow.m_a71ed66fd0dc");
-    setDrawer({
+    const stillOpen = setDrawer({
       kind: 'sakka', title, subtitle: t("workflow.m_bdf45938011a"),
       content: <p className="drawer-lead">{t("workflow.sakka_library_loading")}</p>,
     });
     try {
       const detail = await api<FoundrySakkaDetail>(`/api/v2/sakkas/${item.catalogHash}`);
+      if (!stillOpen()) return;
       setDrawer({
         kind: 'sakka', title, subtitle: t("workflow.m_bdf45938011a"),
         content: <SakkaDetails
@@ -1992,6 +1997,7 @@ function App() {
         audit: detail as unknown as JsonObject,
       });
     } catch (error) {
+      if (!stillOpen()) return;
       setMessage((error as Error).message);
       setDrawer({
         kind: 'sakka', title, subtitle: t("workflow.m_bdf45938011a"),
@@ -2001,6 +2007,8 @@ function App() {
   };
 
   const openResearchResult = async (item: ResearchResult) => {
+    // No drawer shows while a result loads, so the request itself is the intent a later open or close replaces.
+    const stillOpen = setDrawer(null);
     setBusy(true); setMessage('');
     try {
       const [detail, ledger, renderPage] = await Promise.all([
@@ -2009,7 +2017,9 @@ function App() {
         api<{items:RenderJob[]}>(`/api/v2/research-results/${item.resultCode}/renders`)
           .catch(() => ({items: []})),
       ]);
+      if (!stillOpen()) return;
       const recipe = await hydrateResearchRecipe(String(detail.recipeCode || ''));
+      if (!stillOpen()) return;
       const existingVideoUrl = renderPage.items
         .filter((job) => job.status === 'completed')
         .map((job) => renderMedia(job)?.videoUrl)
@@ -2055,7 +2065,7 @@ function App() {
         audit:detail as unknown as JsonObject,
       });
     } catch (error) {
-      setMessage(researchRecipeErrorMessage(error));
+      if (stillOpen()) setMessage(researchRecipeErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -2069,7 +2079,7 @@ function App() {
     const detailRequest = item.buyer && item.dealer ? Promise.resolve(item)
       : api<UnifiedLaffa>(`/api/v2/laffat/${encodeURIComponent(item.sourceLocator.code)}`)
         .catch(() => item);
-    setDrawer({
+    const stillOpen = setDrawer({
       kind:'unified-laffa',
       title:t("workflow.laffa_library_details_title"),
       subtitle:item.humanCode,
@@ -2079,6 +2089,7 @@ function App() {
       const [exactSource, related, detail] = await Promise.all([
         api<JsonObject>(item.sourceLocator.uri), relatedRequest, detailRequest,
       ]);
+      if (!stillOpen()) return;
       setDrawer({
         kind:'unified-laffa',
         title:t("workflow.laffa_library_details_title"),
@@ -2088,6 +2099,7 @@ function App() {
       });
     } catch (error) {
       const [related, detail] = await Promise.all([relatedRequest, detailRequest]);
+      if (!stillOpen()) return;
       setDrawer({
         kind:'unified-laffa',
         title:t("workflow.laffa_library_details_title"),
