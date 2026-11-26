@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -341,6 +342,19 @@ def test_runtime_boot_and_recovery_across_scheduled_handoff(
     )
     token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id="TEST", role="service"))
     instant = "2026-07-01T15:59:59+00:00"
+    startup_environment = {
+        **os.environ,
+        "BALOOT_ROOT": str(root),
+        "BALOOT_DATA_DIR": str(tmp_path),
+        "BALOOT_RUNTIME": str(tmp_path),
+        "BALOOT_OUTPUTS": str(tmp_path / "outputs"),
+        "BALOOT_DATABASE_URL": os.environ["BALOOT_TEST_POSTGRES_URL"] if backend == "postgres" else "",
+        "BALOOT_ENV": "development",
+        "BALOOT_CHALLENGE_LOCATOR_KEY": secrets.token_urlsafe(48),
+        "BALOOT_CURATED_SAKKA_SIGNING_KEY": secrets.token_urlsafe(48),
+        "BALOOT_API_KEY": "test",
+        "BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT": "true",
+    }
 
     class Clock(datetime):
         @classmethod
@@ -399,17 +413,17 @@ with TestClient(app) as client:
                 CURRENT_DATABASE_IDENTITY.reset(token)
 
         before = snapshot()
-        for headers in ({}, {**admin, 'x-baloot-role': 'player'}):
-            assert client.post(rollback, headers=headers, json=body).status_code == 503
+        for headers, expected_status in (({}, 401), ({**admin, 'x-baloot-role': 'player'}, 503)):
+            denied = client.post(rollback, headers=headers, json=body)
+            assert denied.status_code == expected_status, denied.text
+            assert expected not in denied.text
+            assert denied.json()['requestId'] == denied.headers['x-request-id']
         assert snapshot() == before
         restored = client.post(rollback, headers=admin, json=body)
         assert restored.status_code == 201, restored.text
         assert CONFIGURATION.resolve(bundle_id=restored.json()['bundleId'])['bundle']['revisionId'] == restored.json()['revisionId']
 """, instant, expected, recovery_target],
-            env={**os.environ, "BALOOT_ROOT": str(root), "BALOOT_DATA_DIR": str(tmp_path),
-                 "BALOOT_RUNTIME": str(tmp_path), "BALOOT_OUTPUTS": str(tmp_path / "outputs"),
-                 "BALOOT_DATABASE_URL": os.environ["BALOOT_TEST_POSTGRES_URL"] if backend == "postgres" else "",
-                 "BALOOT_API_KEY": "test", "BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT": "true"},
+            env=startup_environment,
             check=True,
         )
 
