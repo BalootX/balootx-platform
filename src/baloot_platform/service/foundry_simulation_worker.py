@@ -10,6 +10,7 @@ from baloot_platform.challenge.worker import (
     GuidedFoundryWorkerV1,
     OrganicFoundryWorkerV1,
 )
+from baloot_platform.observability import log_worker_result, run_worker
 from baloot_platform.service.container import build_container
 
 
@@ -55,7 +56,7 @@ def _build_worker(container, *, lane: str, worker_id: str, lease_seconds: int,
     )
 
 
-def main() -> None:  # pragma: no cover - operational process
+def _run() -> None:
     container = build_container()
     lane = os.environ.get("BALOOT_FOUNDRY_LANE", "organic").strip().lower()
     worker_id = os.environ.get(
@@ -83,8 +84,14 @@ def main() -> None:  # pragma: no cover - operational process
                 if exit_when_idle:
                     return
                 time.sleep(poll_seconds)
+            else:
+                log_worker_result("foundry_simulation", result.shard_hash, result.status)
     finally:
         container.shutdown()
+
+
+def main() -> None:
+    run_worker("foundry_simulation", _run)
 
 
 if __name__ == "__main__":  # pragma: no cover - module execution

@@ -1,0 +1,25 @@
+# Exact setup/call skips in the hosted Linux file lanes. Dependency or ABI failures are never admitted.
+# Windows process semantics belong on Windows.
+setup tests/test_combined_finalist_policy_pilot.py::test_taskkill_failure_still_kills_and_waits_for_the_owned_root[timeout] # Windows taskkill fallback
+setup tests/test_combined_finalist_policy_pilot.py::test_taskkill_failure_still_kills_and_waits_for_the_owned_root[nonzero] # Windows taskkill fallback
+setup tests/test_combined_finalist_policy_pilot.py::test_atomic_checkpoint_retries_while_a_real_reader_denies_delete # Windows file sharing semantics
+setup tests/test_combined_finalist_policy_pilot.py::test_exhausted_checkpoint_retry_removes_the_owned_temporary_file # Windows file sharing semantics
+setup tests/test_local_cpu_launcher.py::test_launcher_restores_missing_add_type_temp_directory # Windows Job Objects
+setup tests/test_local_cpu_launcher.py::test_direct_python_runtime_enforces_cap_once_and_fails_closed[False] # Windows Job Objects
+setup tests/test_local_cpu_launcher.py::test_direct_python_runtime_enforces_cap_once_and_fails_closed[True] # Windows Job Objects
+setup tests/test_local_cpu_launcher.py::test_current_capped_process_has_verified_inherited_limits # Windows Job Objects
+setup tests/test_local_cpu_launcher.py::test_verified_inherited_cpu_ceiling_skips_nested_launcher # Windows Job Objects
+setup tests/test_local_cpu_launcher.py::test_local_cpu_cap_rejects_invalid_config_and_is_inherited # Windows Job Objects
+setup tests/test_v18_hitl_governance.py::test_media_command_uses_extended_executable_with_short_argv_zero # Windows long-path process boundary
+setup tests/test_verifier_preflight.py::test_archive_node_checks_use_a_bounded_runtime_path # Windows PATH limit regression
+# The verifier's ASan build is separate from the native release library in the file lanes.
+call tests/test_v20_asan_verifier_portability.py::test_generated_asan_ctest_invokes_sanitized_binary_without_preload # release verifier configures build/native-asan before the complete test lane
+call tests/test_v20_asan_verifier_portability.py::test_configured_sanitized_binary_passes_without_preload # release verifier configures build/native-asan before this test
+# These opt-in historical checks require inputs outside the public repository.
+call tests/test_render_bundle.py::test_historical_golden_media_is_intact_but_not_currently_admissible # needs private original artifacts
+setup tests/test_slot_sequencer.py::test_r7_caption_window[seven-later] # approved external gate installation is required for the r7 compatibility tests
+setup tests/test_slot_sequencer.py::test_r7_caption_window[eight-later] # approved external gate installation is required for the r7 compatibility tests
+setup tests/test_slot_sequencer.py::test_r7_caption_window[nine-later] # approved external gate installation is required for the r7 compatibility tests
+setup tests/test_slot_sequencer.py::test_r7_caption_window[cross-platform-consecutive] # approved external gate installation is required for the r7 compatibility tests
+setup tests/test_slot_sequencer.py::test_r7_caption_window[latest-tiktok] # approved external gate installation is required for the r7 compatibility tests
+setup tests/test_slot_sequencer.py::test_r7_builds_four_slots_with_valid_primary_and_fallback # approved external gate installation is required for the r7 compatibility tests

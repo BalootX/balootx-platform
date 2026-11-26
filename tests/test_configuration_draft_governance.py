@@ -600,6 +600,7 @@ def test_api_reports_schedule_integrity_failures_at_boot(
     probe = subprocess.run(
         [sys.executable, "-c", """
 import sys
+from uuid import UUID
 from fastapi.testclient import TestClient
 from baloot_platform.service.api import app
 
@@ -608,6 +609,7 @@ with TestClient(app) as client:
     assert client.get('/healthz').status_code == 200
     readiness = client.get('/readyz')
     assert readiness.status_code == 503, readiness.text
+    assert UUID(hex=readiness.headers['x-request-id']).version == 4
     detail = readiness.json()['detail']
     if environment:
         assert set(detail) == {environment}

@@ -428,11 +428,13 @@ def test_renderer_provenance_changes_leave_foley_and_identity_unchanged(
         shutil.copyfile(path, target)
     fingerprint = renderer_source_sha256
     assert fingerprint(fingerprint_root) == fingerprint(root)
-    table = fingerprint_root / "src/baloot_platform/video/remotion/scripts/approved-layout-adjacencies.json"
-    table_bytes = table.read_bytes()
-    table.write_bytes(table_bytes + b"\n")
-    assert fingerprint(fingerprint_root) != fingerprint(root)
-    table.write_bytes(table_bytes)
+    scripts = fingerprint_root / "src/baloot_platform/video/remotion/scripts"
+    for name in ("approved-layout-adjacencies.json", "ffmpeg-runtime.json"):
+        source = scripts / name
+        original = source.read_bytes()
+        source.write_bytes(original + b"\n")
+        assert fingerprint(fingerprint_root) != fingerprint(root)
+        source.write_bytes(original)
     monkeypatch.setattr(media_validation, "renderer_source_sha256", lambda _: fingerprint(fingerprint_root))
     monkeypatch.setattr(render_bundle, "renderer_source_sha256", lambda _: fingerprint(fingerprint_root))
 
