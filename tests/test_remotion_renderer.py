@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -22,6 +23,7 @@ from baloot_platform.core.enums import Contract, Seat
 from baloot_platform.core.episode_io import load_episode_spec
 from baloot_platform.core.projects import project_candidates
 from baloot_platform.plugins.registry import PluginPolicy, PluginRegistry
+from baloot_platform.video import media_validation
 from baloot_platform.video.remotion_renderer import RemotionProfessionalRenderer
 from baloot_platform.video.render_bundle import RenderBundleV1
 from baloot_platform.video.scene import SceneDocumentV1, _walk_leaves
@@ -336,21 +338,26 @@ def test_playback_evidence_derives_all_complete_trace_boundaries(root: Path, vie
         renderer._playback_state_evidence(bundle, checkpoints)
 
 
-@pytest.mark.parametrize("widened", [False, True], ids=["approved", "widened"])
-def test_layout_receipt_binds_raw_mp4_bundle_table_and_checkpoint_bytes(root, tmp_path, widened):
+@pytest.mark.parametrize("case", ["approved", "widened", "repinned"])
+def test_layout_receipt_binds_raw_mp4_bundle_table_and_checkpoint_bytes(
+    root, tmp_path, monkeypatch, case
+):
     def retain(name, contents):
         target = tmp_path / name
         target.write_bytes(contents)
         return target, remotion_renderer_module._sha256(target)
 
-    approved = (root / "src/baloot_platform/video/remotion/scripts/approved-layout-adjacencies.json").read_bytes()
-    if widened:
+    scripts = root / "src/baloot_platform/video/remotion/scripts"
+    approved = (scripts / "approved-layout-adjacencies.json").read_bytes()
+    if case == "widened":
         altered = json.loads(approved)
         altered["rows"].append({
             "phase": "hook", "pair": ["promptPill:0", "broadcastHud:0"],
             "observedMaxWidth": 200, "observedMaxHeight": 5, "marginEachAxis": 2,
         })
         approved = json.dumps(altered).encode("utf-8")
+    elif case == "repinned":
+        approved += b"\n"
     table, table_sha = retain("layout-table.json", approved)
     bundle, bundle_sha = retain("render-bundle.json", b'{"schemaVersion": 1}')
     video, video_sha = retain("render.mp4", b"rendered media")
@@ -371,10 +378,35 @@ def test_layout_receipt_binds_raw_mp4_bundle_table_and_checkpoint_bytes(root, tm
             tmp_path, bundle_path=bundle, bundle_sha256="bundle-sha",
         )
 
-    if widened:
+    if case != "approved":
         with pytest.raises(ValueError, match="layout table, bundle and rendered MP4"):
             read()
+    if case == "widened":
         return
+    if case == "repinned":
+        pin = tmp_path / "approved-layout-pin.json"
+        pin.write_text(
+            json.dumps({"schemaVersion": 1, "tableSha256": table_sha}), encoding="utf-8"
+        )
+        monkeypatch.setattr(media_validation, "_APPROVED_LAYOUT_PIN_PATH", pin)
+        gate = tmp_path / "layout-gate.mjs"
+        shutil.copyfile(scripts / gate.name, gate)
+        (tmp_path / "approved-layout-adjacencies.json").write_bytes(approved)
+        result = subprocess.run(
+            [
+                "node",
+                "--input-type=module",
+                "--eval",
+                "const {loadLayoutTable} = await import(process.argv[1]);"
+                "console.log((await loadLayoutTable()).tableSha256);",
+                gate.as_uri(),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        assert result.stdout.strip() == read()["binding"]["tableSha256"]
 
     assert read() == evidence
     for file in (table, bundle, video, png):

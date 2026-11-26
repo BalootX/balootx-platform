@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 from baloot_platform.core.rules import RuleBook
 from baloot_platform.research.exact_state import ExactStateNormalizerV1
 from baloot_platform.research.scenario_contracts import canonical_sha256
-from baloot_platform.video.media_validation import APPROVED_LAYOUT_TABLE_SHA256
+from baloot_platform.video.media_validation import approved_layout_table_sha256
 from baloot_platform.video.remotion_renderer import (
     RemotionProfessionalRenderer,
     _json_write,
@@ -36,6 +36,7 @@ from baloot_platform.video.render_bundle import (
 from baloot_platform.video.typography import FONT_BODY_BOLD
 from baloot_platform.video.visual_qa import assert_text_supported, text_bbox
 from scripts.remotion_image_parity import check_parity
+from scripts.render_kickoff import SOURCE_SHA, require_kickoff_receipt, verify_worker_build
 from scripts.render_release import render_timeout_seconds
 from scripts.render_research_scenario_v4_goldens import build_golden_bundle
 
@@ -91,7 +92,6 @@ TARGET_SECONDS = 44
 STAGES = ("hook", "rewind", "setup", "replay", "question", "reveal", "continuation", "outcome")
 PHASES = ("hook", "setup", "replay", "question", "reveal", "continuation", "outcome")
 STYLE = ROOT / "src/baloot_platform/video/remotion/src/style.css"
-SOURCE_SHA = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 WORKER_LOCK_STAMP = Path("/opt/baloot-remotion/.lock-sha256")
 
 
@@ -437,7 +437,8 @@ def _release_layout(manifest: dict, video: Path, bundle_sha256: str) -> tuple[di
     geometry = manifest.get("layoutGeometry") or {}
     if geometry.get("mode") == "measurement" or geometry.get("disposition") == "NEVER_POST":
         raise ValueError("layout measurement MP4 is permanently NEVER_POST")
-    if geometry.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256:
+    approved_sha256 = approved_layout_table_sha256()
+    if geometry.get("tableSha256") != approved_sha256:
         raise ValueError("release requires the approved layout table SHA-256")
     video_sha256 = _sha256(video)
     if (
@@ -451,7 +452,7 @@ def _release_layout(manifest: dict, video: Path, bundle_sha256: str) -> tuple[di
     files = manifest["files"]
     paths = []
     for key, pin in (
-        ("layoutTable", APPROVED_LAYOUT_TABLE_SHA256),
+        ("layoutTable", approved_sha256),
         ("layoutGeometry", geometry["evidenceSha256"]),
         *((f"layout:{phase}", files.get(f"layout:{phase}", {}).get("sha256")) for phase in geometry["phases"]),
     ):
@@ -475,7 +476,7 @@ def _release_layout(manifest: dict, video: Path, bundle_sha256: str) -> tuple[di
         evidence.get("status") != "passed"
         or binding.get("mode") != "qualification"
         or binding.get("bundleSha256") != bundle_sha256
-        or binding.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256
+        or binding.get("tableSha256") != approved_sha256
         or evidence.get("videoSha256") != geometry["rendererVideoSha256"]
     ):
         raise ValueError("release layout checkpoint evidence does not match the qualification receipt")
@@ -547,34 +548,34 @@ def _verify_public_renderer(
     """Verify the selected build receipt against the launcher-observed image ID."""
     receipt_path = os.environ.get("BALOOT_RENDER_BUILD_RECEIPT")
     image_id = os.environ.get("BALOOT_RENDER_IMAGE_ID", "")
-    if not receipt_path or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+    if not receipt_path:
         raise ValueError("public render requires a selected build receipt and executing image ID")
-    try:
-        build = json.loads(Path(receipt_path).read_bytes())
-    except (OSError, ValueError) as exc:
-        raise ValueError("public render build receipt is unreadable") from exc
-    if (
-        not isinstance(build, dict)
-        or build.get("status") != "PASSED"
-        or build.get("target") != "video-worker"
-    ):
-        raise ValueError("public render requires a passed video-worker build receipt")
-    if (build.get("sourceHead"), build.get("sourceTree")) != (source_head, source_tree):
-        raise ValueError("public render build source does not match the selected source")
-    if build.get("imageId") != image_id:
-        raise ValueError("public render image does not match the selected build")
+    lock_digest = verify_worker_build(Path(receipt_path), source_head, source_tree, image_id)
+    kickoff_path = os.environ.get("BALOOT_RENDER_KICKOFF_RECEIPT")
+    if not kickoff_path:
+        raise ValueError("public render requires a passed render kickoff receipt")
+    main_head, checked_at = require_kickoff_receipt(
+        Path(kickoff_path), source_head, source_tree, image_id, lock_digest, checkout=ROOT
+    )
 
     lockfile = ROOT / "src/baloot_platform/video/remotion/package-lock.json"
     digest = _sha256(lockfile)
     if (
-        build.get("packageLockSha256") != digest
+        lock_digest != digest
         or WORKER_LOCK_STAMP.read_bytes() != f"{digest}  package-lock.json\n".encode("ascii")
         or _sha256(renderer_root / "package-lock.json") != digest
     ):
         raise ValueError("public render lockfile does not match the selected build")
-    if check_parity(renderer_root / "node_modules", lockfile):
+    dependencies = renderer_root / "node_modules"
+    if (
+        dependencies.resolve() != WORKER_LOCK_STAMP.with_name("node_modules").resolve()
+        or check_parity(dependencies, lockfile)
+    ):
         raise ValueError("public render dependencies do not match the selected lockfile")
-    return {"imageId": image_id, "packageLockSha256": digest}
+    return {
+        "imageId": image_id, "packageLockSha256": digest,
+        "kickoffMainHead": main_head, "checkedAt": checked_at,
+    }
 
 
 def main(
@@ -606,6 +607,7 @@ def main(
     profile = notice_profile(public=public)
     renderer = RemotionProfessionalRenderer(
         profile, repository_root=ROOT, timeout_seconds=render_timeout_seconds(),
+        use_worker_renderer=public,
     )
     renderer_provenance = (
         _verify_public_renderer(renderer.renderer_root, source_head, source_tree)
@@ -722,8 +724,8 @@ if __name__ == "__main__":
         "--public",
         action="store_true",
         help=(
-            "Render the approved public v4 variant. Requires a selected build receipt "
-            "(BALOOT_RENDER_BUILD_RECEIPT) and the launcher-observed image ID (BALOOT_RENDER_IMAGE_ID)."
+            "Render the approved public v4 variant. Requires BALOOT_RENDER_BUILD_RECEIPT, "
+            "BALOOT_RENDER_IMAGE_ID and BALOOT_RENDER_KICKOFF_RECEIPT from the launcher."
         ),
     )
     parser.add_argument("--source-head", help="Pinned source commit SHA for archive execution.")

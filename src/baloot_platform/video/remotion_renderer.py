@@ -17,6 +17,7 @@ import signal
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import time
 from collections.abc import Mapping
@@ -48,8 +49,8 @@ from .render_bundle import (
 from .audio_postprocess import finish_remotion_audio
 from .media_validation import (
     APPROVED_LAYOUT_TABLE,
-    APPROVED_LAYOUT_TABLE_SHA256,
     REMOTION_RENDERER_VERSION,
+    approved_layout_table_sha256,
     compare_source_frame,
     media_tool,
     probe_media,
@@ -64,6 +65,7 @@ _CARD_LABEL = re.compile(r"(?:10|[2-9JQKA])[♠♥♦♣]")
 _LTR_ISOLATE = "\u2066"
 _POP_DIRECTIONAL_ISOLATE = "\u2069"
 _LAYOUT_PHASES = ("hook", "question", "reveal")
+WORKER_RENDERER_ROOT = Path(sysconfig.get_path("purelib")) / "baloot_platform/video/remotion"
 
 
 def _localized_template_value(value: object) -> str:
@@ -118,11 +120,12 @@ def _qualified_layout_evidence(
     if binding.get("mode") != "qualification" or evidence.get("disposition") == "NEVER_POST":
         raise ValueError("layout measurement MP4 is permanently NEVER_POST")
     table_path = work / "layout-table.json"
+    approved_sha256 = approved_layout_table_sha256()
     if (
         evidence.get("schemaVersion") != 1
         or evidence.get("status") != "passed"
-        or binding.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256
-        or _sha256(table_path) != APPROVED_LAYOUT_TABLE_SHA256
+        or binding.get("tableSha256") != approved_sha256
+        or _sha256(table_path) != approved_sha256
         or binding.get("bundleFileSha256") != _sha256(bundle_path)
         or binding.get("bundleSha256") != bundle_sha256
         or evidence.get("videoSha256") != _sha256(work / "render.mp4")
@@ -137,7 +140,7 @@ def _qualified_layout_evidence(
         if (
             not source or Path(source).name != source or not source.endswith(".png")
             or row.get("binding") != binding
-            or validation.get("tableSha256") != APPROVED_LAYOUT_TABLE_SHA256
+            or validation.get("tableSha256") != approved_sha256
             or validation.get("status") != "passed"
             or _sha256(work / source) != row.get("pngSha256")
         ):
@@ -314,6 +317,7 @@ class RemotionProfessionalRenderer:
         *,
         repository_root: str | Path | None = None,
         timeout_seconds: int | None = None,
+        use_worker_renderer: bool = False,
     ):
         if timeout_seconds is not None:
             if (
@@ -335,9 +339,11 @@ class RemotionProfessionalRenderer:
         )
         source_renderer = self.repository_root / "src/baloot_platform/video/remotion"
         packaged_renderer = Path(__file__).resolve().parent / "remotion"
-        self.renderer_root = (
-            source_renderer if source_renderer.is_dir() else packaged_renderer
-        )
+        self.use_worker_renderer = use_worker_renderer
+        if use_worker_renderer:
+            self.renderer_root = WORKER_RENDERER_ROOT
+        else:
+            self.renderer_root = source_renderer if source_renderer.is_dir() else packaged_renderer
         if not (self.renderer_root / "scripts/render-flagship.mjs").is_file():
             raise FileNotFoundError("Remotion renderer package is missing")
         self.ffprobe: Path | None = None
@@ -830,6 +836,8 @@ class RemotionProfessionalRenderer:
         cancel_event: Event | None,
     ) -> None:
         process_environment = {**os.environ, "BALOOTX_PYTHON": sys.executable, **environment}
+        if self.use_worker_renderer:
+            process_environment["BALOOTX_DISABLE_BUNDLE_CACHE"] = "1"
         render_temp = os.environ.get("BALOOT_RENDER_TEMP", "").strip()
         temp_root = None
         if render_temp:
@@ -953,7 +961,7 @@ class RemotionProfessionalRenderer:
         if qualify_layout:
             if "BALOOTX_LAYOUT_TABLE" in os.environ or "BALOOTX_LAYOUT_TABLE_SHA256" in os.environ:
                 raise ValueError("layout table overrides require NEVER_POST measurement mode")
-            if _sha256(self.renderer_root / APPROVED_LAYOUT_TABLE) != APPROVED_LAYOUT_TABLE_SHA256:
+            if _sha256(self.renderer_root / APPROVED_LAYOUT_TABLE) != approved_layout_table_sha256():
                 raise ValueError("approved layout table SHA-256 mismatch")
         layout_files: dict[str, Path] = {}
         layout_geometry = None

@@ -1,5 +1,10 @@
+from datetime import UTC, datetime
+from hashlib import sha256
 import json
+from pathlib import Path
+import shutil
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -165,7 +170,7 @@ def test_hook_check_requires_the_receipt_for_the_exact_bundle(tmp_path, monkeypa
             "mode": "qualification",
             "bundleSha256": "a" * 64,
             "bundleFileSha256": nightly.file_receipt(bundle)["sha256"],
-            "tableSha256": nightly.APPROVED_LAYOUT_TABLE_SHA256,
+            "tableSha256": nightly.file_receipt(table)["sha256"],
         },
     }
 
@@ -465,7 +470,8 @@ def test_picker_applies_live_variety_before_filling_two_days():
     assert len({item["id"] for item in picks + fallbacks}) == len(picks + fallbacks)
 
 
-def test_sealed_pool_binds_media_and_exact_run(tmp_path):
+@pytest.fixture
+def sealed_nightly_pool(tmp_path):
     shards = tmp_path / "shards"
     shard = shards / "nightly-candidate-shard-0"
     rows = []
@@ -481,7 +487,7 @@ def test_sealed_pool_binds_media_and_exact_run(tmp_path):
                 "status": "passed",
                 "video": nightly.file_receipt(video),
                 "scoreInputs": {
-                    "mechanism": i % 3,
+                    "mechanism": f"mechanism-{i % 3}",
                     **{
                         field: str(i)
                         for field in (
@@ -491,6 +497,12 @@ def test_sealed_pool_binds_media_and_exact_run(tmp_path):
                             "visibleOpenerSha256",
                         )
                     },
+                },
+                "scorecard": {
+                    "parts": {"D": 25, "S": 10, "V": 15},
+                    "difficultyPrior": 50,
+                    "mechanismFrequency": 0,
+                    "exactStateId": str(i),
                 },
             }
         )
@@ -509,6 +521,11 @@ def test_sealed_pool_binds_media_and_exact_run(tmp_path):
     )
     output = tmp_path / "pool"
     nightly.seal_pool(shards, output, source=source, tree=tree, run_id=run_id)
+    return output, run_id, source, rows
+
+
+def test_sealed_pool_binds_media_and_exact_run(sealed_nightly_pool):
+    output, run_id, source, rows = sealed_nightly_pool
     index, seal = picker.verified_pool(
         output, {"databaseId": run_id, "headSha": source}
     )
@@ -519,6 +536,182 @@ def test_sealed_pool_binds_media_and_exact_run(tmp_path):
     (output / rows[0]["id"] / "candidate.mp4").write_bytes(b"tampered")
     with pytest.raises(picker.PlanError, match="POOL_HASH_MISMATCH"):
         picker.verified_pool(output)
+
+
+@pytest.fixture
+def nightly_pick(tmp_path, monkeypatch, capsys, sealed_nightly_pool):
+    artifact, run_id, source, _ = sealed_nightly_pool
+    ledger = tmp_path / "history.json"
+    output = tmp_path / "picks"
+    output.mkdir()
+    caption_pool = tmp_path / "captions.json"
+    private = tmp_path / "caption-rules.json"
+    reference = tmp_path / "slots.json"
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    clock = SimpleNamespace(now=lambda _: now, fromisoformat=datetime.fromisoformat)
+    history = [
+        {
+            "id": "1",
+            "status": "CONFIRMED",
+            "platform": "TikTok",
+            "url": "https://example.test/@synthetic/video/1",
+            "mechanism": "opening",
+        }
+    ]
+    nightly.write_json(ledger, {"records": history})
+    caption_sha = nightly.write_json(
+        caption_pool,
+        {
+            "captions": [
+                {"text": f"synthetic-{i}", "sha256": f"{i:064x}"}
+                for i in range(picker.PICKS)
+            ]
+        },
+    )["sha256"]
+    private_sha = nightly.write_json(private, {})["sha256"]
+    reference_sha = nightly.write_json(
+        reference,
+        {
+            "slots": [
+                {"slotUtc": f"2026-01-01T{hour:02}:00:00Z"} for hour in (9, 12, 15, 18)
+            ]
+        },
+    )["sha256"]
+
+    def read_pinned(path, digest):
+        raw = path.read_bytes()
+        assert sha256(raw).hexdigest() == digest
+        return raw
+
+    def read_history(value, binding, at, inputs):
+        assert at == now
+        known = [row for row in value["records"] if row["status"] == "CONFIRMED"]
+        return known, set(), [], [], known, []
+
+    gate = SimpleNamespace(
+        LEDGER=ledger,
+        PRIVATE=private,
+        PRIVATE_SHA=private_sha,
+        CAPTION_POOL_SHA=caption_sha,
+        CONFIRMED="CONFIRMED",
+        POST_STATUSES={"CONFIRMED"},
+        Inputs=lambda: SimpleNamespace(read=read_pinned),
+        parse=json.loads,
+        history=read_history,
+        check_caption=lambda *args: [],
+        check_history=lambda *args: ([], 15),
+        check_score=lambda *args: [],
+        variety_windows=lambda chronology: (chronology, []),
+    )
+    for module in (picker, shadow):
+        monkeypatch.setattr(module, "datetime", clock)
+    monkeypatch.setattr(picker, "load_gate", lambda *args: gate)
+
+    def pick(*, download=False):
+        capsys.readouterr()
+        flags = {
+            "ledger": ledger,
+            "caption-pool": caption_pool,
+            "gate": tmp_path / "gate.py",
+            "policy": tmp_path / "policy" / "gate.json",
+            "output": output,
+        }
+        if not download:
+            flags["artifact"] = artifact
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "picker",
+                *(
+                    str(arg)
+                    for key, value in flags.items()
+                    for arg in (f"--{key}", value)
+                ),
+            ],
+        )
+        code = picker.main()
+        return code, capsys.readouterr().out.strip()
+
+    handoff = output / f"pick-{run_id}" / "candidate-pick.json"
+
+    def build():
+        return shadow.build_day(
+            handoff,
+            ledger,
+            reference,
+            reference_sha,
+            0,
+            tmp_path / "shadow",
+            gate=gate,
+            caption_pool=caption_pool,
+        )
+
+    return SimpleNamespace(
+        pick=pick,
+        handoff=handoff,
+        build=build,
+        ledger=ledger,
+        history=history,
+        artifact=artifact,
+        run={"databaseId": run_id, "headSha": source},
+    )
+
+
+def test_picker_holds_when_shadow_rejects_stale_history(nightly_pick):
+    assert nightly_pick.pick() == (0, "NIGHTLY_PICK_READY")
+    original = nightly_pick.handoff.read_bytes()
+    nightly.write_json(
+        nightly_pick.ledger, {"records": [*nightly_pick.history, {"status": "pending"}]}
+    )
+    with pytest.raises(picker.PlanError, match="SHADOW_PICK_BINDING_MISMATCH"):
+        nightly_pick.build()
+    code, status = nightly_pick.pick()
+    assert (code, status) == (1, "NIGHTLY_PICK_HELD SHADOW_PICK_BINDING_MISMATCH")
+    assert nightly_pick.handoff.read_bytes() == original
+
+
+@pytest.mark.parametrize("change", [None, "invalid", "different-selection"])
+def test_picker_reuses_only_the_current_selection(nightly_pick, change):
+    assert nightly_pick.pick() == (0, "NIGHTLY_PICK_READY")
+    handoff = nightly_pick.handoff
+    if change == "invalid":
+        handoff.write_bytes(b"{}")
+    elif change == "different-selection":
+        pick = json.loads(handoff.read_bytes())
+        pick["days"].reverse()
+        nightly.write_json(handoff, pick)
+    original = handoff.read_bytes()
+    code, status = nightly_pick.pick()
+    assert code == (1 if change else 0)
+    assert status.startswith("NIGHTLY_PICK_HELD" if change else "NIGHTLY_PICK_READY")
+    assert handoff.read_bytes() == original
+
+
+@pytest.mark.parametrize("matches", [True, False])
+def test_picker_checks_the_concurrent_winner(nightly_pick, monkeypatch, matches):
+    def download(repo, output, now):
+        shutil.copytree(nightly_pick.artifact, output)
+        return nightly_pick.run
+
+    rename = Path.rename
+    winner = None
+
+    def race(path, target):
+        nonlocal winner
+        if target == nightly_pick.handoff.parent:
+            shutil.copytree(path, target)
+            if not matches:
+                nightly_pick.handoff.write_bytes(b"{}")
+            winner = nightly_pick.handoff.read_bytes()
+        return rename(path, target)
+
+    monkeypatch.setattr(picker, "download_pool", download)
+    monkeypatch.setattr(Path, "rename", race)
+    code, status = nightly_pick.pick(download=True)
+    assert code == (0 if matches else 1)
+    assert status.startswith("NIGHTLY_PICK_READY" if matches else "NIGHTLY_PICK_HELD")
+    assert winner is not None and nightly_pick.handoff.read_bytes() == winner
 
 
 def test_shadow_checks_approved_names_and_notice(monkeypatch):

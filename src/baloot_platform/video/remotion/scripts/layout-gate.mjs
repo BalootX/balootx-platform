@@ -1,5 +1,5 @@
 import {createHash} from "node:crypto";
-import {createReadStream} from "node:fs";
+import {createReadStream, readFileSync} from "node:fs";
 import {readFile} from "node:fs/promises";
 
 const phases = ["hook", "question", "reveal"];
@@ -9,7 +9,25 @@ const pairKey = (phase, pair) => [phase, ...[...pair].sort()].join("|");
 const positive = value => Number.isFinite(value) && value > 0;
 const roleId = /^(promptPill|namePills|buyerBadge|dealerBadge|choiceBox):(0|[1-9]\d*)$/;
 const hash = /^[a-f0-9]{64}$/;
-const approvedLayoutTableSha256 = "9f5f305b43c0d4f15cf4c15479807ec4cd4e8840150c35afae742ffa85687d28";
+const approvedLayoutPin = new URL("./approved-layout-pin.json", import.meta.url);
+
+function approvedLayoutTableSha256() {
+  let config;
+  try {
+    const decoder = new TextDecoder("utf-8", {fatal: true, ignoreBOM: true});
+    config = JSON.parse(decoder.decode(readFileSync(approvedLayoutPin)));
+  } catch (cause) {
+    throw new Error(`${approvedLayoutPin.pathname}: restore UTF-8 JSON with schemaVersion 1 and the approved tableSha256`, {cause});
+  }
+  if (config?.schemaVersion !== 1) {
+    throw new Error(`${approvedLayoutPin.pathname}: schemaVersion must be 1`);
+  }
+  const pin = config.tableSha256;
+  if (typeof pin !== "string" || pin.length !== 64 || !hash.test(pin)) {
+    throw new Error(`${approvedLayoutPin.pathname}: tableSha256 must be the approved 64-character lowercase SHA-256`);
+  }
+  return pin;
+}
 
 export const layoutMeasurementMarker = "balootx-layout-measurement-never-post";
 export const sha256 = value => createHash("sha256").update(value).digest("hex");
@@ -31,7 +49,7 @@ export async function loadLayoutTable({measure = false, file, expectedSha256} = 
   if (file !== undefined && !expectedSha256) {
     throw new Error("an external layout table requires its SHA-256 pin");
   }
-  const pin = expectedSha256 ?? approvedLayoutTableSha256;
+  const pin = expectedSha256 ?? approvedLayoutTableSha256();
   const bytes = await readFile(file ?? new URL("./approved-layout-adjacencies.json", import.meta.url));
   const tableSha256 = sha256(bytes);
   if (pin !== tableSha256) {
@@ -94,7 +112,7 @@ export function checkLayoutGeometry(row, expected, table) {
       || row.binding?.tableSha256 !== table.tableSha256) fail("render or table binding mismatch");
   const measure = expected.binding.mode === "measurement";
   if (!measure && expected.binding.mode !== "qualification") fail("invalid layout mode");
-  if (!measure && table.tableSha256 !== approvedLayoutTableSha256) fail("approved layout table SHA-256 mismatch");
+  if (!measure && table.tableSha256 !== approvedLayoutTableSha256()) fail("approved layout table SHA-256 mismatch");
   if (!Number.isFinite(row.rootRect?.left) || !Number.isFinite(row.rootRect?.top)
       || !positive(row.rootRect?.width) || !positive(row.rootRect?.height)) fail("root is unmeasured");
   if (!row.roles || Object.keys(row.roles).length !== roles.length) fail("role measurements missing");

@@ -2,18 +2,10 @@
 
 from __future__ import annotations
 
-import errno
-import os
 from pathlib import Path
 import tempfile
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-
-
-_WINDOWS_REPLACE_ATTEMPTS = 40
-_WINDOWS_REPLACE_INITIAL_BACKOFF_SECONDS = 0.002
-_WINDOWS_REPLACE_MAXIMUM_BACKOFF_SECONDS = 0.025
 
 
 @contextmanager
@@ -29,30 +21,17 @@ def staged_render_output(destination: Path) -> Iterator[Path]:
             artifact.replace(destination / artifact.name)
 
 
-def _retryable_replace_error(exc: OSError) -> bool:
-    return os.name == "nt" and (
-        getattr(exc, "winerror", None) in {5, 32}
-        or exc.errno == errno.EINVAL
-    )
-
-
 def _replace(source: Path, destination: Path) -> None:
-    backoff = _WINDOWS_REPLACE_INITIAL_BACKOFF_SECONDS
-    for attempt in range(_WINDOWS_REPLACE_ATTEMPTS):
-        try:
-            os.replace(source, destination)
-            return
-        except OSError as exc:
-            if (
-                not _retryable_replace_error(exc)
-                or attempt + 1 >= _WINDOWS_REPLACE_ATTEMPTS
-            ):
-                raise
-            time.sleep(backoff)
-            backoff = min(
-                _WINDOWS_REPLACE_MAXIMUM_BACKOFF_SECONDS,
-                backoff * 2,
-            )
+    try:
+        source.replace(destination)
+    except OSError as exc:
+        raise OSError(
+            exc.errno,
+            "Could not atomically replace the output file. "
+            "Close any program using it and check directory permissions.",
+            None,
+            getattr(exc, "winerror", None),
+        ) from None
 
 
 def atomic_write_text(
