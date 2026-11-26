@@ -143,7 +143,16 @@ jobs:
           fi
           previous_root="$RUNNER_TEMP/previous-release"
           git worktree add --detach "$previous_root" "$previous_ref"
-          BALOOT_PREVIOUS_ROOT="$previous_root" python -m pytest -q -s tests/postgres_configuration_schedule.py
+          export BALOOT_PREVIOUS_ROOT="$previous_root"
+          suite=tests/postgres_configuration_schedule.py
+          sqlite_startup="${suite}::test_runtime_boot_and_recovery_across_scheduled_handoff[sqlite]"
+          # The isolated SQLite startup proof does not use the PostgreSQL fixture.
+          python -m pytest -q -s "$suite" --deselect "$sqlite_startup" &
+          configuration_pid=$!
+          status=0
+          python -m pytest -q -s "$sqlite_startup" || status=$?
+          wait "$configuration_pid" || status=$?
+          exit "$status"
 
   identity-postgres:
     needs: [plan, preflight]

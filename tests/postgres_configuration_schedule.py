@@ -410,11 +410,12 @@ def test_rollback_audit_commits_with_the_actual_replacement(
 
 @pytest.mark.parametrize("backend", ["sqlite", "postgres"])
 def test_runtime_boot_and_recovery_across_scheduled_handoff(
-    root: Path, tmp_path: Path, migrated_postgres: tuple[str, str],
-    monkeypatch: pytest.MonkeyPatch, backend: str,
+    root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest, backend: str,
 ) -> None:
+    app_dsn = request.getfixturevalue("migrated_postgres")[1] if backend == "postgres" else None
     store = (
-        PostgresConfigurationStore(migrated_postgres[1]) if backend == "postgres"
+        PostgresConfigurationStore(app_dsn) if app_dsn is not None
         else SQLiteConfigurationStore(tmp_path / "configuration.sqlite3")
     )
     token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id="TEST", role="service"))
@@ -435,10 +436,12 @@ def test_runtime_boot_and_recovery_across_scheduled_handoff(
 
     def probe(
         expected: str, *, source: Path = root, recovery_target: str = "", diagnostic: str = "",
-        research: tuple[str, str, str] = ("", "", ""), check_research_recovery: bool = False,
+        research: tuple[str, str, str] = ("", "", ""),
+        recovery_research_scopes: tuple[tuple[str, str], ...] = (),
     ) -> None:
         subprocess.run(
             [sys.executable, "-c", """
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -446,7 +449,8 @@ from pathlib import Path
 import baloot_platform
 from baloot_platform.configuration import service
 
-instant, expected, recovery_target, diagnostic, source_path, bundle_id, environment, research_id, check_research_recovery = sys.argv[1:]
+instant, expected, recovery_target, diagnostic, source_path, bundle_id, environment, research_id, scope_json = sys.argv[1:]
+recovery_research_scopes = json.loads(scope_json)
 assert Path(baloot_platform.__file__).resolve().is_relative_to(Path(source_path).resolve() / 'src')
 
 class Clock(datetime):
@@ -498,7 +502,7 @@ with TestClient(app) as client:
         token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id='TEST', role='service'))
         try:
             target = CONFIGURATION.store.get_bundle(recovery_target)
-            legacy = CONFIGURATION.store.get_bundle(expected) if check_research_recovery == 'True' else None
+            legacy = CONFIGURATION.store.get_bundle(expected) if recovery_research_scopes else None
         finally:
             CURRENT_DATABASE_IDENTITY.reset(token)
         before = snapshot(target.bundle_id)
@@ -508,13 +512,8 @@ with TestClient(app) as client:
             assert expected not in denied.text
             assert denied.json()['requestId'] == denied.headers['x-request-id']
         assert snapshot(target.bundle_id) == before
-        if check_research_recovery == 'True':
-            from baloot_platform.config import build_bundle
-            from baloot_platform.service.container import _PACKAGED_RESEARCH_BUNDLES
-
-            for path, environment in _PACKAGED_RESEARCH_BUNDLES:
-                packaged = build_bundle(Path(source_path), bundle_path=path)
-                bundle_id = packaged.bundle_profile['profile']['id']
+        if recovery_research_scopes:
+            for bundle_id, environment in recovery_research_scopes:
                 research_before = snapshot(bundle_id)
                 assert len(research_before[0]) == 1 and research_before[0][0].status == 'draft'
                 assert len(research_before[1][0]) == 1
@@ -532,7 +531,7 @@ with TestClient(app) as client:
         restored = client.post(rollback, headers=admin, json=body)
         assert restored.status_code == 201, restored.text
         assert CONFIGURATION.resolve(bundle_id=restored.json()['bundleId'])['bundle']['revisionId'] == restored.json()['revisionId']
-""", instant, expected, recovery_target, diagnostic, str(source), *research, str(check_research_recovery)],
+""", instant, expected, recovery_target, diagnostic, str(source), *research, json.dumps(recovery_research_scopes)],
             cwd=source,
             env={**startup_environment, "BALOOT_ROOT": str(source), "PYTHONPATH": str(source / "src")},
             check=True,
@@ -540,8 +539,9 @@ with TestClient(app) as client:
 
     monkeypatch.setattr(configuration_service, "datetime", Clock)
     try:
-        service = VersionedConfigurationService(store, root=root, profile=build_bundle(root).component("configuration"))
-        baseline = service.bootstrap_packaged_bundle(actor_id="TEST")
+        packaged = build_bundle(root)
+        service = VersionedConfigurationService(store, root=root, profile=packaged.component("configuration"))
+        baseline = service.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)
         original = baseline["bundle"]
         defaults = {"bundle_id": original["bundleId"], "mode": original["mode"], "created_by": "TEST", "publish": True}
 
@@ -555,10 +555,10 @@ with TestClient(app) as client:
             **defaults, "version": "99.7.13", "component_revisions": new_components("99.7.13"),
             "effective_until": "2026-07-01T17:00:00Z",
         }
-        research_scopes = [
+        research_scopes = tuple(
             (build_bundle(root, bundle_path=path).bundle_profile["profile"]["id"], environment)
             for path, environment in _PACKAGED_RESEARCH_BUNDLES
-        ]
+        )
         # The previous release could write a window without an underlying publication.
         expired = subprocess.run(
             [sys.executable, "-c", """
@@ -597,7 +597,7 @@ finally:
         instant = "2026-07-01T17:00:00+00:00"
         probe(
             expiring_id, recovery_target=original["revisionId"],
-            diagnostic="No configuration bundle is effective", check_research_recovery=True,
+            diagnostic="No configuration bundle is effective", recovery_research_scopes=research_scopes,
         )
         recovered = service.resolve(bundle_id=original["bundleId"])["bundle"]["revisionId"]
         assert recovered not in {expiring_id, original["revisionId"]}
@@ -704,8 +704,8 @@ finally:
         assert store.get_profile(scheduled_profile_id) == scheduled_profile
         assert store.events("profile", scheduled_profile_id) == history
         # Legacy writers could retire a component that an approved window still uses.
-        if backend == "postgres":
-            with psycopg.connect(migrated_postgres[1]) as connection:
+        if app_dsn is not None:
+            with psycopg.connect(app_dsn) as connection:
                 connection.execute("SELECT set_config('app.role', 'service', true)")
                 connection.execute("UPDATE configuration.profile_revisions SET status='retired' WHERE revision_id=%s", (scheduled_profile_id,))
         else:
@@ -716,18 +716,18 @@ finally:
 
         interim = service.create_bundle(**defaults, version="99.7.7", component_revisions=new_components("99.7.7"))
         service.retire_bundle(interim["revisionId"], expected_etag=interim["etag"], actor_id="TEST", reason="Test expiry without predecessor")
-        request = {
+        bounded_request = {
             **defaults, "version": "99.7.8", "component_revisions": new_components("99.7.8"),
             "effective_until": "2026-07-01T17:00:00Z",
         }
         before = store.list_bundles(bundle_id=original["bundleId"])
         audit_before = [store.events("bundle", row.revision_id) for row in before]
         with pytest.raises(ConfigurationScheduleConflict, match="requires an unbounded published bundle at full rollout"):
-            service.create_bundle(**request)
+            service.create_bundle(**bounded_request)
         assert store.list_bundles(bundle_id=original["bundleId"]) == before
         assert [store.events("bundle", row.revision_id) for row in before] == audit_before
 
-        draft = service.create_bundle(**{**request, "publish": False})
+        draft = service.create_bundle(**{**bounded_request, "publish": False})
         draft_before = store.get_bundle(draft["revisionId"])
         draft_audit = store.events("bundle", draft["revisionId"])
         with pytest.raises(ConfigurationScheduleConflict, match="requires an unbounded published bundle at full rollout"):
@@ -744,7 +744,7 @@ finally:
         with pytest.raises(KeyError, match="published configuration bundle not found"):
             service.resolve(bundle_id=original["bundleId"])
         with pytest.raises(ConfigurationIntegrityError, match="No configuration bundle is effective"):
-            service.bootstrap_packaged_bundle(actor_id="TEST")
+            service.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)
         probe(partial["revisionId"], diagnostic="No configuration bundle is effective")
         bounded_components = new_components("99.7.12")
         before = store.list_bundles(bundle_id=original["bundleId"])
