@@ -10,7 +10,7 @@ from typing import Any, Iterable, Mapping, TypeVar
 
 from baloot_platform.storage.request_context import contextual_connection
 
-from .models import BundleRevision, ProfileRevision, canonical, digest, utc_now
+from .models import BundleRevision, ProfileRevision, bundle_payload_fingerprint, canonical, digest, utc_now
 from .schedule import ConfigurationScheduleConflict, normalize_schedule, verify_revision_schedule
 
 
@@ -239,7 +239,50 @@ def _successor_after_retirement(anchor: BundleRevision, current: BundleRevision)
     return None if predecessor == anchor.revision_id else predecessor
 
 
-def _require_runtime_anchor(anchor: BundleRevision | None) -> BundleRevision:
+_RESEARCH_ANCHOR_REQUIRED = (
+    "This research scope requires an unbounded packaged bundle at full rollout for previous-release startup. "
+    "Restore the packaged configuration before publishing a replacement."
+)
+
+
+def _research_runtime_key(dimensions: tuple[Any, ...]) -> str:
+    # Pin the packaged content when this scope is first registered.
+    return f"research_runtime_bundle:{digest(dimensions)}"
+
+
+def _profile_fingerprint(
+    mode: str, profiles: list[ProfileRevision], dimensions: tuple[Any, ...],
+) -> str | None:
+    # The previous bootstrap finds each packaged component in the bundle's exact scope.
+    if any(
+        (profile.scope, profile.scope_key, profile.tenant_id, profile.environment) != dimensions[1:]
+        for profile in profiles
+    ):
+        return None
+    return bundle_payload_fingerprint(mode, {profile.family: profile.payload_sha256 for profile in profiles})
+
+
+def _preserve_research_anchor(
+    fingerprint: str | None,
+    mode: str,
+    profiles: list[ProfileRevision],
+    dimensions: tuple[Any, ...],
+    *,
+    published: bool,
+    timed: bool,
+    rollout: float,
+) -> bool:
+    if fingerprint is None:
+        return False
+    if fingerprint != _profile_fingerprint(mode, profiles, dimensions):
+        return published
+    # The previous service selects the newest row with the packaged content.
+    if not published or timed or rollout != 100:
+        raise ConfigurationScheduleConflict(_RESEARCH_ANCHOR_REQUIRED)
+    return False
+
+
+def _require_runtime_anchor(anchor: BundleRevision | None, *, research: bool = False) -> BundleRevision:
     if (
         anchor is None
         or anchor.effective_from is not None
@@ -247,11 +290,30 @@ def _require_runtime_anchor(anchor: BundleRevision | None) -> BundleRevision:
         or anchor.rollout_percentage != 100
     ):
         raise ConfigurationScheduleConflict(
-            "A timed runtime publication requires an unbounded published bundle at full rollout. "
-            "Publish a verified replacement first."
+            _RESEARCH_ANCHOR_REQUIRED if research else (
+                "A timed runtime publication requires an unbounded published bundle at full rollout. "
+                "Publish a verified replacement first."
+            )
         )
     verify_revision_schedule(anchor)
     return anchor
+
+
+def _verify_anchor_profiles(
+    anchor: BundleRevision, profiles: list[ProfileRevision], fingerprint: str | None,
+) -> None:
+    if fingerprint is not None and _profile_fingerprint(anchor.mode, profiles, _bundle_dimensions(anchor)) != fingerprint:
+        raise ConfigurationScheduleConflict(_RESEARCH_ANCHOR_REQUIRED)
+    for profile in profiles:
+        verify_revision_schedule(profile)
+
+
+def _publication_predecessor(anchor: BundleRevision | None, *, timed: bool, preserve_research: bool) -> str | None:
+    if anchor is None:
+        return None
+    if timed:
+        return anchor.scheduled_successor_id or anchor.revision_id
+    return anchor.revision_id if preserve_research else None
 
 
 class SQLiteConfigurationStore:
@@ -795,31 +857,49 @@ class SQLiteConfigurationStore:
         if updated.rowcount != 1:
             raise RuntimeError("configuration publication changed")
 
-    def register_runtime_bundle(self, dimensions: tuple[Any, ...]) -> None:
+    @staticmethod
+    def _research_fingerprint_tx(conn: sqlite3.Connection, dimensions: tuple[Any, ...]) -> str | None:
+        prefix = _research_runtime_key(dimensions) + ":"
+        row = conn.execute(
+            "SELECT aggregate_key FROM configuration_aggregate_heads WHERE aggregate_key GLOB ?",
+            (prefix + "*",),
+        ).fetchone()
+        return str(row[0])[len(prefix):] if row is not None else None
+
+    def register_runtime_bundle(
+        self, dimensions: tuple[Any, ...], *, protected_fingerprint: str | None = None,
+    ) -> None:
         with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            key = _aggregate_key("runtime_bundle", dimensions)
+            if protected_fingerprint is not None:
+                fingerprint = self._research_fingerprint_tx(conn, dimensions) or protected_fingerprint
+                key = f"{_research_runtime_key(dimensions)}:{fingerprint}"
             conn.execute(
                 "INSERT OR IGNORE INTO configuration_aggregate_heads(aggregate_key,next_sequence,etag,updated_at) "
                 "VALUES(?,1,1,?)",
-                (_aggregate_key("runtime_bundle", dimensions), utc_now()),
+                (key, utc_now()),
             )
+            conn.execute("COMMIT")
 
     def _verify_runtime_anchor_tx(
         self,
         conn: sqlite3.Connection,
         dimensions: tuple[Any, ...],
         anchor: BundleRevision | None,
+        *,
+        fingerprint: str | None,
     ) -> None:
-        registered = conn.execute(
+        if fingerprint is None and conn.execute(
             "SELECT 1 FROM configuration_aggregate_heads WHERE aggregate_key=?",
             (_aggregate_key("runtime_bundle", dimensions),),
-        ).fetchone()
-        if registered is None:
+        ).fetchone() is None:
             return
-        anchor = _require_runtime_anchor(anchor)
-        for profile in self._lock_bundle_components_tx(
+        anchor = _require_runtime_anchor(anchor, research=fingerprint is not None)
+        profiles = self._lock_bundle_components_tx(
             conn, anchor.component_revisions, allowed_statuses=("published", "superseded"),
-        ):
-            verify_revision_schedule(profile)
+        )
+        _verify_anchor_profiles(anchor, profiles, fingerprint)
 
     @classmethod
     def _lock_bundle_components_tx(
@@ -1251,9 +1331,14 @@ class SQLiteConfigurationStore:
             if published:
                 for profile in profiles:
                     verify_revision_schedule(profile)
-            anchor = self._published_bundle_tx(conn, dimensions) if published and (start or end or rollback_target_revision_id) else None
-            if published and (start or end):
-                self._verify_runtime_anchor_tx(conn, dimensions, anchor)
+            timed = bool(start or end)
+            fingerprint = self._research_fingerprint_tx(conn, dimensions)
+            preserve_research = _preserve_research_anchor(
+                fingerprint, mode, profiles, dimensions, published=published, timed=timed, rollout=rollout_percentage,
+            )
+            anchor = self._published_bundle_tx(conn, dimensions) if published else None
+            if published and (timed or preserve_research):
+                self._verify_runtime_anchor_tx(conn, dimensions, anchor, fingerprint=fingerprint)
             if rollback_target_revision_id is not None:
                 target = self._bundle(conn.execute(
                     "SELECT * FROM configuration_bundle_revisions WHERE revision_id=?", (rollback_target_revision_id,),
@@ -1280,9 +1365,8 @@ class SQLiteConfigurationStore:
                         "sequence": sequence}
             revision_id = f"CBR-{digest(identity)[:24].upper()}"
             now = utc_now()
-            scheduled = anchor is not None and bool(start or end)
-            predecessor = (anchor.scheduled_successor_id or anchor.revision_id) if scheduled else None
-            if published and not scheduled:
+            predecessor = _publication_predecessor(anchor, timed=timed, preserve_research=preserve_research)
+            if published and predecessor is None:
                 self._supersede_published_bundles_tx(
                     conn,
                     bundle_id=bundle_id,
@@ -1300,7 +1384,7 @@ class SQLiteConfigurationStore:
                    created_by,created_at,updated_at,published_by,published_at,supersedes_revision_id,scheduled_predecessor_id,etag)
                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)""",
                 (revision_id, bundle_id, version, mode, scope, scope_key, tenant_id, environment,
-                 "superseded" if scheduled else status,
+                 "superseded" if predecessor else status,
                  canonical(component_revisions), content_hash, sequence, start, end, canonical(local) if local is not None else None,
                  float(rollout_percentage), rollout_seed, created_by, now, now,
                  created_by if published else None, now if published else None,
@@ -1309,7 +1393,8 @@ class SQLiteConfigurationStore:
             row = conn.execute("SELECT * FROM configuration_bundle_revisions WHERE revision_id=?", (revision_id,)).fetchone()
             result = self._bundle(row)
             assert result is not None
-            if scheduled:
+            if predecessor:
+                assert anchor is not None
                 self._set_scheduled_successor_tx(conn, anchor.revision_id, result.revision_id)
                 result = replace(result, status="published")
             self._append_event_tx(
@@ -1322,7 +1407,7 @@ class SQLiteConfigurationStore:
                     revision_id,
                     "published",
                     created_by,
-                    {"contentSha256": content_hash, **({"scheduledPredecessorId": predecessor} if scheduled else {})},
+                    {"contentSha256": content_hash, **({"scheduledPredecessorId": predecessor} if predecessor else {})},
                 )
             if rollback_target_revision_id is not None:
                 self._append_event_tx(conn, "bundle", revision_id, "rollback_created", created_by, {
@@ -1409,14 +1494,17 @@ class SQLiteConfigurationStore:
             )
             for profile in profiles:
                 verify_revision_schedule(profile)
-            anchor = (
-                self._published_bundle_tx(conn, _bundle_dimensions(current))
-                if current.effective_from or current.effective_until else None
+            dimensions = _bundle_dimensions(current)
+            timed = bool(current.effective_from or current.effective_until)
+            fingerprint = self._research_fingerprint_tx(conn, dimensions)
+            preserve_research = _preserve_research_anchor(
+                fingerprint, current.mode, profiles, dimensions, published=True, timed=timed, rollout=current.rollout_percentage,
             )
-            if current.effective_from or current.effective_until:
-                self._verify_runtime_anchor_tx(conn, _bundle_dimensions(current), anchor)
-            predecessor = (anchor.scheduled_successor_id or anchor.revision_id) if anchor else None
-            if anchor is None:
+            anchor = self._published_bundle_tx(conn, dimensions)
+            if timed or preserve_research:
+                self._verify_runtime_anchor_tx(conn, dimensions, anchor, fingerprint=fingerprint)
+            predecessor = _publication_predecessor(anchor, timed=timed, preserve_research=preserve_research)
+            if predecessor is None:
                 self._supersede_published_bundles_tx(
                     conn, bundle_id=current.bundle_id, scope=current.scope, scope_key=current.scope_key,
                     tenant_id=current.tenant_id, environment=current.environment,
@@ -1427,7 +1515,7 @@ class SQLiteConfigurationStore:
                 "SET status=?,updated_at=?,etag=etag+1,"
                 "published_by=?,published_at=?,scheduled_predecessor_id=? "
                 "WHERE revision_id=? AND etag=? AND status='draft'",
-                ("superseded" if anchor else "published", now, actor_id, now,
+                ("superseded" if predecessor else "published", now, actor_id, now,
                  predecessor, revision_id, expected_etag),
             )
             if cursor.rowcount != 1:
@@ -1436,7 +1524,8 @@ class SQLiteConfigurationStore:
             updated = conn.execute("SELECT * FROM configuration_bundle_revisions WHERE revision_id=?", (revision_id,)).fetchone()
             result = self._bundle(updated)
             assert result is not None
-            if anchor is not None:
+            if predecessor:
+                assert anchor is not None
                 self._set_scheduled_successor_tx(conn, anchor.revision_id, result.revision_id)
                 result = replace(result, status="published")
             self._append_event_tx(
@@ -1446,7 +1535,7 @@ class SQLiteConfigurationStore:
                 "published",
                 actor_id,
                 {"etag": result.etag, "status": result.status,
-                 **({"scheduledPredecessorId": predecessor} if anchor else {})},
+                 **({"scheduledPredecessorId": predecessor} if predecessor else {})},
             )
             self._bump_invalidation_epoch_tx(conn)
             conn.execute("COMMIT")
@@ -1480,9 +1569,12 @@ class SQLiteConfigurationStore:
             if status == "retired":
                 current = self._bundle(row)
                 assert current is not None
-                anchor = self._published_bundle_tx(conn, _bundle_dimensions(current))
+                dimensions = _bundle_dimensions(current)
+                anchor = self._published_bundle_tx(conn, dimensions)
                 if anchor is None:
                     raise ValueError("only published bundle revisions can be retired")
+                if anchor.revision_id == revision_id and self._research_fingerprint_tx(conn, dimensions) is not None:
+                    raise ValueError(_RESEARCH_ANCHOR_REQUIRED)
                 successor = _successor_after_retirement(anchor, current)
                 if successor != anchor.scheduled_successor_id:
                     self._set_scheduled_successor_tx(conn, anchor.revision_id, successor)
@@ -1953,27 +2045,39 @@ class PostgresConfigurationStore:
         if updated.rowcount != 1:
             raise RuntimeError("configuration publication changed")
 
-    def register_runtime_bundle(self, dimensions: tuple[Any, ...]) -> None:
+    @staticmethod
+    def _research_fingerprint_tx(conn: Any, dimensions: tuple[Any, ...]) -> str | None:
+        row = conn.execute(
+            "SELECT aggregate_id FROM configuration.aggregate_heads WHERE aggregate_type=%s",
+            (_research_runtime_key(dimensions),),
+        ).fetchone()
+        return str(_row_mapping(row)["aggregate_id"]) if row is not None else None
+
+    def register_runtime_bundle(
+        self, dimensions: tuple[Any, ...], *, protected_fingerprint: str | None = None,
+    ) -> None:
         logical_identity = _aggregate_identity(dimensions)
         with contextual_connection(self.pool) as conn:
             self._lock_head(conn, "bundle", logical_identity)
-            self._lock_head(conn, "runtime_bundle", logical_identity)
+            if protected_fingerprint is None:
+                self._lock_head(conn, "runtime_bundle", logical_identity)
+            elif self._research_fingerprint_tx(conn, dimensions) is None:
+                self._lock_head(conn, _research_runtime_key(dimensions), protected_fingerprint)
 
     def _verify_runtime_anchor_tx(
-        self, conn: Any, logical_identity: str, anchor: BundleRevision | None,
+        self, conn: Any, logical_identity: str, anchor: BundleRevision | None, *, fingerprint: str | None,
     ) -> None:
-        registered = conn.execute(
+        if fingerprint is None and conn.execute(
             "SELECT 1 FROM configuration.aggregate_heads WHERE aggregate_type='runtime_bundle' AND aggregate_id=%s",
             (logical_identity,),
-        ).fetchone()
-        if registered is None:
+        ).fetchone() is None:
             return
-        anchor = _require_runtime_anchor(anchor)
+        anchor = _require_runtime_anchor(anchor, research=fingerprint is not None)
         # The published reference already prevents retirement. Keep the writer's lock order.
-        for profile in self._lock_bundle_components_tx(
+        profiles = self._lock_bundle_components_tx(
             conn, anchor.component_revisions, allowed_statuses=("published", "superseded"), lock=False,
-        ):
-            verify_revision_schedule(profile)
+        )
+        _verify_anchor_profiles(anchor, profiles, fingerprint)
 
     @classmethod
     def _lock_bundle_components_tx(
@@ -2512,9 +2616,15 @@ class PostgresConfigurationStore:
                 for profile in profiles:
                     verify_revision_schedule(profile)
             self._lock_head(conn, "bundle", logical_identity)
-            anchor = self._published_bundle_tx(conn, dimensions) if published and (start or end or rollback_target) else None
-            if published and (start or end):
-                self._verify_runtime_anchor_tx(conn, logical_identity, anchor)
+            timed = bool(start or end)
+            fingerprint = self._research_fingerprint_tx(conn, dimensions)
+            preserve_research = _preserve_research_anchor(
+                fingerprint, kwargs["mode"], profiles, dimensions, published=published, timed=timed,
+                rollout=float(kwargs.get("rollout_percentage", 100.0)),
+            )
+            anchor = self._published_bundle_tx(conn, dimensions) if published else None
+            if published and (timed or preserve_research):
+                self._verify_runtime_anchor_tx(conn, logical_identity, anchor, fingerprint=fingerprint)
             supersedes_revision_id = kwargs.get("supersedes_revision_id")
             if rollback_target is not None:
                 target = self._bundle(conn.execute(
@@ -2551,9 +2661,8 @@ class PostgresConfigurationStore:
             }
             revision_id = f"CBR-{digest(identity)[:24].upper()}"
             now = utc_now()
-            scheduled = anchor is not None and bool(start or end)
-            predecessor = (anchor.scheduled_successor_id or anchor.revision_id) if scheduled else None
-            if published and not scheduled:
+            predecessor = _publication_predecessor(anchor, timed=timed, preserve_research=preserve_research)
+            if published and predecessor is None:
                 self._supersede_published_bundles_tx(
                     conn,
                     bundle_id=bundle_id,
@@ -2583,7 +2692,7 @@ class PostgresConfigurationStore:
                     scope_key,
                     tenant_id,
                     environment,
-                    "superseded" if scheduled else status,
+                    "superseded" if predecessor else status,
                     canonical(kwargs["component_revisions"]),
                     content_hash,
                     sequence,
@@ -2603,7 +2712,8 @@ class PostgresConfigurationStore:
             ).fetchone()
             result = self._bundle(row)
             assert result is not None
-            if scheduled:
+            if predecessor:
+                assert anchor is not None
                 self._set_scheduled_successor_tx(conn, anchor.revision_id, result.revision_id)
                 result = replace(result, status="published")
             self._append_event_tx(
@@ -2616,7 +2726,7 @@ class PostgresConfigurationStore:
                     revision_id,
                     "published",
                     kwargs["created_by"],
-                    {"contentSha256": content_hash, **({"scheduledPredecessorId": predecessor} if scheduled else {})},
+                    {"contentSha256": content_hash, **({"scheduledPredecessorId": predecessor} if predecessor else {})},
                 )
             if rollback_target is not None:
                 self._append_event_tx(conn, "bundle", revision_id, "rollback_created", kwargs["created_by"], {
@@ -2734,14 +2844,16 @@ class PostgresConfigurationStore:
             dimensions = _bundle_dimensions(current)
             logical_identity = _aggregate_identity(dimensions)
             self._lock_head(conn, "bundle", logical_identity)
-            anchor = (
-                self._published_bundle_tx(conn, dimensions)
-                if current.effective_from or current.effective_until else None
+            timed = bool(current.effective_from or current.effective_until)
+            fingerprint = self._research_fingerprint_tx(conn, dimensions)
+            preserve_research = _preserve_research_anchor(
+                fingerprint, current.mode, profiles, dimensions, published=True, timed=timed, rollout=current.rollout_percentage,
             )
-            if current.effective_from or current.effective_until:
-                self._verify_runtime_anchor_tx(conn, logical_identity, anchor)
-            predecessor = (anchor.scheduled_successor_id or anchor.revision_id) if anchor else None
-            if anchor is None:
+            anchor = self._published_bundle_tx(conn, dimensions)
+            if timed or preserve_research:
+                self._verify_runtime_anchor_tx(conn, logical_identity, anchor, fingerprint=fingerprint)
+            predecessor = _publication_predecessor(anchor, timed=timed, preserve_research=preserve_research)
+            if predecessor is None:
                 self._supersede_published_bundles_tx(
                     conn, bundle_id=current.bundle_id, scope=current.scope, scope_key=current.scope_key,
                     tenant_id=current.tenant_id, environment=current.environment,
@@ -2754,13 +2866,14 @@ class PostgresConfigurationStore:
                 "published_by=%s,published_at=%s::timestamptz,scheduled_predecessor_id=%s "
                 "WHERE revision_id=%s AND etag=%s AND status='draft' "
                 f"RETURNING {_POSTGRES_BUNDLE_COLUMNS}",
-                ("superseded" if anchor else "published", now, actor_id, now,
+                ("superseded" if predecessor else "published", now, actor_id, now,
                  predecessor, revision_id, expected_etag),
             ).fetchone()
             result = self._bundle(updated)
             if result is None:
                 raise RuntimeError("configuration revision etag conflict")
-            if anchor is not None:
+            if predecessor:
+                assert anchor is not None
                 self._set_scheduled_successor_tx(conn, anchor.revision_id, result.revision_id)
                 result = replace(result, status="published")
             self._append_event_tx(
@@ -2770,7 +2883,7 @@ class PostgresConfigurationStore:
                 "published",
                 actor_id,
                 {"etag": result.etag, "status": result.status,
-                 **({"scheduledPredecessorId": predecessor} if anchor else {})},
+                 **({"scheduledPredecessorId": predecessor} if predecessor else {})},
             )
             self._bump_invalidation_epoch_tx(conn)
             return result
@@ -2792,9 +2905,12 @@ class PostgresConfigurationStore:
             if current.etag != int(expected_etag):
                 raise RuntimeError("configuration revision etag conflict")
             if status == "retired":
-                anchor = self._published_bundle_tx(conn, _bundle_dimensions(current))
+                dimensions = _bundle_dimensions(current)
+                anchor = self._published_bundle_tx(conn, dimensions)
                 if anchor is None:
                     raise ValueError("only published bundle revisions can be retired")
+                if anchor.revision_id == revision_id and self._research_fingerprint_tx(conn, dimensions) is not None:
+                    raise ValueError(_RESEARCH_ANCHOR_REQUIRED)
                 successor = _successor_after_retirement(anchor, current)
                 if successor != anchor.scheduled_successor_id:
                     self._set_scheduled_successor_tx(conn, anchor.revision_id, successor)

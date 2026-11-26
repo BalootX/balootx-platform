@@ -29,6 +29,7 @@ from baloot_platform.configuration import (
 from baloot_platform.configuration.schedule import ConfigurationIntegrityError, ConfigurationScheduleConflict
 from baloot_platform.identity import IdentityService, SQLiteIdentityStore
 from baloot_platform.security import AuthorizationPolicy
+from baloot_platform.service.container import _PACKAGED_RESEARCH_BUNDLES
 from baloot_platform.service.routes.configuration import (
     build_configuration_router,
     configuration_schedule_conflict_response,
@@ -432,7 +433,10 @@ def test_runtime_boot_and_recovery_across_scheduled_handoff(
         def now(cls, tz=None):
             return datetime.fromisoformat(instant).astimezone(tz)
 
-    def probe(expected: str, *, source: Path = root, recovery_target: str = "", diagnostic: str = "") -> None:
+    def probe(
+        expected: str, *, source: Path = root, recovery_target: str = "", diagnostic: str = "",
+        research: tuple[str, str, str] = ("", "", ""), check_research_recovery: bool = False,
+    ) -> None:
         subprocess.run(
             [sys.executable, "-c", """
 import sys
@@ -442,7 +446,7 @@ from pathlib import Path
 import baloot_platform
 from baloot_platform.configuration import service
 
-instant, expected, recovery_target, diagnostic, source_path = sys.argv[1:]
+instant, expected, recovery_target, diagnostic, source_path, bundle_id, environment, research_id, check_research_recovery = sys.argv[1:]
 assert Path(baloot_platform.__file__).resolve().is_relative_to(Path(source_path).resolve() / 'src')
 
 class Clock(datetime):
@@ -465,6 +469,13 @@ with TestClient(app) as client:
         assert client.get('/api/v1/options').status_code == 200
         _, research = RESEARCH.execution_context_factory.resolve_bundle_revision(expected)
         assert research.bundle_revision_id == expected
+        if research_id:
+            response = client.get('/api/v1/configuration-registry/resolve',
+                                  headers=admin, params={'bundleId': bundle_id, 'environment': environment})
+            assert response.status_code == 200, response.text
+            scoped = response.json()
+            assert scoped['bundle']['environment'] == environment
+            assert scoped['bundle']['revisionId'] == research_id
     else:
         assert ready.status_code == 503, ready.text
         assert expected not in ready.text
@@ -475,27 +486,53 @@ with TestClient(app) as client:
         rollback = f'/api/v1/configuration-registry/bundles/{recovery_target}:rollback'
         body = {'newVersion': '99.7.9'}
 
-        def snapshot():
+        def snapshot(bundle_id):
             token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id='TEST', role='service'))
             try:
-                bundle = CONFIGURATION.store.get_bundle(recovery_target)
-                rows = CONFIGURATION.store.list_bundles(bundle_id=bundle.bundle_id)
+                rows = CONFIGURATION.store.list_bundles(bundle_id=bundle_id)
                 events = [CONFIGURATION.store.events('bundle', row.revision_id) for row in rows]
                 return rows, events
             finally:
                 CURRENT_DATABASE_IDENTITY.reset(token)
 
-        before = snapshot()
+        token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id='TEST', role='service'))
+        try:
+            target = CONFIGURATION.store.get_bundle(recovery_target)
+            legacy = CONFIGURATION.store.get_bundle(expected) if check_research_recovery == 'True' else None
+        finally:
+            CURRENT_DATABASE_IDENTITY.reset(token)
+        before = snapshot(target.bundle_id)
         for headers, expected_status in (({}, 401), ({**admin, 'x-baloot-role': 'player'}, 503)):
             denied = client.post(rollback, headers=headers, json=body)
             assert denied.status_code == expected_status, denied.text
             assert expected not in denied.text
             assert denied.json()['requestId'] == denied.headers['x-request-id']
-        assert snapshot() == before
+        assert snapshot(target.bundle_id) == before
+        if check_research_recovery == 'True':
+            from baloot_platform.config import build_bundle
+            from baloot_platform.service.container import _PACKAGED_RESEARCH_BUNDLES
+
+            for path, environment in _PACKAGED_RESEARCH_BUNDLES:
+                packaged = build_bundle(Path(source_path), bundle_path=path)
+                bundle_id = packaged.bundle_profile['profile']['id']
+                research_before = snapshot(bundle_id)
+                assert len(research_before[0]) == 1 and research_before[0][0].status == 'draft'
+                assert len(research_before[1][0]) == 1
+                payload = {
+                    'bundleId': bundle_id, 'version': '99.8.0', 'scope': 'environment',
+                    'environment': environment, 'componentRevisions': legacy.component_revisions,
+                    'publish': True,
+                }
+                for bounds in ({}, {'effectiveFrom': '2026-07-02T00:00:00Z'}):
+                    refused = client.post('/api/v1/configuration-registry/bundles', headers=admin, json={**payload, **bounds})
+                    assert refused.status_code == 409, refused.text
+                    assert 'previous-release startup' in refused.json()['detail']
+                    assert snapshot(bundle_id) == research_before
+            print('researchRecoveryRefusedUnsafeWrites: true')
         restored = client.post(rollback, headers=admin, json=body)
         assert restored.status_code == 201, restored.text
         assert CONFIGURATION.resolve(bundle_id=restored.json()['bundleId'])['bundle']['revisionId'] == restored.json()['revisionId']
-""", instant, expected, recovery_target, diagnostic, str(source)],
+""", instant, expected, recovery_target, diagnostic, str(source), *research, str(check_research_recovery)],
             cwd=source,
             env={**startup_environment, "BALOOT_ROOT": str(source), "PYTHONPATH": str(source / "src")},
             check=True,
@@ -514,6 +551,96 @@ with TestClient(app) as client:
             revision = service.create_profile(family="performance", payload=payload, created_by="TEST", publish=True)
             return {**original["componentRevisions"], "performance": revision["revisionId"]}
 
+        legacy_request = {
+            **defaults, "version": "99.7.13", "component_revisions": new_components("99.7.13"),
+            "effective_until": "2026-07-01T17:00:00Z",
+        }
+        research_scopes = [
+            (build_bundle(root, bundle_path=path).bundle_profile["profile"]["id"], environment)
+            for path, environment in _PACKAGED_RESEARCH_BUNDLES
+        ]
+        # The previous release could write a window without an underlying publication.
+        expired = subprocess.run(
+            [sys.executable, "-c", """
+import json
+import os
+import sys
+from pathlib import Path
+
+import baloot_platform
+from baloot_platform.config import build_bundle
+from baloot_platform.configuration import PostgresConfigurationStore, SQLiteConfigurationStore, VersionedConfigurationService
+from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
+
+root = Path(os.environ['BALOOT_ROOT'])
+assert Path(baloot_platform.__file__).resolve().is_relative_to(root.resolve() / 'src')
+dsn = os.environ['BALOOT_DATABASE_URL']
+store = PostgresConfigurationStore(dsn) if dsn else SQLiteConfigurationStore(Path(os.environ['BALOOT_RUNTIME']) / 'configuration.sqlite3')
+CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id='TEST', role='service'))
+try:
+    service = VersionedConfigurationService(store, root=root, profile=build_bundle(root).component('configuration'))
+    request = json.loads(sys.argv[1])
+    for bundle_id, environment in json.loads(sys.argv[2]):
+        service.create_bundle(
+            bundle_id=bundle_id, version='99.8.0', mode='full', scope='environment',
+            environment=environment, component_revisions=json.loads(sys.argv[3]), created_by='TEST',
+        )
+    print(service.create_bundle(**request, force_new_revision=True)['revisionId'])
+finally:
+    store.close()
+""", json.dumps(legacy_request), json.dumps(research_scopes), json.dumps(original["componentRevisions"])],
+            cwd=previous,
+            env={**startup_environment, "BALOOT_ROOT": str(previous), "PYTHONPATH": str(previous / "src")},
+            check=True, capture_output=True, text=True,
+        )
+        expiring_id = expired.stdout.strip()
+        instant = "2026-07-01T17:00:00+00:00"
+        probe(
+            expiring_id, recovery_target=original["revisionId"],
+            diagnostic="No configuration bundle is effective", check_research_recovery=True,
+        )
+        recovered = service.resolve(bundle_id=original["bundleId"])["bundle"]["revisionId"]
+        assert recovered not in {expiring_id, original["revisionId"]}
+        probe(recovered)
+        probe(recovered, source=previous)
+
+        original = service.resolve(bundle_id=original["bundleId"])["bundle"]
+        native_bundle_id, native_environment = research_scopes[0]
+        native = service.resolve(bundle_id=native_bundle_id, environment=native_environment)
+        native_anchor = native["bundle"]["revisionId"]
+        anchor_history = store.events("bundle", native_anchor)
+        with pytest.raises(ValueError, match="previous-release startup"):
+            service.retire_bundle(
+                native_anchor, expected_etag=native["bundle"]["etag"], actor_id="TEST", reason="Retire packaged anchor",
+            )
+        assert store.get_bundle(native_anchor).status == "published"
+        assert store.events("bundle", native_anchor) == anchor_history
+        native_defaults = {
+            "bundle_id": native_bundle_id, "mode": native["bundle"]["mode"], "scope": "environment",
+            "environment": native_environment, "created_by": "TEST",
+        }
+        global_performance = original["componentRevisions"]["performance"]
+        assert store.get_profile(global_performance).payload_sha256 == native["profileRevisions"]["performance"]["payloadSha256"]
+        cross_scope = service.create_bundle(
+            **native_defaults, version="99.8.4", publish=True,
+            component_revisions={**native["bundle"]["componentRevisions"], "performance": global_performance},
+        )
+        assert service.resolve(bundle_id=native_bundle_id, environment=native_environment)["bundle"]["revisionId"] == cross_scope["revisionId"]
+        assert [row.revision_id for row in store.list_bundles(bundle_id=native_bundle_id, status="published")] == [native_anchor]
+
+        def native_components(version: str) -> dict[str, str]:
+            payload = copy.deepcopy(native["profiles"]["performance"])
+            payload["profile"].update({"id": f"research-handoff-performance-{version}", "version": version})
+            profile = service.create_profile(
+                family="performance", payload=payload, created_by="TEST", publish=True,
+                scope="environment", environment=native_environment,
+            )
+            return {**native["bundle"]["componentRevisions"], "performance": profile["revisionId"]}
+
+        immediate = service.create_bundle(
+            **native_defaults, component_revisions=native_components("99.8.1"), version="99.8.1", publish=True,
+        )
+
         scheduled = service.create_bundle(
             **defaults, version="99.7.6", component_revisions=new_components("99.7.6"),
             local_schedule={"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00", "effectiveUntil": "2026-07-01T13:00"},
@@ -521,15 +648,29 @@ with TestClient(app) as client:
         published_filter = {"bundle_id": original["bundleId"], "status": "published"}
         assert [row.revision_id for row in store.list_bundles(**published_filter)] == [original["revisionId"]]
         assert [row.revision_id for row in store.list_bundles(**published_filter, include_scheduled=True)] == [scheduled["revisionId"]]
-        for instant, expected in (
+        for index, (instant, expected) in enumerate((
             ("2026-07-01T15:59:59+00:00", original["revisionId"]),
             ("2026-07-01T16:00:00+00:00", scheduled["revisionId"]),
             ("2026-07-01T17:00:00+00:00", original["revisionId"]),
-        ):
+        )):
+            native_expected = immediate["revisionId"]
+            if index == 1:
+                native_window = service.create_bundle(
+                    **native_defaults, component_revisions=native_components("99.8.2"), version="99.8.2",
+                    effective_from="2026-07-01T16:00:00Z", effective_until="2026-07-01T17:00:00Z",
+                )
+                promoted = store.publish_bundle(native_window["revisionId"], expected_etag=native_window["etag"], actor_id="TEST")
+                native_expected = promoted.revision_id
             assert service.resolve(bundle_id=original["bundleId"])["bundle"]["revisionId"] == expected
-            probe(expected)
-            probe(original["revisionId"], source=previous)
+            probe(expected, research=(native_bundle_id, native_environment, native_expected))
+            probe(original["revisionId"], source=previous, research=(native_bundle_id, native_environment, native_anchor))
         print(f"previousReleaseScheduledHandoffStartup: {backend} before, during and after")
+        print(f"previousReleaseResearchAnchorStartup: {backend} after immediate and timed publication")
+
+        native_restore = service.rollback_bundle(native_anchor, new_version="99.8.3", actor_id="TEST")
+        native_publication = store.list_bundles(bundle_id=native_bundle_id, status="published")
+        assert [row.revision_id for row in native_publication] == [native_restore["revisionId"]]
+        assert native_restore["supersedesRevisionId"] == promoted.revision_id
 
         stale_etag = scheduled["etag"]
         history = store.events("bundle", scheduled["revisionId"])
@@ -593,42 +734,6 @@ with TestClient(app) as client:
             store.publish_bundle(draft["revisionId"], expected_etag=draft["etag"], actor_id="TEST")
         assert store.get_bundle(draft["revisionId"]) == draft_before
         assert store.events("bundle", draft["revisionId"]) == draft_audit
-
-        # The previous release could write a window without an underlying publication.
-        expired = subprocess.run(
-            [sys.executable, "-c", """
-import json
-import os
-import sys
-from pathlib import Path
-
-import baloot_platform
-from baloot_platform.config import build_bundle
-from baloot_platform.configuration import PostgresConfigurationStore, SQLiteConfigurationStore, VersionedConfigurationService
-from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
-
-root = Path(os.environ['BALOOT_ROOT'])
-assert Path(baloot_platform.__file__).resolve().is_relative_to(root.resolve() / 'src')
-dsn = os.environ['BALOOT_DATABASE_URL']
-store = PostgresConfigurationStore(dsn) if dsn else SQLiteConfigurationStore(Path(os.environ['BALOOT_RUNTIME']) / 'configuration.sqlite3')
-CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id='TEST', role='service'))
-try:
-    service = VersionedConfigurationService(store, root=root, profile=build_bundle(root).component('configuration'))
-    print(service.create_bundle(**json.loads(sys.argv[1]), force_new_revision=True)['revisionId'])
-finally:
-    store.close()
-""", json.dumps(request)],
-            cwd=previous,
-            env={**startup_environment, "BALOOT_ROOT": str(previous), "PYTHONPATH": str(previous / "src")},
-            check=True, capture_output=True, text=True,
-        )
-        expiring_id = expired.stdout.strip()
-        instant = "2026-07-01T17:00:00+00:00"
-        probe(expiring_id, recovery_target=original["revisionId"], diagnostic="No configuration bundle is effective")
-        recovered = service.resolve(bundle_id=original["bundleId"])["bundle"]["revisionId"]
-        assert recovered not in {expiring_id, original["revisionId"]}
-        probe(recovered)
-        probe(recovered, source=previous)
 
         partial = service.create_bundle(
             **defaults, version="99.7.11", component_revisions=new_components("99.7.11"), rollout_percentage=10,

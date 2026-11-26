@@ -13,6 +13,7 @@ from typing import Any, Callable, Iterator, Mapping
 
 from baloot_platform.config import (
     PROFILE_FAMILIES,
+    ProfileBundle,
     build_bundle,
     validate_research_profile_bundle,
     validate_profile_payload,
@@ -25,6 +26,7 @@ from .models import (
     ProfileRevision,
     ResolutionContext,
     RevisionStatus,
+    bundle_payload_fingerprint,
     digest,
 )
 from .schedule import ConfigurationIntegrityError, parse_instant, verify_revision_schedule
@@ -1127,6 +1129,23 @@ class VersionedConfigurationService:
             **context,
         ).to_dict()
 
+    @staticmethod
+    def _packaged_bundle_id(packaged: ProfileBundle) -> str:
+        return str((packaged.bundle_profile.get("profile") or {}).get("id") or "packaged_bundle")
+
+    def register_packaged_research_bundle(self, bundle_path: str, environment: str) -> ProfileBundle:
+        packaged = build_bundle(self.root, bundle_path=bundle_path)
+        dimensions = self._scope(
+            ConfigScope.ENVIRONMENT.value, scope_key=None, tenant_id=None, environment=environment,
+        )
+        fingerprint = bundle_payload_fingerprint(
+            packaged.mode, {family: digest(component.data) for family, component in packaged.components.items()}
+        )
+        self.store.register_runtime_bundle(
+            (self._packaged_bundle_id(packaged), *dimensions), protected_fingerprint=fingerprint,
+        )
+        return packaged
+
     def bootstrap_packaged_bundle(
         self,
         *,
@@ -1137,8 +1156,10 @@ class VersionedConfigurationService:
         scope_key: str | None = None,
         tenant_id: str | None = None,
         environment: str | None = None,
+        packaged_bundle: ProfileBundle | None = None,
     ) -> dict[str, Any]:
-        packaged = build_bundle(self.root, mode=mode, bundle_path=bundle_path)
+        packaged = packaged_bundle or build_bundle(self.root, mode=mode, bundle_path=bundle_path)
+        mode = packaged.mode
         scope, scope_key, tenant_id, environment = self._scope(
             scope,
             scope_key=scope_key,
@@ -1146,7 +1167,7 @@ class VersionedConfigurationService:
             environment=environment,
         )
         profile = dict(packaged.bundle_profile.get("profile") or {})
-        bundle_id = str(profile.get("id") or "packaged_bundle")
+        bundle_id = self._packaged_bundle_id(packaged)
         version = str(profile.get("version") or "0.0.0")
         self.store.register_runtime_bundle((bundle_id, scope, scope_key, tenant_id, environment))
         revision_ids = {}

@@ -1582,6 +1582,11 @@ class _BootstrapIdentityGuard:
         self.fail = fail
         self.seen: list[DatabaseIdentityContext] = []
         self.bundle_paths: list[str | None] = []
+        self.research_scopes: list[tuple[str, str]] = []
+
+    def register_packaged_research_bundle(self, bundle_path: str, environment: str) -> None:
+        assert CURRENT_DATABASE_IDENTITY.get().role == "service"
+        self.research_scopes.append((bundle_path, environment))
 
     def bootstrap_packaged_bundle(
         self, *, actor_id: str, bundle_path: str | None = None, **_: Any
@@ -1593,6 +1598,7 @@ class _BootstrapIdentityGuard:
             raise PermissionError("anonymous configuration bootstrap denied")
         assert actor_id == context.subject_id
         if self.fail:
+            assert tuple(self.research_scopes) == container_module._PACKAGED_RESEARCH_BUNDLES
             raise RuntimeError("bootstrap failed")
         return {"bundle": {"revisionId": "CBR-BOOTSTRAP"}}
 
@@ -1619,6 +1625,7 @@ def test_configuration_bootstrap_uses_service_identity_and_restores_caller() -> 
             container_module._INTELLIGENT_RESEARCH_BUNDLE,
         ]
         assert guard.seen[-1].role == "service"
+        assert tuple(guard.research_scopes) == container_module._PACKAGED_RESEARCH_BUNDLES
         assert CURRENT_DATABASE_IDENTITY.get() == caller
     finally:
         CURRENT_DATABASE_IDENTITY.reset(caller_token)

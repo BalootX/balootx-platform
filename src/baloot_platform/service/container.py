@@ -238,6 +238,10 @@ _NATIVE_RESEARCH_BUNDLE = "configs/bundle_ortools_research_native_v3_1.yaml"
 _INTELLIGENT_RESEARCH_BUNDLE = (
     "configs/bundle_ortools_research_native_v3_intelligent_validation_5s.yaml"
 )
+_PACKAGED_RESEARCH_BUNDLES = (
+    (_NATIVE_RESEARCH_BUNDLE, "research-native-v3"),
+    (_INTELLIGENT_RESEARCH_BUNDLE, "research-native-v3-intelligent"),
+)
 
 
 def _close_owned_resources(values: list[Any], *, wait_for_workers: bool) -> None:
@@ -299,6 +303,10 @@ def _bootstrap_packaged_configuration(
         )
     )
     try:
+        research_bundles = [
+            (path, environment, configuration.register_packaged_research_bundle(path, environment))
+            for path, environment in _PACKAGED_RESEARCH_BUNDLES
+        ]
         try:
             active = configuration.bootstrap_packaged_bundle(
                 actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT
@@ -306,16 +314,14 @@ def _bootstrap_packaged_configuration(
         except ConfigurationIntegrityError as exc:
             _log_schedule_unavailable(exc, None)
             raise
-        for path, environment in (
-            (_NATIVE_RESEARCH_BUNDLE, "research-native-v3"),
-            (_INTELLIGENT_RESEARCH_BUNDLE, "research-native-v3-intelligent"),
-        ):
+        for path, environment, packaged in research_bundles:
             try:
                 configuration.bootstrap_packaged_bundle(
                     actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT,
                     bundle_path=path,
                     scope="environment",
                     environment=environment,
+                    packaged_bundle=packaged,
                 )
             except ConfigurationIntegrityError as exc:
                 _log_schedule_unavailable(exc, environment)

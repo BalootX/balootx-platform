@@ -36,6 +36,13 @@ order and uses the first one whose window includes the requested instant.
 The selected revision remains subject to its rollout policy. An immediate,
 unscheduled publication ends the schedule. The previous release continues to
 use the underlying publication before, during and after a scheduled window.
+Packaged Research scopes retain their packaged publication for the previous
+service during immediate replacements as well. The current service can use a
+replacement in that same scope. Both Research scopes are registered before the
+global startup check, so authenticated recovery cannot publish a Research
+replacement that would strand the previous service. Restore an unbounded,
+full-rollout revision with the packaged content before replacing it in a scope
+that lacks a usable packaged publication.
 Processes load a verified runtime bundle at startup. Restart them at a
 scheduled boundary to load the newly effective bundle. Startup selects within
 its configured scope and has no rollout subject, so a partial rollout cannot

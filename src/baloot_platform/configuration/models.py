@@ -21,6 +21,10 @@ def digest(value: Any) -> str:
     return hashlib.sha256(canonical(value).encode("utf-8")).hexdigest()
 
 
+def bundle_payload_fingerprint(mode: str, profile_hashes: Mapping[str, str]) -> str:
+    return digest({"mode": mode, "profiles": dict(profile_hashes)})
+
+
 class RevisionStatus(StrEnum):
     DRAFT = "draft"
     PUBLISHED = "published"
