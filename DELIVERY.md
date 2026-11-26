@@ -16,6 +16,8 @@ Follows engineering standard v1.26.
 
 The required **ci-gate** check compares the producer results to the plan and fails on missing, failed, cancelled or unexpectedly skipped work. See [the current limits in the workflow](.github/workflows/ci.yml) and the [historical timing samples](ci/TIMINGS.md).
 
+On a PR, `ci-gate` loads the verdict script and policy from the first parent of the checked-out merge commit and requires its second parent to match the event's PR head. In the merge queue, it loads both from the merge group's base SHA.
+
 The [FFmpeg runtime profile](src/baloot_platform/video/remotion/scripts/ffmpeg-runtime.json) caps codec and filter threads for Remotion rendering and Python media verification on every host. The renderer fingerprint includes the profile.
 
 The `docker-constraints` job dry-runs pip with the Python base image, exact constraints and extras shared by the Docker test and verifier stages. It runs when its Docker, dependency or CI inputs change on a PR, when CI cannot resolve the diff, and on main and merge groups.

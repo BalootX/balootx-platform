@@ -27,6 +27,16 @@ def git(*args):
     return subprocess.run(["git", *args], check=True, capture_output=True, timeout=10).stdout
 
 
+def pull_request_merge(read_git, head):
+    parents = read_git("rev-list", "--parents", "-n", "1", "HEAD").decode("ascii").split()
+    if len(parents) != 3 or parents[2] != head:
+        raise ValueError(
+            "Expected a two-parent checkout with the event's PR head as the second parent. "
+            "Update the PR branch to start a fresh CI run."
+        )
+    return parents[0], parents[1]
+
+
 def github(*args):
     return json.loads(subprocess.run(["gh", "api", *args], check=True, capture_output=True, timeout=30).stdout)
 
@@ -153,22 +163,24 @@ def check(event_name, event, repo, ref, candidate):
     if event_name == "pull_request":
         pr = event["pull_request"]
         number, base, head = pr["number"], pr["base"]["sha"], pr["head"]["sha"]
-        if git("rev-list", "--parents", "-n", "1", "HEAD").decode("ascii").split() != [candidate, base, head]:
-            raise ValueError("Checkout does not match the pull request merge commit")
+        checkout, policy_base = pull_request_merge(git, head)
+        if checkout != candidate:
+            raise ValueError("Expected the workflow's PR merge commit. Update the PR branch to start a fresh CI run.")
     elif event_name == "merge_group":
         group = event["merge_group"]
         base, head = group["base_sha"], None
+        policy_base = base
         number = queue_pr_number(group, ref, candidate)
         if git("rev-parse", "HEAD").decode("ascii").strip() != candidate:
             raise ValueError("Checkout does not match the merge group commit")
     else:
         raise ValueError(f"Unsupported review gate event {event_name}")
-    if not all(re.fullmatch(SHA, sha) for sha in (candidate, base)):
+    if not all(re.fullmatch(SHA, sha) for sha in (candidate, base, policy_base)):
         raise ValueError("Missing full commit identity for critical-path comparison")
     if type(number) is not int or number <= 0:
         raise ValueError("Missing PR number")
 
-    reviewer_ids, patterns = policy(base)
+    reviewer_ids, patterns = policy(policy_base)
     if event_name == "merge_group":
         head = queued_pr_head(repo, number, base, candidate)
     critical_changes = critical_paths(repo, number, head, patterns, base if event_name == "pull_request" else None)
