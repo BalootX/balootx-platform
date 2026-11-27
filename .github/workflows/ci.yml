@@ -226,7 +226,7 @@ jobs:
         id: playwright-runtime
         run: |
           version=$(node -p "require('./package-lock.json').packages['node_modules/playwright'].version")
-          echo "key=$RUNNER_OS-$RUNNER_ARCH-${ImageVersion:?}-playwright-chromium-$version" >> "$GITHUB_OUTPUT"
+          echo "key=$RUNNER_OS-$RUNNER_ARCH-${ImageVersion:?}-playwright-chromium-v2-$version" >> "$GITHUB_OUTPUT"
           echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/playwright-browsers" >> "$GITHUB_ENV"
       - if: ${{ !cancelled() && steps.playwright-runtime.outcome == 'success' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -235,6 +235,7 @@ jobs:
           path: |
             ${{ runner.temp }}/playwright-browsers
             ${{ runner.temp }}/playwright-debs/*.deb
+            ${{ runner.temp }}/playwright-debs/inventory.json
           key: ${{ steps.playwright-runtime.outputs.key }}
       - name: Install locked Playwright Chromium
         if: ${{ !cancelled() && steps.playwright-cache.outcome == 'success' }}
@@ -243,7 +244,9 @@ jobs:
         env:
           CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
         run: |
+          inventory="$GITHUB_WORKSPACE/ci/playwright_archive_inventory.py"
           if [[ "$CACHE_HIT" == 'true' ]]; then
+            python -I "$inventory" verify "$RUNNER_TEMP/playwright-debs"
             shopt -s nullglob
             packages=("$RUNNER_TEMP"/playwright-debs/*.deb)
             if (( ${#packages[@]} )); then
@@ -260,6 +263,7 @@ jobs:
             printf 'Dir::Cache::archives "%s/playwright-debs";\nAPT::Keep-Downloaded-Packages "true";\n' "$RUNNER_TEMP" |
               sudo tee "$apt_config" > /dev/null
             ./node_modules/.bin/playwright install --with-deps chromium
+            python -I "$inventory" seal "$RUNNER_TEMP/playwright-debs"
           fi
           node -e "require('playwright').chromium.launch().then(browser => browser.close())"
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.playwright-cache.outputs.cache-hit != 'true'
