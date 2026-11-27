@@ -338,6 +338,411 @@
         "action_project_siri_en": {
           "type": "string"
         },
+        "app_case_description": {
+          "type": "string"
+        },
+        "app_case_game_id": {
+          "type": "string"
+        },
+        "app_case_opened": {
+          "type": "string"
+        },
+        "app_case_submit": {
+          "type": "string"
+        },
+        "app_case_summary_id": {
+          "type": "string"
+        },
+        "app_case_summary_saved": {
+          "type": "string"
+        },
+        "app_case_title": {
+          "type": "string"
+        },
+        "app_case_violation": {
+          "type": "string"
+        },
+        "app_community_body": {
+          "type": "string"
+        },
+        "app_community_link": {
+          "type": "string"
+        },
+        "app_community_title": {
+          "type": "string"
+        },
+        "app_feature_match_body": {
+          "type": "string"
+        },
+        "app_feature_match_mark": {
+          "type": "string"
+        },
+        "app_feature_round_body": {
+          "type": "string"
+        },
+        "app_feature_round_mark": {
+          "type": "string"
+        },
+        "app_feature_round_title": {
+          "type": "string"
+        },
+        "app_feature_why_body": {
+          "type": "string"
+        },
+        "app_feature_why_mark": {
+          "type": "string"
+        },
+        "app_feature_why_title": {
+          "type": "string"
+        },
+        "app_guest_failed": {
+          "type": "string"
+        },
+        "app_guest_name": {
+          "type": "string"
+        },
+        "app_guest_start": {
+          "type": "string"
+        },
+        "app_guest_started": {
+          "type": "string"
+        },
+        "app_hero_body": {
+          "type": "string"
+        },
+        "app_hero_eyebrow": {
+          "type": "string"
+        },
+        "app_hero_live": {
+          "type": "string"
+        },
+        "app_hero_share": {
+          "type": "string"
+        },
+        "app_hero_title": {
+          "type": "string"
+        },
+        "app_identity_anonymous": {
+          "type": "string"
+        },
+        "app_identity_optional": {
+          "type": "string"
+        },
+        "app_join_body": {
+          "type": "string"
+        },
+        "app_join_placeholder": {
+          "type": "string"
+        },
+        "app_learn_body": {
+          "type": "string"
+        },
+        "app_learn_eyebrow": {
+          "type": "string"
+        },
+        "app_learn_title": {
+          "type": "string"
+        },
+        "app_live_body": {
+          "type": "string"
+        },
+        "app_live_create": {
+          "type": "string"
+        },
+        "app_live_created": {
+          "type": "string"
+        },
+        "app_live_empty": {
+          "type": "string"
+        },
+        "app_live_eyebrow": {
+          "type": "string"
+        },
+        "app_live_join_eyebrow": {
+          "type": "string"
+        },
+        "app_live_join_title": {
+          "type": "string"
+        },
+        "app_live_room_code": {
+          "type": "string"
+        },
+        "app_live_room_heading": {
+          "type": "string"
+        },
+        "app_live_seat": {
+          "type": "string"
+        },
+        "app_live_seat_taken": {
+          "type": "string"
+        },
+        "app_live_spectators": {
+          "type": "string"
+        },
+        "app_live_table": {
+          "type": "string"
+        },
+        "app_live_take_seat": {
+          "type": "string"
+        },
+        "app_live_title": {
+          "type": "string"
+        },
+        "app_live_turn_seconds": {
+          "type": "string"
+        },
+        "app_metric_lineage_label": {
+          "type": "string"
+        },
+        "app_metric_lineage_value": {
+          "type": "string"
+        },
+        "app_metric_versions_label": {
+          "type": "string"
+        },
+        "app_metric_versions_value": {
+          "type": "string"
+        },
+        "app_metric_violations_label": {
+          "type": "string"
+        },
+        "app_metric_violations_value": {
+          "type": "string"
+        },
+        "app_nav_learn": {
+          "type": "string"
+        },
+        "app_nav_shared": {
+          "type": "string"
+        },
+        "app_no": {
+          "type": "string"
+        },
+        "app_open": {
+          "type": "string"
+        },
+        "app_preview_east": {
+          "type": "string"
+        },
+        "app_preview_north": {
+          "type": "string"
+        },
+        "app_preview_west": {
+          "type": "string"
+        },
+        "app_reason_card_count": {
+          "type": "string"
+        },
+        "app_reason_partner_signal": {
+          "type": "string"
+        },
+        "app_reason_risk": {
+          "type": "string"
+        },
+        "app_reason_score": {
+          "type": "string"
+        },
+        "app_reason_trump_control": {
+          "type": "string"
+        },
+        "app_referee_title": {
+          "type": "string"
+        },
+        "app_replay_eyebrow": {
+          "type": "string"
+        },
+        "app_replay_heading": {
+          "type": "string"
+        },
+        "app_replay_knew_body": {
+          "type": "string"
+        },
+        "app_replay_knew_title": {
+          "type": "string"
+        },
+        "app_replay_placeholder": {
+          "type": "string"
+        },
+        "app_replay_summary_game": {
+          "type": "string"
+        },
+        "app_replay_summary_hint": {
+          "type": "string"
+        },
+        "app_replay_summary_phase": {
+          "type": "string"
+        },
+        "app_replay_summary_score": {
+          "type": "string"
+        },
+        "app_replay_summary_turn": {
+          "type": "string"
+        },
+        "app_replay_title": {
+          "type": "string"
+        },
+        "app_replay_why_body": {
+          "type": "string"
+        },
+        "app_replay_why_title": {
+          "type": "string"
+        },
+        "app_room_summary_code": {
+          "type": "string"
+        },
+        "app_room_summary_players": {
+          "type": "string"
+        },
+        "app_room_summary_version": {
+          "type": "string"
+        },
+        "app_seat_east": {
+          "type": "string"
+        },
+        "app_seat_north": {
+          "type": "string"
+        },
+        "app_seat_south": {
+          "type": "string"
+        },
+        "app_seat_west": {
+          "type": "string"
+        },
+        "app_shared_code_hint": {
+          "type": "string"
+        },
+        "app_shared_code_label": {
+          "type": "string"
+        },
+        "app_shared_copy_code": {
+          "type": "string"
+        },
+        "app_shared_created": {
+          "type": "string"
+        },
+        "app_shared_dealer": {
+          "type": "string"
+        },
+        "app_shared_eyebrow": {
+          "type": "string"
+        },
+        "app_shared_message_match": {
+          "type": "string"
+        },
+        "app_shared_message_round": {
+          "type": "string"
+        },
+        "app_shared_rules": {
+          "type": "string"
+        },
+        "app_shared_rules_full": {
+          "type": "string"
+        },
+        "app_shared_submit": {
+          "type": "string"
+        },
+        "app_shared_summary_code": {
+          "type": "string"
+        },
+        "app_shared_summary_fixed": {
+          "type": "string"
+        },
+        "app_shared_them_score": {
+          "type": "string"
+        },
+        "app_shared_title": {
+          "type": "string"
+        },
+        "app_shared_us_score": {
+          "type": "string"
+        },
+        "app_shared_visibility": {
+          "type": "string"
+        },
+        "app_shared_visibility_private": {
+          "type": "string"
+        },
+        "app_shared_visibility_public": {
+          "type": "string"
+        },
+        "app_shared_visibility_unlisted": {
+          "type": "string"
+        },
+        "app_standard_setup": {
+          "type": "string"
+        },
+        "app_status_open": {
+          "type": "string"
+        },
+        "app_status_ready": {
+          "type": "string"
+        },
+        "app_status_waiting": {
+          "type": "string"
+        },
+        "app_summary_kind": {
+          "type": "string"
+        },
+        "app_summary_status": {
+          "type": "string"
+        },
+        "app_table_preview_aria": {
+          "type": "string"
+        },
+        "app_tagline": {
+          "type": "string"
+        },
+        "app_title": {
+          "type": "string"
+        },
+        "app_view_home_subtitle": {
+          "type": "string"
+        },
+        "app_view_home_title": {
+          "type": "string"
+        },
+        "app_view_learn_subtitle": {
+          "type": "string"
+        },
+        "app_view_learn_title": {
+          "type": "string"
+        },
+        "app_view_live_subtitle": {
+          "type": "string"
+        },
+        "app_view_referee_subtitle": {
+          "type": "string"
+        },
+        "app_view_replay_subtitle": {
+          "type": "string"
+        },
+        "app_view_shared_subtitle": {
+          "type": "string"
+        },
+        "app_view_shared_title": {
+          "type": "string"
+        },
+        "app_violation_disconnect": {
+          "type": "string"
+        },
+        "app_violation_illegal_card": {
+          "type": "string"
+        },
+        "app_violation_misdeal": {
+          "type": "string"
+        },
+        "app_violation_out_of_turn": {
+          "type": "string"
+        },
+        "app_violation_score_dispute": {
+          "type": "string"
+        },
+        "app_violation_timeout": {
+          "type": "string"
+        },
+        "app_yes": {
+          "type": "string"
+        },
         "audience_difficulty": {
           "type": "string"
         },

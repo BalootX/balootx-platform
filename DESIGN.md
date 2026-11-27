@@ -22,3 +22,8 @@
 
 - The served pages and the Foundry dashboard sources call the API through the [shared request deadlines](src/baloot_platform/service/static/shared/request.js). `/foundry` serves a committed bundle that is not yet built from those sources, so the served dashboard keeps its older request handling until [#244](https://github.com/BalootX/balootx-platform/issues/244) is fixed. Interactive calls use the request deadline. Synchronous Research calls that run a solver or prepare a candidate use the long-call deadline, which exceeds the longest covered server budget by a stated margin. A request that reaches its deadline ends once, with no retry. It shows the profile's `request_timeout` message, which asks the person to refresh and check the result before trying again.
 - The served pages load the request module through the [request loader](src/baloot_platform/service/static/shared/request-loader.js). A failed load shows the profile's `request_unavailable` message, which asks the person to try again and to refresh if it persists. The next request loads the module again.
+
+## Served pages
+
+- The `/app`, `/play` and `/c` pages take their visible copy from `challenge_copy` in the [premium profile](configs/video/premium.yaml). The page templates and scripts hold copy keys only. Keep the Arabic pages right-to-left, and mark room codes, game numbers and case numbers left-to-right.
+- `/app` requires the full set of app copy keys declared in the [video schema](schemas/profiles/video.schema.json). The guest display name follows the identity service's length limit. Exact Research revisions keep the video payload they were saved with.

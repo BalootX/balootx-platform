@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from baloot_platform.identity import Identity, IdentityService
+from baloot_platform.identity.models import DISPLAY_NAME_MAX_LENGTH
 from baloot_platform.identity.pagination import (
     CURSOR_MAX_LENGTH,
     IdentityPaginationConfig,
@@ -22,13 +23,13 @@ COOKIE_NAME = "baloot_session"
 
 
 class GuestRequest(BaseModel):
-    displayName: str | None = Field(default=None, max_length=40)
+    displayName: str | None = Field(default=None, max_length=DISPLAY_NAME_MAX_LENGTH)
 
 
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=3, max_length=32)
     password: str = Field(min_length=8, max_length=256)
-    displayName: str | None = Field(default=None, max_length=40)
+    displayName: str | None = Field(default=None, max_length=DISPLAY_NAME_MAX_LENGTH)
 
 
 class LoginRequest(BaseModel):
