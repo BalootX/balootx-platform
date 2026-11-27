@@ -569,10 +569,14 @@ def test_foundry_reuses_the_locked_browser_and_system_packages(root):
     install = next(step for step in steps if step.get("id") == "playwright-install")
     save = steps[steps.index(install) + 1]
     assert "require('./package-lock.json').packages['node_modules/playwright'].version" in identity["run"]
-    assert "$RUNNER_ARCH-${ImageVersion:?}-playwright-chromium-$version" in identity["run"]
+    assert "$RUNNER_ARCH-${ImageVersion:?}-playwright-chromium-v2-$version" in identity["run"]
     assert restore["with"] == save["with"] == {
         "key": "${{ steps.playwright-runtime.outputs.key }}",
-        "path": "${{ runner.temp }}/playwright-browsers\n${{ runner.temp }}/playwright-debs/*.deb\n",
+        "path": (
+            "${{ runner.temp }}/playwright-browsers\n"
+            "${{ runner.temp }}/playwright-debs/*.deb\n"
+            "${{ runner.temp }}/playwright-debs/inventory.json\n"
+        ),
     }
     assert restore["uses"].startswith("actions/cache/restore@")
     assert save["uses"].startswith("actions/cache/save@")
@@ -582,10 +586,57 @@ def test_foundry_reuses_the_locked_browser_and_system_packages(root):
     )
     offline, cold = install["run"].split("\nelse\n", 1)
     assert install["env"]["CACHE_HIT"] == "${{ steps.playwright-cache.outputs.cache-hit }}"
-    assert 'dpkg --skip-same-version --install "${packages[@]}"' in offline
+    assert 'inventory="$GITHUB_WORKSPACE/ci/playwright_archive_inventory.py"' in offline
+    assert offline.index('python -I "$inventory" verify "$RUNNER_TEMP/playwright-debs"') < offline.index("apt-get ")
+    assert 'packages=("$RUNNER_TEMP"/playwright-debs/*.deb)' in offline
+    assert offline.count("apt-get ") == 1
+    assert "sudo env DEBIAN_FRONTEND=noninteractive apt-get" in offline
+    assert "--yes --no-download --no-remove --no-install-recommends" in offline
+    assert '-o Dir::Cache::archives="$RUNNER_TEMP/playwright-debs" install "${packages[@]}"' in offline
+    assert not any(option in offline for option in ("dpkg ", "--ignore-missing", "--fix-missing"))
     assert "playwright install" not in offline
-    assert "playwright install --with-deps chromium" in cold
+    assert cold.index("playwright install --with-deps chromium") < cold.index(
+        'python -I "$inventory" seal "$RUNNER_TEMP/playwright-debs"'
+    ) < cold.index("\nfi\n")
     assert cold.index("\nfi\n") < cold.index(".chromium.launch()")
+
+
+@pytest.mark.parametrize("case", ["absent", "truncated", "missing", "changed", "extra", "empty", "valid"])
+def test_foundry_archive_inventory_requires_exact_names_and_bytes(root, tmp_path, case):
+    script = root / "ci/playwright_archive_inventory.py"
+
+    def run(action):
+        return subprocess.run(
+            [sys.executable, "-I", str(script), action, str(tmp_path)],
+            capture_output=True, text=True, timeout=10,
+        )
+
+    standalone = tmp_path / "fonts-standalone_1_all.deb"
+    if case not in {"absent", "empty"}:
+        (tmp_path / "libasound2-data_1_all.deb").write_bytes(b"data archive")
+        (tmp_path / "libasound2t64_1_amd64.deb").write_bytes(b"library archive")
+        standalone.write_bytes(b"font archive")
+    manifest = tmp_path / "inventory.json"
+    if case != "absent":
+        sealed = run("seal")
+        assert sealed.returncode == 0, sealed.stderr
+    if case == "truncated":
+        manifest.write_bytes(b"{")
+    elif case == "missing":
+        standalone.unlink()
+    elif case == "changed":
+        standalone.write_bytes(b"FONT ARCHIVE")
+    elif case == "extra":
+        (tmp_path / "extra_1_all.deb").write_bytes(b"extra archive")
+    elif case == "empty":
+        assert manifest.read_bytes() == b"{}\n"
+
+    verified = run("verify")
+    if case in {"empty", "valid"}:
+        assert verified.returncode == 0, verified.stderr
+    else:
+        assert verified.returncode == 1, verified.stderr
+        assert "Playwright package cache inventory" in verified.stderr
 
 
 def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
