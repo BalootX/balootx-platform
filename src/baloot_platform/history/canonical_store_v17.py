@@ -252,13 +252,17 @@ class CanonicalHistoryStore:
             )
         return record
 
-    def lineage(self, game_id: str) -> dict[str, Any]:
+    def lineage(self, game_id: str, *, destination_alias: str | None = None) -> dict[str, Any]:
         with self._connect() as conn:
             parent = conn.execute(
-                "SELECT * FROM canonical_branches_v17 WHERE child_game_id=?", (game_id,)
+                """SELECT * FROM canonical_branches_v17
+                   WHERE child_game_id IN (?, ?) ORDER BY (child_game_id = ?) DESC LIMIT 1""",
+                (game_id, destination_alias, game_id),
             ).fetchone()
             correction = conn.execute(
-                "SELECT * FROM canonical_corrections_v17 WHERE corrected_game_id=?", (game_id,)
+                """SELECT * FROM canonical_corrections_v17
+                   WHERE corrected_game_id IN (?, ?) ORDER BY (corrected_game_id = ?) DESC LIMIT 1""",
+                (game_id, destination_alias, game_id),
             ).fetchone()
             children = conn.execute(
                 "SELECT child_game_id,branch_id,created_at FROM canonical_branches_v17 WHERE parent_game_id=? ORDER BY created_at",
@@ -276,7 +280,7 @@ class CanonicalHistoryStore:
             "corrections": [dict(row) for row in corrected],
         }
 
-    def verify(self, game_id: str) -> dict[str, Any]:
+    def verify(self, game_id: str, *, destination_alias: str | None = None) -> dict[str, Any]:
         event_result = self.events.verify(game_id)
         snapshot = self.latest_snapshot(game_id)
         issues: list[str] = []
@@ -287,5 +291,5 @@ class CanonicalHistoryStore:
         return {
             "gameId": game_id, "valid": not issues, "issues": issues,
             "event": event_result, "latestSnapshot": snapshot.to_dict() if snapshot else None,
-            "lineage": self.lineage(game_id),
+            "lineage": self.lineage(game_id, destination_alias=destination_alias),
         }

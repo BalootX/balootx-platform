@@ -37,22 +37,33 @@ def build_canonical_history_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/canonical-history", tags=["canonical-history"])
 
-    def stream(identifier: str) -> str:
+    def current_stream(game_id: str) -> str | None:
         try:
-            game = games.get(identifier)
-            return f"{game.id}:round:{game.state.round_number}"
+            game = games.get(game_id)
         except KeyError:
-            return identifier
+            return None
+        return f"{game.id}:round:{game.state.round_number}"
+
+    def stream_identity(identifier: str) -> tuple[str, str | None]:
+        current = current_stream(identifier)
+        if current is not None:
+            return current, identifier
+        game_id, separator, _ = identifier.rpartition(":round:")
+        # Only the current stream can inherit a game-level destination row.
+        if separator and current_stream(game_id) == identifier:
+            return identifier, game_id
+        return identifier, None
 
     @router.get("/{identifier}/verification")
     def verify(identifier: str, request: Request):
         require_trusted(request)
-        return store.verify(stream(identifier))
+        stream_id, destination_alias = stream_identity(identifier)
+        return store.verify(stream_id, destination_alias=destination_alias)
 
     @router.get("/{identifier}/snapshot")
     def snapshot(identifier: str, request: Request):
         require_trusted(request)
-        value = store.latest_snapshot(stream(identifier))
+        value = store.latest_snapshot(current_stream(identifier) or identifier)
         if value is None:
             raise HTTPException(404, "canonical snapshot not found")
         return value.to_dict()
@@ -60,7 +71,8 @@ def build_canonical_history_router(
     @router.get("/{identifier}/lineage")
     def lineage(identifier: str, request: Request):
         require_identity(request, identities)
-        record = store.lineage(stream(identifier))
+        stream_id, destination_alias = stream_identity(identifier)
+        record = store.lineage(stream_id, destination_alias=destination_alias)
         parent = record["parentBranch"]
         correction = record["parentCorrection"]
         return {
@@ -88,7 +100,7 @@ def build_canonical_history_router(
         identity, _ = require_identity(request, identities)
         try:
             return store.create_branch(
-                parent_game_id=stream(identifier), child_game_id=body.childGameId,
+                parent_game_id=current_stream(identifier) or identifier, child_game_id=body.childGameId,
                 created_by=identity.subject_id, reason=body.reason,
             ).to_dict()
         except RuntimeError as exc:
@@ -99,7 +111,7 @@ def build_canonical_history_router(
         identity, _ = require_identity(request, identities)
         try:
             return store.create_correction(
-                source_game_id=stream(identifier), corrected_game_id=body.correctedGameId,
+                source_game_id=current_stream(identifier) or identifier, corrected_game_id=body.correctedGameId,
                 created_by=identity.subject_id, reason=body.reason,
                 adjudication_case_id=body.adjudicationCaseId,
             ).to_dict()

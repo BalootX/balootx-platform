@@ -22,7 +22,7 @@ from baloot_platform.analysis.models import InformationState
 from baloot_platform.analysis.team_public_cfr_v17 import analyze_team_public_coordinator
 from baloot_platform.config import build_bundle
 from baloot_platform.core.engine import BalootEngine
-from baloot_platform.core.enums import Contract, Seat
+from baloot_platform.core.enums import Contract, GamePhase, Seat
 from baloot_platform.core.models import Event
 from baloot_platform.core.scenario import ScenarioRequest, generate_episode
 from baloot_platform.history.canonical_store_v17 import CanonicalHistoryStore
@@ -231,7 +231,8 @@ def test_canonical_event_store_snapshots_branches_and_corrections(tmp_path: Path
     assert store.verify("GAME-17:round:1")["valid"] is True
 
 
-def test_canonical_history_http_authorizes_full_state_and_lineage_writes(root, tmp_path, monkeypatch):
+@pytest.fixture
+def canonical_history_http(root, tmp_path, monkeypatch):
     from security_probe_helpers import security_probe_app
 
     from baloot_platform.service import api
@@ -244,13 +245,6 @@ def test_canonical_history_http_authorizes_full_state_and_lineage_writes(root, t
 
     store = CanonicalHistoryStore(tmp_path / "canonical-http.sqlite3")
     games = GameManager(root, canonical_history=store)
-    game = games.create(seed=1709, dealer=Seat.EAST)
-    stream = f"{game.id}:round:{game.state.round_number}"
-    record = store.latest_snapshot(stream)
-    assert record is not None
-    expected = record.to_dict()
-    assert isinstance(expected["state"]["hands"]["east"], list)
-
     probe_app = security_probe_app()
     probe_app.include_router(build_canonical_history_router(
         store, api.IDENTITY, games, require_trusted=api._require_trusted,
@@ -261,6 +255,23 @@ def test_canonical_history_http_authorizes_full_state_and_lineage_writes(root, t
             subject_id="CANONICAL-FIXTURE", role=role, scopes=scopes, tenant_id=tenant_id,
         )
         return {"authorization": f"Bearer {token}"}
+
+    return store, games, probe_app, bearer, trusted_key
+
+
+def test_canonical_history_http_authorizes_full_state_and_lineage_writes(canonical_history_http):
+    store, games, probe_app, bearer, trusted_key = canonical_history_http
+    game = games.create(seed=1709, dealer=Seat.EAST)
+    stream = f"{game.id}:round:{game.state.round_number}"
+    record = store.latest_snapshot(stream)
+    assert record is not None
+    expected = record.to_dict()
+    assert isinstance(expected["state"]["hands"]["east"], list)
+
+    child = games.create(seed=1710, dealer=Seat.EAST)
+    corrected = games.create(seed=1711, dealer=Seat.WEST)
+    child_id = child.id
+    corrected_id = corrected.id
 
     player = bearer(Scope.READ, Scope.PLAY, role="player")
     reader = bearer(Scope.READ, role="player")
@@ -299,8 +310,6 @@ def test_canonical_history_http_authorizes_full_state_and_lineage_writes(root, t
                 "branches": [], "corrections": [],
             }
 
-        child_id = "FIXTURE-CHILD"
-        corrected_id = "FIXTURE-CORRECTED"
         reason = "Synthetic lineage"
         case_id = "FIXTURE-CASE"
         writes = (
@@ -333,6 +342,8 @@ def test_canonical_history_http_authorizes_full_state_and_lineage_writes(root, t
 
         branch = records["branches"]
         correction = records["corrections"]
+        assert branch["childGameId"] == child_id
+        assert correction["correctedGameId"] == corrected_id
         source_lineage = client.get(f"{source_path}/lineage", headers=reader)
         assert source_lineage.status_code == 200
         assert source_lineage.json() == {
@@ -348,32 +359,104 @@ def test_canonical_history_http_authorizes_full_state_and_lineage_writes(root, t
         assert client.get(f"{stream_path}/lineage", headers=reader).json() == source_lineage.json()
 
         parents = (
-            (child_id, "parentBranch", {
+            (child, "parentBranch", {
                 "branch_id": branch["branchId"], "parent_game_id": stream,
                 "parent_event_count": expected["eventCount"], "parent_head_hash": expected["headHash"],
                 "child_game_id": child_id, "created_at": branch["createdAt"],
             }, {}),
-            (corrected_id, "parentCorrection", {
+            (corrected, "parentCorrection", {
                 "correction_id": correction["correctionId"], "source_game_id": stream,
                 "source_event_count": expected["eventCount"], "source_head_hash": expected["headHash"],
                 "corrected_game_id": corrected_id, "created_at": correction["createdAt"],
             }, {"adjudication_case_id": case_id}),
         )
-        for identifier, parent_field, fields, private_fields in parents:
+        for destination, parent_field, fields, private_fields in parents:
+            destination_stream = f"{destination.id}:round:{destination.state.round_number}"
+            for identifier in (destination.id, destination_stream):
+                path = f"{history_path}/{identifier}"
+                visible = client.get(f"{path}/lineage", headers=reader)
+                assert visible.status_code == 200
+                assert visible.json() == {
+                    "gameId": destination_stream, "parentBranch": None, "parentCorrection": None,
+                    "branches": [], "corrections": [], parent_field: fields,
+                }
+
+                trusted = client.get(f"{path}/verification", headers=trusted_reader)
+                assert trusted.status_code == 200
+                assert trusted.json()["lineage"] == {**store.lineage(destination.id), "gameId": destination_stream}
+                assert trusted.json()["lineage"][parent_field] == {
+                    **fields, **private_fields, "created_by": "CANONICAL-FIXTURE", "reason": reason,
+                }
+
+
+def test_canonical_history_reverse_lookup_prefers_exact_round(canonical_history_http):
+    store, games, probe_app, bearer, trusted_key = canonical_history_http
+    source = games.create(seed=1712, dealer=Seat.EAST)
+    destination = games.create(seed=1713, dealer=Seat.WEST)
+    source_stream = f"{source.id}:round:{source.state.round_number}"
+    first_stream = f"{destination.id}:round:{destination.state.round_number}"
+    legacy_branch = store.create_branch(
+        parent_game_id=source_stream, child_game_id=destination.id,
+        created_by="FIXTURE-OPERATOR", reason="Synthetic branch",
+    )
+    legacy_correction = store.create_correction(
+        source_game_id=source_stream, corrected_game_id=destination.id,
+        created_by="FIXTURE-OPERATOR", reason="Synthetic correction",
+    )
+    history_path = "/api/v1/canonical-history"
+    reader = bearer(Scope.READ, role="player")
+    operator = bearer(Scope.CONFIG_ADMIN)
+    trusted = {**bearer(Scope.HIDDEN_READ, role="referee"), "x-baloot-trusted-key": trusted_key}
+
+    with TestClient(probe_app) as client:
+        def assert_parents(identifier, stream, branch_id, correction_id):
             path = f"{history_path}/{identifier}"
             visible = client.get(f"{path}/lineage", headers=reader)
-            assert visible.status_code == 200
-            assert visible.json() == {
-                "gameId": identifier, "parentBranch": None, "parentCorrection": None,
-                "branches": [], "corrections": [], parent_field: fields,
-            }
+            verified = client.get(f"{path}/verification", headers=trusted)
+            assert visible.status_code == verified.status_code == 200
+            assert verified.json()["latestSnapshot"]["gameId"] == stream
+            for lineage in (visible.json(), verified.json()["lineage"]):
+                assert lineage["gameId"] == stream
+                for field, key, expected_id in (
+                    ("parentBranch", "branch_id", branch_id),
+                    ("parentCorrection", "correction_id", correction_id),
+                ):
+                    if expected_id is None:
+                        assert lineage[field] is None
+                    else:
+                        assert lineage[field][key] == expected_id
 
-            trusted = client.get(f"{path}/verification", headers=trusted_reader)
-            assert trusted.status_code == 200
-            assert trusted.json()["lineage"] == store.lineage(identifier)
-            assert trusted.json()["lineage"][parent_field] == {
-                **fields, **private_fields, "created_by": "CANONICAL-FIXTURE", "reason": reason,
-            }
+        legacy_ids = (legacy_branch.branch_id, legacy_correction.correction_id)
+        for identifier in (destination.id, first_stream):
+            assert_parents(identifier, first_stream, *legacy_ids)
+
+        branch = client.post(f"{history_path}/{source_stream}/branches", headers=operator, json={
+            "childGameId": first_stream, "reason": "Synthetic round branch",
+        })
+        correction = client.post(f"{history_path}/{source_stream}/corrections", headers=operator, json={
+            "correctedGameId": first_stream, "reason": "Synthetic round correction",
+        })
+        assert branch.status_code == correction.status_code == 201
+        assert branch.json()["childGameId"] == correction.json()["correctedGameId"] == first_stream
+        exact_ids = (branch.json()["branchId"], correction.json()["correctionId"])
+        for identifier in (destination.id, first_stream):
+            assert_parents(identifier, first_stream, *exact_ids)
+
+        destinations = {destination.id, first_stream}
+        descendants = client.get(f"{history_path}/{source.id}/lineage", headers=reader).json()
+        assert {row["child_game_id"] for row in descendants["branches"]} == destinations
+        assert {row["corrected_game_id"] for row in descendants["corrections"]} == destinations
+
+        destination.state.phase = GamePhase.SCORED
+        games.next_round(destination.id, seed=1714)
+        second_stream = f"{destination.id}:round:{destination.state.round_number}"
+        destination.state.phase = GamePhase.SCORED
+        games.next_round(destination.id, seed=1715)
+        current_stream = f"{destination.id}:round:{destination.state.round_number}"
+        for identifier in (destination.id, current_stream):
+            assert_parents(identifier, current_stream, *legacy_ids)
+        assert_parents(first_stream, first_stream, *exact_ids)
+        assert_parents(second_stream, second_stream, None, None)
 
 
 def test_calibration_league_and_promotion_gates():
