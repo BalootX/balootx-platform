@@ -14,3 +14,6 @@
 *.wav binary
 *.whl binary
 *.zip binary
+
+generated/localization-history/54c66cf722210dbbc72ff2c552597c4f2c039419be7165f0be41c099ab23a582.json linguist-generated
+src/baloot_platform/resources/generated/localization-history/54c66cf722210dbbc72ff2c552597c4f2c039419be7165f0be41c099ab23a582.json linguist-generated
