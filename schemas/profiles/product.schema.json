@@ -14969,6 +14969,9 @@
                     "m_fd4ee4b4001a": {
                       "type": "string"
                     },
+                    "request_timeout": {
+                      "type": "string"
+                    },
                     "thrill_breadth_example": {
                       "type": "string"
                     },
@@ -15091,6 +15094,7 @@
                     "m_f93fe26f6b35",
                     "m_fa5467a76b43",
                     "m_fd4ee4b4001a",
+                    "request_timeout",
                     "thrill_breadth_example",
                     "thrill_clarity_example",
                     "thrill_gate_example",
@@ -28437,6 +28441,9 @@
                   "type": "string"
                 },
                 "m_fd4ee4b4001a": {
+                  "type": "string"
+                },
+                "request_timeout": {
                   "type": "string"
                 },
                 "thrill_breadth_example": {

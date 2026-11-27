@@ -499,6 +499,32 @@ if _PLAYER_STATIC.exists():
 _APP_STATIC = Path(__file__).resolve().parent / "static" / "app"
 if _APP_STATIC.exists():
     app.mount("/app-assets", StaticFiles(directory=_APP_STATIC), name="app-assets")
+_SHARED_STATIC = Path(__file__).resolve().parent / "static" / "shared"
+
+
+def _mount_shared_assets(application: FastAPI, directory: Path) -> None:
+    """Mount the browser request helper, or stop the service from starting.
+
+    Every served page calls the API through these two files, so an installation
+    that lacks them must fail at start-up instead of serving pages that cannot work.
+    """
+    missing = [
+        name
+        for name in ("request.js", "request-loader.js")
+        if not (directory / name).is_file()
+    ]
+    if missing:
+        raise RuntimeError(
+            "shared browser assets are missing: "
+            + ", ".join(missing)
+            + ". Reinstall the package so static/shared is included."
+        )
+    application.mount(
+        "/shared-assets", StaticFiles(directory=directory), name="shared-assets"
+    )
+
+
+_mount_shared_assets(app, _SHARED_STATIC)
 _CHALLENGE_STATIC = Path(__file__).resolve().parent / "static" / "challenge"
 if _CHALLENGE_STATIC.exists():
     app.mount(
@@ -564,7 +590,19 @@ def configuration_studio():
 def unified_app():
     if not _APP_STATIC.exists():
         raise HTTPException(404, "application assets are unavailable")
-    return FileResponse(_APP_STATIC / "index.html")
+    template = (_APP_STATIC / "index.html").read_text(encoding="utf-8")
+    serialized = (
+        json.dumps(
+            dict(ACTIVE_BUNDLE.video["challenge_copy"]),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        .replace("<", "\\u003c")
+        .replace("&", "\\u0026")
+    )
+    rendered = template.replace("{{app_copy_json}}", serialized)
+    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
 
 
 app.include_router(build_auth_router(IDENTITY, pagination=CONTAINER.identity_pagination, policy=AUTHORIZATION_POLICY))
