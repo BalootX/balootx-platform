@@ -97,6 +97,7 @@ try {
         first === "promptPill:0" && second === "broadcastHud:0" && width > 0 && height > 0));
     } else {
       checkSeatLayout(item, fixture, name);
+      if (name === "east-dealer-and-buyer") checkEastBothRoles(item);
     }
     if (framesDir && !reject) copyFileSync(frame, path.join(framesDir, `${name}.png`));
     if (screenshotDir) copyFileSync(frame, path.join(screenshotDir, `${name}.png`));
@@ -123,5 +124,25 @@ function checkSeatLayout(item, fixture, name) {
   for (const box of controls) {
     assert.ok(hand.every(card => box.right <= card.left || box.left >= card.right || box.bottom <= card.top || box.top >= card.bottom),
       `${label}: ${box.id} overlaps a hand card`);
+  }
+}
+
+// Accepted east look when one seat holds both roles: the badges flow under the name pill
+// in the 208 px side column, buyer first, at the row gap and then the tag gap.
+function checkEastBothRoles(item) {
+  const column = {left: 800, right: 1008, top: 900, centre: 904};
+  const [pill, buyer, dealer] = ["namePills", "buyerBadge", "dealerBadge"].map(role => {
+    const boxes = item.roles[role].items.filter(box => box.visible && box.left >= column.left - 0.5 && box.right <= column.right + 0.5);
+    assert.equal(boxes.length, 1, `east both roles: ${role} in the east column ${JSON.stringify(item.roles[role].items)}`);
+    return boxes[0];
+  });
+  const accepted = [
+    ["name pill top", pill.top, column.top],
+    ["name pill to buyer badge gap", buyer.top - pill.bottom, 12],
+    ["buyer badge to dealer badge gap", dealer.top - buyer.bottom, 8],
+    ...[pill, buyer, dealer].map(box => [`${box.id} centre`, (box.left + box.right) / 2, column.centre]),
+  ];
+  for (const [what, measured, expected] of accepted) {
+    assert.ok(Math.abs(measured - expected) <= 0.5, `east both roles: ${what} measured ${measured}, accepted ${expected}`);
   }
 }
