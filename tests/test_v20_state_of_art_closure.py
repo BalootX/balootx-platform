@@ -5,13 +5,23 @@ import copy
 import hashlib
 import json
 import os
+from datetime import datetime
+from email.message import Message
+from io import BytesIO
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
+from urllib.request import HTTPHandler, HTTPSHandler, OpenerDirector
+from urllib.response import addinfourl
 
 import httpx
 import pytest
 import yaml
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from fastapi.testclient import TestClient
+from hypothesis import given, strategies as st
+from security_probe_helpers import security_probe_app
 
 from baloot_platform.config import build_bundle, platform_root
 from baloot_platform.configuration import SQLiteConfigurationStore, VersionedConfigurationService
@@ -22,6 +32,16 @@ from baloot_platform.security import (
     OidcCallbackService, OidcProviderConfig, PasskeyChallengeService, PkceTransactionStore,
     SQLiteSecurityStateStore, WebSocketTicketService,
 )
+from baloot_platform.security.oidc import (
+    OIDC_CREDENTIAL_BINDINGS_ENV,
+    OIDC_PROVIDER_FAMILY,
+    http_oidc_runtime,
+    load_oidc_providers,
+    validate_oidc_provider_profile,
+)
+from baloot_platform.service.container import build_container
+from baloot_platform.service.routes.configuration import build_configuration_router
+from baloot_platform.service.routes.security import build_security_router
 
 
 def test_v20_multi_scope_configuration_precedence_and_freeze(tmp_path: Path):
@@ -92,7 +112,8 @@ def test_v20_oidc_callback_pkce_nonce_and_claim_validation(tmp_path: Path):
     state = SQLiteSecurityStateStore(tmp_path / "security.sqlite3")
     transactions = PkceTransactionStore(backend=state)
     provider = OidcProviderConfig("demo", "https://issuer.example", "https://issuer.example/auth",
-        "https://issuer.example/token", "client-1", "https://app.example/callback", jwks_uri="https://issuer.example/jwks")
+        "https://issuer.example/token", "client-1", "https://app.example/callback",
+        allowed_algorithms=("RS256",))
     transaction = transactions.create("demo", return_to="/app")
     transport = httpx.MockTransport(lambda request: httpx.Response(200, json={"id_token": "signed", "access_token": "access"}))
     client = httpx.Client(transport=transport)
@@ -101,6 +122,594 @@ def test_v20_oidc_callback_pkce_nonce_and_claim_validation(tmp_path: Path):
     result = service.complete(provider_id="demo", state=transaction.state, code="code")
     assert result["externalSubject"] == "external-1" and result["returnTo"] == "/app"
     with pytest.raises(ValueError): service.complete(provider_id="demo", state=transaction.state, code="code")
+
+
+def test_sqlite_oidc_sign_in_adopts_existing_ownership(tmp_path):
+    from baloot_platform.identity import IdentityService
+    from baloot_platform.identity.store import SQLiteIdentityStore
+    from baloot_platform.security.state_v20 import complete_oidc_sign_in
+
+    security_path = tmp_path / "security.sqlite3"
+    identity_path = tmp_path / "identity.sqlite3"
+    legacy = SQLiteSecurityStateStore(security_path)
+    identities = IdentityService(SQLiteIdentityStore(identity_path))
+    original = identities.create_external(kind="oidc", display_name="Fixture", subject_id="fixture-owner")
+    issuer = "https://issuer.example"
+    legacy.link_external_identity(
+        provider_id="fixture", issuer=issuer, external_subject="subject",
+        local_subject_id="fixture-owner", claims={}, linked_at="2026-01-01T00:00:00Z",
+    )
+    state = SQLiteSecurityStateStore(security_path)
+    session = complete_oidc_sign_in(
+        state, identities, {"providerId": "fixture", "issuer": issuer, "externalSubject": "subject", "claims": {}},
+        display_name="Fixture", user_agent=None,
+    )
+    assert session["identity"] == original["identity"]
+    assert session["session"]["sessionId"] != original["session"]["sessionId"]
+    assert identities.resolve(session["session"]["token"])[0].subject_id == "fixture-owner"
+    with pytest.raises(ValueError, match="already linked"):
+        state.link_external_identity(
+            provider_id="fixture", issuer=issuer, external_subject="subject",
+            local_subject_id="other-owner", claims={}, linked_at="2026-01-01T00:00:00Z",
+        )
+
+
+def _oidc_row(key: str) -> dict:
+    return {
+        "issuer": f"https://{key}.example/oidc/",
+        "authorization_endpoint": f"https://{key}.example/authorize?prompt=login",
+        "token_endpoint": f"https://{key}.example/token",
+        "client_id": f"{key}-client",
+        "redirect_uri": "http://localhost:8080/callback",
+        "allowed_algorithms": ["EdDSA"],
+    }
+
+
+def _oidc_profile(providers: dict) -> dict:
+    return {
+        "schema_version": 1,
+        "profile": {"id": "signin", "version": "1.0.0"},
+        "change_reason": "Migrate provider onboarding to the registry",
+        "providers": providers,
+    }
+
+
+def _oidc_credential_binding(key: str, row: dict) -> dict:
+    return {"provider_id": key, **{
+        field: row[field] for field in ("issuer", "client_id", "token_endpoint", "client_secret_env")
+    }}
+
+
+@pytest.fixture
+def oidc_configuration(tmp_path):
+    from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
+
+    root = platform_root()
+    config = yaml.safe_load((root / "configs/configuration/control-plane.yaml").read_text(encoding="utf-8"))
+    runtime = tmp_path / "data" / "runtime"
+    runtime.mkdir(parents=True)
+    store = SQLiteConfigurationStore(runtime / "configuration.sqlite3")
+    token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(configuration_admin=True))
+    try:
+        yield VersionedConfigurationService(store, root=root, profile=config)
+    finally:
+        CURRENT_DATABASE_IDENTITY.reset(token)
+        store.close()
+
+
+def test_sqlite_profile_visibility_includes_only_published_rows_for_oidc_runtime(oidc_configuration, monkeypatch):
+    from types import SimpleNamespace
+
+    from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
+
+    monkeypatch.setattr("baloot_platform.configuration.service.time", SimpleNamespace(monotonic=lambda: 1.0))
+    published = oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=_oidc_profile({}), created_by="operator", publish=True,
+    )
+    draft_payload = _oidc_profile({})
+    draft_payload["profile"]["version"] = "1.0.1"
+    draft = oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=draft_payload, created_by="operator",
+    )
+    store = oidc_configuration.store
+    published_id, draft_id = published["revisionId"], draft["revisionId"]
+
+    def content_lookup():
+        return store.find_profile_by_content(
+            family=OIDC_PROVIDER_FAMILY, scope="global", tenant_id=None,
+            payload_sha256=published["payloadSha256"],
+        )
+
+    assert content_lookup().revision_id == published_id
+    assert store.get_profile(draft_id).revision_id == draft_id
+    assert store.published_profile_hash(published_id, OIDC_PROVIDER_FAMILY) == published["payloadSha256"]
+    assert store.visible_revision_ids("profile", {published_id, draft_id}, "default") == {published_id, draft_id}
+    assert store.events("profile", published_id)
+    resolution = {"family": OIDC_PROVIDER_FAMILY, "profile_id": "signin", "at_time": "2026-01-01T00:00:00Z"}
+    assert oidc_configuration.resolve_profile(**resolution)["revisionId"] == published_id
+    for internal in (True, False):
+        token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(oidc_registry_read=internal))
+        try:
+            rows = store.list_profiles(family=OIDC_PROVIDER_FAMILY, limit=1)
+            assert [row.revision_id for row in rows] == ([published_id] if internal else [])
+            assert (store.get_profile(published_id) is not None) is internal
+            assert (content_lookup() is not None) is internal
+            assert store.published_profile_hash(published_id, OIDC_PROVIDER_FAMILY) == (
+                published["payloadSha256"] if internal else None
+            )
+            assert store.visible_revision_ids("profile", {published_id, draft_id}, "default") == (
+                {published_id} if internal else set()
+            )
+            assert store.get_profile(draft_id) is None
+            assert store.events("profile", published_id) == []
+            if internal:
+                assert oidc_configuration.resolve_profile(**resolution)["revisionId"] == published_id
+            else:
+                with pytest.raises(KeyError, match="published configuration profile not found"):
+                    oidc_configuration.resolve_profile(**resolution)
+        finally:
+            CURRENT_DATABASE_IDENTITY.reset(token)
+
+
+def test_v20_oidc_registry_drives_api_and_preserves_audit(
+    tmp_path, monkeypatch, caplog, oidc_configuration
+):
+    monkeypatch.setattr(
+        "baloot_platform.configuration.store.utc_now", lambda: "2026-01-01T00:00:00+00:00"
+    )
+    beta = {
+        **_oidc_row("beta"),
+        "client_secret_env": "BALOOT_OIDC_CLIENT_SECRET_BETA",
+        "trusted_additional_audiences": ["trusted-client"],
+    }
+    payload = _oidc_profile({"alpha": _oidc_row("alpha"), "beta": beta})
+    draft = oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=payload, created_by="operator-1"
+    )
+    revision = oidc_configuration.publish_profile(
+        draft["revisionId"], expected_etag=draft["etag"], actor_id="operator-2"
+    )
+    assert revision["payload"]["change_reason"] == payload["change_reason"]
+    assert revision["payload"] == validate_oidc_provider_profile(payload).model_dump(mode="json", exclude_none=True)
+    audit = oidc_configuration.store.events_with_verification("profile", revision["revisionId"])
+    assert audit["verification"]["valid"]
+    assert [
+        (event["eventType"], event["actorId"], event["createdAt"])
+        for event in audit["items"]
+    ] == [
+        ("created", "operator-1", "2026-01-01T00:00:00+00:00"),
+        ("published", "operator-2", "2026-01-01T00:00:00+00:00"),
+    ]
+    assert audit["items"][0]["payload"]["payloadSha256"] == revision["payloadSha256"]
+
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
+    monkeypatch.setenv("BALOOT_OIDC_CLIENT_SECRET_BETA", "synthetic-fixture")
+    monkeypatch.setenv(OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps([_oidc_credential_binding("beta", beta)]))
+    providers = load_oidc_providers(oidc_configuration)
+    assert providers["alpha"].trusted_additional_audiences == ()
+    assert providers["beta"].trusted_additional_audiences == ("trusted-client",)
+    monkeypatch.setenv("BALOOT_OIDC_ISSUER", "https://legacy.example")
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDER_ID", "legacy")
+    monkeypatch.setenv("BALOOT_API_KEY", "synthetic-test-key")
+    container = build_container(writable_root=tmp_path / "data", database_url="")
+    try:
+        api = security_probe_app()
+
+        api.include_router(
+            build_configuration_router(
+                container.configuration,
+                container.identity,
+                container.authorization_policy,
+                container.configuration_profile,
+                container.performance_profile,
+            )
+        )
+        api.include_router(
+            build_security_router(
+                container.identity,
+                container.access_tokens,
+                container.authorization_policy,
+                container.passkeys,
+                container.websocket_tickets,
+                container.security_state,
+            )
+        )
+        caplog.set_level("INFO", logger="baloot_platform.security.oidc")
+        with http_oidc_runtime(container.configuration, container.security_state) as runtime, TestClient(api) as client:
+            api.state.oidc = runtime
+            oidc = runtime.current()
+            assert oidc is not None
+            assert oidc.providers["alpha"].client_secret is None
+            assert oidc.providers["beta"].client_secret == "synthetic-fixture"
+            assert "synthetic-fixture" not in repr(oidc.providers)
+            assert oidc.providers["beta"].issuer == "https://beta.example/oidc/"
+            assert sum("Ignoring legacy OIDC provider metadata" in record.message for record in caplog.records) == 1
+            assert any(revision["revisionId"] in record.message for record in caplog.records)
+            prefix = "/api/v1/configuration-registry"
+            revision_id = revision["revisionId"]
+            profile_path = f"{prefix}/profiles/{revision_id}"
+            for path in (
+                profile_path,
+                f"{profile_path}/events",
+                f"{prefix}/profiles:resolve?family=oidc_providers&profileId=signin",
+                f"{prefix}/profiles:compare?left={revision_id}&right={revision_id}",
+            ):
+                headers = {"x-api-key": "synthetic-test-key", "x-baloot-role": "player"}
+                assert client.get(path, headers=headers).status_code == 404
+                headers["x-baloot-role"] = "admin"
+                assert client.get(path, headers=headers).status_code == 200
+            assert client.get("/api/v1/security/capabilities", headers=headers).json()["oidcProviders"] == ["alpha", "beta"]
+            states = {}
+            for key in ("alpha", "beta"):
+                begin = client.post("/api/v1/security/oidc:begin", json={"providerId": key})
+                assert begin.status_code == 200
+                states[key] = begin.json()["state"]
+                url = urlsplit(begin.json()["authorizationUrl"])
+                assert url.hostname == f"{key}.example"
+                params = parse_qs(url.query)
+                assert params["client_id"] == [f"{key}-client"]
+                assert params["prompt"] == ["login"]
+                assert params["code_challenge_method"] == ["S256"]
+            unknown = client.post("/api/v1/security/oidc:begin", json={"providerId": "legacy"})
+            assert unknown.status_code == 404
+            updated_alpha = {**_oidc_row("alpha"), "token_endpoint": "https://alpha.example/new-token",
+                             "scopes": ["openid", "fixture:read"]}
+            replacement = _oidc_profile({"alpha": updated_alpha})
+            replacement["profile"]["version"] = "1.0.1"
+            replacement_revision = oidc_configuration.create_profile(
+                family=OIDC_PROVIDER_FAMILY, payload=replacement, created_by="operator-1", publish=True,
+            )
+            assert client.get("/api/v1/security/capabilities", headers=headers).json()["oidcProviders"] == ["alpha"]
+            stale = client.post("/api/v1/security/oidc:callback", json={
+                "providerId": "alpha", "state": states["alpha"], "code": "fixture-code",
+            })
+            assert stale.status_code == 400 and "provider changed" in stale.json()["detail"]
+            begin = client.post("/api/v1/security/oidc:begin", json={"providerId": "alpha"})
+            assert parse_qs(urlsplit(begin.json()["authorizationUrl"]).query)["scope"] == ["openid fixture:read"]
+            oidc_configuration.retire_profile(
+                replacement_revision["revisionId"], expected_etag=replacement_revision["etag"],
+                actor_id="operator-1", reason="Disable the registry",
+            )
+            assert client.get("/api/v1/security/capabilities", headers=headers).json()["oidcProviders"] == []
+    finally:
+        container.shutdown()
+
+
+def test_v20_oidc_request_validation_respects_the_application_root(monkeypatch):
+    from baloot_platform.service import api
+    from baloot_platform.service.routes.auth import COOKIE_NAME
+    from baloot_platform.service.routes.security import OIDC_BEGIN, OIDC_CALLBACK, SECURITY_PREFIX
+
+    monkeypatch.setenv("BALOOT_ENFORCE_SESSION_CSRF", "true")
+    monkeypatch.delenv("BALOOT_API_KEY", raising=False)
+    probe = security_probe_app()
+    probe.include_router(build_security_router(
+        api.IDENTITY, api.ACCESS_TOKENS, api.AUTHORIZATION_POLICY,
+        api.PASSKEYS, api.WEBSOCKET_TICKETS, api.SECURITY_STATE,
+    ))
+    session = api.IDENTITY.create_guest("Request validation fixture")["session"]
+    mount = "/fixture-prefix"
+    with TestClient(probe, root_path=mount) as client:
+        for route, body, handler_status in (
+            (OIDC_BEGIN, {"providerId": "fixture"}, 404),
+            (OIDC_CALLBACK, {"providerId": "fixture", "state": "fixture", "code": "fixture"}, 400),
+        ):
+            path = mount + SECURITY_PREFIX + route
+            response = client.post(path, content=json.dumps(body), headers={"content-type": "text/plain"})
+            assert response.status_code == 415, response.text
+            response = client.post(path, json=body)
+            assert response.status_code == handler_status, response.text
+            assert response.json()["detail"] == "OIDC provider is not configured"
+
+            client.cookies.set(COOKIE_NAME, session["token"])
+            for headers in ({}, {"x-csrf-token": "incorrect"}):
+                response = client.post(path, json=body, headers=headers)
+                assert response.status_code == 403, response.text
+                assert response.json()["detail"] == "csrf token required"
+            response = client.post(path, json=body, headers={"x-csrf-token": session["csrfToken"]})
+            assert response.status_code == handler_status, response.text
+            assert response.json()["detail"] == "OIDC provider is not configured"
+            client.cookies.clear()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("client_id", None),
+        ("client_id", 123),
+        ("client_id", " "),
+        ("issuer", "https://beta.example/oidc/?"),
+        ("token_endpoint", "http://beta.example/token"),
+        ("token_endpoint", "https://beta.example:synthetic-fixture/token"),
+        ("authorization_endpoint", "https://synthetic-fixture@localhost/authorize"),
+        ("redirect_uri", "http://beta.example/callback"),
+        ("client_secret", "synthetic-fixture"),
+        ("client_secret_env", "UNRELATED_SECRET"),
+        ("jwks_uri", "https://beta.example/keys"),
+        ("allowed_algorithms", []),
+        ("allowed_algorithms", ["HS256"]),
+        ("allowed_algorithms", ["EdDSA", "EdDSA"]),
+        ("trusted_additional_audiences", [" "]),
+        ("trusted_additional_audiences", ["peer", "peer"]),
+        ("trusted_additional_audiences", ["beta-client"]),
+    ],
+)
+def test_v20_oidc_registry_rejects_rows_on_write(oidc_configuration, field, value):
+    beta = {**_oidc_row("beta"), field: value}
+    with pytest.raises(ValueError, match="OIDC provider 'beta'") as exc:
+        oidc_configuration.create_profile(
+            family=OIDC_PROVIDER_FAMILY,
+            payload=_oidc_profile({"alpha": _oidc_row("alpha"), "beta": beta}),
+            created_by="operator-1",
+        )
+    assert "synthetic-fixture" not in str(exc.value)
+    assert oidc_configuration.store.list_profiles(family=OIDC_PROVIDER_FAMILY) == []
+
+
+def test_v20_oidc_schema_and_writes_agree_on_profile_version(oidc_configuration):
+    from jsonschema import Draft202012Validator
+
+    validator = Draft202012Validator(oidc_configuration.profile_schema(OIDC_PROVIDER_FAMILY))
+    payload = _oidc_profile({})
+    assert validator.is_valid(payload)
+    payload["profile"]["version"] = "release"
+    assert not validator.is_valid(payload)
+    with pytest.raises(ValueError, match=r"OIDC registry profile\.version"):
+        oidc_configuration.create_profile(
+            family=OIDC_PROVIDER_FAMILY, payload=payload, created_by="operator-1",
+        )
+
+
+def test_v20_oidc_registry_fails_closed_at_startup(tmp_path, monkeypatch, oidc_configuration):
+    from types import SimpleNamespace
+
+    from baloot_platform.security import oidc
+
+    monkeypatch.delenv("BALOOT_OIDC_PROVIDERS_PROFILE", raising=False)
+    monkeypatch.delenv("BALOOT_OIDC_ISSUER", raising=False)
+    assert load_oidc_providers(oidc_configuration) == {}
+    monkeypatch.setenv("BALOOT_OIDC_ISSUER", "https://legacy.example")
+    with pytest.raises(ValueError, match="migrate legacy OIDC"):
+        load_oidc_providers(oidc_configuration)
+
+    alpha = {**_oidc_row("alpha"), "client_secret_env": "BALOOT_OIDC_CLIENT_SECRET_ALPHA"}
+    draft = oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=_oidc_profile({"alpha": alpha}), created_by="operator-1"
+    )
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
+    with pytest.raises(ValueError, match="published OIDC provider profile"):
+        load_oidc_providers(oidc_configuration)
+    oidc_configuration.publish_profile(
+        draft["revisionId"], expected_etag=draft["etag"], actor_id="operator-1"
+    )
+    class UnapprovedEnvironment(dict):
+        def get(self, name, default=None):
+            assert name != alpha["client_secret_env"], "read a credential before approving its provider binding"
+            return super().get(name, default)
+
+    with monkeypatch.context() as unapproved:
+        settings = UnapprovedEnvironment({
+            "BALOOT_OIDC_PROVIDERS_PROFILE": "signin",
+            alpha["client_secret_env"]: "synthetic-fixture",
+        })
+        unapproved.setattr(oidc, "os", SimpleNamespace(environ=settings))
+        with pytest.raises(ValueError, match="approve its confidential registration"):
+            load_oidc_providers(oidc_configuration)
+        settings[OIDC_CREDENTIAL_BINDINGS_ENV] = '{"client_secret":"synthetic-fixture"}'
+        with pytest.raises(ValueError, match="requires a valid JSON array") as error:
+            load_oidc_providers(oidc_configuration)
+        assert "synthetic-fixture" not in str(error.value)
+
+    monkeypatch.delenv("BALOOT_OIDC_CLIENT_SECRET_ALPHA", raising=False)
+    monkeypatch.setenv(OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps([_oidc_credential_binding("alpha", alpha)]))
+    worker = build_container(writable_root=tmp_path / "data", database_url="")
+    worker.shutdown()
+    with pytest.raises(ValueError, match="OIDC provider 'alpha': missing deployment secret"):
+        load_oidc_providers(oidc_configuration)
+
+    omitted = _oidc_profile({"alpha": _oidc_row("alpha")})
+    omitted["profile"]["version"] = "1.0.1"
+    oidc_configuration.create_profile(family=OIDC_PROVIDER_FAMILY, payload=omitted, created_by="operator-1", publish=True)
+    with pytest.raises(ValueError, match="OIDC provider 'alpha': include its approved confidential credential reference"):
+        load_oidc_providers(oidc_configuration)
+
+
+def test_v20_oidc_startup_follows_current_published_revision(monkeypatch, oidc_configuration):
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
+    previous = oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=_oidc_profile({"alpha": _oidc_row("alpha")}),
+        created_by="operator-1", publish=True,
+    )
+    assert set(load_oidc_providers(oidc_configuration)) == {"alpha"}
+    revised = _oidc_profile({"beta": _oidc_row("beta")})
+    revised["profile"]["version"] = "1.0.1"
+    current = oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=revised, created_by="operator-1",
+        supersedes_revision_id=previous["revisionId"], publish=True,
+    )
+    assert set(load_oidc_providers(oidc_configuration)) == {"beta"}
+    oidc_configuration.retire_profile(
+        current["revisionId"], expected_etag=current["etag"], actor_id="operator-1",
+        reason="Retire current sign-in profile",
+    )
+    with pytest.raises(ValueError, match="no active published"):
+        load_oidc_providers(oidc_configuration)
+
+
+def test_v20_oidc_registry_refuses_rollout_conditions(monkeypatch, oidc_configuration):
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
+    oidc_configuration.create_profile(
+        family=OIDC_PROVIDER_FAMILY, payload=_oidc_profile({"alpha": _oidc_row("alpha")}),
+        created_by="operator-1", effective_from="2000-01-01T00:00:00+00:00", publish=True,
+    )
+    with pytest.raises(ValueError, match="without rollout conditions"):
+        load_oidc_providers(oidc_configuration)
+
+
+@given(st.lists(st.from_regex(r"[a-z][a-z0-9-]{0,10}", fullmatch=True), max_size=4, unique=True))
+def test_v20_oidc_registry_preserves_provider_keys(keys):
+    validated = validate_oidc_provider_profile(
+        _oidc_profile({key: _oidc_row(key) for key in keys})
+    )
+    assert list(validated.providers) == keys
+
+
+@pytest.mark.parametrize("algorithm", ["EdDSA", "RS256"])
+def test_v20_oidc_callback_uses_real_signature_and_discovered_keys(monkeypatch, algorithm):
+    import jwt
+
+    provider = OidcProviderConfig(
+        "demo",
+        "https://issuer.example/oidc/",
+        "https://issuer.example/authorize",
+        "https://issuer.example/token",
+        "demo-client",
+        "https://app.example/callback",
+        allowed_algorithms=(algorithm,),
+        client_secret="synthetic-client-fixture",
+        trusted_additional_audiences=("trusted-client",),
+    )
+    timestamp = 1_767_225_600
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls.fromtimestamp(timestamp, tz)
+
+    monkeypatch.setattr(jwt.api_jwt, "datetime", FixedDateTime)
+    if algorithm == "EdDSA":
+        private_key = Ed25519PrivateKey.from_private_bytes(b"a" * 32)
+        other_key = Ed25519PrivateKey.from_private_bytes(b"b" * 32)
+        jwk = jwt.algorithms.OKPAlgorithm.to_jwk(private_key.public_key())
+    else:
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        jwk = jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())
+    ec_key = ec.derive_private_key(7, ec.SECP256R1())
+    keys = [
+        {**json.loads(jwk), "kid": "signing"},
+        {**json.loads(jwt.algorithms.ECAlgorithm.to_jwk(ec_key.public_key())), "kid": "ec"},
+    ]
+    discovery_url = "https://issuer.example/oidc/.well-known/openid-configuration"
+    jwks_url = "https://keys.example/oidc/public"
+    rotation_clock = 0.0
+    monkeypatch.setattr("baloot_platform.security.oidc.monotonic", lambda: rotation_clock)
+    discovery_reads = []
+    jwks_reads = []
+    metadata = {"issuer": provider.issuer, "jwks_uri": jwks_url}
+    token = ""
+
+    def fetch_jwks(_opener, request, timeout=None):
+        jwks_reads.append(request.full_url)
+        assert request.full_url == metadata["jwks_uri"]
+        return BytesIO(json.dumps({"keys": keys}).encode())
+
+    monkeypatch.setattr(OpenerDirector, "open", fetch_jwks)
+
+    def exchange(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            discovery_reads.append(str(request.url))
+            assert str(request.url) == discovery_url
+            return httpx.Response(200, json=metadata)
+        assert str(request.url) == provider.token_endpoint
+        params = parse_qs(request.content.decode())
+        assert params["client_id"] == [provider.client_id]
+        assert params["client_secret"] == ["synthetic-client-fixture"]
+        return httpx.Response(200, json={"id_token": token})
+
+    transactions = PkceTransactionStore()
+    with httpx.Client(transport=httpx.MockTransport(exchange)) as client:
+        service = OidcCallbackService({"demo": provider}, transactions, http_client=client)
+
+        def complete(*, key=private_key, alg=algorithm, kid="signing", **overrides):
+            nonlocal token
+            transaction = transactions.create("demo")
+            claims = {
+                "iss": provider.issuer,
+                "aud": provider.client_id,
+                "sub": "external-1",
+                "nonce": transaction.nonce,
+                "iat": timestamp - 1,
+                "exp": timestamp + 60,
+                **overrides,
+            }
+            token = jwt.encode(claims, key, algorithm=alg, headers={"kid": kid} if kid is not None else {})
+            return service.complete(provider_id="demo", state=transaction.state, code="code")
+
+        with pytest.raises(ValueError, match="signing algorithm is not allowed"):
+            complete(key=ec_key, alg="ES256", kid="ec")
+        with pytest.raises(ValueError, match="signing algorithm is not allowed"):
+            complete(key=None, alg="none")
+        with pytest.raises(ValueError, match="signing key ID is missing"):
+            complete(kid=None)
+        assert discovery_reads == jwks_reads == []
+        metadata["issuer"] = provider.issuer.rstrip("/")
+        with pytest.raises(ValueError, match="discovery issuer mismatch"):
+            complete()
+        metadata["issuer"] = provider.issuer
+        metadata["jwks_uri"] = "http://keys.example/oidc/public"
+        with pytest.raises(ValueError, match="absolute HTTPS URL"):
+            complete()
+        metadata["jwks_uri"] = jwks_url
+        assert jwks_reads == []
+        discovery_reads.clear()
+        assert complete()["externalSubject"] == "external-1"
+        assert complete(azp=provider.client_id)["externalSubject"] == "external-1"
+        trusted_audiences = [provider.client_id, "trusted-client"]
+        assert complete(aud=trusted_audiences, azp=provider.client_id)["externalSubject"] == "external-1"
+        with pytest.raises(ValueError, match="untrusted audience"):
+            complete(aud=[provider.client_id, "other-client"], azp=provider.client_id)
+        with pytest.raises(ValueError, match="authorized party mismatch"):
+            complete(aud=trusted_audiences)
+        with pytest.raises(ValueError, match="authorized party mismatch"):
+            complete(aud=trusted_audiences, azp="trusted-client")
+        with pytest.raises(ValueError, match="authorized party mismatch"):
+            complete(azp="other-client")
+        with pytest.raises(ValueError, match="authorized party mismatch"):
+            complete(azp=None)
+        assert complete(iat=timestamp + provider.clock_skew_seconds)["issuer"] == provider.issuer
+        assert discovery_reads == [discovery_url]
+        assert jwks_reads == [jwks_url]
+        for overrides in (
+            {"kid": "unknown"},
+            {"iss": provider.issuer.rstrip("/")},
+            {"aud": "different-client"},
+            {"exp": timestamp - provider.clock_skew_seconds - 1},
+            {"iat": timestamp + provider.clock_skew_seconds + 1},
+            {"key": other_key},
+        ):
+            with pytest.raises(ValueError, match="OIDC ID token validation failed"):
+                complete(**overrides)
+        assert discovery_reads == [discovery_url]
+        metadata["jwks_uri"] = "https://keys.example/oidc/rotated"
+        rotation_clock += provider.discovery_cache_seconds
+        assert complete()["externalSubject"] == "external-1"
+        assert discovery_reads == [discovery_url, discovery_url]
+        assert jwks_reads[-1] == metadata["jwks_uri"]
+
+
+def test_v20_oidc_jwks_transport_rejects_redirect(monkeypatch):
+    import jwt
+
+    requests = []
+    jwks_url = "https://keys.example/oidc/public"
+
+    def redirect(_handler, request):
+        requests.append(request.full_url)
+        headers = Message()
+        headers["Location"] = "http://keys.example/other"
+        response = addinfourl(BytesIO(), headers, request.full_url, 302)
+        response.msg = "Found"
+        return response
+
+    def unexpected_plain_http(_handler, request):
+        pytest.fail(f"JWKS client followed the redirect to {request.full_url}")
+
+    monkeypatch.setattr(HTTPSHandler, "https_open", redirect)
+    monkeypatch.setattr(HTTPHandler, "http_open", unexpected_plain_http)
+    with pytest.raises(jwt.exceptions.PyJWKClientConnectionError):
+        jwt.PyJWKClient(jwks_url).get_signing_key("signing")
+    assert requests == [jwks_url]
 
 
 def test_v20_passkey_state_is_durable_and_replay_safe(tmp_path: Path):

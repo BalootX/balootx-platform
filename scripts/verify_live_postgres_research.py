@@ -74,6 +74,18 @@ REQUIRED_MIGRATION_HASHES = {
     "029_shared_run_game_access.sql": (
         "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"
     ),
+    "030_oidc_issuer_transition.sql": (
+        "5cba5166395de08d74ec5ba4dcd78eaee11756ac06f9a58acb14f7481e1ffa5e"
+    ),
+    "031_oidc_registry_access.sql": (
+        "79f0419b6e14eff0320087847edf5688745041507c3b63df8f8e5254cc8871da"
+    ),
+    "032_oidc_identity_authority.sql": (
+        "4bd244d098d27a3cf86097c50db52052f7cd4e1cd0375bb623a444d812b20f10"
+    ),
+    "033_oidc_database_roles.sql": (
+        "b495a2ac2c8c37cdbc736904e474e6c5d1f76adc95a1af105e20fb55cadd222a"
+    ),
     "031_identity_list_pagination.sql": (
         "0ab020769e7933fe9e2ef0d0c68846b499cef02300cb37960240650a5b4e0bfa"
     ),
@@ -85,6 +97,9 @@ REQUIRED_MIGRATION_HASHES = {
     ),
     "034_configuration_schedule_handoff.sql": (
         "b7e43662710ba7a56c5c7f23734c9343067ab5fbc37032f769f1956534e2bc36"
+    ),
+    "035_oidc_identity_read_scope.sql": (
+        "847165c7983b064820050be9161f2eb8cf66b5ffe0e7260a921ce6eee74eee5d"
     ),
 }
 CONFIGURATION_V25_CONSTRAINTS = frozenset(
@@ -122,14 +137,16 @@ CONFIGURATION_SCHEDULE_TRIGGERS = frozenset(
     )
     for kind in ("bundle", "profile")
 ) | {("bundle_revisions", "trg_configuration_scheduled_predecessor_immutable", "guard_scheduled_predecessor", "O")}
-CONFIGURATION_V25_POLICIES = frozenset(
+CONFIGURATION_POLICIES = frozenset(
     {
-        ("bundle_revisions", "configuration_bundle_context_read_v25", "SELECT"),
-        ("bundle_revisions", "configuration_bundle_write_v25", "ALL"),
-        ("events", "configuration_events_read_v25", "SELECT"),
-        ("events", "configuration_events_write_v25", "INSERT"),
-        ("profile_revisions", "configuration_profile_context_read_v25", "SELECT"),
-        ("profile_revisions", "configuration_profile_write_v25", "ALL"),
+        ("bundle_revisions", "configuration_bundle_context_read_v25", "SELECT", "PERMISSIVE"),
+        ("bundle_revisions", "configuration_bundle_write_v25", "ALL", "PERMISSIVE"),
+        ("events", "configuration_events_read_v25", "SELECT", "PERMISSIVE"),
+        ("events", "configuration_events_write_v25", "INSERT", "PERMISSIVE"),
+        ("events", "oidc_registry_audit_v31", "SELECT", "RESTRICTIVE"),
+        ("profile_revisions", "configuration_profile_context_read_v25", "SELECT", "PERMISSIVE"),
+        ("profile_revisions", "configuration_profile_write_v25", "ALL", "PERMISSIVE"),
+        ("profile_revisions", "oidc_registry_access_v31", "ALL", "RESTRICTIVE"),
     }
 )
 CONFIGURATION_V25_RLS_RELATIONS = frozenset(
@@ -3700,11 +3717,7 @@ def _prove_configuration_v25_schema(database_url: str) -> dict[str, Any]:
         (str(row[0]), str(row[1]), str(row[2]), str(row[3])) for row in trigger_rows
     } != expected_triggers:
         raise ProofError("configuration immutable triggers drifted")
-    if {
-        (str(row[0]), str(row[1]), str(row[2])) for row in policy_rows
-    } != CONFIGURATION_V25_POLICIES or any(
-        str(row[3]).upper() != "PERMISSIVE" for row in policy_rows
-    ):
+    if {tuple(map(str, row)) for row in policy_rows} != CONFIGURATION_POLICIES:
         raise ProofError("configuration v25 RLS policies drifted")
     if {
         str(row[0]) for row in rls_rows if row[1] is True and row[2] is True
@@ -3716,7 +3729,7 @@ def _prove_configuration_v25_schema(database_url: str) -> dict[str, Any]:
         raise ProofError("configuration v25 invalidation epoch is missing")
     contract = {
         "constraints": [list(value) for value in sorted(CONFIGURATION_V25_CONSTRAINTS)],
-        "policies": [list(value) for value in sorted(CONFIGURATION_V25_POLICIES)],
+        "policies": [list(value) for value in sorted(CONFIGURATION_POLICIES)],
         "rlsRelations": sorted(CONFIGURATION_V25_RLS_RELATIONS),
         "triggers": [list(value) for value in sorted(expected_triggers)],
     }
@@ -3725,7 +3738,7 @@ def _prove_configuration_v25_schema(database_url: str) -> dict[str, Any]:
         "rolloutPercentageNumeric": True,
         "validatedConstraintCount": len(CONFIGURATION_V25_CONSTRAINTS),
         "immutabilityTriggerCount": len(expected_triggers),
-        "policyCount": len(CONFIGURATION_V25_POLICIES),
+        "policyCount": len(CONFIGURATION_POLICIES),
         "forcedRlsRelationCount": len(CONFIGURATION_V25_RLS_RELATIONS),
         "invalidationEpochPresent": True,
     }

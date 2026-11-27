@@ -95,6 +95,10 @@ Canonical history requires trusted context for full-state reads and operator aut
 
 Shared-run owners can read the archived game and replay after the run completes. Render records within those responses require operator access.
 
+For deployment setup and migration, see [Operating OIDC sign-in](docs/OIDC_OPERATIONS.md).
+
+The PostgreSQL migration runner keeps the OIDC policy transition and its filename and SHA-256 receipts in one transaction. Identity pagination indexes build concurrently before that transaction. The migration inventory reports results in filename order. Keep the original OIDC filenames and SQL so older receipts remain valid. The runner rejects changed digests and incomplete receipt histories that cannot arise from applying the ordered files.
+
 ## Merge
 
 - The `main` merge queue is the only path to trunk and uses squash merges only. Workers push their own short-lived branches without rewriting history and open PRs under the project's App identity. Merge, split or close an open PR within two days of its first push. The ruleset requires zero human approvals.

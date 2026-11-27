@@ -29,6 +29,15 @@
       "rationale": "None delegates to the canonical native-library locator; DD validates the ABI and records the selected binary's SHA-256. This selects no scoring, policy, search limit or benchmark tuning."
     },
     {
+      "key": "src/baloot_platform/configuration/store.py:PostgresConfigurationStore.transaction_connection",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "behaviorApplied": false,
+      "status": "compliant",
+      "owner": "baloot_platform.configuration.store.PostgresConfigurationStore",
+      "rationale": "None selects normal pool ownership. A migration can borrow an explicit connection to commit its data and configuration audit in the same transaction."
+    },
+    {
       "key": "src/baloot_platform/core/engine.py:BalootEngine.play_domain",
       "default": "None",
       "classification": "protocol_or_mathematical_invariant",

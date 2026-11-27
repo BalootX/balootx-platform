@@ -1,19 +1,34 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from baloot_platform.identity import IdentityService
+from baloot_platform.observability import log_event
 from baloot_platform.security import (
-    AuthorizationPolicy, OidcCallbackService, OidcProviderConfig,
-    PasskeyChallengeService, PkceTransactionStore, ROLE_SCOPES, Scope,
+    AuthorizationPolicy, PasskeyChallengeService, ROLE_SCOPES, Scope,
     SignedAccessTokenService, WebSocketTicketService,
 )
+from baloot_platform.security.state_v20 import OidcIdentityConflict, SQLiteOidcIssuerChange, complete_oidc_sign_in
 
 from .auth import require_identity
+
+SECURITY_PREFIX = "/api/v1/security"
+OIDC_BEGIN = "/oidc:begin"
+OIDC_CALLBACK = "/oidc:callback"
+OIDC_SIGN_IN_PATHS = frozenset((SECURITY_PREFIX + OIDC_BEGIN, SECURITY_PREFIX + OIDC_CALLBACK))
+
+def _current_oidc(request: Request):
+    runtime = getattr(request.app.state, "oidc", None)
+    if runtime is None:
+        return None
+    try:
+        return runtime.current()
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(503, "OIDC provider configuration is unavailable. Contact support to continue.") from exc
 
 
 class TokenRequest(BaseModel):
@@ -58,20 +73,18 @@ def build_security_router(
     identities: IdentityService,
     tokens: SignedAccessTokenService,
     policy: AuthorizationPolicy,
-    oidc_transactions: PkceTransactionStore,
-    oidc_providers: dict[str, OidcProviderConfig],
-    oidc_callback: OidcCallbackService,
     passkeys: PasskeyChallengeService,
     websocket_tickets: WebSocketTicketService,
     security_state: Any,
 ) -> APIRouter:
-    router = APIRouter(prefix="/api/v1/security", tags=["security"])
+    router = APIRouter(prefix=SECURITY_PREFIX, tags=["security"])
 
     @router.get("/capabilities")
-    def capabilities():
+    def capabilities(request: Request):
+        oidc = _current_oidc(request)
         return {
             "optionalSignIn": True, "localGuest": True, "localAccount": True,
-            "oidcProviders": sorted(oidc_providers), "oidcCallback": True,
+            "oidcProviders": sorted(oidc.providers) if oidc else [], "oidcCallback": True,
             "passkeys": True, "websocketTickets": True,
             "roles": {key: sorted(value.value for value in values) for key, values in ROLE_SCOPES.items()},
         }
@@ -97,12 +110,16 @@ def build_security_router(
         )
         return {"accessToken": access_token, "tokenType": "Bearer", "expiresIn": body.lifetimeSeconds, "role": role}
 
-    @router.post("/oidc:begin")
-    def oidc_begin(body: OidcBeginRequest):
-        provider = oidc_providers.get(body.providerId)
+    @router.post(OIDC_BEGIN)
+    def oidc_begin(body: OidcBeginRequest, request: Request):
+        oidc = _current_oidc(request)
+        provider = oidc.providers.get(body.providerId) if oidc else None
         if provider is None:
             raise HTTPException(404, "OIDC provider is not configured")
-        transaction = oidc_transactions.create(provider.provider_id, return_to=body.returnTo)
+        transaction = oidc.transactions.create(
+            provider.provider_id, return_to=body.returnTo,
+            provider_binding=provider.transaction_binding(),
+        )
         return {
             "authorizationUrl": provider.authorization_url(
                 state=transaction.state, nonce=transaction.nonce, code_challenge=transaction.challenge,
@@ -111,23 +128,31 @@ def build_security_router(
             "expiresAt": transaction.expires_at,
         }
 
-    @router.post("/oidc:callback")
+    @router.post(OIDC_CALLBACK)
     def oidc_complete(body: OidcCallbackRequest, request: Request):
+        oidc = _current_oidc(request)
+        if oidc is None:
+            raise HTTPException(400, "OIDC provider is not configured")
         try:
-            result = oidc_callback.complete(provider_id=body.providerId, state=body.state, code=body.code)
+            result = oidc.complete(provider_id=body.providerId, state=body.state, code=body.code)
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(400, str(exc)) from exc
-        existing = security_state.get_external_identity(result["providerId"], result["issuer"], result["externalSubject"])
         claims = dict(result["claims"])
         display = str(claims.get("name") or claims.get("preferred_username") or claims.get("email") or "مستخدم البلوت")[:40]
-        local_subject = str(existing["local_subject_id"]) if existing else None
-        session = identities.create_external(kind="oidc", display_name=display, subject_id=local_subject,
-                                             user_agent=request.headers.get("user-agent"))
-        security_state.link_external_identity(
-            provider_id=result["providerId"], issuer=result["issuer"], external_subject=result["externalSubject"],
-            local_subject_id=session["identity"]["subjectId"], claims=claims,
-            linked_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        )
+        try:
+            session = complete_oidc_sign_in(
+                security_state, identities, result, display_name=display, user_agent=request.headers.get("user-agent"),
+            )
+        except SQLiteOidcIssuerChange as exc:
+            raise HTTPException(503, "OIDC provider configuration is unavailable. Contact support to continue.") from exc
+        except OidcIdentityConflict as exc:
+            raise HTTPException(409, "Unable to complete sign-in for this account. Contact support to continue.") from exc
+        except Exception as exc:
+            log_event(
+                "oidc.link_failed", level=logging.ERROR, request_id=request.state.request_id,
+                error_type=type(exc).__name__,
+            )
+            raise HTTPException(503, "Sign-in is temporarily unavailable. Start a new sign-in and try again.") from None
         return {**session, "returnTo": result["returnTo"], "providerId": result["providerId"]}
 
     @router.post("/passkeys:begin")

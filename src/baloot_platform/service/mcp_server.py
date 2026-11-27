@@ -1754,12 +1754,9 @@ def _authorization_context(authorization: str | None) -> dict[str, Any] | None:
     return {"scopes": scopes, "subject": subject, "tenant": tenant, "authorization": authorization}
 
 
-def _protected_resource_metadata(request: Request) -> dict[str, Any]:
+def _protected_resource_metadata(request: Request, servers: list[str]) -> dict[str, Any]:
     configured = os.environ.get("BALOOT_MCP_RESOURCE_URL", "").strip()
     resource = configured or str(request.base_url).rstrip("/") + "/mcp"
-    servers = [item.strip() for item in os.environ.get("BALOOT_MCP_AUTHORIZATION_SERVERS", "").split(",") if item.strip()]
-    if not servers and os.environ.get("BALOOT_OIDC_ISSUER"):
-        servers = [os.environ["BALOOT_OIDC_ISSUER"].rstrip("/")]
     return {
         "resource": resource,
         "authorization_servers": servers,
@@ -1770,6 +1767,11 @@ def _protected_resource_metadata(request: Request) -> dict[str, Any]:
 
 
 def create_http_app() -> FastAPI:
+    servers = [
+        item.strip()
+        for item in os.environ.get("BALOOT_MCP_AUTHORIZATION_SERVERS", "").split(",")
+        if item.strip()
+    ]
     app = FastAPI(title="Baloot Platform MCP", version=SERVER_VERSION, docs_url=None, redoc_url=None)
     sessions: dict[str, float] = {}
 
@@ -1777,10 +1779,9 @@ def create_http_app() -> FastAPI:
     def health() -> dict[str, str]: return {"status": "ok", "version": SERVER_VERSION}
 
     @app.get("/.well-known/oauth-protected-resource")
-    def protected_resource_metadata(request: Request) -> dict[str, Any]: return _protected_resource_metadata(request)
-
     @app.get("/.well-known/oauth-protected-resource/mcp")
-    def protected_resource_metadata_mcp(request: Request) -> dict[str, Any]: return _protected_resource_metadata(request)
+    def protected_resource_metadata(request: Request) -> dict[str, Any]:
+        return _protected_resource_metadata(request, servers)
 
     @app.get("/mcp")
     async def mcp_get(request: Request, origin: str | None = Header(default=None),

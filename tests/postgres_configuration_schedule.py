@@ -40,7 +40,7 @@ from baloot_platform.storage.request_context import (
     DatabaseIdentityContext,
     contextual_connection,
 )
-from scripts.migrate_postgres import apply_migrations
+from scripts.migrate_postgres import apply_migrations, migration_batches
 from scripts.verify_live_postgres_research import (
     _assert_schema_contract,
     _migration_schema_contract,
@@ -129,10 +129,13 @@ def migrated_postgres(root: Path, tmp_path_factory: pytest.TempPathFactory) -> t
     predecessor_root = tmp_path_factory.mktemp("pre-schedule-migrations")
     predecessor_directory = predecessor_root / "migrations"
     predecessor_directory.mkdir()
-    for predecessor in sorted(migration.parent.glob("*.sql")):
-        if predecessor.name < migration.name:
-            shutil.copyfile(predecessor, predecessor_directory / predecessor.name)
     previous = Path(os.environ["BALOOT_PREVIOUS_ROOT"])
+    predecessors = {path.name: path for path in (previous / "migrations").glob("*.sql")}
+    for batch in migration_batches(predecessors):
+        if batch[-1] >= migration.name:
+            break
+        for name in batch:
+            shutil.copyfile(predecessors[name], predecessor_directory / name)
     _run_previous_migrator(migrator_dsn, previous, predecessor_root)
     with psycopg.connect(migrator_dsn) as connection:
         connection.execute("SELECT set_config('app.role', 'service', true)")

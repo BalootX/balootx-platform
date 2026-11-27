@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from contextlib import closing, contextmanager, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -159,10 +160,10 @@ class SQLiteIdentityStore(_IdentityLists):
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.executescript(
                 """
-                PRAGMA journal_mode=WAL;
+                PRAGMA journal_mode=DELETE;
                 PRAGMA foreign_keys=ON;
                 CREATE TABLE IF NOT EXISTS identity_subjects_v8(
                   subject_id TEXT PRIMARY KEY,
@@ -217,10 +218,22 @@ class SQLiteIdentityStore(_IdentityLists):
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
+    @contextmanager
+    def write_transaction(self, *, security_path: Path):
+        with self._lock, closing(self._connect()) as conn, conn:
+            conn.execute("ATTACH DATABASE ? AS oidc_security", (str(security_path),))
+            # SQLite needs rollback journals on both files for a crash-atomic commit.
+            for schema in ("main", "oidc_security"):
+                if conn.execute(f"PRAGMA {schema}.journal_mode=DELETE").fetchone()[0] != "delete":
+                    raise RuntimeError("OIDC sign-in requires SQLite rollback journals")
+                conn.execute(f"PRAGMA {schema}.synchronous=FULL")
+            conn.execute("BEGIN IMMEDIATE")
+            yield conn
+
     def insert_subject(self, *, subject_id: str, kind: str, username: str | None,
                        display_name: str, password_salt: bytes | None,
-                       password_hash: bytes | None, created_at: str) -> None:
-        with self._lock, self._connect() as conn:
+                       password_hash: bytes | None, created_at: str, connection=None) -> None:
+        with self._lock, (nullcontext(connection) if connection is not None else self._connect()) as conn:
             conn.execute(
                 """INSERT INTO identity_subjects_v8(
                      subject_id,kind,username,display_name,password_salt,password_hash,created_at
@@ -228,8 +241,8 @@ class SQLiteIdentityStore(_IdentityLists):
                 (subject_id, kind, username, display_name, password_salt, password_hash, created_at),
             )
 
-    def get_subject(self, subject_id: str) -> dict[str, Any] | None:
-        with self._connect() as conn:
+    def get_subject(self, subject_id: str, *, connection=None) -> dict[str, Any] | None:
+        with (nullcontext(connection) if connection is not None else self._connect()) as conn:
             row = conn.execute(
                 "SELECT * FROM identity_subjects_v8 WHERE subject_id=?", (subject_id,)
             ).fetchone()
@@ -259,8 +272,8 @@ class SQLiteIdentityStore(_IdentityLists):
             if cursor.rowcount != 1:
                 raise KeyError(subject_id)
 
-    def insert_session(self, row: dict[str, Any]) -> None:
-        with self._lock, self._connect() as conn:
+    def insert_session(self, row: dict[str, Any], *, connection=None) -> None:
+        with self._lock, (nullcontext(connection) if connection is not None else self._connect()) as conn:
             conn.execute(
                 """INSERT INTO identity_sessions_v8(
                      session_id,subject_id,token_hash,csrf_token,created_at,expires_at,last_seen_at,user_agent_hash
@@ -352,8 +365,8 @@ class PostgresIdentityStore(_IdentityLists):
 
     def insert_subject(self, *, subject_id: str, kind: str, username: str | None,
                        display_name: str, password_salt: bytes | None,
-                       password_hash: bytes | None, created_at: str) -> None:
-        with self.pool.connection() as conn:
+                       password_hash: bytes | None, created_at: str, connection=None) -> None:
+        with (nullcontext(connection) if connection is not None else self.pool.connection()) as conn:
             conn.execute(
                 """INSERT INTO identity.subjects(
                      subject_id,kind,username,display_name,password_salt,password_hash,created_at
@@ -361,9 +374,9 @@ class PostgresIdentityStore(_IdentityLists):
                 (subject_id,kind,username,display_name,password_salt,password_hash,created_at),
             )
 
-    def get_subject(self, subject_id: str) -> dict[str, Any] | None:
+    def get_subject(self, subject_id: str, *, connection=None) -> dict[str, Any] | None:
         cols=("subject_id","kind","username","display_name","password_salt","password_hash","created_at","disabled_at")
-        with self.pool.connection() as conn:
+        with (nullcontext(connection) if connection is not None else self.pool.connection()) as conn:
             row=conn.execute(
                 "SELECT subject_id,kind,username,display_name,password_salt,password_hash,created_at,disabled_at FROM identity.subjects WHERE subject_id=%s",
                 (subject_id,),
@@ -409,8 +422,8 @@ class PostgresIdentityStore(_IdentityLists):
             if row is None:
                 raise KeyError(subject_id)
 
-    def insert_session(self, row: dict[str, Any]) -> None:
-        with self.pool.connection() as conn:
+    def insert_session(self, row: dict[str, Any], *, connection=None) -> None:
+        with (nullcontext(connection) if connection is not None else self.pool.connection()) as conn:
             conn.execute(
                 """INSERT INTO identity.sessions(
                      session_id,subject_id,token_hash,csrf_token,created_at,expires_at,last_seen_at,user_agent_hash

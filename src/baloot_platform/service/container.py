@@ -208,10 +208,7 @@ from baloot_platform.sakka.signing import HmacBoardSigner
 from baloot_platform.security import (
     AesGcmPayloadCipher,
     AuthorizationPolicy,
-    OidcCallbackService,
-    OidcProviderConfig,
     PasskeyChallengeService,
-    PkceTransactionStore,
     PostgresSecurityStateStore,
     SQLiteSecurityStateStore,
     SignedAccessTokenService,
@@ -362,9 +359,6 @@ class PlatformContainer:
     authorization_policy: AuthorizationPolicy
     access_tokens: SignedAccessTokenService
     security_state: Any
-    oidc_transactions: PkceTransactionStore
-    oidc_providers: dict[str, OidcProviderConfig]
-    oidc_callback: OidcCallbackService
     passkeys: PasskeyChallengeService
     websocket_tickets: WebSocketTicketService
     identity_profile: dict[str, Any]
@@ -420,7 +414,6 @@ class PlatformContainer:
                 self.hitl_store,
                 self.configuration_store,
                 self.security_state,
-                self.oidc_callback,
                 self.live_broker,
                 self.canonical_history,
                 self.campaign_control,
@@ -749,32 +742,6 @@ def _build_container(
         PostgresSecurityStateStore(dsn)
         if dsn
         else SQLiteSecurityStateStore(runtime / "security-v20.sqlite3"),
-    )
-    oidc_transactions = PkceTransactionStore(
-        ttl_seconds=int(os.environ.get("BALOOT_OIDC_TRANSACTION_TTL", "600")),
-        backend=security_state,
-    )
-    oidc_providers: dict[str, OidcProviderConfig] = {}
-    if (
-        os.environ.get("BALOOT_OIDC_ISSUER")
-        and os.environ.get("BALOOT_OIDC_AUTHORIZATION_ENDPOINT")
-        and os.environ.get("BALOOT_OIDC_TOKEN_ENDPOINT")
-        and os.environ.get("BALOOT_OIDC_CLIENT_ID")
-        and os.environ.get("BALOOT_OIDC_REDIRECT_URI")
-    ):
-        provider_id = os.environ.get("BALOOT_OIDC_PROVIDER_ID", "default")
-        oidc_providers[provider_id] = OidcProviderConfig(
-            provider_id=provider_id,
-            issuer=os.environ["BALOOT_OIDC_ISSUER"],
-            authorization_endpoint=os.environ["BALOOT_OIDC_AUTHORIZATION_ENDPOINT"],
-            token_endpoint=os.environ["BALOOT_OIDC_TOKEN_ENDPOINT"],
-            client_id=os.environ["BALOOT_OIDC_CLIENT_ID"],
-            redirect_uri=os.environ["BALOOT_OIDC_REDIRECT_URI"],
-            jwks_uri=os.environ.get("BALOOT_OIDC_JWKS_URI") or None,
-            client_secret=os.environ.get("BALOOT_OIDC_CLIENT_SECRET") or None,
-        )
-    oidc_callback = _own(
-        owned_resources, OidcCallbackService(oidc_providers, oidc_transactions)
     )
     passkeys = PasskeyChallengeService(
         rp_id=os.environ.get("BALOOT_WEBAUTHN_RP_ID", "localhost"),
@@ -1678,9 +1645,6 @@ def _build_container(
         authorization_policy,
         access_tokens,
         security_state,
-        oidc_transactions,
-        oidc_providers,
-        oidc_callback,
         passkeys,
         websocket_tickets,
         identity_profile,

@@ -16,7 +16,7 @@ from scripts import migrate_postgres
 MIGRATION_NAME = "025_configuration_store_contract.sql"
 SHARED_RUN_MIGRATION_NAME = "029_shared_run_game_access.sql"
 SCHEDULE_MIGRATION_NAME = "033_configuration_local_schedule.sql"
-LATEST_MIGRATION_NAME = "034_configuration_schedule_handoff.sql"
+LATEST_MIGRATION_NAME = "035_oidc_identity_read_scope.sql"
 FROZEN_PREDECESSOR_HASHES = {
     "011_configuration_registry_v19.sql": (
         "1e79c94b6244244afe0a2fd1f9ef421dcfadca6c32a48bd4c7f4b8fee97b9931"
@@ -129,8 +129,22 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
         if sql.startswith("BEGIN;") and sql.endswith("COMMIT;"):
             sql = sql[len("BEGIN;"):-len("COMMIT;")]
         sql_by_name[path.name] = sql
-    expected_sql = list(sql_by_name.values())
+    oidc_group = [
+        "030_oidc_issuer_transition.sql",
+        "031_oidc_registry_access.sql",
+        "032_oidc_identity_authority.sql",
+        "033_oidc_database_roles.sql",
+        "035_oidc_identity_read_scope.sql",
+    ]
+    insertion = oidc_group[-1]
+    execution_order = (
+        [name for name in sql_by_name if name < insertion and name not in oidc_group]
+        + oidc_group
+        + [name for name in sql_by_name if name > insertion]
+    )
+    expected_sql = [sql_by_name[name] for name in execution_order]
     receipts: dict[str, str] = {}
+    receipt_batches: list[list[str]] = []
     executed: list[str] = []
     indexes: dict[str, bool] = {}
 
@@ -148,6 +162,7 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
         def transaction(self):
             assert not self.in_transaction
             self.in_transaction = True
+            receipt_batches.append([])
             try:
                 yield
             finally:
@@ -161,6 +176,7 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
                 assert self.in_transaction
                 assert name not in receipts
                 receipts[name] = digest
+                receipt_batches[-1].append(name)
                 return
             if sql.startswith(("SELECT pg_advisory_lock", "CREATE SCHEMA IF NOT EXISTS baloot_migrations",
                                "CREATE TABLE IF NOT EXISTS baloot_migrations.applied")):
@@ -193,6 +209,7 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
 
     migrate_postgres.main()
     assert executed == expected_sql
+    assert oidc_group in receipt_batches
     completion = "Baloot PostgreSQL schema is current"
     assert capsys.readouterr().out.splitlines() == [
         *(f"applied {path.name}" for path in expected_paths), completion,
@@ -203,7 +220,7 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
     assert capsys.readouterr().out.splitlines() == [
         *(f"verified {path.name}" for path in expected_paths), completion,
     ]
-    assert list(receipts.items()) == [
+    assert sorted(receipts.items()) == [
         (path.name, hashlib.sha256(path.read_bytes()).hexdigest()) for path in expected_paths
     ]
     assert any(path.name == MIGRATION_NAME for path in expected_paths)
@@ -218,6 +235,12 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
     ]
     assert indexes[index] is True
     assert "repaired 032_identity_pending_requests_index.sql" in capsys.readouterr().out.splitlines()
+
+    del receipts[oidc_group[0]]
+    previously_executed = executed.copy()
+    with pytest.raises(ValueError, match="Non-prefix receipts"):
+        migrate_postgres.main()
+    assert executed == previously_executed
 
 
 @pytest.mark.parametrize(

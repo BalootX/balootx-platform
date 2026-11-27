@@ -1,22 +1,32 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import tempfile
 import threading
+from contextlib import closing, nullcontext
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Mapping, TypeVar
 
-from baloot_platform.storage.request_context import apply_postgres_identity_context, contextual_connection
+from baloot_platform.security.oidc import OIDC_PROVIDER_FAMILY
+from baloot_platform.storage.request_context import (
+    CURRENT_DATABASE_IDENTITY,
+    apply_postgres_identity_context,
+    contextual_connection,
+)
 
 from .models import BundleRevision, ProfileRevision, bundle_payload_fingerprint, canonical, digest, utc_now
+from .profile_families import PROFILE_FAMILY_DEFINITIONS
 from .schedule import ConfigurationIntegrityError, ConfigurationScheduleConflict, normalize_schedule, valid_schedule_link, verify_revision_schedule
 
 
 _UNSET = object()
 Revision = TypeVar("Revision", ProfileRevision, BundleRevision)
 BundleDimensions = tuple[str | None, str, str, str | None, str | None]
+_SQLITE_OIDC_ROLLBACK_TABLE = "configuration_oidc_rollback"
 
 
 @dataclass(frozen=True)
@@ -24,6 +34,22 @@ class BundleHistory:
     anchor: BundleRevision
     revisions: dict[str, BundleRevision]
     visible_revision_ids: frozenset[str]
+
+
+_SQLITE_VISIBLE_PROFILES = (
+    "SELECT * FROM configuration_profile_revisions WHERE configuration_profile_visible(family, status)"
+)
+
+
+def _sqlite_profile_visible(family: str | None, status: str | None) -> bool:
+    identity = CURRENT_DATABASE_IDENTITY.get()
+    definition = PROFILE_FAMILY_DEFINITIONS.get(family) if family is not None else None
+    return identity.configuration_admin or (
+        family is not None and (
+            definition is None or not definition.requires_config_admin
+            or (identity.oidc_registry_read and family == OIDC_PROVIDER_FAMILY and status == "published")
+        )
+    )
 
 
 _POSTGRES_PROFILE_COLUMNS = """
@@ -62,6 +88,96 @@ def _aggregate_identity(identity: tuple[Any, ...]) -> str:
     # JSON preserves tuple boundaries, nulls, empty strings, and embedded
     # punctuation.  A colon-joined identity cannot distinguish those values.
     return canonical(list(identity))
+
+
+def _sqlite_oidc_partition(conn: sqlite3.Connection) -> dict[str, tuple[str, list[tuple]]]:
+    profile_filter = "SELECT revision_id FROM configuration_profile_revisions WHERE family=?"
+    return {
+        "configuration_profile_revisions": ("revision_id", conn.execute(
+            "SELECT * FROM configuration_profile_revisions WHERE family=? ORDER BY revision_id",
+            (OIDC_PROVIDER_FAMILY,),
+        ).fetchall()),
+        "configuration_events": ("event_id", conn.execute(
+            "SELECT * FROM configuration_events WHERE aggregate_type='profile' "
+            f"AND aggregate_id IN ({profile_filter}) ORDER BY event_id",
+            (OIDC_PROVIDER_FAMILY,),
+        ).fetchall()),
+        "configuration_aggregate_heads": ("aggregate_key", conn.execute(
+            "SELECT * FROM configuration_aggregate_heads WHERE instr(aggregate_key,?)=1 ORDER BY aggregate_key",
+            (_aggregate_key("profile", (OIDC_PROVIDER_FAMILY,))[:-1] + ",",),
+        ).fetchall()),
+    }
+
+
+def _verify_sqlite_rollback_references(conn: sqlite3.Connection, registry_ids: list[str]) -> None:
+    conflict = conn.execute(
+        """WITH registry(id) AS (SELECT value FROM json_each(?))
+           SELECT 1 FROM configuration_profile_revisions
+             WHERE family<>? AND supersedes_revision_id IN registry
+           UNION ALL
+           SELECT 1 FROM configuration_bundle_revisions, json_each(components_json)
+             WHERE json_each.key=? OR json_each.value IN registry
+           UNION ALL
+           SELECT 1 FROM configuration_events event
+             WHERE event.aggregate_type='profile' AND NOT EXISTS (
+                 SELECT 1 FROM configuration_profile_revisions profile WHERE profile.revision_id=event.aggregate_id
+             )
+           UNION ALL
+           SELECT 1 FROM configuration_events event, json_tree(event.payload_json) AS member
+             WHERE NOT (event.aggregate_type='profile' AND event.aggregate_id IN registry)
+               AND member.atom IN registry
+           LIMIT 1""",
+        (canonical(registry_ids), OIDC_PROVIDER_FAMILY, OIDC_PROVIDER_FAMILY),
+    ).fetchone()
+    if conflict:
+        raise ValueError("Separate the configuration references before preparing or restoring an OIDC rollback image")
+
+
+def sqlite_oidc_configuration_image(protected: Path, output: Path, *, rollback: Path | None = None) -> None:
+    """Build a detached SQLite image from stopped configuration databases without replacing either input."""
+    protected = protected.resolve(strict=True)
+    output = output.resolve()
+    legacy = rollback.resolve(strict=True) if rollback is not None else output
+    if protected.is_relative_to(legacy.parent) or (rollback is not None and output.is_relative_to(legacy.parent)):
+        raise ValueError("Keep protected configuration and restored images outside the predecessor configuration directory")
+    if any(Path(f"{output}{suffix}").exists() for suffix in ("", "-wal", "-shm", "-journal")):
+        raise ValueError("Choose an unused configuration image path with no existing journal files")
+
+    source = legacy if rollback is not None else protected
+    with tempfile.TemporaryDirectory(dir=protected.parent) as custody, closing(
+        sqlite3.connect(Path(custody) / "configuration.sqlite3")
+    ) as copy, closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as readable:
+        readable.backup(copy)
+        if rollback is None:
+            partition = _sqlite_oidc_partition(copy)
+        else:
+            with closing(sqlite3.connect(protected.as_uri() + "?mode=ro", uri=True)) as retained:
+                partition = _sqlite_oidc_partition(retained)
+        registry_ids = [row[0] for row in partition["configuration_profile_revisions"][1]]
+        _verify_sqlite_rollback_references(copy, registry_ids)
+        registry_hash = digest(partition)
+        with copy:
+            if rollback is None:
+                copy.execute(f"CREATE TABLE {_SQLITE_OIDC_ROLLBACK_TABLE} (registry_sha256 TEXT NOT NULL)")
+                copy.execute(f"INSERT INTO {_SQLITE_OIDC_ROLLBACK_TABLE} VALUES (?)", (registry_hash,))
+                for table, (key, rows) in partition.items():
+                    copy.executemany(f"DELETE FROM {table} WHERE {key}=?", ((row[0],) for row in rows))
+            else:
+                if copy.execute(f"SELECT registry_sha256 FROM {_SQLITE_OIDC_ROLLBACK_TABLE}").fetchall() != [(registry_hash,)]:
+                    raise ValueError("Restore with the protected configuration database used to prepare this rollback image")
+                if any(rows for _key, rows in _sqlite_oidc_partition(copy).values()):
+                    raise ValueError("Restore requires a predecessor image containing only ordinary configuration")
+                for table, (_key, rows) in partition.items():
+                    if rows:
+                        placeholders = ",".join("?" for _ in rows[0])
+                        copy.executemany(f"INSERT INTO {table} VALUES ({placeholders})", rows)
+                copy.execute(f"DROP TABLE {_SQLITE_OIDC_ROLLBACK_TABLE}")
+
+        with tempfile.TemporaryDirectory(dir=output.parent) as publication:
+            image = Path(publication) / "configuration.sqlite3"
+            # Rebuild the image so removed records cannot survive in unused pages.
+            copy.execute("VACUUM INTO ?", (str(image),))
+            os.link(image, output)
 
 
 def _timestamp_text(value: Any) -> str:
@@ -225,7 +341,7 @@ _VISIBLE_BUNDLE = """
     )
 """
 _SQLITE_VISIBLE_BUNDLE = _VISIBLE_BUNDLE.format(
-    table="configuration_bundle_revisions", profiles="configuration_profile_revisions",
+    table="configuration_bundle_revisions", profiles=f"({_SQLITE_VISIBLE_PROFILES})",
     each="json_each", components="components_json", parameter="?",
 )
 _POSTGRES_VISIBLE_BUNDLE = _VISIBLE_BUNDLE.format(
@@ -580,13 +696,19 @@ class SQLiteConfigurationStore:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=30, isolation_level=None)
         conn.row_factory = sqlite3.Row
+        conn.create_function("configuration_profile_visible", 2, _sqlite_profile_visible)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
     def _initialize(self) -> None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
+            rollback = conn.execute(
+                "SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?", (_SQLITE_OIDC_ROLLBACK_TABLE,),
+            ).fetchone()
+            if rollback:
+                raise ValueError("Restore the protected OIDC registry into a new image before opening this rollback configuration")
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS configuration_profile_revisions(
@@ -955,6 +1077,9 @@ class SQLiteConfigurationStore:
             "SELECT event_id,aggregate_type,aggregate_id,sequence,event_type,"
             "actor_id,payload_json,previous_hash,event_hash,created_at "
             "FROM configuration_events WHERE aggregate_type=? AND aggregate_id=? "
+            "AND (aggregate_type <> 'profile' OR configuration_profile_visible("
+            " (SELECT family FROM configuration_profile_revisions WHERE revision_id=configuration_events.aggregate_id),"
+            " NULL)) "
             "ORDER BY sequence",
             (aggregate_type, aggregate_id),
         ).fetchall()
@@ -1266,12 +1391,13 @@ class SQLiteConfigurationStore:
 
     def get_profile(self, revision_id: str) -> ProfileRevision | None:
         with self._connect() as conn:
-            return self._profile(conn.execute("SELECT * FROM configuration_profile_revisions WHERE revision_id=?", (revision_id,)).fetchone())
+            row = conn.execute(_SQLITE_VISIBLE_PROFILES + " AND revision_id=?", (revision_id,)).fetchone()
+            return self._profile(row)
 
     def published_profile_hash(self, revision_id: str, family: str) -> str | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT payload_sha256 FROM configuration_profile_revisions "
+                f"SELECT payload_sha256 FROM ({_SQLITE_VISIBLE_PROFILES}) "
                 "WHERE revision_id=? AND family=? AND published_at IS NOT NULL "
                 "AND status IN ('published','superseded','retired')",
                 (revision_id, family),
@@ -1386,8 +1512,7 @@ class SQLiteConfigurationStore:
                                 environment: str | None = None) -> ProfileRevision | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM configuration_profile_revisions "
-                "WHERE family=? AND scope=? AND scope_key=? AND tenant_id IS ? "
+                _SQLITE_VISIBLE_PROFILES + " AND family=? AND scope=? AND scope_key=? AND tenant_id IS ? "
                 "AND environment IS ? AND payload_sha256=? "
                 "ORDER BY sequence DESC,revision_id LIMIT 1",
                 (family, scope, scope_key, tenant_id, environment, payload_sha256),
@@ -1420,9 +1545,9 @@ class SQLiteConfigurationStore:
             if environment is not None:
                 clauses.append("environment=?")
                 args.append(environment)
-        sql = "SELECT * FROM configuration_profile_revisions"
+        sql = _SQLITE_VISIBLE_PROFILES
         if clauses:
-            sql += " WHERE " + " AND ".join(clauses)
+            sql += " AND " + " AND ".join(clauses)
         sql += " ORDER BY sequence DESC,created_at DESC LIMIT ?"
         args.append(max(1, min(1000, int(limit))))
         with self._connect() as conn:
@@ -1703,7 +1828,7 @@ class SQLiteConfigurationStore:
         with self._connect() as conn:
             return _read_visible_revision_ids(
                 conn, revision_ids, parameter="?",
-                table="configuration_profile_revisions" if kind == "profile" else "configuration_bundle_revisions",
+                table=f"({_SQLITE_VISIBLE_PROFILES})" if kind == "profile" else "configuration_bundle_revisions",
                 predicate="scope='global' OR tenant_id=?" if kind == "profile" else _SQLITE_VISIBLE_BUNDLE,
                 visibility_args=(tenant,) if kind == "profile" else (tenant, tenant),
             )
@@ -1729,7 +1854,7 @@ class SQLiteConfigurationStore:
             conn.execute("BEGIN")
             return _read_bootstrap_bundle(
                 conn, self._bundle_histories_tx(conn, dimensions, False, 1), select,
-                profile_table="configuration_profile_revisions", epoch_table="configuration_invalidation_epochs",
+                profile_table=f"({_SQLITE_VISIBLE_PROFILES})", epoch_table="configuration_invalidation_epochs",
                 parameter="?", decode=self._profile, events=self._events_tx,
             )
 
@@ -1957,6 +2082,17 @@ class SQLiteConfigurationStore:
         return None
 
 
+class _TransactionConnection:
+    def __init__(self, connection: Any):
+        self._connection = connection
+
+    def connection(self):
+        return nullcontext(self._connection)
+
+    def close(self) -> None:
+        pass
+
+
 class PostgresConfigurationStore:
     """PostgreSQL V20 control-plane store.
 
@@ -1965,7 +2101,10 @@ class PostgresConfigurationStore:
     than `MAX(sequence)+1`, making concurrent publishers safe.
     """
 
-    def __init__(self, dsn: str):
+    def __init__(self, dsn: str, *, transaction_connection: Any = None):
+        if transaction_connection is not None:
+            self.pool = _TransactionConnection(transaction_connection)
+            return
         try:
             from psycopg.rows import dict_row
             from psycopg_pool import ConnectionPool

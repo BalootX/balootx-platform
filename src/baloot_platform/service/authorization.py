@@ -696,9 +696,12 @@ class Credentials:
             return "the request is outside the tenant scope"
         return None
 
+    def can_administer_configuration(self, policy: AuthorizationPolicy) -> bool:
+        return self.authenticated and self.denial(policy, Scope.CONFIG_ADMIN, tenant_scoped=False) is None
+
 
 def configuration_read_tenant(auth: Credentials, policy: AuthorizationPolicy) -> str | None:
-    if auth.role in {"admin", "service"} and auth.denial(policy, Scope.CONFIG_ADMIN, tenant_scoped=False) is None:
+    if auth.role in {"admin", "service"} and auth.can_administer_configuration(policy):
         return None
     return auth.tenant_id
 

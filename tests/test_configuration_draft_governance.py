@@ -1546,7 +1546,7 @@ class _ConcurrentEventSnapshotStore:
         self.items = [{"sequence": 1, "eventHash": "one"}]
 
     def get_profile(self, revision_id: str) -> object:
-        return object()
+        return SimpleNamespace(family="agents")
 
     def get_bundle(self, revision_id: str) -> object:
         return object()

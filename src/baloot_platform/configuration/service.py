@@ -19,6 +19,7 @@ from baloot_platform.config import (
     validate_profile_payload,
 )
 from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY
+from baloot_platform.version import PROFILE_VERSION_PATTERN
 
 from .models import (
     BundleRevision,
@@ -31,12 +32,17 @@ from .models import (
     configuration_tenant_visible,
     digest,
 )
+from .profile_families import PROFILE_FAMILY_DEFINITIONS
 from .schedule import ConfigurationIntegrityError, parse_instant, verify_revision_schedule
 from .store import BundleHistory, scheduled_bundle_history
 
-_SEMVER = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
-)
+_SEMVER = re.compile(PROFILE_VERSION_PATTERN)
+
+
+_BUNDLE_FAMILIES = set(PROFILE_FAMILIES) | {
+    family for family, definition in PROFILE_FAMILY_DEFINITIONS.items() if definition.in_bundle
+}
+
 _PRECEDENCE_KEYS = {
     "request_override",
     "shared_game_published",
@@ -243,12 +249,18 @@ class VersionedConfigurationService:
     def validate_profile(self, family: str, payload: dict[str, Any]) -> dict[str, Any]:
         if len(str(payload).encode("utf-8")) > self.maximum_payload_bytes:
             raise ValueError("configuration profile payload exceeds maximum size")
+        definition = PROFILE_FAMILY_DEFINITIONS.get(family)
+        if definition is not None:
+            return definition.validate(payload).model_dump(mode="json", exclude_none=True)
         return validate_profile_payload(family, payload, root=self.root)
 
     def profile_schema(self, family: str) -> dict[str, Any]:
         """Return the same closed schema used by row validation."""
 
         family = str(family)
+        definition = PROFILE_FAMILY_DEFINITIONS.get(family)
+        if definition is not None:
+            return definition.schema()
         if family not in PROFILE_FAMILIES:
             raise ValueError(f"unknown profile family: {family}")
         candidate = self.root / "schemas" / "profiles" / f"{family}.schema.json"
@@ -530,7 +542,10 @@ class VersionedConfigurationService:
     @staticmethod
     def _cache_authority(visible_to_tenant: str | None) -> tuple[Any, ...]:
         identity = CURRENT_DATABASE_IDENTITY.get()
-        return visible_to_tenant, identity.role, identity.tenant_id, bool(identity.subject_id)
+        return (
+            visible_to_tenant, identity.role, identity.tenant_id, bool(identity.subject_id),
+            identity.configuration_admin, identity.oidc_registry_read,
+        )
 
     def project_revision_links(
         self, kind: str, documents: list[dict[str, Any]], visible_to_tenant: str | None,
@@ -728,8 +743,8 @@ class VersionedConfigurationService:
     ) -> dict[str, Any]:
         if not _SEMVER.match(str(version)):
             raise ValueError("configuration bundle version must be semantic")
-        missing = set(PROFILE_FAMILIES) - set(component_revisions)
-        extra = set(component_revisions) - set(PROFILE_FAMILIES)
+        missing = _BUNDLE_FAMILIES - set(component_revisions)
+        extra = set(component_revisions) - _BUNDLE_FAMILIES
         if missing or extra:
             raise ValueError(
                 f"configuration bundle components mismatch: missing={sorted(missing)} extra={sorted(extra)}"

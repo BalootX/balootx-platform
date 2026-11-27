@@ -867,11 +867,16 @@ def test_current_migration_stage_freezes_complete_inventory_and_required_tail(
         if item["name"] in proof.REQUIRED_MIGRATION_HASHES
     } == proof.REQUIRED_MIGRATION_HASHES
     assert names.index("029_shared_run_game_access.sql") < names.index("031_identity_list_pagination.sql")
-    assert names[-4:] == [
+    assert names[-9:] == [
+        "030_oidc_issuer_transition.sql",
         "031_identity_list_pagination.sql",
+        "031_oidc_registry_access.sql",
         "032_identity_pending_requests_index.sql",
+        "032_oidc_identity_authority.sql",
         "033_configuration_local_schedule.sql",
+        "033_oidc_database_roles.sql",
         "034_configuration_schedule_handoff.sql",
+        "035_oidc_identity_read_scope.sql",
     ]
     assert (
         proof.REQUIRED_MIGRATION_HASHES["029_shared_run_game_access.sql"]
@@ -967,20 +972,26 @@ def test_current_migration_policy_contract_is_final_and_deterministic(
         ("live.rooms", "live_room_read_v20"),
         ("live.rooms", "live_room_write_v20"),
         ("security.external_identities", "external_identity_owner_v20"),
+        ("security.external_identities", "external_identity_authority_v33"),
+        ("security.external_identities", "external_identity_read_scope_v35"),
         ("security.passkey_credentials", "passkey_owner_v20"),
         ("security.websocket_tickets", "websocket_ticket_service_v20"),
     }
 
+    oidc_registry_policies = {
+        ("configuration.profile_revisions", "oidc_registry_access_v31"),
+        ("configuration.events", "oidc_registry_audit_v31"),
+    }
     assert [item["name"] for item in inventory] == _authored_migration_names()
     assert first == second
     assert (
         first["sha256"]
-        == "2aef297746610cc95a6a27dc0ba7920e1f36295ced34353f5c157efa020004a8"
+        == "83e39a09343276773ff4dbbcbe81b03a9957abea6cd1cfc44b433411bf98a5cc"
     )
     assert policies.isdisjoint(legacy_configuration_policies)
     assert configuration_v25_policies.issubset(policies)
     assert unrelated_policies.issubset(policies)
-    assert policies == configuration_v25_policies | unrelated_policies
+    assert policies == configuration_v25_policies | oidc_registry_policies | unrelated_policies
 
 
 def test_schema_contract_reports_missing_and_unexpected_policy_identities(
@@ -1930,9 +1941,7 @@ def test_configuration_v25_schema_probe_is_exact_and_fail_closed(
             if "FROM pg_trigger" in sql:
                 return Result(rows=proof.CONFIGURATION_V25_TRIGGERS | proof.CONFIGURATION_SCHEDULE_TRIGGERS)
             if "FROM pg_policies" in sql:
-                rows = [
-                    (*value, "PERMISSIVE") for value in proof.CONFIGURATION_V25_POLICIES
-                ]
+                rows = sorted(proof.CONFIGURATION_POLICIES)
                 return Result(rows=rows[1:] if state["dropPolicy"] else rows)
             if "FROM pg_class" in sql:
                 return Result(
@@ -1959,7 +1968,7 @@ def test_configuration_v25_schema_probe_is_exact_and_fail_closed(
                     ],
                     "policies": [
                         list(value)
-                        for value in sorted(proof.CONFIGURATION_V25_POLICIES)
+                        for value in sorted(proof.CONFIGURATION_POLICIES)
                     ],
                     "rlsRelations": sorted(proof.CONFIGURATION_V25_RLS_RELATIONS),
                     "triggers": [
@@ -1972,7 +1981,7 @@ def test_configuration_v25_schema_probe_is_exact_and_fail_closed(
         "rolloutPercentageNumeric": True,
         "validatedConstraintCount": 6,
         "immutabilityTriggerCount": 5,
-        "policyCount": 6,
+        "policyCount": 8,
         "forcedRlsRelationCount": 3,
         "invalidationEpochPresent": True,
     }

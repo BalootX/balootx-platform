@@ -1466,6 +1466,33 @@ def test_docker_constraint_job_resolves_the_shared_target(root):
     assert "docker-constraints" not in jobs["media-inputs"]["needs"]
 
 
+def test_oidc_postgres_proof_uses_hosted_database_before_the_shard(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    shard = jobs["python-fast-run"]
+    steps = {step.get("name"): step for step in shard["steps"]}
+    proof = steps["Verify OIDC migration on PostgreSQL"]
+    assert shard["services"]["postgres"]["image"].endswith("'postgres:17-alpine' || '' }}")
+    assert "job.services.postgres.ports[5432]" in proof["env"]["BALOOT_TEST_OIDC_POSTGRES_DSN"]
+    assert re.fullmatch(r"[0-9a-f]{40}", proof["env"]["BALOOT_TEST_OIDC_LEGACY_REF"])
+    assert re.fullmatch(r"[0-9a-f]{40}", proof["env"]["BALOOT_TEST_OIDC_PRE_REGISTRY_REF"])
+    assert re.fullmatch(r"[0-9a-f]{40}", proof["env"]["BALOOT_TEST_OIDC_PRE_CORRECTION_REF"])
+    assert "python -m scripts.run_required_pytest" in proof["run"]
+    assert "tests/oidc_postgres_integration.py::test_oidc_issuer_transition_on_postgres" in proof["run"]
+    replay = "tests/oidc_postgres_integration.py::test_oidc_migration_replay_is_atomic_and_preserves_data"
+    selections = shlex.split(proof["run"])
+    assert replay not in selections
+    assert all(
+        f"{replay}[{history}]" in selections
+        for history in ("current-main", "pre-receipt", "original-receipts", "corrected-pre-receipt")
+    )
+    assert "tests/oidc_postgres_integration.py::test_sqlite_oidc_rollback_keeps_configuration_and_registry_in_separate_custody" in selections
+    assert "tests/oidc_postgres_integration.py::test_sqlite_oidc_storage_survives_release_roundtrip" in proof["run"]
+    assert "tests/oidc_postgres_integration.py::test_sqlite_oidc_recovers_across_super_journal_commit" in proof["run"]
+    assert "!cancelled()" in proof["if"]
+    assert shard["steps"].index(proof) < shard["steps"].index(steps["Run isolated Python shard"])
+    assert "python-fast-run" in jobs["ci-gate"]["needs"]
+
+
 def test_address_sanitizer_requires_both_verifier_nodes_against_its_build(root):
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
     sanitizer = jobs["native-sanitizers"]

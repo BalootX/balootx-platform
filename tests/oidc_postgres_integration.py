@@ -1,0 +1,1461 @@
+from __future__ import annotations
+
+import ast
+import gc
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack, closing, contextmanager
+from copy import deepcopy
+from datetime import datetime
+from io import BytesIO
+from threading import Barrier
+from types import ModuleType, SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
+from urllib.request import OpenerDirector
+
+import pytest
+
+from scripts import migrate_postgres
+
+
+def _previous_module(root, monkeypatch, ref, module_name):
+    path = f"src/{module_name.replace('.', '/')}.py"
+    source = subprocess.check_output(["git", "show", f"{ref}:{path}"], cwd=root)
+    module = ModuleType(f"{module_name}_previous")
+    module.__package__ = module_name.rpartition(".")[0]
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    exec(compile(source, path, "exec"), module.__dict__)
+    return module
+
+
+def _previous_middleware(root, ref, api, identities):
+    path = "src/baloot_platform/service/api.py"
+    source = subprocess.check_output(["git", "show", f"{ref}:{path}"], cwd=root)
+    middleware, = [node for node in ast.parse(source).body
+                   if isinstance(node, ast.AsyncFunctionDef) and node.name == "platform_security"]
+    middleware.decorator_list = []
+    namespace = {**vars(api), "IDENTITY": identities}
+    exec(compile(ast.Module(body=[middleware], type_ignores=[]), path, "exec"), namespace)
+    return namespace["platform_security"]
+
+
+@pytest.mark.parametrize("history", ["current-main", "pre-receipt", "original-receipts", "corrected-pre-receipt"])
+def test_oidc_migration_replay_is_atomic_and_preserves_data(root, tmp_path, history):
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+
+    from baloot_platform.configuration import PostgresConfigurationStore
+    from baloot_platform.security.state_v20 import oidc_identity_rls_active
+    from baloot_platform.storage.request_context import DatabaseIdentityContext, apply_postgres_identity_context
+
+    dsn = os.environ["BALOOT_TEST_OIDC_POSTGRES_DSN"]
+    previous_ref = os.environ["BALOOT_TEST_OIDC_PRE_REGISTRY_REF"]
+    assert re.fullmatch(r"[0-9a-f]{40}", previous_ref)
+
+    def previous_blob(path, ref=previous_ref):
+        return subprocess.check_output(["git", "show", f"{ref}:{path}"], cwd=root)
+
+    previous = tmp_path / "previous"
+    previous_migrations = previous / "migrations"
+    previous_migrations.mkdir(parents=True)
+    paths = subprocess.check_output(
+        ["git", "ls-tree", "-r", "--name-only", previous_ref, "--", "migrations"], cwd=root, text=True,
+    ).splitlines()
+    migrations = {path.name: path for path in sorted((root / "migrations").glob("*.sql"))}
+    for path in paths:
+        name = path.rsplit("/", 1)[-1]
+        source = previous_blob(path)
+        assert migrations[name].read_bytes() == source
+        (previous_migrations / name).write_bytes(source)
+    oidc_files = sorted(migrations.keys() - {path.name for path in previous_migrations.iterdir()})
+    assert oidc_files == [
+        "030_oidc_issuer_transition.sql",
+        "031_oidc_registry_access.sql",
+        "032_oidc_identity_authority.sql",
+        "033_oidc_database_roles.sql",
+        "035_oidc_identity_read_scope.sql",
+    ]
+    expected_receipts = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in migrations.items()}
+
+    database = f"oidc_{history.replace('-', '_')}"
+    app_role, migration_role = f"{database}_app", f"{database}_migrator"
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+        for role in (app_role, migration_role):
+            conn.execute(sql.SQL("CREATE ROLE {} LOGIN NOSUPERUSER NOBYPASSRLS").format(sql.Identifier(role)))
+    database_dsn = make_conninfo(dsn, dbname=database)
+    has_oidc = history != "current-main"
+    corrected = history == "corrected-pre-receipt"
+    unreceipted = history in {"pre-receipt", "corrected-pre-receipt"}
+    if unreceipted:
+        # Run the original SQL without the receipt-aware runner, as in a pre-ledger deployment.
+        applied_files = oidc_files if corrected else oidc_files[:-1]
+        with psycopg.connect(database_dsn, autocommit=True) as conn:
+            for path in [*sorted(previous_migrations.iterdir()), *(migrations[name] for name in applied_files)]:
+                conn.execute(path.read_text(encoding="utf-8"))
+            assert conn.execute("SELECT to_regclass('baloot_migrations.applied')").fetchone() == (None,)
+    else:
+        runner_ref = previous_ref
+        if has_oidc:
+            runner_ref = os.environ["BALOOT_TEST_OIDC_PRE_CORRECTION_REF"]
+            assert re.fullmatch(r"[0-9a-f]{40}", runner_ref)
+            for name in oidc_files[:-1]:
+                source = previous_blob(f"migrations/{name}", runner_ref)
+                assert source == migrations[name].read_bytes()
+                (previous_migrations / name).write_bytes(source)
+        previous_runner = previous / "migrate_postgres.py"
+        previous_runner.write_bytes(previous_blob("scripts/migrate_postgres.py", runner_ref))
+        subprocess.run(
+            [sys.executable, str(previous_runner)],
+            env={**os.environ, "BALOOT_ROOT": str(previous), "BALOOT_DATABASE_URL": database_dsn},
+            check=True,
+        )
+
+    family = "oidc_providers" if has_oidc else "rules"
+    payload = {"profile": {"id": "receipt-fixture", "version": "1.0.0"}}
+    if has_oidc:
+        payload.update(schema_version=1, change_reason="Verify the retained registry", providers={})
+    store = PostgresConfigurationStore(database_dsn)
+    try:
+        # Seed through the store to retain real profile and audit records in both histories.
+        profile = store.create_profile(
+            family=family, profile_id="receipt-fixture", version="1.0.0", scope="global",
+            tenant_id=None, status="published", payload=payload, created_by="OIDC-FIXTURE",
+        )
+    finally:
+        store.close()
+    with psycopg.connect(database_dsn) as conn:
+        conn.execute(
+            """INSERT INTO identity.subjects(subject_id,kind,display_name)
+               VALUES ('OIDC-FIXTURE','oidc','Fixture'), ('OTHER-FIXTURE','oidc','Other fixture')"""
+        )
+        conn.execute(
+            """INSERT INTO identity.sessions(session_id,subject_id,token_hash,csrf_token,
+                                              created_at,expires_at,last_seen_at)
+               VALUES ('SES-FIXTURE','OIDC-FIXTURE','fixture-hash','fixture-csrf',
+                       '2026-09-29T00:00Z','2026-10-01T00:00Z','2026-09-30T00:00Z')"""
+        )
+        conn.execute(
+            """INSERT INTO security.oidc_transactions(state,payload_json,expires_at,consumed_at)
+               VALUES ('fixture-state','{"fixture":true}','2026-10-01T00:00Z','2026-09-30T00:00Z')"""
+        )
+        if has_oidc:
+            conn.execute(
+                """INSERT INTO security.oidc_issuer_transitions(revision_id,profile_id,provider_id,legacy_issuer,issuer)
+                   VALUES (%s,'receipt-fixture','fixture','https://signin.example/','https://signin.example')""",
+                (profile.revision_id,),
+            )
+        conn.execute(
+            """INSERT INTO security.external_identities
+                 (provider_id,issuer,external_subject,local_subject_id,claims_json,linked_at)
+               VALUES ('fixture','https://signin.example','fixture-subject','OIDC-FIXTURE','{}','2026-09-30T00:00Z'),
+                      ('other','https://other.example','other-subject','OTHER-FIXTURE','{}','2026-09-30T00:00Z')"""
+        )
+        for role in (app_role, migration_role):
+            identifier = sql.Identifier(role)
+            conn.execute(sql.SQL("GRANT USAGE ON SCHEMA security, configuration TO {}").format(identifier))
+            conn.execute(sql.SQL("GRANT SELECT ON security.external_identities, configuration.profile_revisions,"
+                                 " configuration.events TO {}").format(identifier))
+            conn.execute(sql.SQL("GRANT UPDATE (claims_json) ON security.external_identities TO {}").format(identifier))
+        if has_oidc:
+            conn.execute(
+                sql.SQL("GRANT UPDATE ON security.oidc_issuer_transitions TO {}").format(sql.Identifier(migration_role))
+            )
+        if unreceipted:
+            conn.execute("CREATE SCHEMA baloot_migrations")
+            conn.execute("CREATE TABLE baloot_migrations.applied (name text PRIMARY KEY, sha256 text NOT NULL)")
+
+    def interrupt_replay(failed_receipt):
+        with psycopg.connect(database_dsn) as conn:
+            conn.execute(
+                """CREATE FUNCTION baloot_migrations.interrupt_group() RETURNS trigger LANGUAGE plpgsql AS $$
+                   BEGIN
+                     IF NEW.name = TG_ARGV[0] THEN
+                       RAISE EXCEPTION 'fixture migration interruption';
+                     END IF;
+                     RETURN NEW;
+                   END $$"""
+            )
+            conn.execute(
+                sql.SQL("""CREATE TRIGGER fixture_interruption BEFORE INSERT ON baloot_migrations.applied
+                           FOR EACH ROW EXECUTE FUNCTION baloot_migrations.interrupt_group({})""").format(
+                    sql.Literal(failed_receipt)
+                )
+            )
+        with pytest.raises(psycopg.errors.RaiseException, match="fixture migration interruption"):
+            migrate_postgres.apply_migrations(database_dsn, root / "migrations")
+        with psycopg.connect(database_dsn) as conn:
+            conn.execute("DROP TRIGGER fixture_interruption ON baloot_migrations.applied")
+            conn.execute("DROP FUNCTION baloot_migrations.interrupt_group()")
+
+    tables = [
+        "identity.subjects", "identity.sessions", "security.oidc_transactions",
+        "security.external_identities", "configuration.profile_revisions", "configuration.events",
+    ]
+    if has_oidc:
+        tables.append("security.oidc_issuer_transitions")
+
+    def snapshot():
+        with psycopg.connect(database_dsn) as conn:
+            return {
+                table: conn.execute(
+                    sql.SQL("SELECT to_jsonb(t) {} FROM {} AS t ORDER BY to_jsonb(t)").format(
+                        sql.SQL("- 'issuer_alias'") if not has_oidc and table == "security.external_identities" else sql.SQL(""),
+                        sql.Identifier(*table.split(".")),
+                    )
+                ).fetchall()
+                for table in tables
+            }
+
+    def receipts():
+        with psycopg.connect(database_dsn) as conn:
+            return {
+                name: (digest, transaction)
+                for name, digest, transaction in conn.execute(
+                    "SELECT name, sha256, xmin::text FROM baloot_migrations.applied"
+                )
+            }
+
+    owned = ["OIDC-FIXTURE"] * (2 if has_oidc else 1)
+    all_links = [*owned, "OTHER-FIXTURE"]
+
+    def assert_access(*, final_policy=True):
+        cases = [
+            (app_role, "player", "", "OIDC-FIXTURE", owned),
+            (app_role, "player", "", "OTHER-FIXTURE", ["OTHER-FIXTURE"]),
+            (app_role, "player", "", "UNRELATED-FIXTURE", []),
+            (app_role, "anonymous", "", "", []),
+            (app_role, "oidc_link", "", "", []),
+        ]
+        if final_policy or has_oidc:
+            cases.extend((
+                (app_role, "oidc_link", "callback", "", all_links),
+                (migration_role, "oidc_link", "callback", "", []),
+                (migration_role, "service", "migration", "", all_links),
+            ))
+        if final_policy:
+            cases.extend((
+                (app_role, "admin", "", "", []),
+                (app_role, "service", "", "", []),
+                (app_role, "service", "migration", "", []),
+                (migration_role, "service", "", "", []),
+                (app_role, "service", "", "OIDC-FIXTURE", owned),
+                (app_role, "oidc_link", "migration", "", []),
+                (migration_role, "service", "callback", "", []),
+            ))
+        for role, access_role, authority, subject, expected in cases:
+            with psycopg.connect(make_conninfo(database_dsn, user=role)) as conn:
+                assert conn.execute("SELECT row_security_active('security.external_identities')").fetchone() == (True,)
+                apply_postgres_identity_context(conn, DatabaseIdentityContext(
+                    subject_id=subject, role=access_role, oidc_identity_authority=authority,
+                ))
+                rows = conn.execute(
+                    "SELECT local_subject_id FROM security.external_identities ORDER BY local_subject_id"
+                ).fetchall()
+                assert [subject_id for subject_id, in rows] == expected, (role, access_role, authority, subject)
+                authorized_write = (role, access_role, authority) in {
+                    (app_role, "oidc_link", "callback"), (migration_role, "service", "migration"),
+                }
+                updated = conn.execute(
+                    "UPDATE security.external_identities SET claims_json=claims_json"
+                ).rowcount
+                assert updated == (len(all_links) if authorized_write else 0)
+                if has_oidc and role == app_role:
+                    assert conn.execute("SELECT count(*) FROM configuration.profile_revisions").fetchone() == (0,)
+                    assert conn.execute("SELECT count(*) FROM configuration.events").fetchone() == (0,)
+        if has_oidc:
+            with psycopg.connect(make_conninfo(database_dsn, user=app_role)) as conn:
+                apply_postgres_identity_context(conn, DatabaseIdentityContext(role="admin", configuration_admin=True))
+                assert conn.execute("SELECT count(*) FROM configuration.profile_revisions").fetchone() == (1,)
+                assert conn.execute("SELECT count(*) FROM configuration.events").fetchone() == (2,)
+
+    def identity_policy_snapshot():
+        with psycopg.connect(database_dsn) as conn:
+            return conn.execute(
+                """SELECT policyname, cmd, permissive, qual, with_check FROM pg_policies
+                   WHERE schemaname='security' AND tablename='external_identities' ORDER BY policyname"""
+            ).fetchall()
+
+    original_data, original_receipts = snapshot(), receipts()
+    assert all(original_data.values())
+    if unreceipted:
+        assert original_receipts == {}
+    else:
+        assert set(original_receipts) == {path.name for path in previous_migrations.iterdir()}
+    original_policies = identity_policy_snapshot()
+    with psycopg.connect(make_conninfo(database_dsn, user=app_role)) as conn:
+        assert oidc_identity_rls_active(conn) is corrected
+    assert_access(final_policy=corrected)
+    interrupt_replay(oidc_files[-1] if history == "original-receipts" else oidc_files[1])
+    interrupted = receipts()
+    assert original_receipts.items() <= interrupted.items()
+    assert set(oidc_files) & interrupted.keys() == set(oidc_files) & original_receipts.keys()
+    assert snapshot() == original_data
+    assert identity_policy_snapshot() == original_policies
+    assert_access(final_policy=corrected)
+
+    migrate_postgres.apply_migrations(database_dsn, root / "migrations")
+    if not has_oidc:
+        with psycopg.connect(database_dsn) as conn:
+            conn.execute(
+                sql.SQL("GRANT UPDATE ON security.oidc_issuer_transitions TO {}").format(sql.Identifier(migration_role))
+            )
+    installed = receipts()
+    assert {name: digest for name, (digest, _) in installed.items()} == expected_receipts
+    assert interrupted.items() <= installed.items()
+    assert len({installed[name][1] for name in oidc_files if name not in original_receipts}) == 1
+    with psycopg.connect(make_conninfo(database_dsn, user=app_role)) as conn:
+        assert oidc_identity_rls_active(conn)
+    assert_access()
+
+    migrate_postgres.apply_migrations(database_dsn, root / "migrations")
+    assert receipts() == installed
+    assert snapshot() == original_data
+    assert_access()
+
+    changed = shutil.copytree(root / "migrations", tmp_path / "changed")
+    path = changed / "033_oidc_database_roles.sql"
+    path.write_bytes(path.read_bytes() + b"\n")
+    with pytest.raises(ValueError, match=f"Applied migration has changed: {path.name}"):
+        migrate_postgres.apply_migrations(database_dsn, changed)
+    assert receipts() == installed
+    assert snapshot() == original_data
+    assert_access()
+
+def test_sqlite_oidc_storage_survives_release_roundtrip(root, tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from baloot_platform.config import build_bundle
+    from baloot_platform.configuration import SQLiteConfigurationStore, VersionedConfigurationService
+    from baloot_platform.identity import IdentityService
+    from baloot_platform.identity.store import SQLiteIdentityStore
+    from baloot_platform.security.oidc import http_oidc_runtime
+    from baloot_platform.security.state_v20 import (
+        SQLiteOidcIssuerChange,
+        SQLiteSecurityStateStore,
+        complete_oidc_sign_in,
+    )
+    from baloot_platform.service.routes.security import build_security_router
+
+    ref = os.environ.get("BALOOT_TEST_OIDC_LEGACY_REF", "")
+    assert re.fullmatch(r"[0-9a-f]{40}", ref)
+    old_state = _previous_module(root, monkeypatch, ref, "baloot_platform.security.state_v20")
+    old_identity = _previous_module(root, monkeypatch, ref, "baloot_platform.identity.store")
+    old_service = _previous_module(root, monkeypatch, ref, "baloot_platform.identity.service")
+    security_path, identity_path = tmp_path / "security.sqlite3", tmp_path / "identity.sqlite3"
+    provider, issuer = "default", "https://signin.example"
+
+    def previous_login(subject):
+        store = old_state.SQLiteSecurityStateStore(security_path)
+        service = old_service.IdentityService(old_identity.SQLiteIdentityStore(identity_path))
+        link = store.get_external_identity(provider, issuer, subject)
+        session = service.create_external(
+            kind="oidc", display_name="Fixture", subject_id=link["local_subject_id"] if link else None,
+        )
+        owner = session["identity"]["subjectId"]
+        store.link_external_identity(
+            provider_id=provider, issuer=issuer, external_subject=subject,
+            local_subject_id=owner, claims={}, linked_at="2026-01-01T00:00:00Z",
+        )
+        return owner
+
+    def current_login(subject):
+        gc.collect()  # The legacy store relies on connection destruction on process exit.
+        identities = IdentityService(SQLiteIdentityStore(identity_path))
+        store = SQLiteSecurityStateStore(security_path)
+        session = complete_oidc_sign_in(
+            store, identities, {"providerId": provider, "issuer": issuer, "externalSubject": subject, "claims": {}},
+            display_name="Fixture", user_agent=None,
+        )
+        return session["identity"]["subjectId"]
+
+    existing = previous_login("existing")
+    assert current_login("existing") == existing
+    upgraded = current_login("upgraded")
+    assert previous_login("upgraded") == upgraded
+    downgraded = previous_login("downgraded")
+    assert current_login("downgraded") == downgraded
+    assert current_login("upgraded") == upgraded
+    assert len({existing, upgraded, downgraded}) == 3
+
+    identities = SQLiteIdentityStore(identity_path)
+    state = SQLiteSecurityStateStore(security_path)
+    configuration_store = SQLiteConfigurationStore(tmp_path / "configuration.sqlite3")
+    configuration = VersionedConfigurationService(
+        configuration_store, root=root, profile=build_bundle(root).component("configuration"),
+    )
+    payload = {
+        "schema_version": 1,
+        "profile": {"id": "signin", "version": "1.0.0"},
+        "change_reason": "Configure fixture provider",
+        "providers": {provider: {
+            "issuer": issuer,
+            "authorization_endpoint": issuer + "/authorize",
+            "token_endpoint": issuer + "/token",
+            "client_id": "fixture-client",
+            "redirect_uri": "https://app.example/callback",
+            "allowed_algorithms": ["EdDSA"],
+        }},
+    }
+    monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
+    monkeypatch.setenv("BALOOT_OIDC_ISSUER", issuer)
+    monkeypatch.delenv("BALOOT_OIDC_PROVIDER_ID", raising=False)
+    configuration.create_profile(family="oidc_providers", payload=payload, created_by="fixture", publish=True)
+    with http_oidc_runtime(configuration, state) as runtime:
+        assert runtime.current().providers[provider].issuer == issuer
+        app = FastAPI()
+        app.state.oidc = runtime
+        app.include_router(build_security_router(IdentityService(identities), None, None, None, None, state))
+        with closing(identities._connect()) as conn:
+            before = conn.execute("SELECT count(*) FROM identity_sessions_v8").fetchone()[0]
+        payload["profile"]["version"] = "1.0.1"
+        payload["providers"][provider]["issuer"] = issuer + "/"
+        configuration.create_profile(family="oidc_providers", payload=payload, created_by="fixture", publish=True)
+        with pytest.raises(ValueError, match="requires its original issuer"):
+            runtime.current()
+        monkeypatch.delenv("BALOOT_OIDC_ISSUER")
+        with pytest.raises(SQLiteOidcIssuerChange, match="requires its original issuer"):
+            runtime.current()
+        unavailable = {"detail": "OIDC provider configuration is unavailable. Contact support to continue."}
+        callback_body = {"providerId": provider, "state": "fixture-state", "code": "fixture-code"}
+        with TestClient(app) as client:
+            response = client.post("/api/v1/security/oidc:begin", json={"providerId": provider})
+            assert response.status_code == 503 and response.json() == unavailable
+            response = client.post("/api/v1/security/oidc:callback", json=callback_body)
+            assert response.status_code == 503 and response.json() == unavailable
+
+            # The store must also reject a verified issuer change after runtime selection.
+            verified = {"providerId": provider, "issuer": issuer + "/", "externalSubject": "existing", "claims": {}}
+            callback = SimpleNamespace(complete=lambda **_body: verified)
+            app.state.oidc = SimpleNamespace(current=lambda: callback)
+            response = client.post("/api/v1/security/oidc:callback", json=callback_body)
+            assert response.status_code == 503 and response.json() == unavailable
+            assert "set-cookie" not in response.headers
+        with closing(state._connect()) as conn:
+            assert conn.execute("SELECT count(*) FROM security_oidc_transactions_v20").fetchone()[0] == 0
+        with pytest.raises(SQLiteOidcIssuerChange, match="requires its original issuer"):
+            complete_oidc_sign_in(
+                state, IdentityService(identities),
+                verified,
+                display_name="Fixture", user_agent=None,
+            )
+        with closing(identities._connect()) as conn:
+            assert conn.execute("SELECT count(*) FROM identity_sessions_v8").fetchone()[0] == before
+            assert conn.execute("SELECT count(*) FROM identity_subjects_v8").fetchone()[0] == 3
+        assert state.get_external_identity(provider, issuer, "existing")["local_subject_id"] == existing
+        assert state.get_external_identity(provider, issuer + "/", "existing") is None
+    with pytest.raises(SQLiteOidcIssuerChange, match="requires its original issuer"):
+        with http_oidc_runtime(configuration, state):
+            pytest.fail("SQLite must refuse startup with the incompatible issuer")
+    configuration_store.close()
+
+
+def test_sqlite_oidc_rollback_keeps_configuration_and_registry_in_separate_custody(root, tmp_path):
+    import sqlite3
+    from pathlib import Path
+
+    from baloot_platform.config import build_bundle
+    from baloot_platform.configuration import SQLiteConfigurationStore, VersionedConfigurationService
+    from baloot_platform.configuration.store import sqlite_oidc_configuration_image
+    from baloot_platform.security.oidc import OIDC_PROVIDER_FAMILY
+    from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
+    from scripts.verify_live_postgres_research import _synthetic_runtime_environment
+
+    previous = Path(os.environ["BALOOT_PREVIOUS_ROOT"])
+    assert subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=previous, text=True).strip() == (
+        os.environ["BALOOT_TEST_OIDC_PRE_REGISTRY_REF"]
+    )
+    custody, runtime = tmp_path / "custody", tmp_path / "runtime"
+    custody.mkdir()
+    runtime.mkdir()
+    protected = custody / "configuration.sqlite3"
+    rollback = runtime / "configuration.sqlite3"
+    restored = custody / "restored.sqlite3"
+    packaged = build_bundle(root)
+    store = SQLiteConfigurationStore(protected)
+    service = VersionedConfigurationService(store, root=root, profile=packaged.component("configuration"))
+    ordinary_payload = {
+        **packaged.component("performance"),
+        "profile": {**packaged.component("performance")["profile"], "id": "rollback-fixture", "version": "1.0.0"},
+    }
+    token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(configuration_admin=True))
+    try:
+        ordinary = service.create_profile(family="performance", payload=ordinary_payload, created_by="fixture", publish=True)
+        registry = [
+            service.create_profile(
+                family=OIDC_PROVIDER_FAMILY,
+                payload={
+                    "schema_version": 1,
+                    "profile": {"id": "rollback-protected-registry", "version": version},
+                    "providers": {},
+                    "change_reason": "Retained registry history fixture",
+                },
+                created_by="fixture", publish=True,
+            )["revisionId"]
+            for version in ("1.0.0", "1.0.1")
+        ]
+        protected_rows = {revision: store.get_profile(revision) for revision in registry}
+        protected_audit = {revision: store.events_with_verification("profile", revision) for revision in registry}
+        ordinary_audit = store.events_with_verification("profile", ordinary["revisionId"])
+    finally:
+        store.close()
+        CURRENT_DATABASE_IDENTITY.reset(token)
+
+    image = [sys.executable, "-m", "baloot_platform.configuration.sqlite_rollback", "--protected", str(protected)]
+    subprocess.run([*image, "--output", str(rollback)], cwd=root, check=True)
+    image_bytes = rollback.read_bytes()
+    assert b"Retained registry history fixture" not in image_bytes
+    assert all(revision.encode() not in image_bytes for revision in registry)
+    with pytest.raises(ValueError, match="unused configuration image"):
+        sqlite_oidc_configuration_image(protected, rollback)
+    with pytest.raises(ValueError, match="Restore the protected OIDC registry"):
+        SQLiteConfigurationStore(rollback)
+
+    other = custody / "unpaired-configuration.sqlite3"
+    with closing(sqlite3.connect(protected)) as source, closing(sqlite3.connect(other)) as candidate:
+        source.backup(candidate)
+        with candidate:
+            candidate.execute(
+                "UPDATE configuration_profile_revisions SET supersedes_revision_id=? WHERE revision_id=?",
+                (registry[0], ordinary["revisionId"]),
+            )
+            candidate.execute(
+                "UPDATE configuration_profile_revisions "
+                "SET payload_json=json_set(payload_json,'$.change_reason','Different custody fixture') "
+                "WHERE revision_id=?",
+                (registry[0],),
+            )
+    rejected = runtime / "rejected.sqlite3"
+    with pytest.raises(ValueError, match="Separate the configuration references"):
+        sqlite_oidc_configuration_image(other, rejected)
+    assert not rejected.exists()
+    with pytest.raises(ValueError, match="protected configuration database used to prepare"):
+        sqlite_oidc_configuration_image(other, restored, rollback=rollback)
+    assert not restored.exists()
+    change_path = runtime / "ordinary-revision"
+    changed_payload = {**ordinary_payload, "profile": {**ordinary_payload["profile"], "version": "1.0.1"}}
+    subprocess.run(
+        [sys.executable, "-c", """
+import json
+import sys
+from pathlib import Path
+
+import baloot_platform
+from fastapi.testclient import TestClient
+from pytest import MonkeyPatch, raises
+from service_test_client import grpc_probe
+
+from baloot_platform.generated import configuration_pb2 as proto
+from baloot_platform.generated.configuration_pb2_grpc import ConfigurationControlStub
+from baloot_platform.service.api import app
+
+source, runtime, change_path, ordinary, hidden_json, payload = sys.argv[1:]
+assert Path(baloot_platform.__file__).resolve().is_relative_to(Path(source).resolve() / "src")
+hidden = json.loads(hidden_json)
+prefix = "/api/v1/configuration-registry/profiles"
+player = {"x-api-key": "fixture-service", "x-baloot-role": "player"}
+operator = {**player, "x-baloot-role": "admin"}
+
+async def read_profiles(grpc, stub):
+    metadata = tuple(player.items())
+    listed = await stub.ListProfiles(proto.ProfileQuery(profile_id="rollback-fixture"), metadata=metadata)
+    assert ordinary in {row["revisionId"] for row in json.loads(listed.canonical_json)["items"]}
+    resolved = await stub.ResolveProfile(
+        proto.ProfileResolution(family="performance", profile_id="rollback-fixture"), metadata=metadata,
+    )
+    assert json.loads(resolved.canonical_json)["revisionId"] == ordinary
+    visible = await stub.CompareProfiles(proto.ProfileCompare(left=ordinary, right=ordinary), metadata=metadata)
+    assert json.loads(visible.canonical_json)["left"]["revisionId"] == ordinary
+    for credentials in (player, operator):
+        metadata = tuple(credentials.items())
+        listed = await stub.ListProfiles(proto.ProfileQuery(family="oidc_providers"), metadata=metadata)
+        assert json.loads(listed.canonical_json)["items"] == []
+        with raises(grpc.aio.AioRpcError) as denied:
+            await stub.ResolveProfile(
+                proto.ProfileResolution(family="oidc_providers", profile_id="rollback-protected-registry"),
+                metadata=metadata,
+            )
+        assert denied.value.code() == grpc.StatusCode.NOT_FOUND
+        for revision in hidden:
+            with raises(grpc.aio.AioRpcError) as denied:
+                await stub.CompareProfiles(proto.ProfileCompare(left=ordinary, right=revision), metadata=metadata)
+            assert denied.value.code() == grpc.StatusCode.NOT_FOUND
+
+with TestClient(app) as client:
+    assert client.get("/readyz").status_code == 200
+    assert client.get(f"{prefix}/{ordinary}", headers=player).json()["revisionId"] == ordinary
+    assert client.get(f"{prefix}/{ordinary}/events", headers=player).json()["verification"]["valid"]
+    for credentials in (player, operator):
+        listing = client.get(prefix, headers=credentials)
+        assert listing.status_code == 200
+        assert {row["revisionId"] for row in listing.json()["items"]}.isdisjoint(hidden)
+        response = client.get(f"{prefix}:resolve?family=oidc_providers&profileId=rollback-protected-registry", headers=credentials)
+        assert response.status_code == 404
+        for revision in hidden:
+            for path in (f"{prefix}/{revision}", f"{prefix}/{revision}/events",
+                         f"{prefix}:compare?left={ordinary}&right={revision}"):
+                assert client.get(path, headers=credentials).status_code == 404
+    for listing in ("/api/v2/configuration/profiles?family=oidc_providers", "/api/v2/config-revisions?kind=profile"):
+        response = client.get(listing, headers=operator)
+        assert response.status_code == 200
+        assert {row["revisionId"] for row in response.json()["items"]}.isdisjoint(hidden)
+    assert client.get(f"/api/v2/configuration/profiles/{ordinary}", headers=operator).json()["revisionId"] == ordinary
+    with MonkeyPatch.context() as patch:
+        grpc_probe(Path(runtime), patch, read_profiles, stub_type=ConfigurationControlStub)
+    update = client.post(prefix, headers=operator, json={"family": "performance", "payload": json.loads(payload), "publish": True})
+    assert update.status_code == 201, update.text
+    Path(change_path).write_text(update.json()["revisionId"], encoding="utf-8")
+""", str(previous), str(runtime), str(change_path), ordinary["revisionId"],
+         json.dumps(registry), json.dumps(changed_payload)],
+        cwd=previous,
+        env={
+            **os.environ,
+            **_synthetic_runtime_environment(previous, runtime, tmp_path / "outputs"),
+            "PYTHONPATH": os.pathsep.join((str(previous / "src"), str(root / "tests"))),
+            "BALOOT_DATABASE_URL": "",
+            "BALOOT_API_KEY": "fixture-service",
+            "BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT": "true",
+        },
+        check=True,
+    )
+    subprocess.run([*image, "--rollback", str(rollback), "--output", str(restored)], cwd=root, check=True)
+    new_revision = change_path.read_text(encoding="utf-8")
+    token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(configuration_admin=True))
+    try:
+        for path in (protected, restored):
+            checked = SQLiteConfigurationStore(path)
+            assert {revision: checked.get_profile(revision) for revision in registry} == protected_rows
+            assert {
+                revision: checked.events_with_verification("profile", revision) for revision in registry
+            } == protected_audit
+            assert all(audit["verification"]["valid"] for audit in protected_audit.values())
+            if path == protected:
+                assert checked.get_profile(new_revision) is None
+                assert checked.events_with_verification("profile", ordinary["revisionId"]) == ordinary_audit
+            else:
+                assert checked.get_profile(new_revision).payload["profile"]["version"] == "1.0.1"
+                latest_audit = checked.events_with_verification("profile", ordinary["revisionId"])
+                assert latest_audit["verification"]["valid"]
+                assert latest_audit["items"][:len(ordinary_audit["items"])] == ordinary_audit["items"]
+            checked.close()
+    finally:
+        CURRENT_DATABASE_IDENTITY.reset(token)
+
+
+def _sqlite_oidc_login(directory, subject):
+    from pathlib import Path
+
+    from baloot_platform.identity import IdentityService, SQLiteIdentityStore
+    from baloot_platform.security.state_v20 import SQLiteSecurityStateStore, complete_oidc_sign_in
+
+    directory = Path(directory)
+    store = SQLiteSecurityStateStore(directory / "security.sqlite3")
+    identities = IdentityService(SQLiteIdentityStore(directory / "identity.sqlite3"))
+    return complete_oidc_sign_in(
+        store, identities,
+        {"providerId": "default", "issuer": "https://signin.example", "externalSubject": subject, "claims": {}},
+        display_name="Fixture", user_agent=None,
+    )
+
+
+def test_sqlite_oidc_recovers_across_super_journal_commit(root, tmp_path, monkeypatch):
+    from baloot_platform.identity import SQLiteIdentityStore
+    from baloot_platform.security.state_v20 import SQLiteSecurityStateStore
+
+    ref = os.environ.get("BALOOT_TEST_OIDC_LEGACY_REF", "")
+    assert re.fullmatch(r"[0-9a-f]{40}", ref)
+    old_state = _previous_module(root, monkeypatch, ref, "baloot_platform.security.state_v20")
+    old_identity = _previous_module(root, monkeypatch, ref, "baloot_platform.identity.store")
+    interrupt = tmp_path / "interrupt.so"
+    subprocess.run(
+        ["cc", "-shared", "-fPIC", "-o", str(interrupt),
+         str(root / "tests/fixtures/sqlite_super_journal_interrupt.c"), "-ldl"],
+        check=True, timeout=30,
+    )
+    for phase, exit_code, committed in (("before", 81, False), ("after", 82, True)):
+        for reader, identity_store, security_store in (
+            ("current", SQLiteIdentityStore, SQLiteSecurityStateStore),
+            ("previous", old_identity.SQLiteIdentityStore, old_state.SQLiteSecurityStateStore),
+        ):
+            directory = tmp_path / f"{phase}-{reader}"
+            existing = _sqlite_oidc_login(directory, "existing")["identity"]["subjectId"]
+            child = subprocess.run(
+                [sys.executable, "-B", "-c",
+                 "import runpy, sys; runpy.run_path(sys.argv[1])['_sqlite_oidc_login'](sys.argv[2], 'interrupted')",
+                 __file__, str(directory)],
+                cwd=root, timeout=30,
+                env={**os.environ, "LD_PRELOAD": str(interrupt), "BALOOT_TEST_SQLITE_COMMIT_INTERRUPTION": phase},
+            )
+            assert child.returncode == exit_code, f"child did not stop at the {phase} commit boundary"
+            assert (directory / "identity.sqlite3-journal").is_file()
+            assert (directory / "security.sqlite3-journal").is_file()
+            assert bool(list(directory.glob("identity.sqlite3-mj*"))) is not committed
+
+            links = security_store(directory / "security.sqlite3")
+            identities = identity_store(directory / "identity.sqlite3")
+            owner = links.get_external_identity("default", "https://signin.example", "interrupted")
+            assert (owner is not None) is committed
+            subject_ids = {existing}
+            if owner is not None:
+                subject_ids.add(owner["local_subject_id"])
+            with closing(identities._connect()) as conn:
+                assert [row[0] for row in conn.execute("PRAGMA integrity_check")] == ["ok"]
+                assert list(conn.execute("PRAGMA foreign_key_check")) == []
+                assert {row[0] for row in conn.execute("SELECT subject_id FROM identity_subjects_v8")} == subject_ids
+                assert list(map(tuple, conn.execute(
+                    "SELECT subject_id, count(*) FROM identity_sessions_v8 GROUP BY subject_id ORDER BY subject_id"
+                ))) == [(subject, 1) for subject in sorted(subject_ids)]
+            with closing(links._connect()) as conn:
+                assert [row[0] for row in conn.execute("PRAGMA integrity_check")] == ["ok"]
+                assert {row[0] for row in conn.execute(
+                    "SELECT local_subject_id FROM security_external_identities_v20"
+                )} == subject_ids
+            gc.collect()
+            retried = _sqlite_oidc_login(directory, "interrupted")["identity"]["subjectId"]
+            assert retried != existing
+            if owner is not None:
+                assert retried == owner["local_subject_id"]
+
+
+def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog, capsys):
+    import httpx
+    import jwt
+    import psycopg
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+    from psycopg.rows import dict_row
+
+    from baloot_platform.config import build_bundle
+    from baloot_platform.configuration import PostgresConfigurationStore, VersionedConfigurationService
+    from baloot_platform.identity import IdentityService
+    from baloot_platform.identity.store import PostgresIdentityStore
+    from baloot_platform.security import oidc
+    from baloot_platform.security.access import Scope
+    from baloot_platform.security.oidc_migration import (
+        finalize_legacy_oidc,
+        legacy_oidc_profile,
+        main as oidc_migration_command,
+        migrate_legacy_oidc,
+        rollback_legacy_oidc,
+    )
+    from baloot_platform.security.state_v20 import (
+        OidcIdentityConflict, PostgresSecurityStateStore, oidc_identity_rls_active,
+    )
+    from baloot_platform.storage.request_context import (
+        CURRENT_DATABASE_IDENTITY,
+        DatabaseIdentityContext,
+        apply_postgres_identity_context,
+    )
+
+    dsn = os.environ.get("BALOOT_TEST_OIDC_POSTGRES_DSN")
+    assert dsn, "hosted PostgreSQL proof requires BALOOT_TEST_OIDC_POSTGRES_DSN"
+    legacy_ref = os.environ.get("BALOOT_TEST_OIDC_LEGACY_REF", "")
+    assert re.fullmatch(r"[0-9a-f]{40}", legacy_ref), "hosted proof requires an exact previous release reference"
+    old_oidc = _previous_module(root, monkeypatch, legacy_ref, "baloot_platform.security.oidc")
+    old_state = _previous_module(root, monkeypatch, legacy_ref, "baloot_platform.security.state_v20")
+    old_routes = _previous_module(root, monkeypatch, legacy_ref, "baloot_platform.service.routes.security")
+    old_registry = _previous_module(root, monkeypatch, legacy_ref, "baloot_platform.service.routes.configuration")
+    monkeypatch.setenv("BALOOT_DATABASE_URL", dsn)
+    monkeypatch.setenv("BALOOT_ROOT", str(root))
+    migrate_postgres.main()
+    with psycopg.connect(dsn) as conn:
+        conn.execute("CREATE ROLE oidc_ci_app LOGIN NOSUPERUSER NOBYPASSRLS")
+        conn.execute("GRANT USAGE ON SCHEMA configuration, hitl, identity, security TO oidc_ci_app")
+        conn.execute(
+            "GRANT SELECT, INSERT, UPDATE ON configuration.profile_revisions, configuration.invalidation_epochs,"
+            " configuration.bundle_revisions, configuration.aggregate_heads TO oidc_ci_app"
+        )
+        conn.execute("GRANT SELECT, INSERT ON configuration.events TO oidc_ci_app")
+        conn.execute("GRANT SELECT, INSERT ON identity.subjects TO oidc_ci_app")
+        conn.execute("GRANT SELECT, INSERT, UPDATE ON identity.sessions TO oidc_ci_app")
+        conn.execute("GRANT SELECT, INSERT, UPDATE ON security.oidc_transactions, security.external_identities TO oidc_ci_app")
+        conn.execute("CREATE ROLE oidc_ci_migrator LOGIN NOSUPERUSER NOBYPASSRLS")
+        conn.execute("GRANT USAGE ON SCHEMA configuration, security TO oidc_ci_migrator")
+        conn.execute(
+            "GRANT SELECT, INSERT, UPDATE ON configuration.profile_revisions, configuration.aggregate_heads,"
+            " configuration.invalidation_epochs, security.oidc_issuer_transitions TO oidc_ci_migrator"
+        )
+        conn.execute("GRANT SELECT, INSERT ON configuration.events TO oidc_ci_migrator")
+        conn.execute(
+            "GRANT SELECT (revision_id, components, scheduled_predecessor_id, scheduled_successor_id, status)"
+            " ON configuration.bundle_revisions TO oidc_ci_migrator"
+        )
+        conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON security.external_identities TO oidc_ci_migrator")
+        conn.execute("CREATE ROLE oidc_ci_restricted NOLOGIN NOSUPERUSER NOBYPASSRLS")
+        conn.execute("GRANT oidc_ci_restricted TO oidc_ci_app, oidc_ci_migrator")
+        conn.execute("GRANT USAGE ON SCHEMA configuration, security TO oidc_ci_restricted")
+        conn.execute("REVOKE EXECUTE ON FUNCTION security.oidc_identity_authorized() FROM PUBLIC")
+        conn.execute(
+            "GRANT EXECUTE ON FUNCTION security.oidc_identity_authorized() TO oidc_ci_app, oidc_ci_migrator"
+        )
+        # The assembled application also bootstraps its unrelated Research store.
+        database, = conn.execute("SELECT current_database()").fetchone()
+        conn.execute(sql.SQL("GRANT CREATE ON DATABASE {} TO oidc_ci_app").format(sql.Identifier(database)))
+        conn.execute("ALTER SCHEMA research OWNER TO oidc_ci_app")
+        for (relation,) in conn.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname='research'"
+        ).fetchall():
+            conn.execute(sql.SQL("ALTER TABLE research.{} OWNER TO oidc_ci_app").format(sql.Identifier(relation)))
+    app_dsn = make_conninfo(dsn, user="oidc_ci_app")
+    migration_dsn = make_conninfo(dsn, user="oidc_ci_migrator")
+    for login_dsn, login, can_migrate in (
+        (app_dsn, "oidc_ci_app", False), (migration_dsn, "oidc_ci_migrator", True),
+    ):
+        with psycopg.connect(login_dsn) as conn:
+            assert conn.execute(
+                "SELECT current_user, session_user, "
+                "row_security_active('security.external_identities'), "
+                "row_security_active('configuration.profile_revisions'), "
+                "has_table_privilege('security.oidc_issuer_transitions', 'UPDATE'), "
+                "has_table_privilege('security.external_identities', 'DELETE'), "
+                "has_function_privilege('security.mirror_oidc_issuer_link()', 'EXECUTE')"
+            ).fetchone() == (login, login, True, True, can_migrate, can_migrate, False)
+    with psycopg.connect(migration_dsn) as conn:
+        assert not conn.execute(
+            "SELECT has_schema_privilege('identity', 'USAGE')"
+        ).fetchone()[0]
+        assert conn.execute(
+            "SELECT row_security_active('configuration.bundle_revisions'),"
+            " has_table_privilege('configuration.bundle_revisions', 'UPDATE'),"
+            " has_column_privilege('configuration.bundle_revisions', 'created_by', 'SELECT')"
+        ).fetchone() == (True, False, False)
+    legacy = "https://signin.example/"
+    canonical = "https://signin.example"
+    service_key = "synthetic-oidc-api-key"
+    legacy_headers = {"x-api-key": service_key, "x-baloot-role": "service"}
+    legacy_metadata = {
+        "ISSUER": legacy,
+        "AUTHORIZATION_ENDPOINT": canonical + "/authorize",
+        "TOKEN_ENDPOINT": canonical + "/token",
+        "CLIENT_ID": "fixture-client",
+        "REDIRECT_URI": "https://app.example/callback",
+        "CLIENT_SECRET": "synthetic-client-fixture",
+    }
+    for field, value in legacy_metadata.items():
+        monkeypatch.setenv(f"BALOOT_OIDC_{field}", value)
+    monkeypatch.delenv("BALOOT_OIDC_PROVIDER_ID", raising=False)
+    monkeypatch.setenv("BALOOT_OIDC_JWKS_URI", canonical + "/legacy-keys")
+    original_binding = {
+        "provider_id": "default", "issuer": canonical, "client_id": legacy_metadata["CLIENT_ID"],
+        "token_endpoint": legacy_metadata["TOKEN_ENDPOINT"], "client_secret_env": oidc.LEGACY_OIDC_CLIENT_SECRET_ENV,
+    }
+    rotated_binding = {
+        **original_binding, "token_endpoint": canonical + "/rotated-token",
+        "client_secret_env": "BALOOT_OIDC_CLIENT_SECRET_ROTATED",
+    }
+    bindings = [original_binding, rotated_binding]
+    monkeypatch.setenv(oidc.OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps(bindings))
+    monkeypatch.setenv(rotated_binding["client_secret_env"], "synthetic-rotated-fixture")
+
+    keys_uri = canonical + "/keys"
+    discovery_url = canonical + "/.well-known/openid-configuration"
+    discovered_issuer = canonical
+    signing_key = Ed25519PrivateKey.from_private_bytes(b"a" * 32)
+    jwk = {**json.loads(jwt.algorithms.OKPAlgorithm.to_jwk(signing_key.public_key())), "kid": "fixture"}
+    now = 1_767_225_600
+    outstanding_codes = {}
+    outbound_requests = []
+    token_requests = []
+    race = Barrier(2)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls.fromtimestamp(now, tz)
+
+    monkeypatch.setattr(jwt.api_jwt, "datetime", FixedDateTime)
+    monkeypatch.setattr(oidc, "time", SimpleNamespace(time=lambda: now))
+    monkeypatch.setattr(old_oidc, "time", SimpleNamespace(time=lambda: now))
+
+    def fetch_keys(_opener, request, timeout=None):
+        assert request.full_url == keys_uri
+        return BytesIO(json.dumps({"keys": [jwk]}).encode())
+
+    monkeypatch.setattr(OpenerDirector, "open", fetch_keys)
+
+    def provider_http(request):
+        outbound_requests.append((request.method, str(request.url)))
+        if request.method == "GET":
+            assert str(request.url) == discovery_url
+            return httpx.Response(200, json={"issuer": discovered_issuer, "jwks_uri": keys_uri})
+        form = parse_qs(request.content.decode())
+        token_requests.append((str(request.url), form.get("client_secret")))
+        expected_secret = {
+            original_binding["token_endpoint"]: legacy_metadata["CLIENT_SECRET"],
+            rotated_binding["token_endpoint"]: "synthetic-rotated-fixture",
+        }[str(request.url)]
+        nonce, challenge, subject, issuer = outstanding_codes.pop(form["code"][0])
+        identity_context = CURRENT_DATABASE_IDENTITY.get()
+        assert identity_context.role == ("service" if issuer == legacy else "anonymous")
+        assert identity_context.oidc_identity_authority == ""
+        assert oidc.PkceTransactionStore._challenge(form["code_verifier"][0]) == challenge
+        assert form["client_id"] == [legacy_metadata["CLIENT_ID"]]
+        assert form["redirect_uri"] == [legacy_metadata["REDIRECT_URI"]]
+        assert form["client_secret"] == [expected_secret]
+        if form["code"][0] in {"race-first", "race-second"}:
+            race.wait(timeout=15)
+        claims = {"iss": issuer, "aud": form["client_id"][0], "sub": subject,
+                  "nonce": nonce, "iat": now, "exp": now + 60}
+        key = Ed25519PrivateKey.from_private_bytes(b"b" * 32) if form["code"][0] == "invalid-signature" else signing_key
+        encoded = jwt.encode(claims, key, algorithm="EdDSA", headers={"kid": "fixture"})
+        return httpx.Response(200, json={"id_token": encoded})
+
+    with httpx.Client(transport=httpx.MockTransport(provider_http)) as client:
+        source, payload = legacy_oidc_profile(
+            client, profile_id="signin", version="1.0.0",
+            reason="Migrate fixture links", algorithms=["EdDSA"],
+        )
+    assert source == legacy
+    assert payload["providers"]["default"]["issuer"] == canonical
+    assert payload["providers"]["default"]["client_secret_env"] == "BALOOT_OIDC_CLIENT_SECRET"
+    assert "synthetic-client-fixture" not in str(payload)
+    assert sum("legacy JWKS override is ignored" in record.message for record in caplog.records) == 1
+
+    profile = build_bundle(root).component("configuration")
+
+    @contextmanager
+    def migration_connection():
+        context = DatabaseIdentityContext(
+            subject_id="operator-1", role="service", configuration_admin=True, oidc_identity_authority="migration",
+        )
+        token = CURRENT_DATABASE_IDENTITY.set(context)
+        try:
+            with psycopg.connect(migration_dsn, row_factory=dict_row) as conn:
+                apply_postgres_identity_context(conn, context)
+                yield conn
+        finally:
+            CURRENT_DATABASE_IDENTITY.reset(token)
+
+    def bind(conn):
+        return VersionedConfigurationService(
+            PostgresConfigurationStore(migration_dsn, transaction_connection=conn),
+            root=root, profile=profile,
+        )
+
+    def command(*arguments, reason="Migrate fixture links", login_dsn=migration_dsn, profile_id="signin"):
+        with monkeypatch.context() as invocation:
+            invocation.setenv("BALOOT_DATABASE_URL", login_dsn)
+            invocation.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", profile_id)
+            invocation.setattr(sys, "argv", [
+                "baloot-migrate-oidc", "--actor", "operator-1", "--reason", reason, *arguments,
+            ])
+            capsys.readouterr()
+            oidc_migration_command()
+            return json.loads(capsys.readouterr().out)
+
+    def link(conn, issuer, subject):
+        conn.execute(
+            "INSERT INTO security.external_identities "
+            "(provider_id, issuer, external_subject, local_subject_id, claims_json, linked_at) "
+            "VALUES ('default', %s, %s, %s, '{}'::jsonb, '2026-01-01T00:00:00Z') "
+            "ON CONFLICT (provider_id, issuer, external_subject) DO UPDATE "
+            "SET local_subject_id=excluded.local_subject_id, claims_json=excluded.claims_json",
+            (issuer, subject, f"local-{subject}"),
+        )
+
+    def lookup(conn, issuer, subject):
+        return conn.execute(
+            "SELECT local_subject_id, issuer_alias FROM security.external_identities "
+            "WHERE provider_id='default' AND issuer=%s AND external_subject=%s",
+            (issuer, subject),
+        ).fetchone()
+
+    def begin(client, *, code, subject, issuer=canonical, headers=None):
+        response = client.post(
+            "/api/v1/security/oidc:begin", headers=headers, json={"providerId": "default", "returnTo": "/app"},
+        )
+        assert response.status_code == 200, response.text
+        started = response.json()
+        query = parse_qs(urlsplit(started["authorizationUrl"]).query)
+        outstanding_codes[code] = (query["nonce"][0], query["code_challenge"][0], subject, issuer)
+        return {"providerId": "default", "state": started["state"], "code": code}
+
+    def callback(client, transaction, *, headers=None):
+        return client.post("/api/v1/security/oidc:callback", headers=headers, json=transaction)
+
+    def linked_owner(issuer, subject):
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            item = lookup(conn, issuer, subject)
+            return item["local_subject_id"] if item else None
+
+    def complete(client, transaction):
+        response = callback(client, transaction)
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result["returnTo"] == "/app"
+        assert result["session"]["sessionId"].startswith("SES-")
+        replay = callback(client, transaction)
+        assert replay.status_code == 400 and "reused OIDC state" in replay.json()["detail"]
+        return result["identity"]["subjectId"]
+
+    with ExitStack() as stack:
+        monkeypatch.setenv("BALOOT_DATABASE_URL", app_dsn)
+        monkeypatch.setenv("BALOOT_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("BALOOT_RUNTIME", str(tmp_path / "runtime"))
+        monkeypatch.setenv("BALOOT_CHALLENGE_LOCATOR_KEY", "fixture-" * 5)
+        monkeypatch.setenv("BALOOT_CURATED_SAKKA_SIGNING_KEY", "fixture-" * 5)
+        monkeypatch.setenv("BALOOT_API_KEY", service_key)
+        monkeypatch.setenv("BALOOT_ENFORCE_SESSION_CSRF", "true")
+        monkeypatch.setenv("BALOOT_RATE_LIMIT_PER_MINUTE", "0")
+        monkeypatch.setattr(httpx.HTTPTransport, "handle_request", lambda _self, request: provider_http(request))
+        from baloot_platform.service import api
+
+        stack.callback(api.CONTAINER.shutdown)
+        provider_client = stack.enter_context(httpx.Client(transport=httpx.MockTransport(provider_http)))
+        legacy_store = old_state.PostgresSecurityStateStore(app_dsn)
+        stack.callback(legacy_store.close)
+        identity_store = PostgresIdentityStore(app_dsn)
+        stack.callback(identity_store.pool.close)
+        identities = IdentityService(identity_store)
+        identities.create_external(kind="oidc", subject_id="local-existing", display_name="Existing fixture")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with psycopg.connect(migration_dsn) as conn:
+                identity_store.insert_session({
+                    "session_id": "SES-refused-migrator",
+                    "subject_id": "local-existing",
+                    "token_hash": "fixture-migrator-token-hash",
+                    "csrf_token": "fixture-migrator-csrf",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "expires_at": "2026-01-01T01:00:00Z",
+                    "last_seen_at": "2026-01-01T00:00:00Z",
+                }, connection=conn)
+        legacy_provider = old_oidc.OidcProviderConfig(
+            provider_id="default", jwks_uri=keys_uri,
+            **{name.lower(): value for name, value in legacy_metadata.items()},
+        )
+        legacy_transactions = old_oidc.PkceTransactionStore(backend=legacy_store)
+        legacy_providers = {"default": legacy_provider}
+        previous = FastAPI()
+        previous.middleware("http")(_previous_middleware(root, legacy_ref, api, identities))
+        previous.include_router(old_routes.build_security_router(
+            identities, None, None, legacy_transactions, legacy_providers,
+            old_oidc.OidcCallbackService(legacy_providers, legacy_transactions, http_client=provider_client),
+            None, None, legacy_store,
+        ))
+        legacy_configuration = PostgresConfigurationStore(app_dsn)
+        stack.callback(legacy_configuration.close)
+        previous.include_router(old_registry.build_configuration_router(
+            VersionedConfigurationService(legacy_configuration, root=root, profile=profile),
+            identities, None, profile, {},
+        ))
+        previous_client = stack.enter_context(TestClient(previous))
+        assert previous_client.post("/api/v1/security/oidc:begin", json={"providerId": "default"}).status_code == 401
+        legacy_existing = begin(previous_client, code="old-existing", subject="existing", headers=legacy_headers)
+        legacy_new = begin(previous_client, code="old-new", subject="old-callback", headers=legacy_headers)
+
+        with psycopg.connect(dsn) as conn:
+            link(conn, canonical, "collision")
+            link(conn, legacy, "existing")
+        with migration_connection() as conn:
+            configuration = bind(conn)
+            with pytest.raises(ValueError, match="migration was not found"):
+                rollback_legacy_oidc(
+                    conn, configuration, profile_id="signin", revision_id="CPR-UNKNOWN",
+                    actor="operator-1", reason="Refuse an unrelated migration",
+                )
+            with pytest.raises(ValueError, match="must preserve the legacy issuer"):
+                migrate_legacy_oidc(
+                    conn, configuration, payload=payload, legacy_issuer="https://other.example",
+                    actor="operator-1",
+                )
+            omitted = deepcopy(payload)
+            del omitted["providers"]["default"]["client_secret_env"]
+            with pytest.raises(ValueError, match="include its approved confidential credential reference"):
+                migrate_legacy_oidc(conn, configuration, payload=omitted, legacy_issuer=legacy, actor="operator-1")
+            already_published = deepcopy(payload)
+            already_published["profile"]["id"] = "already-published"
+            configuration.create_profile(
+                family="oidc_providers", payload=already_published, created_by="operator-1", publish=True,
+            )
+            with pytest.raises(ValueError, match="already has a published revision"):
+                migrate_legacy_oidc(
+                    conn, configuration, payload=already_published, legacy_issuer=legacy, actor="operator-1",
+                )
+            with pytest.raises(ValueError, match="discovered issuer already has identity links"):
+                migrate_legacy_oidc(
+                    conn, configuration, payload=payload, legacy_issuer=legacy, actor="operator-1",
+                )
+        with psycopg.connect(dsn) as conn:
+            conn.execute("DELETE FROM security.external_identities WHERE external_subject='collision'")
+        before_onboarding = list(outbound_requests)
+        with monkeypatch.context() as unapproved:
+            unapproved.setenv(oidc.OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps([rotated_binding]))
+            with pytest.raises(SystemExit, match="approve its confidential registration"):
+                command("--version", "1.0.0", "--algorithm", "EdDSA")
+        assert outbound_requests == before_onboarding
+        with monkeypatch.context() as missing_secret:
+            missing_secret.setenv(oidc.LEGACY_OIDC_CLIENT_SECRET_ENV, "")
+            with pytest.raises(SystemExit, match="missing deployment secret"):
+                command("--version", "1.0.0", "--algorithm", "EdDSA")
+        assert outbound_requests == before_onboarding
+        with monkeypatch.context() as unset_secret:
+            unset_secret.delenv(oidc.LEGACY_OIDC_CLIENT_SECRET_ENV)
+            with pytest.raises(SystemExit, match="missing deployment secret"):
+                command("--version", "1.0.0", "--algorithm", "EdDSA")
+            assert outbound_requests == before_onboarding
+            unset_secret.setenv("BALOOT_OIDC_TOKEN_ENDPOINT", canonical + "/unapproved-token")
+            with pytest.raises(SystemExit, match="approve its confidential registration"):
+                command("--version", "1.0.0", "--algorithm", "EdDSA")
+            assert outbound_requests == before_onboarding
+
+        # Compatibility is only for finding Discovery, which must return the exact approved issuer.
+        discovered_issuer = legacy
+        with pytest.raises(SystemExit, match="approve its confidential registration"):
+            command("--version", "1.0.0", "--algorithm", "EdDSA")
+        assert outbound_requests == [*before_onboarding, ("GET", discovery_url)]
+        with migration_connection() as conn:
+            assert lookup(conn, legacy, "existing")["issuer_alias"] is False
+            assert lookup(conn, canonical, "existing") is None
+            assert conn.execute("SELECT count(*) FROM security.oidc_issuer_transitions").fetchone()["count"] == 0
+            assert conn.execute(
+                "SELECT count(*) FROM configuration.profile_revisions WHERE family=%s AND profile_id=%s",
+                (oidc.OIDC_PROVIDER_FAMILY, "signin"),
+            ).fetchone()["count"] == 0
+        discovered_issuer = canonical
+        migration = command("--version", "1.0.0", "--algorithm", "EdDSA")
+        assert migration["status"] == "applied" and migration["links"] == 1
+        assert outbound_requests == [*before_onboarding, ("GET", discovery_url), ("GET", discovery_url)]
+        revision_id = migration["revisionId"]
+        for refused_dsn in (app_dsn, dsn):
+            with pytest.raises(SystemExit, match="requires a dedicated login"):
+                command("--rollback", revision_id, login_dsn=refused_dsn)
+        assert command(
+            "--version", "1.0.0", "--algorithm", "EdDSA", reason="Repeat the existing command",
+        ) == {"status": "already-applied", "revisionId": revision_id}
+        with migration_connection() as conn:
+            configuration = bind(conn)
+            assert configuration.store.get_profile(revision_id).payload["change_reason"] == payload["change_reason"]
+            changed = deepcopy(payload)
+            changed["providers"]["default"]["client_id"] = "different-fixture-client"
+            with monkeypatch.context() as reapproved:
+                alternate = {**original_binding, "client_id": "different-fixture-client"}
+                reapproved.setenv(oidc.OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps([*bindings, alternate]))
+                with pytest.raises(ValueError, match="different binding"):
+                    migrate_legacy_oidc(
+                        conn, configuration, payload=changed, legacy_issuer=legacy, actor="operator-1",
+                    )
+            assert lookup(conn, legacy, "existing") == {
+                "local_subject_id": "local-existing", "issuer_alias": True,
+            }
+            assert lookup(conn, canonical, "existing") == {
+                "local_subject_id": "local-existing", "issuer_alias": False,
+            }
+        store = PostgresSecurityStateStore(app_dsn)
+        bypassing_store = PostgresSecurityStateStore(dsn)
+        migration_store = PostgresSecurityStateStore(migration_dsn)
+        stack.callback(store.close)
+        stack.callback(bypassing_store.close)
+        stack.callback(migration_store.close)
+        store.require_oidc_rls()
+        for invalid_store in (bypassing_store, migration_store):
+            with pytest.raises(RuntimeError, match="subject to row-level security"):
+                invalid_store.require_oidc_rls()
+
+        def refuse_policy_drift(application, *, login_dsn=migration_dsn):
+            with pytest.raises(RuntimeError, match="requires the identity policies"):
+                application.require_oidc_rls()
+            with pytest.raises(SystemExit, match="and the current identity policies"):
+                command("--rollback", revision_id, login_dsn=login_dsn)
+
+        correction = (root / "migrations/035_oidc_identity_read_scope.sql").read_text(encoding="utf-8")
+        for drift in (
+            "ALTER POLICY external_identity_read_scope_v35 ON security.external_identities USING (true)",
+            "ALTER POLICY external_identity_read_scope_v35 ON security.external_identities TO oidc_ci_restricted",
+            "ALTER POLICY external_identity_authority_v33 ON security.external_identities USING (true)",
+            "ALTER POLICY external_identity_authority_v33 ON security.external_identities WITH CHECK (true)",
+            "CREATE OR REPLACE FUNCTION security.oidc_identity_authorized() RETURNS boolean "
+            "LANGUAGE sql STABLE SECURITY INVOKER SET search_path = pg_catalog AS $$ SELECT true $$",
+        ):
+            with psycopg.connect(dsn, autocommit=True) as admin:
+                admin.execute(drift)
+                try:
+                    refuse_policy_drift(store)
+                finally:
+                    admin.execute(correction)
+            store.require_oidc_rls()
+
+        restricted_app_dsn = make_conninfo(app_dsn, options="-c role=oidc_ci_restricted")
+        restricted_migration_dsn = make_conninfo(migration_dsn, options="-c role=oidc_ci_restricted")
+        for login, effective_dsn in (("oidc_ci_app", restricted_app_dsn), ("oidc_ci_migrator", restricted_migration_dsn)):
+            with psycopg.connect(effective_dsn) as conn:
+                assert conn.execute(
+                    "SELECT current_user, session_user, row_security_active('security.external_identities'), "
+                    "has_function_privilege(current_user, 'security.oidc_identity_authorized()', 'EXECUTE'), "
+                    "has_function_privilege(session_user, 'security.oidc_identity_authorized()', 'EXECUTE')"
+                ).fetchone() == ("oidc_ci_restricted", login, True, False, True)
+                assert not oidc_identity_rls_active(conn)
+        restricted_store = PostgresSecurityStateStore(restricted_app_dsn)
+        stack.callback(restricted_store.close)
+        refuse_policy_drift(restricted_store, login_dsn=restricted_migration_dsn)
+
+        with psycopg.connect(app_dsn) as conn:
+            assert conn.execute("SELECT count(*) FROM security.external_identities").fetchone() == (0,)
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with psycopg.connect(app_dsn) as conn:
+                link(conn, canonical, "unverified")
+
+        monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
+        before_exchange = list(token_requests)
+        with monkeypatch.context() as unapproved:
+            unapproved.setenv(oidc.OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps([rotated_binding]))
+            with pytest.raises(ValueError, match="approve its confidential registration"):
+                with TestClient(api.app, base_url="https://app.example"):
+                    pytest.fail("unapproved confidential registration reached HTTP startup")
+        assert token_requests == before_exchange
+        current_client = stack.enter_context(TestClient(api.app, base_url="https://app.example"))
+        runtime = api.app.state.oidc
+        assert current_client.get("/readyz").status_code == 200
+        guest = current_client.post("/api/v1/auth/guest", json={"displayName": "Fixture guest"})
+        assert guest.status_code == 201
+        cookie = current_client.cookies.pop("baloot_session")
+        session_headers = {"cookie": f"baloot_session={cookie}"}
+        assert current_client.post("/api/v1/security/tokens", json={}).status_code == 401
+        assert current_client.post("/api/v1/security/oidc:begin/extra", json={}).status_code == 401
+        assert current_client.post("/api/v1/security/oidc:begin", content="{}").status_code == 415
+        for operation, body in (("begin", {"providerId": "default"}), ("callback", legacy_existing)):
+            route = f"/api/v1/security/oidc:{operation}"
+            assert current_client.post(route, json=body, headers=session_headers).status_code == 403
+        accepted = current_client.post(
+            "/api/v1/security/oidc:begin", json={"providerId": "default"},
+            headers={**session_headers, "x-csrf-token": guest.json()["csrfToken"]},
+        )
+        assert accepted.status_code == 200
+        assert "set-cookie" not in accepted.headers
+
+        def assert_registry_boundary(revision):
+            prefix = "/api/v1/configuration-registry/profiles"
+            paths = (
+                f"{prefix}/{revision}",
+                f"{prefix}:compare?left={revision}&right={revision}",
+                f"{prefix}/{revision}/events",
+            )
+            admin = {"x-api-key": service_key, "x-baloot-role": "admin"}
+            ordinary = {**session_headers, "x-baloot-role": "admin", "x-api-key": "incorrect"}
+            narrowed = api.ACCESS_TOKENS.issue(subject_id="fixture-operator", scopes=(Scope.READ,), role="admin")
+            signed_admin = api.ACCESS_TOKENS.issue(
+                subject_id="fixture-operator", scopes=(Scope.READ, Scope.CONFIG_ADMIN), role="admin",
+            )
+            for path in paths:
+                assert current_client.get(path, headers=admin).status_code == 200
+                assert current_client.get(path, headers={"authorization": f"Bearer {signed_admin}"}).status_code == 200
+                assert current_client.get(path, headers=ordinary).status_code == 404
+                assert current_client.get(path, headers={"authorization": f"Bearer {narrowed}"}).status_code == 404
+                assert previous_client.get(path, headers=session_headers).status_code == 404
+                assert previous_client.get(path, headers=legacy_headers).status_code == 404
+            with psycopg.connect(app_dsn) as conn:
+                apply_postgres_identity_context(conn, DatabaseIdentityContext(subject_id="fixture", role="admin"))
+                assert conn.execute(
+                    "SELECT count(*) FROM configuration.events WHERE aggregate_id=%s", (revision,)
+                ).fetchone() == (0,)
+
+        assert_registry_boundary(revision_id)
+        unsigned_identity = begin(current_client, code="invalid-signature", subject="invalid-identity")
+        refused = callback(current_client, unsigned_identity)
+        assert refused.status_code == 400 and refused.json()["detail"] == "OIDC ID token validation failed"
+        assert linked_owner(canonical, "invalid-identity") is None
+        assert complete(current_client, legacy_existing) == "local-existing"
+        legacy_subject = complete(current_client, legacy_new)
+        assert complete(current_client, begin(current_client, code="new-existing", subject="existing")) == "local-existing"
+        new_subject = complete(current_client, begin(current_client, code="new-new", subject="new-callback"))
+        assert new_subject not in {legacy_subject, "local-existing"}
+        assert linked_owner(canonical, "old-callback") == legacy_subject
+        assert linked_owner(legacy, "new-callback") == new_subject
+
+        def assert_owner_cannot_change(subject):
+            with pytest.raises(OidcIdentityConflict, match="already linked"):
+                with store.external_identity_transaction(identity_store, ("default", canonical, subject)) as conn:
+                    store.link_external_identity(
+                        provider_id="default", issuer=canonical, external_subject=subject,
+                        local_subject_id="wrong-account", claims={}, linked_at="2026-01-01T00:00:00Z", connection=conn,
+                    )
+
+        assert_owner_cannot_change("new-callback")
+        conflict = begin(current_client, code="ownership-conflict", subject="new-callback")
+        with monkeypatch.context() as stale_lookup:
+            stale_lookup.setattr(api.SECURITY_STATE, "get_external_identity", lambda *_args, **_kwargs: None)
+            refused = callback(current_client, conflict)
+        assert refused.status_code == 409
+        assert refused.json() == {"detail": "Unable to complete sign-in for this account. Contact support to continue."}
+        assert "set-cookie" not in refused.headers
+        assert callback(current_client, conflict).status_code == 400
+        assert linked_owner(canonical, "new-callback") == new_subject
+
+        # An old callback can consume a new transaction and verify PKCE, but RLS still blocks its write.
+        wrong_route = begin(current_client, code="wrong-route", subject="legacy-write-denied", issuer=legacy)
+        assert callback(previous_client, wrong_route).status_code == 401
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match="row-level security"):
+            callback(previous_client, wrong_route, headers=legacy_headers)
+        assert wrong_route["code"] not in outstanding_codes
+        replay = callback(current_client, wrong_route)
+        assert replay.status_code == 400 and "reused OIDC state" in replay.json()["detail"]
+        assert linked_owner(legacy, "legacy-write-denied") is None
+        assert linked_owner(canonical, "legacy-write-denied") is None
+
+        drain = begin(current_client, code="drain", subject="existing")
+        expired = begin(current_client, code="expire", subject="existing")
+        with migration_connection() as conn:
+            assert lookup(conn, legacy, "new-callback")["local_subject_id"] == new_subject
+            newer = deepcopy(payload)
+            newer["profile"]["version"] = "1.0.1"
+            newer_revision = bind(conn).create_profile(
+                family="oidc_providers", payload=newer, created_by="operator-1", publish=True,
+            )
+        assert complete(current_client, drain) == "local-existing"
+        now += runtime.transactions.ttl_seconds
+        response = callback(current_client, expired)
+        assert response.status_code == 400 and "OIDC state" in response.json()["detail"]
+        assert expired["code"] in outstanding_codes
+
+        assert command("--rollback", revision_id, reason="Return to the previous release")["links"] == 3
+        assert command(
+            "--rollback", revision_id, reason="Return to the previous release",
+        )["status"] == "already-rolled-back"
+        with migration_connection() as conn:
+            configuration = bind(conn)
+            assert configuration.store.get_profile(newer_revision["revisionId"]).status == "retired"
+            with pytest.raises(ValueError, match="was rolled back"):
+                finalize_legacy_oidc(
+                    conn, configuration, profile_id="signin", revision_id=revision_id,
+                    actor="operator-1", reason="Close rollback window",
+                )
+            for subject, local_subject in {
+                "existing": "local-existing", "old-callback": legacy_subject, "new-callback": new_subject,
+            }.items():
+                assert lookup(conn, canonical, subject) is None
+                assert lookup(conn, legacy, subject) == {
+                    "local_subject_id": local_subject, "issuer_alias": False,
+                }
+            audit = configuration.store.events_with_verification("profile", revision_id)
+            assert audit["verification"]["valid"]
+            assert audit["items"][-1]["eventType"] == "oidc_issuer_rolled_back"
+        assert current_client.post("/api/v1/security/oidc:begin", json={"providerId": "default"}).status_code == 404
+        assert callback(current_client, drain).json()["detail"] == "OIDC provider is not configured"
+        assert_registry_boundary(revision_id)
+        assert_registry_boundary(newer_revision["revisionId"])
+        previous_existing = begin(
+            previous_client, code="rollback-legacy", subject="existing", issuer=legacy, headers=legacy_headers,
+        )
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match="row-level security"):
+            callback(previous_client, previous_existing, headers=legacy_headers)
+        assert previous_existing["code"] not in outstanding_codes
+        assert linked_owner(legacy, "existing") == "local-existing"
+        repeated = command("--version", "1.0.2", "--algorithm", "EdDSA")
+        revision_id = repeated["revisionId"]
+        for expected in ("finalized", "already-finalized"):
+            assert command("--finalize", revision_id, reason="Close rollback window")["status"] == expected
+        with pytest.raises(SystemExit, match="rollback window has closed"):
+            command("--rollback", revision_id, reason="Repeat rollback")
+        with migration_connection() as conn:
+            assert lookup(conn, legacy, "existing") is None
+            assert lookup(conn, canonical, "existing")["local_subject_id"] == "local-existing"
+
+        assert_registry_boundary(revision_id)
+        concurrent = [begin(current_client, code=f"race-{suffix}", subject="same-account") for suffix in ("first", "second")]
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(lambda value: callback(current_client, value), concurrent))
+        assert all(result.status_code == 200 for result in results)
+        assert all("set-cookie" not in result.headers for result in results)
+        accounts = {result.json()["identity"]["subjectId"] for result in results}
+        assert len(accounts) == 1
+        owner, = accounts
+        assert complete(current_client, begin(current_client, code="race-retry", subject="same-account")) == owner
+        assert linked_owner(canonical, "same-account") == owner
+        assert_owner_cannot_change("same-account")
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            assert conn.execute(
+                "SELECT count(*) AS n FROM identity.sessions WHERE subject_id=%s", (owner,),
+            ).fetchone()["n"] == 3
+
+        def counts():
+            with psycopg.connect(dsn, row_factory=dict_row) as conn:
+                return conn.execute(
+                    "SELECT (SELECT count(*) FROM identity.subjects) AS subjects, "
+                    "(SELECT count(*) FROM identity.sessions) AS sessions"
+                ).fetchone()
+
+        previous_counts = counts()
+        failed = begin(current_client, code="link-failure", subject="retry-account")
+
+        def reject_link(**_values):
+            raise psycopg.OperationalError("internal fixture database detail")
+
+        with monkeypatch.context() as failure:
+            failure.setattr(api.SECURITY_STATE, "link_external_identity", reject_link)
+            refused = callback(current_client, failed)
+        assert refused.status_code == 503
+        assert refused.json() == {"detail": "Sign-in is temporarily unavailable. Start a new sign-in and try again."}
+        assert "set-cookie" not in refused.headers
+        assert counts() == previous_counts
+        assert callback(current_client, failed).status_code == 400
+        assert linked_owner(canonical, "retry-account") is None
+        account = complete(current_client, begin(current_client, code="link-retry", subject="retry-account"))
+        assert linked_owner(canonical, "retry-account") == account
+        assert counts() == {name: value + 1 for name, value in previous_counts.items()}
+
+        def publish_credentials(version, provider_id, row):
+            update = deepcopy(payload)
+            update["profile"]["version"] = f"1.0.{version}"
+            update["providers"] = {provider_id: row}
+            response = current_client.post(
+                "/api/v1/configuration-registry/profiles", headers=legacy_headers,
+                json={"family": "oidc_providers", "payload": update, "publish": True},
+            )
+            assert response.status_code == 201, response.text
+            assert response.json()["status"] == "published"
+
+        original_row = payload["providers"]["default"]
+        pending = begin(current_client, code="before-rotation", subject="existing")
+        before_exchange = list(token_requests)
+        for version, (provider_id, patch) in enumerate((
+            ("default", {"issuer": "https://other.example"}),
+            ("default", {"client_id": "other-fixture-client"}),
+            ("default", {"token_endpoint": canonical + "/token?recipient=other"}),
+            ("default", {"client_secret_env": rotated_binding["client_secret_env"]}),
+            ("unapproved", {}),
+            ("default", {"client_secret_env": None}),
+            ("unapproved", {"client_secret_env": None}),
+        ), start=3):
+            publish_credentials(version, provider_id, {**original_row, **patch})
+            refused = callback(current_client, pending)
+            assert refused.status_code == 503
+            assert refused.json() == {"detail": "OIDC provider configuration is unavailable. Contact support to continue."}
+            assert current_client.post(
+                "/api/v1/security/oidc:begin", json={"providerId": provider_id},
+            ).status_code == 503
+            assert token_requests == before_exchange
+
+        publish_credentials(version + 1, "default", {
+            **original_row, "token_endpoint": rotated_binding["token_endpoint"],
+            "client_secret_env": rotated_binding["client_secret_env"],
+        })
+        stale = callback(current_client, pending)
+        assert stale.status_code == 400 and "provider changed" in stale.json()["detail"]
+        assert token_requests == before_exchange
+        assert complete(current_client, begin(current_client, code="approved-rotation", subject="existing")) == "local-existing"
+        assert token_requests == [*before_exchange, (rotated_binding["token_endpoint"], ["synthetic-rotated-fixture"])]
+
+        before_public = list(outbound_requests)
+        with monkeypatch.context() as public_client:
+            public_client.delenv(oidc.LEGACY_OIDC_CLIENT_SECRET_ENV)
+            public_client.setenv("BALOOT_OIDC_PROVIDER_ID", "public-fixture")
+            public_client.setenv("BALOOT_OIDC_CLIENT_ID", "public-fixture-client")
+            public = command("--version", "1.0.0", "--algorithm", "EdDSA", profile_id="public-onboarding")
+        assert public["status"] == "applied" and public["links"] == 0
+        assert outbound_requests == [*before_public, ("GET", discovery_url)]
+        with migration_connection() as conn:
+            record = bind(conn).store.get_profile(public["revisionId"])
+            public_row = record.payload["providers"]["public-fixture"]
+            assert public_row["issuer"] == canonical
+            assert public_row["client_id"] == "public-fixture-client"
+            assert "client_secret_env" not in public_row

@@ -1759,6 +1759,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                     identity = await _identity(context)
                     database_token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(
                         subject_id=identity.subject_id, tenant_id=auth.tenant_id, role=auth.role,
+                        configuration_admin=auth.can_administer_configuration(AUTHORIZATION_POLICY),
                         session_id=str((auth.session or {}).get("session_id") or
                                        (auth.claims.session_id if auth.claims else "") or ""),
                     ))

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
 
 
@@ -25,11 +26,35 @@ _ROUTINE_HEADER = {
     ("CREATE OR REPLACE", "FUNCTION"): "ROUTINE",
     ("CREATE OR REPLACE", "PROCEDURE"): "ROUTINE",
 }
+_ATOMIC_MIGRATION_GROUPS = (
+    (
+        "030_oidc_issuer_transition.sql",
+        "031_oidc_registry_access.sql",
+        "032_oidc_identity_authority.sql",
+        "033_oidc_database_roles.sql",
+        "035_oidc_identity_read_scope.sql",
+    ),
+)
+
+
+def migration_batches(names: Iterable[str]) -> tuple[tuple[str, ...], ...]:
+    batches = {name: (name,) for name in sorted(names)}
+    for group in _ATOMIC_MIGRATION_GROUPS:
+        present = [name for name in group if name in batches]
+        if not present:
+            continue
+        if len(present) != len(group):
+            raise ValueError(f"Incomplete PostgreSQL migration batch: {group[0]} through {group[-1]}")
+        for name in group[:-1]:
+            del batches[name]
+        # Run independent interleaved concurrent indexes before opening the batch transaction.
+        batches[group[-1]] = group
+    return tuple(batches.values())
 
 
 def _migration_sql(source: bytes, name: str) -> str:
     sql = source.decode("utf-8").strip()
-    # Preserve the old files and commit each migration with its receipt.
+    # Preserve the old files and commit their SQL and receipts together.
     if sql.startswith("BEGIN;") and sql.endswith("COMMIT;"):
         sql = sql.removeprefix("BEGIN;").removesuffix("COMMIT;")
 
@@ -117,28 +142,46 @@ def apply_migrations(dsn: str, directory: Path) -> None:
             )"""
         )
         applied = dict(conn.execute("SELECT name, sha256 FROM baloot_migrations.applied"))
+        migrations = {}
         for migration in sorted(directory.glob("*.sql")):
             source = migration.read_bytes()
             digest = hashlib.sha256(source).hexdigest()
-            recorded = migration.name in applied
-            if recorded and applied[migration.name] != digest:
+            if migration.name in applied and applied[migration.name] != digest:
                 raise ValueError(f"Applied migration has changed: {migration.name}")
-            sql = _migration_sql(source, migration.name)
-            concurrent = sql.startswith(_CONCURRENT_INDEX_PREFIX)
-            rebuilt = concurrent and _apply_concurrent_index(conn, sql, migration.name, recorded=recorded)
-            if recorded:
-                action = "repaired" if rebuilt else "verified"
-                print(f"{action} {migration.name}")
-                continue
-            # Concurrent DDL commits separately. Its idempotent repair handles a missing receipt.
-            with conn.transaction():
-                if not concurrent:
-                    conn.execute(sql)
-                conn.execute(
-                    "INSERT INTO baloot_migrations.applied (name, sha256) VALUES (%s,%s)",
-                    (migration.name, digest),
-                )
-            print(f"applied {migration.name}")
+            migrations[migration.name] = (digest, _migration_sql(source, migration.name))
+        batches = migration_batches(migrations)
+        for batch in batches:
+            if len(batch) > 1:
+                recorded = tuple(name for name in batch if name in applied)
+                if recorded != batch[:len(recorded)]:
+                    raise ValueError(f"Non-prefix receipts for PostgreSQL migration batch: {batch[0]}")
+                if any(migrations[name][1].startswith(_CONCURRENT_INDEX_PREFIX) for name in batch):
+                    raise ValueError(f"Concurrent index in atomic PostgreSQL migration batch: {batch[0]}")
+
+        repaired = set()
+        for batch in batches:
+            first = batch[0]
+            concurrent = migrations[first][1].startswith(_CONCURRENT_INDEX_PREFIX)
+            if concurrent and _apply_concurrent_index(
+                conn, migrations[first][1], first, recorded=first in applied,
+            ):
+                repaired.add(first)
+            pending = [name for name in batch if name not in applied]
+            if pending:
+                with conn.transaction():
+                    for name in pending:
+                        digest, sql = migrations[name]
+                        if not concurrent:
+                            conn.execute(sql)
+                        conn.execute(
+                            "INSERT INTO baloot_migrations.applied (name, sha256) VALUES (%s,%s)",
+                            (name, digest),
+                        )
+
+        # Inventory output remains sorted by full filename for migration receipts and proofs.
+        for name in migrations:
+            action = "applied" if name not in applied else "repaired" if name in repaired else "verified"
+            print(f"{action} {name}")
 
 
 def main() -> None:

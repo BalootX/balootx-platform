@@ -55,6 +55,7 @@ from baloot_platform.configuration.schedule import (
     ConfigurationIntegrityError,
     ConfigurationScheduleConflict,
 )
+from baloot_platform.security.oidc import http_oidc_runtime
 from baloot_platform.guide import build_engine_guide
 from baloot_platform.analysis.belief_v7 import (
     BeliefPolicy,
@@ -138,6 +139,7 @@ from baloot_platform.service.client_identity import (
     service_subject_ownership,
 )
 from baloot_platform.service.routes.auth import request_token, require_identity
+from baloot_platform.service.routes.security import OIDC_SIGN_IN_PATHS
 from baloot_platform.service.routes.configuration import (
     configuration_integrity_response,
     configuration_schedule_conflict_response,
@@ -358,9 +360,6 @@ LIVE = CONTAINER.live
 AUTHORIZATION_POLICY = CONTAINER.authorization_policy
 ACCESS_TOKENS = CONTAINER.access_tokens
 SECURITY_STATE = CONTAINER.security_state
-OIDC_TRANSACTIONS = CONTAINER.oidc_transactions
-OIDC_PROVIDERS = CONTAINER.oidc_providers
-OIDC_CALLBACK = CONTAINER.oidc_callback
 PASSKEYS = CONTAINER.passkeys
 WEBSOCKET_TICKETS = CONTAINER.websocket_tickets
 HITL = CONTAINER.hitl
@@ -432,19 +431,26 @@ class RequestLoggingMiddleware:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    if CONTAINER.configuration_error is None:
+    try:
+        if CONTAINER.configuration_error is not None:
+            yield
+            return
         initialize_service_subject_ownership()
-        # Distributed deployments use independently supervised workers.
-        if not DATABASE_URL:
-            _recover_local_foundry_work()
-    yield
-    # Test clients and short-lived workers must not leak executor threads.
-    if os.environ.get("BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT", "false").lower() in {
-        "1",
-        "true",
-        "yes",
-    }:
-        CONTAINER.shutdown()
+        with http_oidc_runtime(CONFIGURATION, SECURITY_STATE) as oidc:
+            _app.state.oidc = oidc
+            # Distributed deployments recover work through separately leased workers.
+            if not DATABASE_URL:
+                _recover_local_foundry_work()
+            yield
+    finally:
+        _app.state.oidc = None
+        # Test clients and short-lived workers must not leak executor threads.
+        if os.environ.get("BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+        }:
+            CONTAINER.shutdown()
 
 
 app = FastAPI(
@@ -681,9 +687,6 @@ app.include_router(
         IDENTITY,
         ACCESS_TOKENS,
         AUTHORIZATION_POLICY,
-        OIDC_TRANSACTIONS,
-        OIDC_PROVIDERS,
-        OIDC_CALLBACK,
         PASSKEYS,
         WEBSOCKET_TICKETS,
         SECURITY_STATE,
@@ -911,8 +914,13 @@ async def platform_security(request: Request, call_next):
         identity is not None and identity_session is not None
     ) or access_claims is not None
     path = get_route_path(request.scope)
+    oidc_sign_in = request.method == "POST" and path in OIDC_SIGN_IN_PATHS
+    if oidc_sign_in and request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+        return JSONResponse(
+            {"detail": "OIDC sign-in requires application/json", "requestId": request_id}, status_code=415,
+        )
     required_scope = http_request_scope(request.app.router, request.scope)
-    csrf_exempt = request.method == "POST" and required_scope is None
+    csrf_exempt = request.method == "POST" and required_scope is None and not oidc_sign_in
     if required_scope is not None:
         if not auth.authenticated:
             return JSONResponse(
@@ -964,6 +972,7 @@ async def platform_security(request: Request, call_next):
             subject_id=claims_subject,
             tenant_id=auth.tenant_id if auth.authenticated else "",
             role=auth.role,
+            configuration_admin=is_configuration_admin(request, AUTHORIZATION_POLICY),
             request_id=request_id,
             session_id=str(
                 getattr(access_claims, "session_id", "")

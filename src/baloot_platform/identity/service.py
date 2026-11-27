@@ -59,7 +59,8 @@ class IdentityService:
             str(row["kind"]) != "guest", str(row.get("subject_created_at") or row.get("created_at") or ""),
         )
 
-    def _new_session(self, subject_id: str, *, guest: bool, user_agent: str | None = None) -> dict[str, Any]:
+    def _new_session(self, subject_id: str, *, guest: bool, user_agent: str | None = None,
+                     connection=None) -> dict[str, Any]:
         token = secrets.token_urlsafe(40)
         csrf = secrets.token_urlsafe(24)
         now = datetime.now(timezone.utc)
@@ -75,7 +76,7 @@ class IdentityService:
             "last_seen_at": now.isoformat(timespec="seconds"),
             "user_agent_hash": hashlib.sha256((user_agent or "").encode()).hexdigest() if user_agent else None,
         }
-        self.store.insert_session(row)
+        self.store.insert_session(row, connection=connection)
         return {"token": token, "csrfToken": csrf, "sessionId": session_id, "expiresAt": row["expires_at"]}
 
     def create_guest(self, display_name: str | None = None, *, user_agent: str | None = None) -> dict[str, Any]:
@@ -156,20 +157,22 @@ class IdentityService:
             self.store.revoke_session(str(row["session_id"]), utc_now())
 
     def create_external(self, *, kind: str, display_name: str, username: str | None = None,
-                        subject_id: str | None = None, user_agent: str | None = None) -> dict[str, Any]:
+                        subject_id: str | None = None, user_agent: str | None = None,
+                        connection=None) -> dict[str, Any]:
         if kind not in {"oidc", "passkey", "service"}:
             raise ValueError("unsupported external identity kind")
         selected = subject_id or f"USR-{uuid.uuid4().hex[:20].upper()}"
-        existing = self.store.get_subject(selected)
+        existing = self.store.get_subject(selected, connection=connection)
         if existing is None:
             created = utc_now()
             self.store.insert_subject(
                 subject_id=selected, kind=kind, username=username,
                 display_name=(display_name or "مستخدم البلوت").strip()[:DISPLAY_NAME_MAX_LENGTH] or "مستخدم البلوت",
                 password_salt=None, password_hash=None, created_at=created,
+                connection=connection,
             )
-        row = self.store.get_subject(selected) or {}
-        session = self._new_session(selected, guest=False, user_agent=user_agent)
+        row = self.store.get_subject(selected, connection=connection) or {}
+        session = self._new_session(selected, guest=False, user_agent=user_agent, connection=connection)
         return {"identity": self._identity(row).to_dict(), "session": session}
 
     def _page(
