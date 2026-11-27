@@ -197,11 +197,11 @@ def screen_history(tmp_path, monkeypatch, root, commit_identity_policy):
                            provider_addresses=provider_addresses)
 
 
-def screen_push(before, head, *, branch="topic", commits=()):
+def screen_push(before, head, *, branch="topic", commits=(), forced=False):
     deleted = head == commit_screen.ZERO
     return {
         "ref": f"refs/heads/{branch}", "after": head, "before": before,
-        "created": before == commit_screen.ZERO, "deleted": deleted, "forced": False,
+        "created": before == commit_screen.ZERO, "deleted": deleted, "forced": forced,
         "repository": {"default_branch": "main"}, "commits": [{"id": sha} for sha in commits],
         "head_commit": None if deleted else {"id": head},
     }
@@ -404,6 +404,67 @@ def test_commit_screen_rejects_contradictory_deletion(screen_history, overrides,
     event = {**screen_push(history.legacy, commit_screen.ZERO), **overrides}
     with pytest.raises(commit_screen.ScreenError, match=diagnostic):
         commit_screen.screen("push", event, history.base)
+
+
+@pytest.mark.parametrize("case", ["duplicate", "already-reachable", "unrelated"])
+def test_commit_screen_rejects_invalid_branch_update_records(screen_history, case):
+    history = screen_history
+    head = history.commit("Pushed change")
+    unexpected = head if case == "duplicate" else history.base
+    if case == "unrelated":
+        history.git("switch", "-qc", "other", history.base)
+        unexpected = history.commit("Other branch")
+        history.git("switch", "-q", "topic")
+    event = screen_push(history.base, head, commits=(head, unexpected))
+    with pytest.raises(commit_screen.ScreenError, match="unique IDs within the Git update range"):
+        commit_screen.screen("push", event, head)
+
+
+def test_commit_screen_rejects_non_commit_previous_tip(screen_history):
+    history = screen_history
+    history.git("tag", "-a", "previous", "-m", "Fixture tag", history.base)
+    tag = history.git("rev-parse", "refs/tags/previous").decode("ascii").strip()
+    head = history.commit("Pushed change")
+    with pytest.raises(commit_screen.ScreenError, match="previous tip must be a commit object"):
+        commit_screen.screen("push", screen_push(tag, head, commits=(head,), forced=True), head)
+
+
+@pytest.mark.parametrize("forced", [False, True])
+def test_commit_screen_requires_force_metadata_for_non_fast_forward(screen_history, forced, capsys):
+    history = screen_history
+    before = history.commit("Previous branch tip")
+    history.git("switch", "-qc", "rewrite", history.base)
+    first = history.commit("Rewritten first commit")
+    head = history.commit("Rewritten tip")
+    event = screen_push(before, head, branch="rewrite", commits=(first, head), forced=forced)
+    if forced:
+        commit_screen.screen("push", event, head)
+        assert "Screened 2 commits" in capsys.readouterr().out
+    else:
+        with pytest.raises(commit_screen.ScreenError, match="non-forced branch update must be a fast-forward"):
+            commit_screen.screen("push", event, head)
+
+
+def test_commit_screen_checks_unlisted_commits_in_a_truncated_update(screen_history, capsys):
+    history = screen_history
+    history.commit("Omitted allowed commit")
+    head = history.commit("Reported tip")
+    commit_screen.screen("push", screen_push(history.base, head, commits=(head,)), head)
+    assert "Screened 2 commits" in capsys.readouterr().out
+
+    omitted = history.commit("Omitted unlisted commit", author=f"Wrong Bot <{SCREEN_ADDRESS}>")
+    later = history.commit("Later reported tip")
+    with pytest.raises(commit_screen.ScreenError, match=f"Commit {omitted} author"):
+        commit_screen.screen("push", screen_push(head, later, commits=(later,)), later)
+
+
+def test_commit_screen_accepts_a_forced_rewind_with_no_new_commits(screen_history, capsys):
+    history = screen_history
+    before = history.commit("Previous branch tip")
+    history.git("checkout", "--detach", history.base)
+    event = screen_push(before, history.base, forced=True)
+    commit_screen.screen("push", event, history.base)
+    assert "Screened 0 commits" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("event_name", ["pull_request", "push"])

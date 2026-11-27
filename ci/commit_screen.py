@@ -114,12 +114,28 @@ def push_scope(event, candidate):
     if created:
         return base, new_branch_revisions(pushed, base, candidate)
 
+    if git("rev-parse", "--is-shallow-repository").strip() != b"false":
+        raise ScreenError("A branch update requires complete Git history.")
     try:
-        git("cat-file", "-e", f"{before}^{{commit}}")
+        old_kind = git("cat-file", "-t", before).strip()
     except subprocess.CalledProcessError:
         # Force pushes can leave the previous tip outside fetched refs.
         git("fetch", "--no-tags", "--no-recurse-submodules", "origin", before)
-    return base, [f"{before}..{candidate}"]
+        old_kind = git("cat-file", "-t", before).strip()
+    if old_kind != b"commit":
+        raise ScreenError("The branch update's previous tip must be a commit object.")
+    if not forced:
+        try:
+            git("merge-base", "--is-ancestor", before, candidate)
+        except subprocess.CalledProcessError as exc:
+            raise ScreenError("A non-forced branch update must be a fast-forward.") from exc
+
+    update_range = f"{before}..{candidate}"
+    actual = set(git("rev-list", update_range).decode("ascii").split())
+    supplied = set(pushed)
+    if len(supplied) != len(pushed) or not supplied <= actual:
+        raise ScreenError("The branch update commit list needs unique IDs within the Git update range.")
+    return base, [update_range]
 
 
 def event_scope(event_name, event, candidate):
