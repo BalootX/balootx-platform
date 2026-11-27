@@ -339,20 +339,15 @@ def main(*, research_notice: bool = False) -> None:
 
     with release_render_lock():
         if research_notice:
-            command = [sys.executable, "-B", "-P", "-m", "scripts.render_research_notice"]
-            if (ROOT / ".git").exists():
-                command += [
-                    "--source-head",
-                    subprocess.check_output(
-                        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-                    ).strip(),
-                    "--source-tree",
-                    subprocess.check_output(
-                        ["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT, text=True
-                    ).strip(),
-                ]
+            source_head, source_tree = subprocess.check_output(
+                ["git", "rev-parse", "HEAD", "HEAD^{tree}"], cwd=ROOT, text=True
+            ).splitlines()
+            command = [
+                sys.executable, "-B", "-P", "-m", "scripts.render_research_notice",
+                "--source-head", source_head, "--source-tree", source_tree,
+            ]
             pythonpath = os.pathsep.join(filter(None, (str(ROOT), str(ROOT / "src"), os.getenv("PYTHONPATH"))))
-            run("research-notice-4", command, environment={"PYTHONPATH": pythonpath})
+            run("approved-v4-public", command, environment={"PYTHONPATH": pythonpath})
             return
         generate()
         run("prototypes", _node_command("render-prototypes.mjs"), cwd=REMOTION)
@@ -398,7 +393,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Render and verify the governed professional media set."
     )
-    parser.add_argument("--research-notice", action="store_true", help="Render only the first research notice and its critical-position thumbnail.")
+    parser.add_argument(
+        "--research-notice",
+        action="store_true",
+        help="Render the approved public v4 research notice and its critical-position thumbnail.",
+    )
     parser.add_argument("--ci-shard", choices=CI_SHARD_OUTPUTS)
     args = parser.parse_args()
     if args.ci_shard:

@@ -14,6 +14,25 @@ def test_video_reexports_the_shared_media_boundary():
         assert getattr(media_validation, name) is getattr(media_probe, name)
 
 
+@pytest.mark.parametrize(
+    ("contents", "error"),
+    [
+        (None, "restore UTF-8 JSON.*tableSha256"),
+        ("{", "restore UTF-8 JSON.*tableSha256"),
+        ('{"schemaVersion": true}', "schemaVersion must be 1"),
+        ('{"schemaVersion": 1}', "tableSha256 must be the approved"),
+    ],
+)
+def test_invalid_approved_layout_pin_is_refused(tmp_path, monkeypatch, contents, error):
+    pin = tmp_path / "approved-layout-pin.json"
+    if contents is not None:
+        pin.write_text(contents, encoding="utf-8")
+    monkeypatch.setattr(media_validation, "_APPROVED_LAYOUT_PIN_PATH", pin)
+
+    with pytest.raises(ValueError, match=rf"approved-layout-pin\.json: {error}"):
+        media_validation.approved_layout_table_sha256()
+
+
 def test_media_probe_refuses_renamed_measurement_mp4(monkeypatch):
     def fake_probe(command, **kwargs):
         assert "format_tags=comment" in command[command.index("-show_entries") + 1]

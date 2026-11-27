@@ -32,19 +32,6 @@ const seats: Seat[] = ["north", "west", "south", "east"];
 export const collectionOpacity = (progress: number): number =>
   progress <= 0.72 ? 1 : Math.max(0, 1 - (progress - 0.72) / 0.28);
 
-export const playbackMotionTiming = (
-  interval: number, flightSteps: number, collectionSteps: number, transitionSteps: number,
-): {flightFrames: number; collectionFrames: number; collectionStart: number} => {
-  if (!Number.isFinite(interval) || interval < 0 ||
-    [flightSteps, collectionSteps, transitionSteps].some((steps) => !Number.isInteger(steps) || steps < 0)) {
-    throw new Error("Playback motion requires a finite nonnegative interval and nonnegative integer durations");
-  }
-  // Leave a cleared frame plus fractional-frame rounding room before the next play.
-  const collectionFrames = Math.min(collectionSteps, Math.max(1, interval - flightSteps - transitionSteps - 2));
-  const flightFrames = Math.min(flightSteps, Math.max(1, interval - collectionFrames - transitionSteps - 2));
-  return {flightFrames, collectionFrames, collectionStart: Math.max(0, interval - collectionFrames - 2)};
-};
-
 export const derivePlaybackState = ({
   initialHand,
   allPlays,

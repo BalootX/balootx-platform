@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 from pydantic import ValidationError
 
 from baloot_platform.configuration import EffectiveRuntimeConfigV2

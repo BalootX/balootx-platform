@@ -15,7 +15,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 from pydantic import BaseModel
 
 from baloot_platform.analysis.search import SearchTimeBudgetExceeded
@@ -184,6 +184,7 @@ def test_grpc_censor_interceptor_returns_failed_precondition(root):
     interceptor = next(n for n in serve.body if isinstance(n, ast.ClassDef) and n.name == "TimeCensoredInterceptor")
     server_assignment = next(n for n in serve.body if isinstance(n, ast.Assign)
                              and any(isinstance(t, ast.Name) and t.id == "server" for t in n.targets))
+    assert any(isinstance(n, ast.Name) and n.id == interceptor.name for n in ast.walk(server_assignment))
     methods = [n for cls in serve.body if isinstance(cls, ast.ClassDef) for n in cls.body
                if isinstance(n, ast.AsyncFunctionDef) and n.name in {"CreateVideo", "RenderGameReplay"}]
 
@@ -194,13 +195,13 @@ def test_grpc_censor_interceptor_returns_failed_precondition(root):
         fail = Mock(side_effect=SearchTimeBudgetExceeded("censored live policy"))
         namespace = {
             "grpc": grpc, "json": json, "SearchTimeBudgetExceeded": SearchTimeBudgetExceeded,
-            "_require_api": authorized, "_require_trusted": authorized, "_require_private_game": authorized,
+            "_require_trusted": authorized, "_require_private_game": authorized,
             "VideoJobRequest": SimpleNamespace(model_validate=fail), "HistoricalReplayRenderRequest": fail,
             "LegacyVideoCompatibilityError": type("LegacyVideoCompatibilityError", (ValueError,), {}),
         }
-        exec(compile(ast.Module(body=[interceptor, *methods, server_assignment], type_ignores=[]),
+        exec(compile(ast.Module(body=[interceptor, *methods], type_ignores=[]),
                      str(source), "exec"), namespace)
-        server = namespace["server"]
+        server = grpc.aio.server(interceptors=[namespace[interceptor.name]()])
 
         async def handle(value, context):
             if value == b"ok":

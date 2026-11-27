@@ -340,8 +340,9 @@ class ReplayAuditService:
             )
             for item in decisions
         ]
+        bundle = build_bundle(self.root)
+        config = bundle.component("audit")
         if mode in {"deep", "progressive", "observer_safe", "consensus", "trusted_omniscient"}:
-            config = self._config()
             limit = int(config.get("batch", {}).get("maximum_decisions_per_sync_request", 12))
             if maximum_decisions is not None:
                 limit = min(limit, max(1, int(maximum_decisions)))
@@ -371,9 +372,9 @@ class ReplayAuditService:
             game_hash=game.get("gameHash"),
             game_serial=game.get("serial"),
             mode=mode,
-            bundle_hash=str(game.get("bundleHash", build_bundle(self.root).sha256)),
+            bundle_hash=str(game.get("bundleHash", bundle.sha256)),
             engine_version=__version__,
-            config={**self._config(), "requestOverrides": copy.deepcopy(overrides or {})},
+            config={**config, "requestOverrides": copy.deepcopy(overrides or {})},
             decisions=typed,
         ).to_dict()
         return self.store.save_game_audit(report)

@@ -4,7 +4,7 @@ import copy
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.research import BalootDomainCompilerV1
 from baloot_platform.research import domain_compiler as compiler_module

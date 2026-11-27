@@ -33,6 +33,19 @@ The worker build uses the digest in [the BuildKit image declaration](Dockerfile.
 
 For the main merge queue, GitHub requests checks on the temporary merge-group ref. CI verifies the checkout against the event's head SHA and runs the same full producer and Python shard profile as a main push. The gate reports on that SHA. PRs keep scoped feedback, and main pushes keep the full post-merge run. Merge groups can restore caches. Only main pushes save them.
 
+## Hosted QA journeys
+
+In Actions, open the [ci workflow](../.github/workflows/ci.yml), choose **Run workflow**, and select one `qa-journey` on the intended ref. Leave `viewer-seat-proof` off. The default `none` preserves the existing manual CI and viewer-seat dispatches.
+
+| Choice | Synthetic checks | Coverage gaps |
+| --- | --- | --- |
+| `foundry` | Arabic RTL authoring, validation and estimate against a local service. The run and result views use synthetic campaign responses. A Python check compiles and replays a synthetic research auction. | Full solver execution from the browser remains open. Screenshots cover Foundry's supported dark presentation in desktop and phone Chromium. |
+| `api-sdk` | In-process research API, Python SDK request and response contracts, Go client tests, and TypeScript compilation. | TypeScript runtime, full transport and role coverage remain open. |
+| `replay-adjudication` | Replay audit, restricted referee evidence in a temporary store, and observer-safe projection. | Reviewer and observer UI coverage remains open. |
+| `clip-render-bundle` | Deterministic observer-safe bundles, rejection of mixed perspectives, and synthetic player names and Arabic RTL scene metadata. | Pixel rendering and playback are exercised by the full CI media jobs. |
+
+Each `qa-journey-<choice>-results` artifact retains the dispatched commit and tree and the selected test reports or logs. The SDK lane verifies fresh Go test and package outcomes from its JSON event stream. The Foundry lane requires a passing named case per project and validates the exact six PNGs retained in `qa-journey-foundry-screenshots`. Artifacts are retained for seven days. Inspect the run conclusion before treating its artifacts as passing evidence.
+
 The render host preflight checks deployed images for staleness. Compare the worker's `/opt/baloot-remotion/.lock-sha256` with the SHA-256 of the Remotion lockfile for the source being rendered. Run `python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules <lockfile>` with that same lockfile.
 
 CODEOWNERS protects the CI control plane, including the gate, plan, coverage guard, launchers, and their startup and import paths. Media and release verifiers are product checks reviewed with the product. Existing ownership of verifier scripts governs review of changes to those files.

@@ -421,7 +421,7 @@ def test_research_result_locator_rejects_presentation_profile_substitution(root,
 
 
 def test_research_result_locator_api_publishes_on_first_resolve(root, tmp_path, monkeypatch):
-    from fastapi.testclient import TestClient
+    from service_test_client import OperatorClient
     from baloot_platform.service import api
 
     digest = "a1b2c3d4e5" + "0" * 54
@@ -443,7 +443,7 @@ def test_research_result_locator_api_publishes_on_first_resolve(root, tmp_path, 
 
     monkeypatch.setattr(api, "RESEARCH", ResearchResults())
     monkeypatch.setattr(api, "CHALLENGE_LOCATORS", service)
-    with TestClient(api.app) as client:
+    with OperatorClient(api.app) as client:
         response = client.get(f"/api/v2/challenge-locators/{code.lower()}")
         repeated = client.get(f"/api/v2/challenge-locators/{code}")
         result["disposition"] = "rejected"
@@ -480,7 +480,7 @@ def test_research_result_locator_api_publishes_on_first_resolve(root, tmp_path, 
 def test_research_result_locator_api_fails_closed_for_ineligible_result(
     root, tmp_path, monkeypatch, mutate
 ):
-    from fastapi.testclient import TestClient
+    from service_test_client import OperatorClient
     from baloot_platform.service import api
 
     digest = "b1b2c3d4e5" + "0" * 54
@@ -500,7 +500,7 @@ def test_research_result_locator_api_fails_closed_for_ineligible_result(
 
     monkeypatch.setattr(api, "RESEARCH", ResearchResults())
     monkeypatch.setattr(api, "CHALLENGE_LOCATORS", service)
-    with TestClient(api.app) as client:
+    with OperatorClient(api.app) as client:
         response = client.get(f"/api/v2/challenge-locators/{code}")
     assert response.status_code == 404
     assert service.store.get(code) is None
@@ -727,6 +727,7 @@ def test_observer_prompt_attempt_fails_closed_until_option_contract_exists(root,
 
 
 def test_locator_api_creates_and_resolves_exact_public_state(root, tmp_path, monkeypatch):
+    import os
     from fastapi.testclient import TestClient
     from baloot_platform.service import api
 
@@ -746,6 +747,7 @@ def test_locator_api_creates_and_resolves_exact_public_state(root, tmp_path, mon
     with TestClient(api.app) as client:
         created = client.post(
             "/api/v2/challenge-locators",
+            headers={"x-api-key": os.environ["BALOOT_API_KEY"]},
             json={
                 "laffaIdentifier": trace.game_hash,
                 "decisionId": decision.decision_id,
@@ -835,6 +837,8 @@ def test_locator_api_creates_and_resolves_exact_public_state(root, tmp_path, mon
         assert restored.json()["attemptId"] == attempt_payload["attemptId"]
         assert restored.json()["statistics"]["totalAttempts"] == 1
         assert "decisionId" not in restored.text
-        revoked = client.post(f"/api/v2/challenge-locators/{code}:revoke")
-        assert revoked.status_code == 200
+        revoke_path = f"/api/v2/challenge-locators/{code}:revoke"
+        assert client.post(revoke_path).status_code == 403
+        revoked = client.post(revoke_path, headers={"x-api-key": os.environ["BALOOT_API_KEY"]})
+        assert revoked.status_code == 200, revoked.text
         assert client.get(f"/api/v2/challenge-locators/{code}").status_code == 410

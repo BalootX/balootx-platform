@@ -841,7 +841,7 @@ def test_count_evidence_and_decision_reads_preserve_uncertainty(
         assert validated["truthLabel"] == "rejected"
         assert validated["disposition"] == "rejected"
         assert validated["confidence"] == validated["score"] == 0
-    from fastapi.testclient import TestClient
+    from service_test_client import OperatorClient as TestClient
 
     from baloot_platform.research.service import ResearchFoundryServiceV1
     from baloot_platform.service import api

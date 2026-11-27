@@ -142,9 +142,9 @@
           "family": "identity",
           "id": "optional_simple_identity_v1",
           "path": "configs/identity/optional_simple_v1.yaml",
-          "sha256": "34837b75da8270f4e1b32aaf0c9ec167eebb504daf92f7cf47acb591b0d88d96",
+          "sha256": "f8d2dadf2d6e7fe1d144b85f99a8e2689d1162b75831d2e6aded6ef417035619",
           "status": "production_default",
-          "version": "2.0.0"
+          "version": "2.1.0"
         },
         "learning": {
           "family": "learning",
@@ -263,7 +263,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "3e8660d3e297b7c517b5511793e46f7aacabb25784bd4f91bebb41cd8b377fcf"
+      "sha256": "2e5f7119d2c84704c89d05d2e19fc2db810db310ec204a2a5eecd9eb11531913"
     },
     "hokum_only": {
       "components": {
@@ -407,9 +407,9 @@
           "family": "identity",
           "id": "optional_simple_identity_v1",
           "path": "configs/identity/optional_simple_v1.yaml",
-          "sha256": "34837b75da8270f4e1b32aaf0c9ec167eebb504daf92f7cf47acb591b0d88d96",
+          "sha256": "f8d2dadf2d6e7fe1d144b85f99a8e2689d1162b75831d2e6aded6ef417035619",
           "status": "production_default",
-          "version": "2.0.0"
+          "version": "2.1.0"
         },
         "learning": {
           "family": "learning",
@@ -528,7 +528,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "8a879abbec6ca81f17a8958b17d8cb782916c87bf328a5b498b804b98351f583"
+      "sha256": "576a4d8db44e0ff89289ea5c5da9a08f115da63bbc02def61f44683f187d9be3"
     },
     "sun_only": {
       "components": {
@@ -672,9 +672,9 @@
           "family": "identity",
           "id": "optional_simple_identity_v1",
           "path": "configs/identity/optional_simple_v1.yaml",
-          "sha256": "34837b75da8270f4e1b32aaf0c9ec167eebb504daf92f7cf47acb591b0d88d96",
+          "sha256": "f8d2dadf2d6e7fe1d144b85f99a8e2689d1162b75831d2e6aded6ef417035619",
           "status": "production_default",
-          "version": "2.0.0"
+          "version": "2.1.0"
         },
         "learning": {
           "family": "learning",
@@ -793,7 +793,7 @@
         "status": "governed_candidate",
         "version": "21.1.22"
       },
-      "sha256": "e86bc9be16e5309d412b8228a411b08e3e84c2df898dc760ca6e9cc520960df1"
+      "sha256": "c6100206e885312b6451443e0f7159b622b74696dba792687353f8e13782e584"
     }
   },
   "schemaVersion": 1
