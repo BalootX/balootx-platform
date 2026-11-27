@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.service import api
 

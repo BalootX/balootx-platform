@@ -149,11 +149,17 @@ def test_ci_shards_receive_builds_and_required_node_dependencies(root: Path) -> 
     assert any(step.get("run", "").startswith("npm run test:research -- ") for step in foundry)
     e2e, = (step for step in foundry if step.get("run", "").startswith("npm run test:operator-e2e -- "))
     output_dir = e2e["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+    dashboard = e2e.get("working-directory", jobs["foundry"]["defaults"]["run"]["working-directory"])
+    config = (root / dashboard / "e2e/playwright.config.cjs").read_text(encoding="utf-8")
+    assert "\n  outputDir: resolve(root, process.env.BALOOT_OPERATOR_E2E_OUTPUT_DIR ||" in config
+    assert "\n    trace: 'retain-on-failure'," in config
     receipts, = (step for step in foundry if step.get("with", {}).get("name") == "foundry-test-receipts")
     assert f"{output_dir}/**/audit-*.png" in receipts["with"]["path"].splitlines()
     diagnostics, = (step for step in foundry
                     if step.get("with", {}).get("name") == "foundry-playwright-failure-diagnostics")
     assert diagnostics["with"]["path"] == output_dir
+    assert diagnostics["with"]["if-no-files-found"] == "ignore"
+    assert diagnostics["with"]["retention-days"] == 7
     assert diagnostics["if"] == f"${{{{ !cancelled() && steps.{e2e['id']}.outcome == 'failure' }}}}"
     assert installs <= {step.get("working-directory") for step in foundry
                         if step.get("run", "").startswith("npm ci ")}

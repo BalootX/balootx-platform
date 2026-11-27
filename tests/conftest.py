@@ -11,6 +11,7 @@ from pathlib import Path
 # prevents previous runs from growing or locking the default .runtime database.
 _TEST_RUNTIME = Path(tempfile.mkdtemp(prefix="baloot-pytest-"))
 os.environ.setdefault("BALOOT_ENV", "test")
+os.environ.setdefault("BALOOT_API_KEY", "synthetic-pytest-service")
 os.environ.setdefault("BALOOT_DATA_DIR", str(_TEST_RUNTIME))
 os.environ.setdefault("BALOOT_RUNTIME", str(_TEST_RUNTIME))
 os.environ.setdefault("BALOOT_ROOT", str(Path(__file__).resolve().parents[1]))

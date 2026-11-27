@@ -65,7 +65,7 @@ Apply the [independent review procedure](DELIVERY.md#merge) only when a change a
 - **Real people's or customer data** includes migrations, deletion, retention, audit history, backups, restore and access to personal or restricted records. Uncovered safety-critical rules also require review.
 - **Making anything public** includes the posting controller, publication ledger writer, caption and media release steps, and any transition from `NEVER_POST` to posting.
 - **Hosts, networks and firewalls** include runner and render-host configuration, network access and firewall rules.
-- **Repo settings, branch protection and release gates** include rulesets, required checks, the privacy deny check, clip admission checks, and removing, skipping or weakening a test or the test-file guard. The clip release gate's r8 revision requires its one independent review.
+- **Repo settings, branch protection and release gates** include workflow files, rulesets, required checks, the privacy deny check, clip admission checks, and removing, skipping or weakening a test or the test-file guard. The clip release gate's r8 revision requires its one independent review.
 
 Once end-to-end tests cover every BalootX safety rule and this section records each rule and its test, changes to covered rules merge on green CI. A new safety rule needs one review until its test lands.
 

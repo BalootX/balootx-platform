@@ -11,6 +11,7 @@ vi.mock("../../src/baloot_platform/video/remotion/node_modules/remotion/dist/esm
 }));
 
 import {ProfessionalPrototypeFrame} from "../../src/baloot_platform/video/remotion/src/professional-prototype.js";
+import {trickCollectionSampleFrameRange} from "../../src/baloot_platform/video/remotion/src/playback-timing.mjs";
 import {
   derivePlaybackState,
   type PlaybackPlay,
@@ -255,7 +256,7 @@ const cardCode = (card: CardValue): string => {
 const renderedCodes = (markup: string): string[] =>
   [...markup.matchAll(/data-card-code="([^"]+)"/g)].map((match) => match[1]).sort();
 
-test.each([false, true])("replay animates the last pre-question card with context=%s", (withContext) => {
+test.each([false, true])("replay and collection sample follow play boundaries with context=%s", (withContext) => {
   const candidate = structuredClone(bundle);
   candidate.scenes.find((scene) => scene.stage === "continuation")!.layers
     .find((item) => item.id === "public-lifecycle")!.content.pauseBeforePlayIndex = 24;
@@ -280,6 +281,19 @@ test.each([false, true])("replay animates the last pre-question card with contex
   expect(markup(2879)).toContain('data-completed-play-count="24"');
   expect(markup(2879)).toContain('data-table-opacity="0"');
   expect(markup(2880)).toContain('data-completed-play-count="24"');
+
+  const [beforeCollection, nextPlay] = trickCollectionSampleFrameRange(candidate);
+  expect([beforeCollection, nextPlay]).toEqual(withContext ? [1225, 1229] : [1227, 1230]);
+  expect(markup(beforeCollection)).toContain('data-completed-play-count="4"');
+  expect(markup(beforeCollection)).toContain('data-collection-progress="0"');
+  expect(Number(markup(beforeCollection + 1).match(/data-collection-progress="([^"]+)"/)?.[1])).toBeGreaterThan(0);
+  expect(markup(nextPlay - 1)).toContain('data-table-opacity="0"');
+  expect(markup(nextPlay)).toContain('data-completed-play-count="5"');
+
+  candidate.presentation.motion.collection_steps = 0;
+  const [beforeInstantCollection] = trickCollectionSampleFrameRange(candidate);
+  expect(markup(beforeInstantCollection)).toContain('data-collection-progress="0"');
+  expect(markup(beforeInstantCollection + 1)).toContain('data-collection-progress="1"');
 });
 
 test.each([false, true])("encoded checkpoint captures pre-question play in playback with context=%s", (withContext) => {
