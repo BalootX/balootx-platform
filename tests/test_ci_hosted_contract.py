@@ -523,6 +523,7 @@ def test_commit_screen_workflow_contract(root):
     assert "permissions" not in job and job["timeout-minutes"] > 0
     assert not job.get("continue-on-error")
     assert job["steps"][0]["with"] == {"fetch-depth": 0, "persist-credentials": False}
+    assert job["steps"][-2]["run"] == "python -I -m pip install 'jsonschema>=4.23'"
     assert job["steps"][-1]["shell"] == "bash"
     assert job["steps"][-1]["env"] == {
         "GROUP_BASE": "${{ github.event.merge_group.base_sha }}",
