@@ -2,9 +2,12 @@
 import ast
 from importlib.machinery import BYTECODE_SUFFIXES, EXTENSION_SUFFIXES
 import json
+import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -181,6 +184,38 @@ def test_hosted_ci_contract(root):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)
         assert flags and all("-P" in options.split() for options in flags), name
+
+
+def test_preflight_requires_an_approved_pull_request_opener(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    step = jobs["preflight"]["steps"][0]
+    assert step["name"] == "Check pull request opener"
+    assert step["if"] == "github.event_name == 'pull_request'"
+    assert step["env"]["PR_OPENER_ID"] == "${{ github.event.pull_request.user.id }}"
+    assert step["env"]["PR_OPENER_TYPE"] == "${{ github.event.pull_request.user.type }}"
+    allowed = step["env"]["ALLOWED_PR_OPENER_IDS"]
+    approved_ids = allowed.split()
+    assert approved_ids and all(account_id.isascii() and account_id.isdecimal() for account_id in approved_ids)
+    command = shlex.split(step["run"])
+    assert command[:3] == ["python3", "-I", "-c"]
+    cases = [(account_id, "Bot", 0) for account_id in approved_ids] + [
+        (approved_ids[0], "User", 1),
+        (approved_ids[0], "", 1),
+        (approved_ids[0][:-1], "Bot", 1),
+        ("", "Bot", 1),
+    ]
+    for opener_id, opener_type, expected in cases:
+        result = subprocess.run(
+            [sys.executable, *command[1:]],
+            env={
+                **os.environ, "ALLOWED_PR_OPENER_IDS": allowed,
+                "PR_OPENER_ID": opener_id, "PR_OPENER_TYPE": opener_type,
+            },
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == expected, result.stderr
+        if expected:
+            assert result.stderr.strip() == "::error::Open this pull request through an approved GitHub App."
 
 
 @pytest.fixture
@@ -749,6 +784,85 @@ def test_workflow_only_cancels_superseded_runs_of_the_same_pr(root):
     assert all("concurrency" not in job for job in workflow["jobs"].values())
 
 
+def test_foundry_reuses_the_locked_browser_and_system_packages(root):
+    job = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]["foundry"]
+    assert job["timeout-minutes"] == 10
+    steps = job["steps"]
+    identity = next(step for step in steps if step.get("id") == "playwright-runtime")
+    restore = next(step for step in steps if step.get("id") == "playwright-cache")
+    install = next(step for step in steps if step.get("id") == "playwright-install")
+    save = steps[steps.index(install) + 1]
+    assert "require('./package-lock.json').packages['node_modules/playwright'].version" in identity["run"]
+    assert "$RUNNER_ARCH-${ImageVersion:?}-playwright-chromium-v2-$version" in identity["run"]
+    assert restore["with"] == save["with"] == {
+        "key": "${{ steps.playwright-runtime.outputs.key }}",
+        "path": (
+            "${{ runner.temp }}/playwright-browsers\n"
+            "${{ runner.temp }}/playwright-debs/*.deb\n"
+            "${{ runner.temp }}/playwright-debs/inventory.json\n"
+        ),
+    }
+    assert restore["uses"].startswith("actions/cache/restore@")
+    assert save["uses"].startswith("actions/cache/save@")
+    assert save["if"] == (
+        "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
+        "steps.playwright-cache.outputs.cache-hit != 'true'"
+    )
+    offline, cold = install["run"].split("\nelse\n", 1)
+    assert install["env"]["CACHE_HIT"] == "${{ steps.playwright-cache.outputs.cache-hit }}"
+    assert 'inventory="$GITHUB_WORKSPACE/ci/playwright_archive_inventory.py"' in offline
+    assert offline.index('python -I "$inventory" verify "$RUNNER_TEMP/playwright-debs"') < offline.index("apt-get ")
+    assert 'packages=("$RUNNER_TEMP"/playwright-debs/*.deb)' in offline
+    assert offline.count("apt-get ") == 1
+    assert "sudo env DEBIAN_FRONTEND=noninteractive apt-get" in offline
+    assert "--yes --no-download --no-remove --no-install-recommends" in offline
+    assert '-o Dir::Cache::archives="$RUNNER_TEMP/playwright-debs" install "${packages[@]}"' in offline
+    assert not any(option in offline for option in ("dpkg ", "--ignore-missing", "--fix-missing"))
+    assert "playwright install" not in offline
+    assert cold.index("playwright install --with-deps chromium") < cold.index(
+        'python -I "$inventory" seal "$RUNNER_TEMP/playwright-debs"'
+    ) < cold.index("\nfi\n")
+    assert cold.index("\nfi\n") < cold.index(".chromium.launch()")
+
+
+@pytest.mark.parametrize("case", ["absent", "truncated", "missing", "changed", "extra", "empty", "valid"])
+def test_foundry_archive_inventory_requires_exact_names_and_bytes(root, tmp_path, case):
+    script = root / "ci/playwright_archive_inventory.py"
+
+    def run(action):
+        return subprocess.run(
+            [sys.executable, "-I", str(script), action, str(tmp_path)],
+            capture_output=True, text=True, timeout=10,
+        )
+
+    standalone = tmp_path / "fonts-standalone_1_all.deb"
+    if case not in {"absent", "empty"}:
+        (tmp_path / "libasound2-data_1_all.deb").write_bytes(b"data archive")
+        (tmp_path / "libasound2t64_1_amd64.deb").write_bytes(b"library archive")
+        standalone.write_bytes(b"font archive")
+    manifest = tmp_path / "inventory.json"
+    if case != "absent":
+        sealed = run("seal")
+        assert sealed.returncode == 0, sealed.stderr
+    if case == "truncated":
+        manifest.write_bytes(b"{")
+    elif case == "missing":
+        standalone.unlink()
+    elif case == "changed":
+        standalone.write_bytes(b"FONT ARCHIVE")
+    elif case == "extra":
+        (tmp_path / "extra_1_all.deb").write_bytes(b"extra archive")
+    elif case == "empty":
+        assert manifest.read_bytes() == b"{}\n"
+
+    verified = run("verify")
+    if case in {"empty", "valid"}:
+        assert verified.returncode == 0, verified.stderr
+    else:
+        assert verified.returncode == 1, verified.stderr
+        assert "Playwright package cache inventory" in verified.stderr
+
+
 def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
     parity = jobs["remotion-image-parity"]
@@ -998,6 +1112,31 @@ def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):
     assert "dpkg --skip-same-version --install" in install["run"]
     assert "ffmpeg-packages" in jobs["media-inputs"]["needs"]
     assert jobs["media-render"]["timeout-minutes"] == 25
+
+
+def test_main_ci_retains_synthetic_visual_evidence(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    main_push = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    foundry_steps = jobs["foundry"]["steps"]
+    playwright = next(step for step in foundry_steps if step.get("id") == "foundry-playwright")
+    output_dir = playwright["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+    foundry = next(step for step in foundry_steps if step.get("name") == "Upload Foundry test receipts")
+    assert foundry["if"] == "${{ !cancelled() }}"
+    assert foundry["with"]["path"].splitlines()[-1] == (
+        "${{ " + main_push + " && job.status == 'success' && "
+        "format('" + output_dir.replace("${{ runner.temp }}", "{0}") + "/**/*.png', runner.temp) || '' }}"
+    )
+    media_steps = jobs["media-render"]["steps"]
+    hook = next(step for step in media_steps if step.get("name") == "Check synthetic hook layouts")
+    assert hook["if"] == "matrix.shard == 'decision'"
+    assert hook["env"]["HOOK_FRAMES_DIR"] == "${{ runner.temp }}/notice-on-hook-frames"
+    assert hook["run"].endswith(' "$HOOK_FRAMES_DIR"')
+    shard = next(step for step in media_steps if step.get("name") == "Upload shard media")
+    assert shard["with"]["path"].splitlines() == [
+        "${{ runner.temp }}/media-shard.tar",
+        "${{ matrix.shard == 'decision' && " + main_push + " && "
+        "format('{0}/notice-on-hook-frames/*.png', runner.temp) || '' }}",
+    ]
 
 
 @pytest.mark.parametrize("event", ["pull_request", "push", "workflow_dispatch", "merge_group"])
