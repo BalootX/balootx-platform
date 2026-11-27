@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -21,6 +22,10 @@ class CorrectionRequest(BaseModel):
     correctedGameId: str = Field(min_length=1, max_length=200)
     reason: str = Field(min_length=2, max_length=1000)
     adjudicationCaseId: str | None = None
+
+
+def _lineage_fields(record: dict[str, Any], *fields: str) -> dict[str, Any]:
+    return {field: record[field] for field in fields}
 
 
 def build_canonical_history_router(
@@ -55,7 +60,28 @@ def build_canonical_history_router(
     @router.get("/{identifier}/lineage")
     def lineage(identifier: str, request: Request):
         require_identity(request, identities)
-        return store.lineage(stream(identifier))
+        record = store.lineage(stream(identifier))
+        parent = record["parentBranch"]
+        correction = record["parentCorrection"]
+        return {
+            "gameId": record["gameId"],
+            "parentBranch": _lineage_fields(
+                parent, "branch_id", "parent_game_id", "parent_event_count", "parent_head_hash",
+                "child_game_id", "created_at",
+            ) if parent is not None else None,
+            "parentCorrection": _lineage_fields(
+                correction, "correction_id", "source_game_id", "source_event_count", "source_head_hash",
+                "corrected_game_id", "created_at",
+            ) if correction is not None else None,
+            "branches": [
+                _lineage_fields(child, "child_game_id", "branch_id", "created_at")
+                for child in record["branches"]
+            ],
+            "corrections": [
+                _lineage_fields(child, "corrected_game_id", "correction_id", "created_at")
+                for child in record["corrections"]
+            ],
+        }
 
     @router.post("/{identifier}/branches", status_code=201)
     def branch(identifier: str, body: BranchRequest, request: Request):

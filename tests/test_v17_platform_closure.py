@@ -263,15 +263,19 @@ def test_canonical_history_http_authorizes_full_state_and_lineage_writes(root, t
         return {"authorization": f"Bearer {token}"}
 
     player = bearer(Scope.READ, Scope.PLAY, role="player")
+    reader = bearer(Scope.READ, role="player")
+    outside_reader = bearer(Scope.READ, role="player", tenant_id="fixture-other")
     hidden_reader = bearer(Scope.HIDDEN_READ, role="referee")
     trusted_reader = {**hidden_reader, "x-baloot-trusted-key": trusted_key}
     operator = bearer(Scope.CONFIG_ADMIN)
     outside_operator = bearer(Scope.CONFIG_ADMIN, tenant_id="fixture-other")
 
     with TestClient(probe_app) as client:
-        source_path = f"/api/v1/canonical-history/{game.id}"
+        history_path = "/api/v1/canonical-history"
+        source_path = f"{history_path}/{game.id}"
+        stream_path = f"{history_path}/{stream}"
         snapshot_path = f"{source_path}/snapshot"
-        verification_path = f"/api/v1/canonical-history/{stream}/verification"
+        verification_path = f"{stream_path}/verification"
         for path in (snapshot_path, verification_path):
             assert client.get(path).status_code == 401
             assert client.get(path, headers={**player, "x-baloot-trusted-key": trusted_key}).status_code == 403
@@ -284,29 +288,92 @@ def test_canonical_history_http_authorizes_full_state_and_lineage_writes(root, t
         verification = client.get(verification_path, headers=trusted_reader)
         assert verification.status_code == 200 and verification.json()["latestSnapshot"] == expected
 
-        lineage = client.get(f"{source_path}/lineage", headers=player)
-        assert lineage.status_code == 200
-        assert lineage.json() == {
-            "gameId": stream, "parentBranch": None, "parentCorrection": None, "branches": [], "corrections": [],
-        }
+        for path in (f"{source_path}/lineage", f"{stream_path}/lineage"):
+            assert client.get(path).status_code == 401
+            for denied_headers in (operator, outside_reader):
+                assert client.get(path, headers=denied_headers).status_code == 403
+            lineage = client.get(path, headers=reader)
+            assert lineage.status_code == 200
+            assert lineage.json() == {
+                "gameId": stream, "parentBranch": None, "parentCorrection": None,
+                "branches": [], "corrections": [],
+            }
+
+        child_id = "FIXTURE-CHILD"
+        corrected_id = "FIXTURE-CORRECTED"
+        reason = "Synthetic lineage"
+        case_id = "FIXTURE-CASE"
         writes = (
-            ("branches", {"childGameId": "FIXTURE-CHILD", "reason": "Synthetic lineage"}, "parentGameId"),
-            ("corrections", {"correctedGameId": "FIXTURE-CORRECTED", "reason": "Synthetic lineage"}, "sourceGameId"),
+            ("branches", {"childGameId": child_id, "reason": reason}, "parentGameId", child_id),
+            ("corrections", {
+                "correctedGameId": corrected_id, "reason": reason, "adjudicationCaseId": case_id,
+            }, "sourceGameId", corrected_id),
         )
-        for suffix, body, source_field in writes:
+        records = {}
+        for suffix, body, source_field, target_id in writes:
             path = f"{source_path}/{suffix}"
             assert client.post(path, json=body).status_code == 401
             for denied_headers in (player, trusted_reader, outside_operator):
                 assert client.post(path, headers=denied_headers, json=body).status_code == 403
             assert store.lineage(stream)[suffix] == []
+
+            missing_id = "FIXTURE-MISSING"
+            source_before = store.lineage(missing_id)
+            target_before = store.lineage(target_id)
+            missing = client.post(f"{history_path}/{missing_id}/{suffix}", headers=operator, json=body)
+            assert missing.status_code == 409
+            assert store.lineage(missing_id) == source_before
+            assert store.lineage(target_id) == target_before
+
             written = client.post(path, headers=operator, json=body)
             assert written.status_code == 201, written.text
-            assert written.json()[source_field] == stream
-            assert written.json()["createdBy"] == "CANONICAL-FIXTURE"
+            records[suffix] = written.json()
+            assert records[suffix][source_field] == stream
+            assert records[suffix]["createdBy"] == "CANONICAL-FIXTURE"
 
-        updated = client.get(f"{source_path}/lineage", headers=player).json()
-        assert updated["branches"][0]["child_game_id"] == "FIXTURE-CHILD"
-        assert updated["corrections"][0]["corrected_game_id"] == "FIXTURE-CORRECTED"
+        branch = records["branches"]
+        correction = records["corrections"]
+        source_lineage = client.get(f"{source_path}/lineage", headers=reader)
+        assert source_lineage.status_code == 200
+        assert source_lineage.json() == {
+            "gameId": stream, "parentBranch": None, "parentCorrection": None,
+            "branches": [{
+                "child_game_id": child_id, "branch_id": branch["branchId"], "created_at": branch["createdAt"],
+            }],
+            "corrections": [{
+                "corrected_game_id": corrected_id, "correction_id": correction["correctionId"],
+                "created_at": correction["createdAt"],
+            }],
+        }
+        assert client.get(f"{stream_path}/lineage", headers=reader).json() == source_lineage.json()
+
+        parents = (
+            (child_id, "parentBranch", {
+                "branch_id": branch["branchId"], "parent_game_id": stream,
+                "parent_event_count": expected["eventCount"], "parent_head_hash": expected["headHash"],
+                "child_game_id": child_id, "created_at": branch["createdAt"],
+            }, {}),
+            (corrected_id, "parentCorrection", {
+                "correction_id": correction["correctionId"], "source_game_id": stream,
+                "source_event_count": expected["eventCount"], "source_head_hash": expected["headHash"],
+                "corrected_game_id": corrected_id, "created_at": correction["createdAt"],
+            }, {"adjudication_case_id": case_id}),
+        )
+        for identifier, parent_field, fields, private_fields in parents:
+            path = f"{history_path}/{identifier}"
+            visible = client.get(f"{path}/lineage", headers=reader)
+            assert visible.status_code == 200
+            assert visible.json() == {
+                "gameId": identifier, "parentBranch": None, "parentCorrection": None,
+                "branches": [], "corrections": [], parent_field: fields,
+            }
+
+            trusted = client.get(f"{path}/verification", headers=trusted_reader)
+            assert trusted.status_code == 200
+            assert trusted.json()["lineage"] == store.lineage(identifier)
+            assert trusted.json()["lineage"][parent_field] == {
+                **fields, **private_fields, "created_by": "CANONICAL-FIXTURE", "reason": reason,
+            }
 
 
 def test_calibration_league_and_promotion_gates():
