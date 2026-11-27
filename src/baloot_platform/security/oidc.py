@@ -287,31 +287,40 @@ def _resolve_revision(configuration: VersionedConfigurationService, profile_id: 
 
 
 def resolve_oidc_client_secrets(
-    profile: OidcProviderProfile, *, allow_legacy_issuer_spelling: bool = False,
+    profile: OidcProviderProfile, *, legacy_discovery: bool = False,
 ) -> dict[str, str]:
     def binding_key(binding: _OidcCredentialBinding) -> _OidcCredentialBinding:
-        if allow_legacy_issuer_spelling:
+        if legacy_discovery:
             return binding.model_copy(update={"issuer": binding.issuer.rstrip("/")})
         return binding
 
     try:
-        approved = {
-            binding_key(binding)
-            for binding in _CredentialBindings.validate_json(os.environ.get(OIDC_CREDENTIAL_BINDINGS_ENV, "[]"))
-        }
+        bindings = _CredentialBindings.validate_json(os.environ.get(OIDC_CREDENTIAL_BINDINGS_ENV, "[]"))
     except ValidationError:
         raise ValueError(f"{OIDC_CREDENTIAL_BINDINGS_ENV} requires a valid JSON array of provider bindings") from None
 
-    requested = {
-        key: _OidcCredentialBinding(
+    approved = {binding_key(binding) for binding in bindings}
+    confidential_ids = {binding.provider_id for binding in bindings}
+    confidential_clients = {(binding.issuer.rstrip("/"), binding.client_id) for binding in bindings}
+    legacy_secret_configured = legacy_discovery and LEGACY_OIDC_CLIENT_SECRET_ENV in set(os.environ)
+    requested = {}
+    for key, row in profile.providers.items():
+        # Changing a provider key or a row field cannot turn a registered confidential client public.
+        confidential = key in confidential_ids or (row.issuer.rstrip("/"), row.client_id) in confidential_clients
+        secret_ref = row.client_secret_env
+        if secret_ref is None and legacy_discovery and (confidential or legacy_secret_configured):
+            secret_ref = LEGACY_OIDC_CLIENT_SECRET_ENV
+        if secret_ref is None:
+            if confidential:
+                raise ValueError(f"OIDC provider {key!r}: include its approved confidential credential reference")
+            continue
+        binding = _OidcCredentialBinding(
             provider_id=key, issuer=row.issuer, client_id=row.client_id,
-            token_endpoint=row.token_endpoint, client_secret_env=row.client_secret_env,
+            token_endpoint=row.token_endpoint, client_secret_env=secret_ref,
         )
-        for key, row in profile.providers.items() if row.client_secret_env is not None
-    }
-    for key, binding in requested.items():
         if binding_key(binding) not in approved:
             raise ValueError(f"OIDC provider {key!r}: approve its confidential registration in {OIDC_CREDENTIAL_BINDINGS_ENV}")
+        requested[key] = binding
 
     resolved: dict[str, str] = {}
     for key, binding in requested.items():

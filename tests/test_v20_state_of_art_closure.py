@@ -507,6 +507,12 @@ def test_v20_oidc_registry_fails_closed_at_startup(tmp_path, monkeypatch, oidc_c
     with pytest.raises(ValueError, match="OIDC provider 'alpha': missing deployment secret"):
         load_oidc_providers(oidc_configuration)
 
+    omitted = _oidc_profile({"alpha": _oidc_row("alpha")})
+    omitted["profile"]["version"] = "1.0.1"
+    oidc_configuration.create_profile(family=OIDC_PROVIDER_FAMILY, payload=omitted, created_by="operator-1", publish=True)
+    with pytest.raises(ValueError, match="OIDC provider 'alpha': include its approved confidential credential reference"):
+        load_oidc_providers(oidc_configuration)
+
 
 def test_v20_oidc_startup_follows_current_published_revision(monkeypatch, oidc_configuration):
     monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")

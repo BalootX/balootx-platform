@@ -943,10 +943,10 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
             root=root, profile=profile,
         )
 
-    def command(*arguments, reason="Migrate fixture links", login_dsn=migration_dsn):
+    def command(*arguments, reason="Migrate fixture links", login_dsn=migration_dsn, profile_id="signin"):
         with monkeypatch.context() as invocation:
             invocation.setenv("BALOOT_DATABASE_URL", login_dsn)
-            invocation.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
+            invocation.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", profile_id)
             invocation.setattr(sys, "argv", [
                 "baloot-migrate-oidc", "--actor", "operator-1", "--reason", reason, *arguments,
             ])
@@ -1069,6 +1069,10 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
                     conn, configuration, payload=payload, legacy_issuer="https://other.example",
                     actor="operator-1",
                 )
+            omitted = deepcopy(payload)
+            del omitted["providers"]["default"]["client_secret_env"]
+            with pytest.raises(ValueError, match="include its approved confidential credential reference"):
+                migrate_legacy_oidc(conn, configuration, payload=omitted, legacy_issuer=legacy, actor="operator-1")
             already_published = deepcopy(payload)
             already_published["profile"]["id"] = "already-published"
             configuration.create_profile(
@@ -1095,6 +1099,15 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
             with pytest.raises(SystemExit, match="missing deployment secret"):
                 command("--version", "1.0.0", "--algorithm", "EdDSA")
         assert outbound_requests == before_onboarding
+        with monkeypatch.context() as unset_secret:
+            unset_secret.delenv(oidc.LEGACY_OIDC_CLIENT_SECRET_ENV)
+            with pytest.raises(SystemExit, match="missing deployment secret"):
+                command("--version", "1.0.0", "--algorithm", "EdDSA")
+            assert outbound_requests == before_onboarding
+            unset_secret.setenv("BALOOT_OIDC_TOKEN_ENDPOINT", canonical + "/unapproved-token")
+            with pytest.raises(SystemExit, match="approve its confidential registration"):
+                command("--version", "1.0.0", "--algorithm", "EdDSA")
+            assert outbound_requests == before_onboarding
 
         # Compatibility is only for finding Discovery, which must return the exact approved issuer.
         discovered_issuer = legacy
@@ -1105,6 +1118,10 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
             assert lookup(conn, legacy, "existing")["issuer_alias"] is False
             assert lookup(conn, canonical, "existing") is None
             assert conn.execute("SELECT count(*) FROM security.oidc_issuer_transitions").fetchone()["count"] == 0
+            assert conn.execute(
+                "SELECT count(*) FROM configuration.profile_revisions WHERE family=%s AND profile_id=%s",
+                (oidc.OIDC_PROVIDER_FAMILY, "signin"),
+            ).fetchone()["count"] == 0
         discovered_issuer = canonical
         migration = command("--version", "1.0.0", "--algorithm", "EdDSA")
         assert migration["status"] == "applied" and migration["links"] == 1
@@ -1406,6 +1423,8 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
             ("default", {"token_endpoint": canonical + "/token?recipient=other"}),
             ("default", {"client_secret_env": rotated_binding["client_secret_env"]}),
             ("unapproved", {}),
+            ("default", {"client_secret_env": None}),
+            ("unapproved", {"client_secret_env": None}),
         ), start=3):
             publish_credentials(version, provider_id, {**original_row, **patch})
             refused = callback(current_client, pending)
@@ -1425,3 +1444,18 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         assert token_requests == before_exchange
         assert complete(current_client, begin(current_client, code="approved-rotation", subject="existing")) == "local-existing"
         assert token_requests == [*before_exchange, (rotated_binding["token_endpoint"], ["synthetic-rotated-fixture"])]
+
+        before_public = list(outbound_requests)
+        with monkeypatch.context() as public_client:
+            public_client.delenv(oidc.LEGACY_OIDC_CLIENT_SECRET_ENV)
+            public_client.setenv("BALOOT_OIDC_PROVIDER_ID", "public-fixture")
+            public_client.setenv("BALOOT_OIDC_CLIENT_ID", "public-fixture-client")
+            public = command("--version", "1.0.0", "--algorithm", "EdDSA", profile_id="public-onboarding")
+        assert public["status"] == "applied" and public["links"] == 0
+        assert outbound_requests == [*before_public, ("GET", discovery_url)]
+        with migration_connection() as conn:
+            record = bind(conn).store.get_profile(public["revisionId"])
+            public_row = record.payload["providers"]["public-fixture"]
+            assert public_row["issuer"] == canonical
+            assert public_row["client_id"] == "public-fixture-client"
+            assert "client_secret_env" not in public_row
