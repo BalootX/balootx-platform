@@ -27,7 +27,10 @@ from baloot_platform.core.engine import BalootEngine
 from baloot_platform.core.enums import Contract, Seat
 from baloot_platform.core.rules import RuleBook
 from baloot_platform.filesystem import atomic_write_text
-from baloot_platform.research.calibration.score import engine_interest_v1
+from baloot_platform.research.calibration.score import (
+    engine_interest_rank_key_v1,
+    engine_interest_v1,
+)
 from baloot_platform.research.exact_state import ExactStateNormalizerV1
 from baloot_platform.research.lesson_tags import classify_public_mechanism_v1
 from baloot_platform.research.proof_service import UnifiedScenarioProofServiceV1
@@ -474,7 +477,7 @@ def qualify(
         bundle = notice.build_notice_bundle(
             engine.rules, profile, fixture=fixture_path, golden=row["id"]
         )
-        notice.validate_notice_bundle(bundle, final, public=True, fixture=fixture_path)
+        notice.validate_notice_bundle(bundle, final, fixture=fixture_path)
         check_names(bundle.value["identity"])
         bundle_file = directory / "bundle.json"
         row["bundle"] = write_json(bundle_file, bundle.to_dict())
@@ -557,7 +560,7 @@ def generate(output, *, run_id, source, tree, library, rounds, target, shard=0):
             with search_deadline(budget_seconds()) as deadline:
                 rules = RuleBook.load(viewer.RULES_PATH)
                 engine = BalootEngine(rules)
-                profile = notice.notice_profile(public=True)
+                profile = notice.notice_profile()
                 profile["identity"] = synthetic_identity()
                 proof_service = UnifiedScenarioProofServiceV1.from_repository(
                     notice.ROOT
@@ -688,24 +691,49 @@ def seal_pool(shards, output, *, source, tree, run_id):
                 raise Rejected("invalid_qualified_candidate")
             rows[key] = (shard / key, row)
 
-    measurements = [row["scoreInputs"] for _, row in rows.values()]
-    if (
-        len(rows) < MINIMUM_POOL_SIZE
-        or len({item["mechanism"] for item in measurements}) < MINIMUM_MECHANISMS
-        or any(
-            len({item[key] for item in measurements}) != len(rows)
-            for key in (
-                "exactStateId",
-                "dealHash",
-                "scenarioFamily",
-                "visibleOpenerSha256",
-            )
-        )
-    ):
-        raise Rejected("pool_size_variety_or_distinctness_failed")
+    seen = {
+        field: {}
+        for field in ("exactStateId", "dealHash", "scenarioFamily", "visibleOpenerSha256")
+    }
+    # The rank key starts with the full-precision score. Pool ties use the ID.
+    ranked = sorted(
+        rows.values(),
+        key=lambda entry: (
+            engine_interest_rank_key_v1(entry[1]["scorecard"])[0],
+            entry[1]["id"],
+        ),
+    )
+    admitted, exclusions = {}, []
+    for directory, row in ranked:
+        key, measurements = row["id"], row["scoreInputs"]
+        for field, owners in seen.items():
+            if (repeats_id := owners.get(measurements[field])) is not None:
+                reason = f"repeat_{field}"
+                exclusions.append(
+                    {"id": key, "reason": reason, "repeatsId": repeats_id}
+                )
+                print(f"{reason} {key} repeats {repeats_id}")
+                break
+        else:
+            admitted[key] = (directory, row)
+            for field, owners in seen.items():
+                owners[measurements[field]] = key
+
+    mechanisms = {row["scoreInputs"]["mechanism"] for _, row in admitted.values()}
+    print(
+        f"pool_admission_counts qualified={len(rows)} admitted={len(admitted)} "
+        f"excluded={len(exclusions)} mechanisms={len(mechanisms)}"
+    )
+    failures = []
+    if len(admitted) < MINIMUM_POOL_SIZE:
+        failures.append("pool_size_below_minimum")
+    if len(mechanisms) < MINIMUM_MECHANISMS:
+        failures.append("pool_mechanisms_below_minimum")
+    if failures:
+        raise Rejected(", ".join(failures))
 
     output.mkdir(parents=True, exist_ok=False)
-    for key, (directory, row) in rows.items():
+    for key, (directory, row) in admitted.items():
         video = directory / "candidate.mp4"
         if row["video"] != file_receipt(video):
             raise Rejected("qualified_media_binding_mismatch")
@@ -720,8 +748,9 @@ def seal_pool(shards, output, *, source, tree, run_id):
             "runId": run_id,
             "synthetic": True,
             "postingAuthorized": False,
-            "candidates": [row for _, row in rows.values()],
-            "qualified": list(rows),
+            "candidates": [row for _, row in admitted.values()],
+            "qualified": list(admitted),
+            "exclusions": exclusions,
         },
     )
     seal = output / "SHA256SUMS.txt"
@@ -735,8 +764,7 @@ def seal_pool(shards, output, *, source, tree, run_id):
         newline="\n",
     )
     print(
-        f"NEVER_POST: {len(rows)} checked clips across "
-        f"{len({item['mechanism'] for item in measurements})} mechanisms"
+        f"NEVER_POST: {len(admitted)} checked clips across {len(mechanisms)} mechanisms"
     )
     print(f"Pool seal SHA-256: {notice._sha256(seal)}")
 

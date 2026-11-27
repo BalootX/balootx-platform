@@ -8,6 +8,7 @@ import {canonical, layoutFrames, loadLayoutTable, sha256} from "../scripts/layou
 // The hosted media job supplies the generated public prototype. The cases are
 // synthetic display states using its assets, Arabic copy and house typography.
 const prototype = JSON.parse(readFileSync(process.argv[2], "utf8"));
+const framesDir = process.argv[3];
 const table = await loadLayoutTable();
 const work = mkdtempSync(path.join(tmpdir(), "baloot-hook-layout-"));
 const screenshotDir = process.env.BALOOT_HOOK_LAYOUT_EVIDENCE_DIR;
@@ -28,6 +29,7 @@ const cases = [
 ];
 
 try {
+  if (framesDir) mkdirSync(framesDir);
   if (screenshotDir) mkdirSync(screenshotDir, {recursive: true});
   for (const {name, observer, buyer, dealer, contract, pause, allPhases, wideName, reject, omitSafeAreas} of cases) {
     const {bundleSha256: _, ...fixture} = structuredClone(prototype);
@@ -87,7 +89,8 @@ try {
     const [item] = report.items;
     assert.equal(item.phase, "hook");
     assert.equal(item.frame, layoutFrames(fixture)[0].frame);
-    assert.equal(item.pngSha256, sha256(readFileSync(path.join(output, "layout-hook.png"))));
+    const frame = path.join(output, "layout-hook.png");
+    assert.equal(item.pngSha256, sha256(readFileSync(frame)));
     if (reject) {
       assert.equal(item.validation.status, "failed");
       assert.ok(item.validation.disallowedIntersections.some(({first, second, width, height}) =>
@@ -95,7 +98,8 @@ try {
     } else {
       checkSeatLayout(item, fixture, name);
     }
-    if (screenshotDir) copyFileSync(path.join(output, "layout-hook.png"), path.join(screenshotDir, `${name}.png`));
+    if (framesDir && !reject) copyFileSync(frame, path.join(framesDir, `${name}.png`));
+    if (screenshotDir) copyFileSync(frame, path.join(screenshotDir, `${name}.png`));
     process.stdout.write(`${name}: ${item.validation.status}\n`);
   }
 } finally {

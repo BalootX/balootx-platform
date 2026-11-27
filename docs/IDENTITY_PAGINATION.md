@@ -6,11 +6,11 @@ Omit `limit` to use the default in the [bundled identity profile](../configs/ide
 
 ## Release note
 
-Existing `GET /api/v1/friends` and `GET /api/v1/friends/requests` keep their complete responses. SQLite pending requests retain `responded_at`. A valid service key can read its derived service identity or supply `x-baloot-subject-id` as before. V2 accepts the same service credentials and requires `baloot.read` for signed access tokens. The v2 friends list sorts by immutable subject ID so renames and guest upgrades cannot move a page boundary. The v2 pending requests use camelCase fields on both engines. Newest requests come first, with request ID breaking timestamp ties.
+Existing `GET /api/v1/friends` and `GET /api/v1/friends/requests` keep their complete responses. SQLite pending requests retain `responded_at`. A valid service key can read its derived service identity or supply `x-baloot-subject-id` as before. V2 accepts the same service credentials. The v2 friends list sorts by immutable subject ID so renames and guest upgrades cannot move a page boundary. The v2 pending requests use camelCase fields on both engines. Newest requests come first, with request ID breaking timestamp ties.
 
-`GET /api/v1/users:search` retains its one-list response, guest access, wildcard matching, limit clamping, and sort by descending identity kind and display name. `GET /api/v2/users:search` requires `baloot.read` for signed access tokens. V2 denies guests by default, with an explicit opt-in in the bundled identity profile. Queries outside the configured length bounds, invalid cursors and limits below one return HTTP 422. V2 treats wildcards literally, ranks the exact username first and orders the remaining matches by subject ID inside the result cap.
+`GET /api/v1/users:search` retains its one-list response, guest access, wildcard matching, limit clamping, and sort by descending identity kind and display name. V2 search denies guests by default, with an explicit opt-in in the bundled identity profile. Queries outside the configured length bounds, invalid cursors and limits below one return HTTP 422. V2 treats wildcards literally, ranks the exact username first and orders the remaining matches by subject ID inside the result cap.
 
-A signed token with an unmapped role has no scopes on any policy-guarded route, including v1 routes that use the policy.
+Signed access tokens require `baloot.read` for identity lists and search in both versions. A signed token with an unmapped role has no scopes on any policy-guarded route.
 
 The Python SDK adds `friends_page`, `friend_requests`, and `search_users` with optional `cursor` and `limit` keywords. The TypeScript SDK adds `friendsPage`, `friendRequests`, and `searchUsers` with the same options. Existing `friends()` methods keep using v1. The Foundry client and direct HTTP callers use the [OpenAPI contract](../api/openapi.json).
 

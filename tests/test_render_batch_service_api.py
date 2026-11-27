@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.audit.models import content_hash
 from baloot_platform.service import api

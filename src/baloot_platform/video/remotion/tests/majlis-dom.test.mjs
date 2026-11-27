@@ -33,6 +33,7 @@ export const cancelRender = (error) => { throw error; };
 export const useCurrentFrame = () => 0;
 `);
 transpile("playback-state.ts");
+copyFileSync(new URL("../src/playback-timing.mjs", import.meta.url), new URL("playback-timing.mjs", out));
 transpile("professional-prototype.tsx", (text) => text
   .replace('import "./style.css";', "")
   .replace('} from "remotion";', '} from "./remotion-stub.mjs";')

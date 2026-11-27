@@ -70,6 +70,7 @@ def renderer_source_files(root: Path) -> tuple[Path, ...]:
         package / FFMPEG_RUNTIME_PROFILE,
     ]
     values.extend(sorted((package / "scripts").glob("*.mjs")))
+    values.extend(sorted((package / "src").glob("*.mjs")))
     values.extend(sorted((package / "src").glob("*.ts")))
     values.extend(sorted((package / "src").glob("*.tsx")))
     values.extend(sorted((package / "src").glob("*.css")))

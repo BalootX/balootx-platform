@@ -15,6 +15,7 @@ module.exports = defineConfig({
   use: {
     actionTimeout: 30_000,
     baseURL: `http://127.0.0.1:${port}`,
+    extraHTTPHeaders: {'x-api-key': process.env.BALOOT_OPERATOR_E2E_API_KEY},
     browserName: 'chromium',
     headless: true,
     locale: 'ar-SA',
@@ -25,7 +26,7 @@ module.exports = defineConfig({
     {name: 'desktop-chrome', grepInvert: /@(mobile|reduced-motion|zoom)/},
     {
       name: 'mobile-touch-chrome',
-      grep: /@mobile/,
+      grep: process.env.BALOOT_FOUNDRY_QA_JOURNEY === '1' ? undefined : /@mobile/,
       use: {viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true},
     },
     {

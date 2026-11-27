@@ -210,11 +210,17 @@ class CanonicalHistoryStore:
             row["created_at"], row["engine_version"], row["profile_bundle_hash"],
         )
 
+    def _verify_lineage_source(self, game_id: str, *, relation: str) -> dict[str, Any]:
+        verification = self.events.verify(game_id)
+        if not verification["valid"]:
+            raise RuntimeError(f"{relation} game event chain is invalid")
+        if verification["eventCount"] == 0:
+            raise RuntimeError(f"{relation} game event stream does not exist")
+        return verification
+
     def create_branch(self, *, parent_game_id: str, child_game_id: str,
                       created_by: str, reason: str) -> BranchRecord:
-        verification = self.events.verify(parent_game_id)
-        if not verification["valid"]:
-            raise RuntimeError("parent game event chain is invalid")
+        verification = self._verify_lineage_source(parent_game_id, relation="parent")
         record = BranchRecord(
             branch_id=f"BRN-{uuid.uuid4().hex[:20].upper()}", parent_game_id=parent_game_id,
             parent_event_count=int(verification["eventCount"]), parent_head_hash=verification.get("headHash"),
@@ -231,9 +237,7 @@ class CanonicalHistoryStore:
     def create_correction(self, *, source_game_id: str, corrected_game_id: str,
                           created_by: str, reason: str,
                           adjudication_case_id: str | None = None) -> CorrectionRecord:
-        verification = self.events.verify(source_game_id)
-        if not verification["valid"]:
-            raise RuntimeError("source game event chain is invalid")
+        verification = self._verify_lineage_source(source_game_id, relation="source")
         record = CorrectionRecord(
             correction_id=f"COR-{uuid.uuid4().hex[:20].upper()}", source_game_id=source_game_id,
             source_event_count=int(verification["eventCount"]), source_head_hash=verification.get("headHash"),
@@ -248,13 +252,17 @@ class CanonicalHistoryStore:
             )
         return record
 
-    def lineage(self, game_id: str) -> dict[str, Any]:
+    def lineage(self, game_id: str, *, destination_alias: str | None = None) -> dict[str, Any]:
         with self._connect() as conn:
             parent = conn.execute(
-                "SELECT * FROM canonical_branches_v17 WHERE child_game_id=?", (game_id,)
+                """SELECT * FROM canonical_branches_v17
+                   WHERE child_game_id IN (?, ?) ORDER BY (child_game_id = ?) DESC LIMIT 1""",
+                (game_id, destination_alias, game_id),
             ).fetchone()
             correction = conn.execute(
-                "SELECT * FROM canonical_corrections_v17 WHERE corrected_game_id=?", (game_id,)
+                """SELECT * FROM canonical_corrections_v17
+                   WHERE corrected_game_id IN (?, ?) ORDER BY (corrected_game_id = ?) DESC LIMIT 1""",
+                (game_id, destination_alias, game_id),
             ).fetchone()
             children = conn.execute(
                 "SELECT child_game_id,branch_id,created_at FROM canonical_branches_v17 WHERE parent_game_id=? ORDER BY created_at",
@@ -272,7 +280,7 @@ class CanonicalHistoryStore:
             "corrections": [dict(row) for row in corrected],
         }
 
-    def verify(self, game_id: str) -> dict[str, Any]:
+    def verify(self, game_id: str, *, destination_alias: str | None = None) -> dict[str, Any]:
         event_result = self.events.verify(game_id)
         snapshot = self.latest_snapshot(game_id)
         issues: list[str] = []
@@ -283,5 +291,5 @@ class CanonicalHistoryStore:
         return {
             "gameId": game_id, "valid": not issues, "issues": issues,
             "event": event_result, "latestSnapshot": snapshot.to_dict() if snapshot else None,
-            "lineage": self.lineage(game_id),
+            "lineage": self.lineage(game_id, destination_alias=destination_alias),
         }

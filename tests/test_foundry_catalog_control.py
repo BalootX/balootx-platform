@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.challenge.catalog_control import (
     FoundryCatalogServiceV1,

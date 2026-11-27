@@ -209,7 +209,7 @@ def test_campaign_proof_service_persists_immutable_catalog(tmp_path):
 
 
 def test_typed_campaign_equivalence_api_persists_proof(tmp_path, monkeypatch):
-    from fastapi.testclient import TestClient
+    from service_test_client import OperatorClient as TestClient
     from baloot_platform.service import api
 
     serial, partitioned = _campaign(6), _campaign(2)
@@ -321,7 +321,7 @@ def test_sqlite_attempt_ledger_attests_workers_retries_and_qualified_proof(
         item["failureScheduleAttested"] for item in proof["document"]["executions"]
     )
 
-    from fastapi.testclient import TestClient
+    from service_test_client import OperatorClient as TestClient
     from baloot_platform.service import api
 
     monkeypatch.setattr(api, "FOUNDRY_CAMPAIGNS", store)

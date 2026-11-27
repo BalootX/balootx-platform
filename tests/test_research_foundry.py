@@ -8,7 +8,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.core.enums import Contract, Seat, Suit
 from baloot_platform.research import (

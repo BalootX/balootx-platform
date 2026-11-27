@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.research.postgres_store import PostgresResearchStoreV1
 from baloot_platform.research.ortools_exact_state import OrToolsExactStateNormalizerV1

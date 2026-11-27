@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 import yaml
 from fastapi import FastAPI, Request
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.configuration import (
     PostgresConfigurationStore,

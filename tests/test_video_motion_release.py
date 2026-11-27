@@ -428,9 +428,14 @@ def test_renderer_provenance_changes_leave_foley_and_identity_unchanged(
         shutil.copyfile(path, target)
     fingerprint = renderer_source_sha256
     assert fingerprint(fingerprint_root) == fingerprint(root)
-    scripts = fingerprint_root / "src/baloot_platform/video/remotion/scripts"
-    for name in ("approved-layout-adjacencies.json", "approved-layout-pin.json", "ffmpeg-runtime.json"):
-        source = scripts / name
+    remotion = fingerprint_root / "src/baloot_platform/video/remotion"
+    for name in (
+        "scripts/approved-layout-adjacencies.json",
+        "scripts/approved-layout-pin.json",
+        "scripts/ffmpeg-runtime.json",
+        "src/playback-timing.mjs",
+    ):
+        source = remotion / name
         original = source.read_bytes()
         source.write_bytes(original + b"\n")
         assert fingerprint(fingerprint_root) != fingerprint(root)
@@ -444,7 +449,7 @@ def test_renderer_provenance_changes_leave_foley_and_identity_unchanged(
 
     def capture() -> dict:
         bundles = {
-            "notice": notice.build_notice_bundle(rules, notice.notice_profile(public=True)),
+            "notice": notice.build_notice_bundle(rules, notice.notice_profile()),
             "v7-decision": renderer.build_render_request(episode, export_preset="decision_clip"),
             "flagship": renderer.build_render_request(episode, export_preset="hooked_flagship"),
         }

@@ -19,7 +19,7 @@ def approved_layout_bytes(root):
 
 @pytest.mark.parametrize("legacy_title", [None, "ملاحظة بحثية"], ids=["title-absent", "legacy-title"])
 def test_research_notice_renderer_accepts_optional_title(root, legacy_title):
-    profile = notice.notice_profile(public=True)
+    profile = notice.notice_profile()
     title_key = "video.notice.title"
     if legacy_title is not None:
         profile["localizations"][title_key] = legacy_title
@@ -37,7 +37,7 @@ def test_research_notice_renderer_accepts_optional_title(root, legacy_title):
     ("presentation", "show_justification_text", True, "disable all justification text"),
 ])
 def test_public_notice_profile_rejects_unapproved_changes(section, key, value, error):
-    profile = notice.notice_profile(public=True)
+    profile = notice.notice_profile()
     profile[section][key] = value
     with pytest.raises(ValueError, match=error):
         notice.validate_approved_v4_public_profile(profile)
@@ -67,18 +67,12 @@ def _fake_qualification(video, bundle_sha, files, table_bytes):
     }
 
 
-def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch, approved_layout_bytes):
-    root = tmp_path / "archive"
-    (root / "release").mkdir(parents=True)
-    (root / "release/source-manifest.json").write_text(
-        json.dumps({"source": {"revision": "a" * 40, "tree": "b" * 40}}),
-        encoding="utf-8",
-    )
+def test_notice_writes_governed_artifacts_after_provenance_check(tmp_path, monkeypatch, approved_layout_bytes):
+    root = tmp_path
     fixture = root / "examples/fixture.json"
     fixture.parent.mkdir()
     fixture.write_text("{}", encoding="utf-8")
-    output = root / "outputs"
-    output.mkdir()
+    output = root / "outputs/approved-v4-public"
     gate_calls = []
     monkeypatch.setattr(notice, "ROOT", root)
     monkeypatch.setattr(notice, "FIXTURE", fixture)
@@ -90,7 +84,7 @@ def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch
     monkeypatch.setattr(
         notice,
         "notice_profile",
-        lambda *, public=False: gate_calls.append("design") or {},
+        lambda: gate_calls.append("design") or {"approved_design": {}},
     )
     bundle = SimpleNamespace(
         value={
@@ -118,19 +112,21 @@ def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch
     monkeypatch.setattr(
         notice,
         "validate_notice_bundle",
-        lambda bundle, engine_result, *, public=False, fixture=None: gate_calls.append("validation"),
+        lambda bundle, engine_result, *, fixture=None: gate_calls.append("validation"),
     )
     monkeypatch.setattr(notice, "timeline_outline", lambda value: [])
     monkeypatch.setattr(notice, "notice_sentence_fit", lambda text: {"widthPx": 1, "availablePx": 1})
 
     class FakeRenderer:
+        renderer_root = root
+
         def __init__(self, *args, **kwargs):
             pass
 
-        def execute(self, bundle, *, output_dir, **kwargs):
+        def execute(self, bundle, *, output_dir, basename, **kwargs):
             gate_calls.append("ffprobe")
             output_dir.mkdir(parents=True, exist_ok=True)
-            video = output_dir / "clip.mp4"
+            video = output_dir / f"{basename}.mp4"
             video.write_bytes(b"video")
             files = {}
             evidence = []
@@ -150,6 +146,19 @@ def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch
             return SimpleNamespace(video=video, manifest=manifest)
 
     monkeypatch.setattr(notice, "RemotionProfessionalRenderer", FakeRenderer)
+    monkeypatch.delenv("BALOOT_RENDER_BUILD_RECEIPT", raising=False)
+    with pytest.raises(ValueError, match="requires a selected build receipt"):
+        notice.main(source_head="a" * 40, source_tree="b" * 40)
+    assert gate_calls == ["design"]
+    assert not (root / "outputs").exists()
+    gate_calls.clear()
+
+    def verify_renderer(renderer_root, source_head, source_tree):
+        assert (renderer_root, source_head, source_tree) == (root, "a" * 40, "b" * 40)
+        gate_calls.append("renderer provenance")
+        return {"imageId": "sha256:" + "3" * 64, "packageLockSha256": "4" * 64}
+
+    monkeypatch.setattr(notice, "_verify_public_renderer", verify_renderer)
     original_provenance = notice._write_provenance_notice
 
     def record_provenance(provenance_output, *args, **kwargs):
@@ -160,44 +169,17 @@ def test_notice_post_step_uses_source_manifest_without_git(tmp_path, monkeypatch
 
     monkeypatch.setattr(notice, "_write_provenance_notice", record_provenance)
 
-    notice.main(output_dir=output)
+    notice.main(source_head="a" * 40, source_tree="b" * 40)
 
     receipt = json.loads((output / "owner-approval.json").read_text(encoding="utf-8"))
     assert receipt["sourceHead"] == "a" * 40
     assert receipt["sourceTree"] == "b" * 40
     assert receipt["status"] == "awaiting_owner_approval"
     assert receipt["postingAuthorized"] is False
+    assert "balootx-approved-v4-public.mp4" in receipt["files"]
+    assert "approvedDesignBinding" in receipt
     assert (output / "SHA256SUMS.txt").is_file()
-    assert gate_calls == ["design", "validation", "ffprobe", "provenance"]
-    assert not (root / ".git").exists()
-
-    gate_calls.clear()
-    (root / "release/source-manifest.json").unlink()
-    failed_output = root / "failed-output"
-    with pytest.raises(SystemExit, match="1"):
-        notice.main(output_dir=failed_output)
-    failed_provenance = json.loads(
-        (failed_output / "provenance-notice.json").read_text(encoding="utf-8")
-    )
-    assert failed_provenance["status"] == "failed"
-    assert (failed_output / "owner-approval.json").is_file()
-    assert (failed_output / "SHA256SUMS.txt").is_file()
-    assert gate_calls == ["design", "validation", "ffprobe", "provenance"]
-
-    (root / "release/source-manifest.json").write_text(
-        json.dumps({"source": {"revision": "a" * 40, "tree": "b" * 40}}),
-        encoding="utf-8",
-    )
-    (root / ".git").write_text("gitdir: unavailable", encoding="utf-8")
-    gate_calls.clear()
-    checkout_output = root / "checkout-output"
-    with pytest.raises(SystemExit, match="1"):
-        notice.main(output_dir=checkout_output)
-    checkout_provenance = json.loads(
-        (checkout_output / "provenance-notice.json").read_text(encoding="utf-8")
-    )
-    assert checkout_provenance["status"] == "failed"
-    assert gate_calls == ["design", "validation", "ffprobe", "provenance"]
+    assert gate_calls == ["design", "renderer provenance", "validation", "ffprobe", "provenance"]
 
 
 def test_notice_selector_binds_deal_and_name_draw_to_manifest(tmp_path):
@@ -279,17 +261,15 @@ def test_notice_selectors_buildable_and_invalid_fixtures_rejected(tmp_path, monk
         notice.select_deal(identifier)
 
 
-@pytest.mark.parametrize("selector", [{"deal_id": "fixture"}, {"seed": "1"}])
-def test_notice_selectors_require_public_in_main_and_cli(monkeypatch, capsys, selector):
-    with pytest.raises(ValueError, match="require --public"):
-        notice.main(**selector)
-
-    flag, value = ("--deal-id", selector["deal_id"]) if "deal_id" in selector else ("--seed", selector["seed"])
-    monkeypatch.setattr(sys, "argv", ["render_research_notice.py", flag, value])
+@pytest.mark.parametrize("flag", ["--public", "--no-public"])
+def test_notice_cli_has_no_mode_switch(monkeypatch, capsys, flag):
+    monkeypatch.setattr(sys, "argv", [
+        "render_research_notice.py", "--source-head", "a" * 40, "--source-tree", "b" * 40, flag,
+    ])
     with pytest.raises(SystemExit) as error:
         runpy.run_path(str(notice.ROOT / "scripts/render_research_notice.py"), run_name="__main__")
     assert error.value.code == 2
-    assert "require --public" in capsys.readouterr().err
+    assert f"unrecognized arguments: {flag}" in capsys.readouterr().err
 
 
 def fixture_git(repo, *args):
@@ -552,15 +532,15 @@ def test_public_renderer_refuses_invalid_kickoff_receipts(
 
 
 @pytest.mark.parametrize("stale", [
-    None, "image", "source", "kickoff receipt", "missing kickoff",
-    "checkout", "lockfile", "dependencies", "dependency path",
+    None, "image", "missing image", "source", "kickoff receipt", "missing kickoff",
+    "checkout", "archive", "lockfile", "dependencies", "dependency path",
 ])
 def test_notice_selected_main_reaches_gates_with_selected_fixture(
     tmp_path, monkeypatch, approved_layout_bytes, kickoff_clock, stale
 ):
     selection = notice.select_deal(notice.DEAL_SOURCES[1][0])
     expected_trace = json.loads(selection["fixture"].read_text(encoding="utf-8"))["exactTracePrefix"]
-    design = notice.notice_profile(public=True)["approved_design"]
+    design = notice.notice_profile()["approved_design"]
     root = tmp_path / "source"
     renderer_root = root / "src/baloot_platform/video/remotion"
     worker = tmp_path / "worker"
@@ -577,10 +557,13 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
         encoding="utf-8",
     )
     (worker / "package-lock.json").write_bytes(lockfile.read_bytes())
-    fixture_git(root, "init")
-    fixture_git(root, "add", ".")
-    fixture_git(root, "commit", "-m", "pinned producer checkout")
-    source_head, source_tree = fixture_git(root, "rev-parse", "HEAD", "HEAD^{tree}").splitlines()
+    if stale == "archive":
+        source_head, source_tree = "a" * 40, "b" * 40
+    else:
+        fixture_git(root, "init")
+        fixture_git(root, "add", ".")
+        fixture_git(root, "commit", "-m", "pinned producer checkout")
+        source_head, source_tree = fixture_git(root, "rev-parse", "HEAD", "HEAD^{tree}").splitlines()
     if stale == "checkout":
         fixture_git(root, "commit", "--allow-empty", "-m", "wrong producer checkout")
     lock_digest = notice._sha256(lockfile)
@@ -604,7 +587,10 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
     monkeypatch.setattr(notice, "WORKER_LOCK_STAMP", stamp)
     monkeypatch.setattr(notice, "select_deal", lambda *_: selection)
     monkeypatch.setenv("BALOOT_RENDER_BUILD_RECEIPT", str(build_receipt))
-    monkeypatch.setenv("BALOOT_RENDER_IMAGE_ID", "sha256:" + "4" * 64 if stale == "image" else image_id)
+    if stale == "missing image":
+        monkeypatch.delenv("BALOOT_RENDER_IMAGE_ID", raising=False)
+    else:
+        monkeypatch.setenv("BALOOT_RENDER_IMAGE_ID", "sha256:" + "4" * 64 if stale == "image" else image_id)
     kickoff = tmp_path / "kickoff.json"
     kickoff.write_text(json.dumps({
         "schemaVersion": 1, "status": "passed", "mainHead": "d" * 40,
@@ -620,7 +606,7 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
     output = tmp_path / "output"
     events = []
     monkeypatch.setattr(notice, "RuleBook", SimpleNamespace(load=lambda path: object()))
-    monkeypatch.setattr(notice, "notice_profile", lambda *, public=False: events.append("design") or {"approved_design": design})
+    monkeypatch.setattr(notice, "notice_profile", lambda: events.append("design") or {"approved_design": design})
 
     bundle = SimpleNamespace(
         value={
@@ -661,7 +647,7 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
 
     monkeypatch.setattr(notice, "build_notice_bundle", build)
     monkeypatch.setattr(notice, "engine_round_result", engine)
-    def validate(bundle, engine_result, *, public=False, fixture=None):
+    def validate(bundle, engine_result, *, fixture=None):
         events.append("validation")
         assert fixture == selection["fixture"]
 
@@ -709,15 +695,16 @@ def test_notice_selected_main_reaches_gates_with_selected_fixture(
 
     inputs = dict(
         output_dir=output,
-        public=True,
         deal_id=selection["identifier"],
         source_head=source_head,
         source_tree=source_tree,
     )
     if stale:
         mismatch = {
+            "missing image": "requires the executing image ID",
             "missing kickoff": "requires a passed render kickoff receipt",
             "checkout": "checkout does not match the pinned source",
+            "archive": "cannot verify render source with git rev-parse",
             "dependency path": "dependencies do not match",
         }.get(stale, rf"public render (build )?{stale} .*\b(does|do) not match")
         with pytest.raises(ValueError, match=mismatch):

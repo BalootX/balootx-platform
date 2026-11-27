@@ -4,7 +4,7 @@ import json
 import time
 
 import pytest
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.research.exact_state import ExactStateNormalizerV1
 from baloot_platform.research.scenario_contracts import (
