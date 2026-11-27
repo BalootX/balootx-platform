@@ -696,7 +696,7 @@ class Credentials:
 
 
 def configuration_read_tenant(auth: Credentials, policy: AuthorizationPolicy) -> str | None:
-    if auth.denial(policy, Scope.CONFIG_ADMIN, tenant_scoped=False) is None:
+    if auth.role in {"admin", "service"} and auth.denial(policy, Scope.CONFIG_ADMIN, tenant_scoped=False) is None:
         return None
     return auth.tenant_id
 

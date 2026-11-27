@@ -134,6 +134,7 @@ from baloot_platform.service.authorization import (
 )
 from baloot_platform.service.client_identity import (
     initialize_service_subject_ownership,
+    service_client_identity,
     service_subject_ownership,
 )
 from baloot_platform.service.routes.auth import request_token, require_identity
@@ -882,6 +883,12 @@ async def platform_security(request: Request, call_next):
         getattr(access_claims, "subject_id", "")
         or (identity.subject_id if identity else "")
     )
+    if (
+        not claims_subject
+        and api_key_valid
+        and path.startswith(("/api/v1/configuration-registry/", "/api/v2/configuration/"))
+    ):
+        claims_subject = service_client_identity(request.headers, "API Client").subject_id
     context_token = CURRENT_DATABASE_IDENTITY.set(
         DatabaseIdentityContext(
             subject_id=claims_subject,

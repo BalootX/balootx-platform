@@ -18,6 +18,7 @@ from baloot_platform.config import (
     validate_research_profile_bundle,
     validate_profile_payload,
 )
+from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY
 
 from .models import (
     BundleRevision,
@@ -468,8 +469,10 @@ class VersionedConfigurationService:
         self, head: BundleRevision, revisions: Mapping[str, BundleRevision],
         context: ResolutionContext, now: datetime, trace: list[dict[str, Any]],
     ) -> BundleRevision | None:
-        for revision in self._scheduled_bundle_history(head, revisions):
+        history = tuple(self._scheduled_bundle_history(head, revisions))
+        for revision in history:
             verify_revision_schedule(revision)
+        for revision in history:
             in_window = self._inside_window(revision, now)
             eligible = in_window and self._in_rollout(revision, context)
             trace.append({
@@ -481,7 +484,7 @@ class VersionedConfigurationService:
         return None
 
     def _scope_candidates(
-        self, context: ResolutionContext
+        self, context: ResolutionContext, visible_to_tenant: str | None = None,
     ) -> list[tuple[str, str, str | None, str | None]]:
         values: list[tuple[str, str, str | None, str | None]] = []
         for item in self._precedence:
@@ -545,7 +548,12 @@ class VersionedConfigurationService:
                 values.append(
                     (ConfigScope.GLOBAL.value, "*", None, context.environment)
                 )
-        return values
+        return [item for item in values if configuration_tenant_visible(item[0], item[2], visible_to_tenant)]
+
+    @staticmethod
+    def _cache_authority(visible_to_tenant: str | None) -> tuple[Any, ...]:
+        identity = CURRENT_DATABASE_IDENTITY.get()
+        return visible_to_tenant, identity.role, identity.tenant_id, bool(identity.subject_id)
 
     def resolve_profile(
         self,
@@ -561,6 +569,7 @@ class VersionedConfigurationService:
         subject_id: str | None = None,
         at_time: str | None = None,
         revision_id: str | None = None,
+        visible_to_tenant: str | None = None,
     ) -> dict[str, Any]:
         context = self._resolution_context(
             tenant_id=tenant_id,
@@ -578,6 +587,7 @@ class VersionedConfigurationService:
             family,
             profile_id,
             revision_id or "",
+            self._cache_authority(visible_to_tenant),
             epoch,
             *context.cache_key(),
         )
@@ -590,6 +600,7 @@ class VersionedConfigurationService:
                 revision is None
                 or revision.family != family
                 or revision.profile_id != profile_id
+                or not configuration_tenant_visible(revision.scope, revision.tenant_id, visible_to_tenant)
             ):
                 raise KeyError(revision_id)
             if revision.status != RevisionStatus.PUBLISHED.value:
@@ -611,7 +622,7 @@ class VersionedConfigurationService:
             scope_key,
             scoped_tenant,
             scoped_environment,
-        ) in self._scope_candidates(context):
+        ) in self._scope_candidates(context, visible_to_tenant):
             rows = self.store.list_profiles(
                 family=family,
                 profile_id=profile_id,
@@ -937,7 +948,7 @@ class VersionedConfigurationService:
             bool(allow_draft),
             bool(allow_retired),
             bool(allow_scheduled_predecessor),
-            visible_to_tenant,
+            self._cache_authority(visible_to_tenant),
             epoch,
             *context.cache_key(),
         )
@@ -964,7 +975,7 @@ class VersionedConfigurationService:
                 scope_key,
                 scoped_tenant,
                 scoped_environment,
-            ) in self._scope_candidates(context):
+            ) in self._scope_candidates(context, visible_to_tenant):
                 histories = self.store.list_bundle_histories(
                     (bundle_id, scope, scope_key, scoped_tenant, scoped_environment),
                     include_unpublished=allow_draft,
@@ -981,7 +992,7 @@ class VersionedConfigurationService:
                         break
                 if bundle is not None:
                     break
-        if bundle is None or not configuration_tenant_visible(bundle.tenant_id, visible_to_tenant):
+        if bundle is None or not configuration_tenant_visible(bundle.scope, bundle.tenant_id, visible_to_tenant):
             raise KeyError("published configuration bundle not found")
         if (
             allow_scheduled_predecessor and revision_id
@@ -1040,7 +1051,10 @@ class VersionedConfigurationService:
                 raise RuntimeError(
                     f"configuration bundle references missing revision {rid}"
                 )
-            if not configuration_tenant_visible(revision.tenant_id, visible_to_tenant):
+            if visible_to_tenant is not None and (
+                revision.family != family
+                or not configuration_tenant_visible(revision.scope, revision.tenant_id, visible_to_tenant)
+            ):
                 raise KeyError("configuration component revision not found")
             verify_revision_schedule(revision)
             if (

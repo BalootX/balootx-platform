@@ -910,9 +910,31 @@ def test_legacy_replay_checks_schedule_integrity_only_for_possible_matches(root,
         _, exact = factory.resolve_bundle_revision(current["revisionId"], require_published=False)
         assert replay.effective_runtime_config_hash == exact.effective_runtime_config_hash
 
+    get_profile = store.get_profile
+
+    def unreadable_unrelated(revision_id):
+        if revision_id == alternative["revisionId"]:
+            raise ValueError("unreadable component payload")
+        return get_profile(revision_id)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "get_profile", unreadable_unrelated)
+        configuration._invalidate_cache()
+        with pytest.raises(ValueError, match="unreadable component payload"):
+            factory.resolve_bundle_revision(successor["revisionId"], require_published=False)
+        for recipe in recipes:
+            assert factory.resolve_recipe(recipe).bundle_revision_id == saved.bundle_revision_id
+
+    matching_tenant = "TEST-REPLAY-MATCH"
+    matching_profile = configuration.create_profile(
+        family="performance", payload=copy.deepcopy(saved.bundle.component("performance")),
+        created_by="TEST", publish=True, scope="tenant", tenant_id=matching_tenant,
+    )
     matching = configuration.create_bundle(
-        **common, bundle_id=current["bundleId"], version=current["version"], local_schedule=window,
-        scope="tenant", tenant_id="TEST-REPLAY-MATCH",
+        **{**common, "component_revisions": {**common["component_revisions"],
+                                            "performance": matching_profile["revisionId"]}},
+        bundle_id=current["bundleId"], version=current["version"], local_schedule=window,
+        scope="tenant", tenant_id=matching_tenant,
     )
     legacy_page = store.legacy_bundle_page
     pages = []
@@ -930,6 +952,19 @@ def test_legacy_replay_checks_schedule_integrity_only_for_possible_matches(root,
         assert (matching["revisionId"],) in pages
         assert (current["revisionId"],) in pages
         assert len(pages) >= 2
+
+    def missing_match(revision_id):
+        return None if revision_id == matching_profile["revisionId"] else get_profile(revision_id)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "get_profile", missing_match)
+        configuration._invalidate_cache()
+        with pytest.raises(RuntimeError, match="references missing revision"):
+            factory.resolve_bundle_revision(matching["revisionId"], require_published=False)
+        for recipe in recipes:
+            with pytest.raises(ValueError, match="historical_record_requires_readjudication"):
+                factory.resolve_recipe(recipe)
+
     corrupt(matching["revisionId"])
     configuration._invalidate_cache()
     for recipe in recipes:

@@ -31,8 +31,8 @@ by packaged runtime bootstrap, publish a verified replacement with no time
 bounds and 100% rollout before publishing or promoting a bounded revision.
 If that underlying publication is missing or unusable, the store refuses the
 bounded publication before changing the bundle or its audit history. The current
-release checks the scheduled revision and its predecessors in publication
-order and uses the first one whose window includes the requested instant.
+release verifies the complete scheduled predecessor chain before using the
+first revision whose window includes the requested instant.
 The selected revision remains subject to its rollout policy. An immediate,
 unscheduled publication ends the schedule. The previous release continues to
 use the underlying publication before, during and after a scheduled window.
@@ -74,7 +74,9 @@ Profile lookups without `atTime` apply the current clock at the next schedule
 boundary, including when a higher-priority profile takes effect. Legacy Research
 replay requires a unique verified match across retained published history. A
 scheduled handoff preserves the underlying publication's saved recipe identity.
-An unverifiable schedule on an unrelated bundle does not prevent that match.
+An unreadable revision can be ruled out when its retained publication digests
+prove that it cannot match. Replay requires readjudication when an unreadable
+candidate could match the recipe.
 
 If no runtime bundle is effective or its verification fails at startup, HTTP
 serves liveness, readiness, metrics and the authenticated configuration-admin

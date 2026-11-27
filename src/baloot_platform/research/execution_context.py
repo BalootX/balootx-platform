@@ -76,6 +76,9 @@ from .recipe_v4 import ResearchRecipeV4
 
 
 _EFFECTIVE_MEDIA_TYPE = "application/vnd.balootx.effective-runtime-config-v2+json"
+_LEGACY_CONFIGURATION_ERRORS = (
+    ConfigurationIntegrityError, KeyError, PermissionError, RuntimeError, TypeError, ValueError,
+)
 
 
 def _freeze_profile_value(value: Any) -> Any:
@@ -1096,26 +1099,29 @@ class ResearchExecutionContextFactoryV1:
 
     def _unverifiable_bundle_might_match(self, candidate: BundleRevision, bundle_hash: str) -> bool:
         store = self.configuration_service.store
-        current = store.get_bundle(candidate.revision_id)
-        if current is None:
-            return True
         hashes = {}
-        for family, revision_id in current.component_revisions.items():
-            profile = store.get_profile(revision_id)
-            if profile is None or profile.family != family:
+        for family, revision_id in candidate.component_revisions.items():
+            # Published digests survive payload decoding and schedule failures.
+            digest = store.published_profile_hash(revision_id, family)
+            if digest is None or len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
                 return True
-            hashes[family] = canonical_sha256(dict(profile.payload))
-        # Lifecycle status participates in the legacy hash and can change during the scan.
+            hashes[family] = digest
+        row = candidate.to_dict()
         return any(
             canonical_sha256(resolved_bundle_identity(identity, hashes)) == bundle_hash
-            for row in (candidate.to_dict(), current.to_dict())
             for identity in (row, self._legacy_publication(row))
         )
 
     def _legacy_bundle_candidates(self):
         after = ""
         store = self.configuration_service.store
-        while rows := store.legacy_bundle_page(after, limit=100):
+        while True:
+            try:
+                rows = store.legacy_bundle_page(after, limit=100)
+            except _LEGACY_CONFIGURATION_ERRORS as exc:
+                raise ValueError("historical_record_requires_readjudication") from exc
+            if not rows:
+                return
             yield from rows
             after = rows[-1].revision_id
 
@@ -1142,19 +1148,23 @@ class ResearchExecutionContextFactoryV1:
                 )
                 bundle = resolved["bundle"]
                 hashes = {
-                    family: canonical_sha256(payload) for family, payload in resolved["profiles"].items()
+                    family: profile["payloadSha256"] for family, profile in resolved["profileRevisions"].items()
                 }
+                if hashes != {family: canonical_sha256(value) for family, value in resolved["profiles"].items()}:
+                    raise ConfigurationIntegrityError(row.revision_id, "Configuration component digest mismatch")
                 historical = self._legacy_publication(bundle)
                 if canonical_sha256(resolved_bundle_identity(historical, hashes)) == expected["bundleHash"]:
                     resolved = {**resolved, "bundle": historical}
                 elif canonical_sha256(resolved_bundle_identity(bundle, hashes)) != expected["bundleHash"]:
                     continue
                 _, context = self.context_from_resolved(resolved, require_published=False)
-            except ConfigurationIntegrityError as exc:
-                if self._unverifiable_bundle_might_match(row, expected["bundleHash"]):
+            except _LEGACY_CONFIGURATION_ERRORS as exc:
+                try:
+                    might_match = self._unverifiable_bundle_might_match(row, expected["bundleHash"])
+                except _LEGACY_CONFIGURATION_ERRORS:
+                    might_match = True
+                if might_match:
                     raise ValueError("historical_record_requires_readjudication") from exc
-                continue
-            except (KeyError, PermissionError, RuntimeError, ValueError):
                 continue
             projection = {
                 "domainHash": context.legacy_domain_v2.sha256,

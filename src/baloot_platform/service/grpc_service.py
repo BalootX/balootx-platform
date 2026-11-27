@@ -1543,7 +1543,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             try:
                 return self._result(CONFIGURATION.resolve_profile(
                     family=request.family, profile_id=request.profile_id,
-                    tenant_id=tenant or visible,
+                    tenant_id=tenant or visible, visible_to_tenant=visible,
                 ))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile not resolved")
@@ -1551,7 +1551,10 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         async def CompareProfiles(self, request, context):
             visible, _ = await self._read_tenants(context)
             left = CONFIGURATION.store.get_profile(request.left); right = CONFIGURATION.store.get_profile(request.right)
-            if any(value is None or not configuration_tenant_visible(value.tenant_id, visible) for value in (left, right)):
+            if any(
+                value is None or not configuration_tenant_visible(value.scope, value.tenant_id, visible)
+                for value in (left, right)
+            ):
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
             return self._result({
                 "left": left.to_dict(include_payload=False), "right": right.to_dict(include_payload=False),

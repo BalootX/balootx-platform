@@ -206,6 +206,26 @@ def _require_rollback_target(
 _SQLITE_BUNDLE_REGISTRY_STATUS = _bundle_registry_status("configuration_bundle_revisions")
 _POSTGRES_BUNDLE_REGISTRY_STATUS = _bundle_registry_status("configuration.bundle_revisions")
 
+_VISIBLE_BUNDLE = """
+    ({table}.scope='global' OR {table}.tenant_id={parameter})
+    AND NOT EXISTS (
+        SELECT 1 FROM {each}({table}.{components}) AS member
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {profiles} AS profile
+            WHERE profile.revision_id=member.value AND profile.family=member.key
+              AND (profile.scope='global' OR profile.tenant_id={parameter})
+        )
+    )
+"""
+_SQLITE_VISIBLE_BUNDLE = _VISIBLE_BUNDLE.format(
+    table="configuration_bundle_revisions", profiles="configuration_profile_revisions",
+    each="json_each", components="components_json", parameter="?",
+)
+_POSTGRES_VISIBLE_BUNDLE = _VISIBLE_BUNDLE.format(
+    table="configuration.bundle_revisions", profiles="configuration.profile_revisions",
+    each="jsonb_each_text", components="components", parameter="%s",
+)
+
 
 def _read_bundle_histories(
     conn: Any,
@@ -1109,6 +1129,16 @@ class SQLiteConfigurationStore:
         with self._connect() as conn:
             return self._profile(conn.execute("SELECT * FROM configuration_profile_revisions WHERE revision_id=?", (revision_id,)).fetchone())
 
+    def published_profile_hash(self, revision_id: str, family: str) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload_sha256 FROM configuration_profile_revisions "
+                "WHERE revision_id=? AND family=? AND published_at IS NOT NULL "
+                "AND status IN ('published','superseded','retired')",
+                (revision_id, family),
+            ).fetchone()
+        return row["payload_sha256"] if row is not None else None
+
     def update_profile_draft(
         self,
         revision_id: str,
@@ -1234,7 +1264,7 @@ class SQLiteConfigurationStore:
         clauses: list[str] = []
         args: list[Any] = []
         if visible_to_tenant is not None:
-            clauses.append("(tenant_id IS NULL OR tenant_id=?)")
+            clauses.append("(scope='global' OR tenant_id=?)")
             args.append(visible_to_tenant)
         for column, value in (("family", family), ("profile_id", profile_id), ("scope", scope),
                               ("scope_key", scope_key), ("status", status)):
@@ -1512,12 +1542,19 @@ class SQLiteConfigurationStore:
             conn.execute("COMMIT")
         return result
 
-    def get_bundle(self, revision_id: str) -> BundleRevision | None:
+    def get_bundle(
+        self, revision_id: str, *, visible_to_tenant: str | None = None,
+    ) -> BundleRevision | None:
+        sql = (
+            f"SELECT *, {_SQLITE_BUNDLE_REGISTRY_STATUS} AS registry_status FROM configuration_bundle_revisions "
+            "WHERE revision_id=?"
+        )
+        args = (revision_id,)
+        if visible_to_tenant is not None:
+            sql += f" AND {_SQLITE_VISIBLE_BUNDLE}"
+            args += (visible_to_tenant, visible_to_tenant)
         with self._connect() as conn:
-            return self._bundle(conn.execute(
-                f"SELECT *, {_SQLITE_BUNDLE_REGISTRY_STATUS} AS registry_status FROM configuration_bundle_revisions "
-                "WHERE revision_id=?", (revision_id,),
-            ).fetchone())
+            return self._bundle(conn.execute(sql, args).fetchone())
 
     def list_bundle_histories(
         self, dimensions: BundleDimensions, *,
@@ -1568,8 +1605,8 @@ class SQLiteConfigurationStore:
         clauses: list[str] = []
         args: list[Any] = []
         if visible_to_tenant is not None:
-            clauses.append("(tenant_id IS NULL OR tenant_id=?)")
-            args.append(visible_to_tenant)
+            clauses.append(_SQLITE_VISIBLE_BUNDLE)
+            args.extend((visible_to_tenant, visible_to_tenant))
         status_expression = _SQLITE_BUNDLE_REGISTRY_STATUS if include_scheduled else "status"
         for column, value in (("bundle_id", bundle_id), ("scope", scope), ("scope_key", scope_key), (status_expression, status)):
             if value is not None:
@@ -2375,6 +2412,16 @@ class PostgresConfigurationStore:
             ).fetchone()
         return self._profile(row)
 
+    def published_profile_hash(self, revision_id: str, family: str) -> str | None:
+        with contextual_connection(self.pool) as conn:
+            row = conn.execute(
+                "SELECT payload_sha256 FROM configuration.profile_revisions "
+                "WHERE revision_id=%s AND family=%s AND published_at IS NOT NULL "
+                "AND status IN ('published','superseded','retired')",
+                (revision_id, family),
+            ).fetchone()
+        return row["payload_sha256"] if row is not None else None
+
     def update_profile_draft(
         self,
         revision_id: str,
@@ -2526,7 +2573,7 @@ class PostgresConfigurationStore:
         clauses: list[str] = []
         args: list[Any] = []
         if visible_to_tenant is not None:
-            clauses.append("(tenant_id IS NULL OR tenant_id=%s)")
+            clauses.append("(scope='global' OR tenant_id=%s)")
             args.append(visible_to_tenant)
         for column, value in (
             ("family", family),
@@ -2873,13 +2920,19 @@ class PostgresConfigurationStore:
             self._bump_invalidation_epoch_tx(conn)
             return result
 
-    def get_bundle(self, revision_id: str) -> BundleRevision | None:
+    def get_bundle(
+        self, revision_id: str, *, visible_to_tenant: str | None = None,
+    ) -> BundleRevision | None:
+        sql = (
+            f"SELECT {_POSTGRES_BUNDLE_COLUMNS}, {_POSTGRES_BUNDLE_REGISTRY_STATUS} AS registry_status "
+            "FROM configuration.bundle_revisions WHERE revision_id=%s"
+        )
+        args = (revision_id,)
+        if visible_to_tenant is not None:
+            sql += f" AND {_POSTGRES_VISIBLE_BUNDLE}"
+            args += (visible_to_tenant, visible_to_tenant)
         with contextual_connection(self.pool) as conn:
-            row = conn.execute(
-                f"SELECT {_POSTGRES_BUNDLE_COLUMNS}, {_POSTGRES_BUNDLE_REGISTRY_STATUS} AS registry_status "
-                "FROM configuration.bundle_revisions WHERE revision_id=%s",
-                (revision_id,),
-            ).fetchone()
+            row = conn.execute(sql, args).fetchone()
         return self._bundle(row)
 
     def list_bundle_histories(
@@ -2958,8 +3011,8 @@ class PostgresConfigurationStore:
         clauses: list[str] = []
         args: list[Any] = []
         if visible_to_tenant is not None:
-            clauses.append("(tenant_id IS NULL OR tenant_id=%s)")
-            args.append(visible_to_tenant)
+            clauses.append(_POSTGRES_VISIBLE_BUNDLE)
+            args.extend((visible_to_tenant, visible_to_tenant))
         status_expression = _POSTGRES_BUNDLE_REGISTRY_STATUS if include_scheduled else "status"
         for column, value in (
             ("bundle_id", bundle_id),

@@ -245,8 +245,21 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
 
     def require_visible(request: Request, revision):
         tenant = read_tenant(request)
-        if revision is None or (tenant is not None and not configuration_tenant_visible(revision.tenant_id, tenant)):
+        if revision is None or (
+            tenant is not None and not configuration_tenant_visible(revision.scope, revision.tenant_id, tenant)
+        ):
             raise HTTPException(404, "configuration revision not found")
+        return revision
+
+    def read_bundle(request: Request, revision_id: str):
+        tenant = read_tenant(request)
+        revision = (
+            service.store.get_bundle(revision_id)
+            if tenant is None
+            else service.store.get_bundle(revision_id, visible_to_tenant=tenant)
+        )
+        if revision is None:
+            raise HTTPException(404, "configuration bundle revision not found")
         return revision
 
     @router.get("/profile")
@@ -290,6 +303,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         try:
             return service.resolve_profile(
                 family=family, profile_id=profileId, tenant_id=tenant_filter(tenant, tenantId) or tenant,
+                visible_to_tenant=tenant,
                 environment=environment, room_id=roomId, shared_game_id=sharedGameId,
                 video_profile_id=videoProfileId, user_experiment_key=experimentKey,
                 subject_id=subjectId, at_time=_wire_instant(request, atTime, "atTime"))
@@ -541,14 +555,13 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
     @router.get("/bundles/{revision_id}/events")
     def bundle_events(revision_id: str, request: Request):
         require_identity(request, identities)
-        require_visible(request, service.store.get_bundle(revision_id))
+        read_bundle(request, revision_id)
         return service.store.events_with_verification("bundle", revision_id)
 
     @router.get("/bundles/{revision_id}")
     def get_bundle(revision_id: str, request: Request):
         require_identity(request, identities)
-        value = require_visible(request, service.store.get_bundle(revision_id))
-        return value.to_dict()
+        return read_bundle(request, revision_id).to_dict()
 
     @router.get("/resolve")
     def resolve_current(request: Request, bundleId: str | None = None, tenantId: str | None = None,
