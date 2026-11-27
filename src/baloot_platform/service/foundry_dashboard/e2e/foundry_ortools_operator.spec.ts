@@ -220,7 +220,7 @@ test.describe('ACC-19 exact request and disclosed alternative', () => {
       if (request.url().includes('/research-recipes:validate')) requests += 1;
     });
     const validate = page.locator('.scenario-actions button').first();
-    const message = page.locator('.notice[role="status"]');
+    const message = page.locator('[role="status"] > .notice');
     await validate.click();
     await expect(message).toContainText('أضف شرطًا واحدًا على الأقل لوصف الحالة المطلوبة.');
     await addPredicate(page, 1, 'auction.contract');

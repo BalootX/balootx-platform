@@ -1,5 +1,7 @@
+import AxeBuilder from '@axe-core/playwright';
 import {expect, test, type Locator, type Page} from '@playwright/test';
 import {nativeResearchBundleRevision} from './nativeResearchBundle';
+import {selectChallenge} from './settingsFamily';
 
 test('library filters reflow without page overflow on narrow and desktop viewports', async ({page}, testInfo) => {
   await page.goto('/foundry?section=laffat');
@@ -25,8 +27,7 @@ test('library filters reflow without page overflow on narrow and desktop viewpor
   }
 });
 
-test('optional proof group can be enabled, configured and removed visually without profile writes', async ({page}) => {
-  const revision = 'CPR-VISUAL-OPTIONAL-PROOF';
+async function routeDraftChallengeProfile(page: Page, revision: string) {
   let fixture: Record<string, unknown>;
   await page.route('**/api/v1/configuration-registry/profiles?limit=1000', async (route) => {
     const response = await route.fetch();
@@ -36,6 +37,10 @@ test('optional proof group can be enabled, configured and removed visually witho
     await route.fulfill({json: {...payload, items: [...payload.items.filter((item: {family: string}) => item.family !== 'challenge'), fixture]}});
   });
   await page.route(`**/api/v1/configuration-registry/profiles/${revision}`, (route) => route.fulfill({json: fixture}));
+}
+
+test('optional proof group can be enabled, configured and removed visually without profile writes', async ({page}) => {
+  await routeDraftChallengeProfile(page, 'CPR-VISUAL-OPTIONAL-PROOF');
   const writes: string[] = [];
   page.on('request', (request) => {
     if (request.method() !== 'GET' && /\/configuration\/(profiles|bundles)/.test(request.url())) writes.push(request.url());
@@ -43,15 +48,16 @@ test('optional proof group can be enabled, configured and removed visually witho
   await page.goto('/foundry?section=settings');
   await page.getByRole('button', {name: /^اختيار التحديات/}).click();
   const research = page.locator('[data-config-path="scenarioResearchV4"]');
-  if (await research.getAttribute('open') === null) await research.locator(':scope > summary').click();
+  const toggle = research.locator(':scope > .config-section-head > button[aria-expanded]');
+  if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
   const quality = page.locator('[data-config-path="scenarioResearchV4.qualityExecution"]');
-  await quality.locator(':scope > summary').click();
+  await quality.locator(':scope > .config-section-head > button[aria-expanded]').click();
   const add = page.locator('#config-scenarioResearchV4-qualityExecution-bidAlternativeProof');
   await expect(add).toHaveAttribute('aria-checked', 'false');
   await add.focus();
   await page.keyboard.press('Space');
   const group = page.locator('[data-config-path="scenarioResearchV4.qualityExecution.bidAlternativeProof"]');
-  await group.locator(':scope > summary').click();
+  await group.locator(':scope > .config-section-head > button[aria-expanded]').click();
   const version = group.getByRole('combobox').first();
   await expect(version).toHaveValue('');
   await version.selectOption('2');
@@ -65,7 +71,7 @@ test('optional proof group can be enabled, configured and removed visually witho
     await field(name).fill(value);
   }
   await group.screenshot({path:test.info().outputPath('configured-proof-group.png')});
-  await group.locator(':scope > summary > button').click();
+  await group.locator(':scope > .config-section-head > button.quiet').click();
   await expect(group).toHaveCount(0);
   await expect(add).toHaveAttribute('aria-checked', 'false');
   expect(writes).toEqual([]);
@@ -437,7 +443,7 @@ test('@zoom drawer remains operable and contained at 200 percent zoom', async ({
   await expect(dialog).toBeHidden();
 });
 
-test('shows provisional solver variants while the selected research run is still running', async ({page}) => {
+async function openProvisionalRun(page: Page) {
   const runCode = 'RUN-PROGRESSIVE-RESULT';
   const candidateHash = 'A'.repeat(64);
   const run = {
@@ -474,9 +480,14 @@ test('shows provisional solver variants while the selected research run is still
   await main.getByRole('combobox', {name: 'تشغيل البحث', exact: true}).selectOption(runCode);
   const provisional = main.getByRole('status').getByRole('article').filter({hasText: candidateHash});
   await expect(provisional).toBeVisible();
+  return {runCode, detailReads: () => detailReads, main, provisional};
+}
+
+test('shows provisional solver variants while the selected research run is still running', async ({page}) => {
+  const {runCode, detailReads, main, provisional} = await openProvisionalRun(page);
   await expect(provisional.getByText('أولي للبحث فقط')).toBeVisible();
   await expect(provisional.getByText('play:spades:ace')).toBeVisible();
-  expect(detailReads).toBeGreaterThan(0);
+  expect(detailReads()).toBeGreaterThan(0);
   const liveCandidates = main.getByRole('region', {name: 'تقدم البحث', exact: true});
   await expect(liveCandidates.getByText(runCode, {exact: true})).toBeVisible();
 });
@@ -812,6 +823,19 @@ test('validation diagnostic moves focus to its failing control', async ({page}) 
   await catalog.locator('select').nth(1).selectOption('EXPR-OUTCOME');
   await catalog.locator('select').nth(0).selectOption('outcome.team_round');
   await catalog.locator('button.primary').click();
+  await routeTitleRequiredValidation(page);
+
+  await page.locator('.scenario-actions button').nth(0).click();
+  const diagnostic = page.locator('.scenario-diagnostic-list button');
+  await expect(diagnostic).toContainText(titleRequired);
+  await tabTo(page, diagnostic);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[data-field-path="titleAr"] input')).toBeFocused();
+});
+
+const titleRequired = 'عنوان السيناريو مطلوب';
+
+async function routeTitleRequiredValidation(page: Page) {
   await page.route('**/api/v2/research-recipes:validate', async (route) => route.fulfill({json: {
     schemaVersion: 2,
     valid: false,
@@ -822,15 +846,216 @@ test('validation diagnostic moves focus to its failing control', async ({page}) 
       field: 'titleAr',
       fieldPaths: ['titleAr'],
       predicateIds: [],
-      messageAr: 'عنوان السيناريو مطلوب',
+      messageAr: titleRequired,
       details: {},
     }],
   }}));
+}
 
-  await page.locator('.scenario-actions button').nth(0).click();
-  const diagnostic = page.locator('.scenario-diagnostic-list button');
-  await expect(diagnostic).toContainText('عنوان السيناريو مطلوب');
-  await tabTo(page, diagnostic);
-  await page.keyboard.press('Enter');
-  await expect(page.locator('[data-field-path="titleAr"] input')).toBeFocused();
-});
+// WCAG 2.2 AA evidence for the core Foundry flows. DESIGN.md links here.
+
+type AccessibilityWindow = {
+  a11yWalk?: Set<Element>;
+  a11yLive?: Element[];
+  a11yDescribe?: (element: Element) => string;
+};
+
+// 1.4.3, 4.1.2 and the other machine-checkable A and AA rules, including 2.5.8 target size.
+async function expectNoAxeViolations(page: Page, flow: string) {
+  const results = await new AxeBuilder({page})
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  const ran = [results.passes, results.violations, results.incomplete, results.inapplicable]
+    .flatMap((rules) => rules.map((rule) => rule.id));
+  expect(ran, 'axe runs its WCAG 2.2 target-size rule').toContain('target-size');
+  const nodes = results.violations.flatMap((rule) => rule.nodes.map((node) => ({
+    text: `${rule.id} ${node.target.join(' ')}: ${node.failureSummary}`,
+    selectors: [node.target, ...[...node.any, ...node.all, ...node.none]
+      .flatMap((check) => check.relatedNodes ?? []).map((related) => related.target)]
+      .map((target) => target.join(' ')),
+  })));
+  // Give each node's box and the boxes of the nodes axe relates to it, such as what covers a target.
+  const boxes = await page.evaluate((groups) => groups.map((selectors) => selectors.map((selector) => {
+    let element: Element | null = null;
+    try { element = document.querySelector(selector); } catch { /* a frame or shadow path; report it as is */ }
+    if (!element) return `${selector} (not found in the document)`;
+    const rect = element.getBoundingClientRect();
+    return `<${element.tagName.toLowerCase()} class="${element.getAttribute('class') ?? ''}"> ${selector}`
+      + ` at ${Math.round(rect.left)},${Math.round(rect.top)} size ${Math.round(rect.width)}x${Math.round(rect.height)}`;
+  })), nodes.map((node) => node.selectors));
+  expect.soft(nodes.map((node, index) => {
+    const [target, ...related] = boxes[index]!;
+    return `${node.text}\n  box: ${target}${related.length ? `\n  related: ${related.join('; ')}` : ''}`;
+  }), `axe violations on ${flow}`).toEqual([]);
+}
+
+// 2.1.1, 2.4.7 and 2.4.11: Tab reaches every enabled control in scope, and each one shows a focus
+// indicator and is not entirely hidden when it takes focus.
+async function expectKeyboardWalk(page: Page, scope: Locator, flow: string) {
+  await page.evaluate(() => {
+    const state = window as AccessibilityWindow;
+    state.a11yWalk = new Set();
+    state.a11yDescribe = (element) => {
+      const name = (element.getAttribute('aria-label') ?? element.textContent ?? '').trim().slice(0, 40);
+      return `${element.tagName.toLowerCase()}#${element.id}.${element.getAttribute('class') ?? ''} "${name}"`;
+    };
+  });
+  const problems: string[] = [];
+  let done = false;
+  for (let step = 0; step < 1500 && !done; step += 1) {
+    await page.keyboard.press('Tab');
+    const result = await page.evaluate(() => {
+      const state = window as AccessibilityWindow;
+      const element = document.activeElement;
+      if (!element || element === document.body) return '';
+      if (state.a11yWalk!.has(element)) return 'done';
+      state.a11yWalk!.add(element);
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const labels = Array.from((element as HTMLInputElement).labels ?? []);
+      const xs = [rect.left + 2, (rect.left + rect.right) / 2, rect.right - 2];
+      const ys = [rect.top + 2, (rect.top + rect.bottom) / 2, rect.bottom - 2];
+      const shown = xs.some((x) => ys.some((y) => {
+        const hit = document.elementFromPoint(x, y);
+        return Boolean(hit) && (element.contains(hit) || labels.some((label) => label.contains(hit)));
+      }));
+      // Name what covers the control and where it sits, so a hidden focus can be traced from the log.
+      const cover = document.elementFromPoint(xs[1], ys[1]);
+      const hidden = `focus hidden behind ${cover ? state.a11yDescribe!(cover) : 'nothing: it is outside the viewport'}`
+        + ` at ${Math.round(rect.left)},${Math.round(rect.top)} in ${state.a11yDescribe!(element.closest('[data-config-path], .panel, aside, header') ?? document.body)}`;
+      const found = [
+        element.matches(':focus-visible') && style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 2
+          ? '' : 'no focus indicator',
+        shown ? '' : hidden,
+      ].filter(Boolean);
+      return found.length ? `${state.a11yDescribe!(element)}: ${found.join(', ')}` : '';
+    });
+    done = result === 'done';
+    if (result && !done) problems.push(result);
+  }
+  expect(done, `Tab order on ${flow} returns to its start`).toBe(true);
+  expect.soft(problems, `focus on ${flow}`).toEqual([]);
+  const missed = await scope.evaluate((root) => {
+    const state = window as AccessibilityWindow;
+    const seen = state.a11yWalk!;
+    const radios = Array.from(seen).filter((item): item is HTMLInputElement =>
+      item instanceof HTMLInputElement && item.type === 'radio');
+    return Array.from(root.querySelectorAll<HTMLElement>(
+      'a[href], button, input:not([type="hidden"]), select, textarea, summary:first-of-type, [tabindex]',
+    )).filter((element) => !seen.has(element)
+      && !element.matches(':disabled, [tabindex="-1"]')
+      && !element.closest('[inert]')
+      && element.checkVisibility({visibilityProperty: true})
+      // Tab stops once in a radio group. The arrow keys move inside it.
+      && !(element instanceof HTMLInputElement && element.type === 'radio'
+        && radios.some((radio) => radio.name === element.name && radio.form === element.form)))
+      .map((element) => state.a11yDescribe!(element));
+  });
+  expect.soft(missed, `controls Tab does not reach on ${flow}`).toEqual([]);
+}
+
+async function expectAccessible(page: Page, flow: string, scope: Locator = page.locator('body')) {
+  await expectNoAxeViolations(page, flow);
+  await expectKeyboardWalk(page, scope, flow);
+}
+
+// 4.1.3: the message is added to a live region that was already in the page.
+async function expectStatusMessage(page: Page, act: () => unknown, message: string) {
+  const announced = () => page.evaluate((text) => ((window as AccessibilityWindow).a11yLive ?? []).some((region) =>
+    region.isConnected && region.checkVisibility() && (region.textContent ?? '').includes(text)), message);
+  await page.evaluate(() => {
+    (window as AccessibilityWindow).a11yLive = Array.from(document.querySelectorAll(
+      '[role="status"], [role="alert"], [aria-live="polite"], [aria-live="assertive"], output',
+    ));
+  });
+  expect(await announced(), `"${message}" is not shown before the action`).toBe(false);
+  await act();
+  await expect.poll(announced, {message: `a live region that was already in the page announces "${message}"`})
+    .toBe(true);
+}
+
+// The untagged title runs in desktop-chrome and the @mobile title in mobile-touch-chrome.
+for (const tag of ['', '@mobile '] as const) {
+  test.describe(`${tag}WCAG 2.2 AA`, () => {
+    // Smooth scrolling would still be moving when the focus position is read.
+    test.beforeEach(({page}) => page.emulateMedia({reducedMotion: 'reduce'}));
+
+    test('a status notice is announced and can be dismissed', async ({page}) => {
+      let failProfile!: () => void;
+      const profileGate = new Promise<void>((resolve) => { failProfile = resolve; });
+      await page.route('**/api/v2/foundry-profile', async (route) => {
+        await profileGate;
+        await route.fulfill({status: 503, json: {detail: 'profile unavailable'}});
+      });
+      try {
+        await page.goto('/foundry?section=overview');
+        await expect(readinessTrigger(page)).toBeVisible();
+        await expectStatusMessage(page, failProfile, 'profile unavailable');
+      } finally {
+        failProfile();
+      }
+      const notice = page.locator('.notice');
+      await expectNoAxeViolations(page, 'the status notice');
+      await tabTo(page, notice.getByRole('button'));
+      await page.keyboard.press('Enter');
+      await expect(notice).toHaveCount(0);
+    });
+
+    test('the overview and its readiness drawer', async ({page}) => {
+      const {dialog} = await openReadinessDrawer(page);
+      await expectAccessible(page, 'the readiness drawer', dialog);
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expectAccessible(page, 'the overview');
+    });
+
+    test('scenario authoring, proof and execution', async ({page}) => {
+      await openStudio(page, true);
+      await addPredicate(page, 'auction.contract', 'EXPR-CONSTRAINTS', 'PRED-0001');
+      await addPredicate(page, 'outcome.team_round', 'EXPR-OUTCOME', 'PRED-0002');
+      await routeTitleRequiredValidation(page);
+      await tabTo(page, page.locator('.scenario-actions button').nth(0));
+      expect.soft(await page.evaluate(() => window.scrollY), 'validation starts on a scrolled page').toBeGreaterThan(0);
+      await expectStatusMessage(page, () => page.keyboard.press('Enter'), titleRequired);
+      await expect(page.locator('.notice-region .notice')).toBeVisible();
+      const {journeyBottom, fieldTop} = await page.locator('#scenario-field-diversity-topKPerCell').evaluate((field) => ({
+        journeyBottom: document.querySelector('.scenario-journey')!.getBoundingClientRect().bottom,
+        fieldTop: field.getBoundingClientRect().top,
+      }));
+      expect.soft(journeyBottom, 'scenario journey ends above the diversity input after validation').toBeLessThanOrEqual(fieldTop);
+      await expectAccessible(page, 'the scenario studio');
+    });
+
+    test('scenario results', async ({page}) => {
+      await openProvisionalRun(page);
+      await expectAccessible(page, 'the scenario results');
+    });
+
+    test('the advanced JSON editor in settings', async ({page}) => {
+      await routeDraftChallengeProfile(page, 'CPR-ACCESSIBLE-JSON-EDITOR');
+      await page.goto('/foundry?section=settings');
+      await selectChallenge(page);
+      const editor = page.locator('details.raw-json-fallback');
+      const summary = editor.locator('summary');
+      await tabTo(page, summary);
+      await page.keyboard.press('Enter');
+      const textarea = editor.getByRole('textbox');
+      const title = (await summary.innerText()).trim();
+      const help = (await editor.locator('p').innerText()).trim();
+      expect(title).not.toBe('');
+      expect(help).not.toBe('');
+      await expect(textarea).toHaveAccessibleName(title);
+      await expect(textarea).toHaveAccessibleDescription(help);
+      await expect(textarea).toHaveAttribute('aria-invalid', 'false');
+
+      await tabTo(page, textarea);
+      await page.keyboard.press('Control+A');
+      const invalid = 'صيغة JSON لهذا الحقل غير صحيحة.';
+      await expectStatusMessage(page, () => page.keyboard.insertText('{'), invalid);
+      await expect(textarea).toHaveAttribute('aria-invalid', 'true');
+      await expect(textarea).toHaveAccessibleDescription(`${help} ${invalid}`);
+      await expect(editor.getByRole('button')).toBeDisabled();
+      await expectAccessible(page, 'the settings editor');
+    });
+  });
+}
