@@ -1100,24 +1100,27 @@ with TestClient(app) as client:
         published_filter = {"bundle_id": original["bundleId"], "status": "published"}
         assert [row.revision_id for row in store.list_bundles(**published_filter)] == [original["revisionId"]]
         assert [row.revision_id for row in store.list_bundles(**published_filter, include_scheduled=True)] == [scheduled["revisionId"]]
-        for index, (instant, expected) in enumerate((
-            ("2026-07-01T15:59:59+00:00", original["revisionId"]),
-            ("2026-07-01T16:00:00+00:00", scheduled["revisionId"]),
-            ("2026-07-01T17:00:00+00:00", original["revisionId"]),
-        )):
-            native_expected = immediate["revisionId"]
-            if index == 1:
-                native_window = service.create_bundle(
-                    **native_defaults, component_revisions=native_components("99.8.2"), version="99.8.2",
-                    effective_from="2026-07-01T16:00:00Z", effective_until="2026-07-01T17:00:00Z",
-                )
-                promoted = store.publish_bundle(native_window["revisionId"], expected_etag=native_window["etag"], actor_id="TEST")
-                native_expected = promoted.revision_id
-            assert service.resolve(bundle_id=original["bundleId"])["bundle"]["revisionId"] == expected
-            probe(expected, research=(native_bundle_id, native_environment, native_expected))
-            probe(original["revisionId"], source=previous, research=(native_bundle_id, native_environment, native_anchor))
+        def check_handoff(default_id: str, research_id: str) -> None:
+            assert service.resolve(bundle_id=original["bundleId"])["bundle"]["revisionId"] == default_id
+            research = (native_bundle_id, native_environment, research_id)
+            probe(default_id, research=research)
+            probe(default_id, source=previous, research=research)
+
+        instant = "2026-07-01T15:59:59+00:00"
+        check_handoff(original["revisionId"], immediate["revisionId"])
+
+        instant = "2026-07-01T16:00:00+00:00"
+        native_window = service.create_bundle(
+            **native_defaults, component_revisions=native_components("99.8.2"), version="99.8.2",
+            effective_from="2026-07-01T16:00:00Z", effective_until="2026-07-01T17:00:00Z",
+        )
+        promoted = store.publish_bundle(native_window["revisionId"], expected_etag=native_window["etag"], actor_id="TEST")
+        check_handoff(scheduled["revisionId"], promoted.revision_id)
+
+        instant = "2026-07-01T17:00:00+00:00"
+        check_handoff(original["revisionId"], immediate["revisionId"])
         print(f"previousReleaseScheduledHandoffStartup: {backend} before, during and after")
-        print(f"previousReleaseResearchAnchorStartup: {backend} after immediate and timed publication")
+        print(f"previousReleaseResearchHandoffStartup: {backend} before, during and after")
 
         native_restore = service.rollback_bundle(native_anchor, new_version="99.8.3", actor_id="TEST")
         native_publication = store.list_bundles(bundle_id=native_bundle_id, status="published")
