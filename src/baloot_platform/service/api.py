@@ -480,6 +480,13 @@ _PLAYER_STATIC = Path(__file__).resolve().parent / "static" / "player"
 if _PLAYER_STATIC.exists():
     app.mount("/play-assets", StaticFiles(directory=_PLAYER_STATIC), name="play-assets")
 _APP_STATIC = Path(__file__).resolve().parent / "static" / "app"
+_APP_COPY_KEYS = frozenset(
+    key
+    for key in json.loads(
+        (ROOT / "schemas/profiles/video.schema.json").read_text(encoding="utf-8")
+    )["properties"]["challenge_copy"]["properties"]
+    if key.startswith("app_")
+)
 if _APP_STATIC.exists():
     app.mount("/app-assets", StaticFiles(directory=_APP_STATIC), name="app-assets")
 _SHARED_STATIC = Path(__file__).resolve().parent / "static" / "shared"
@@ -575,6 +582,8 @@ def unified_app():
         raise HTTPException(404, "application assets are unavailable")
     template = (_APP_STATIC / "index.html").read_text(encoding="utf-8")
     governed_copy = ACTIVE_BUNDLE.video["challenge_copy"]
+    if any(not governed_copy.get(key, "").strip() for key in _APP_COPY_KEYS):
+        raise HTTPException(503, "application copy profile is incomplete")
     serialized = (
         json.dumps(
             dict(governed_copy),

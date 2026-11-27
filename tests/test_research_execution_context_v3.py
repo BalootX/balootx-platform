@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
 import copy
+import gzip
 import hashlib
+import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from types import SimpleNamespace
@@ -542,6 +545,40 @@ def test_concurrent_selected_bundles_never_cross_contaminate():
             )
         )
     assert resolved == requested
+
+
+def test_research_resolves_the_exact_pre_app_copy_bundle(root, monkeypatch):
+    from baloot_platform.service import api
+
+    # Synthetic bootstrap of public main aaca71a1, before app copy was added.
+    fixture = root / "tests/fixtures/historical-bundle-aaca71a1.json.gz.b64"
+    resolved = json.loads(gzip.decompress(base64.b64decode(fixture.read_bytes())))
+    revision_id = "CBR-F0D943B9683BF35B3F34C2F3"
+    original_video = resolved["profiles"]["video"]
+    assert not any(key.startswith("app_") for key in original_video["challenge_copy"])
+
+    def resolve(*, revision_id, allow_draft, allow_retired):
+        assert revision_id == resolved["bundle"]["revisionId"]
+        assert not allow_draft and not allow_retired
+        return copy.deepcopy(resolved)
+
+    factory = api.RESEARCH.execution_context_factory
+    assert factory is not None
+    monkeypatch.setattr(factory.configuration_service, "resolve", resolve)
+
+    effective, context = factory.resolve_bundle_revision(revision_id)
+
+    assert context.bundle_revision_id == revision_id
+    assert context.source_effective_hash == (
+        "70551d78200486d0eea1af5b4f5a8eedde6738f0204732bfc2fff3bff1eea84a"
+    )
+    assert context.bundle.sha256 == (
+        "0cda8b44e6bcd3445a99e4404eaaeebc98845ee52a787814468cbf59eb551f58"
+    )
+    assert context.bundle.components["video"].sha256 == (
+        "9ee9b956e0230277ba28433b7ec8528b20d52fd227810fb5594c6aa0ad714877"
+    )
+    assert context.bundle.video == effective.to_dict()["normalizedValues"]["video"] == original_video
 
 
 def test_retired_bundle_capabilities_remain_readable_but_not_launchable():

@@ -92,11 +92,14 @@ _TEMPLATE_FIELD = re.compile(r"\{([a-zA-Z0-9_]+)\}")
 def _validate_video_copy_templates(data: Mapping[str, Any]) -> None:
     """Keep editable copy compatible with every Python and browser consumer."""
     for (section, key), expected in _VIDEO_TEMPLATE_FIELDS.items():
-        if key == "video.analysis.unique_awarded_margin" and key not in dict(data.get(section) or {}):
+        copy_section = data.get(section) or {}
+        if key.startswith("app_") and key not in copy_section:
+            continue  # The served /app page requires these keys; older bundles do not.
+        if key == "video.analysis.unique_awarded_margin" and key not in copy_section:
             continue  # Historical video profiles predate score-swing explanations.
         if key == "video.decision.your_turn" and "majlis" not in data:
             continue  # Historical video profiles predate the Majlis look.
-        value = str(dict(data.get(section) or {}).get(key) or "")
+        value = str(copy_section.get(key) or "")
         fields = frozenset(_TEMPLATE_FIELD.findall(value))
         residue = _TEMPLATE_FIELD.sub("", value)
         if "{" in residue or "}" in residue or fields != expected:

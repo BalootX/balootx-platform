@@ -625,3 +625,14 @@ def test_unified_app_renders_copy_as_literal_text(monkeypatch):
     assert '<title>Example &lt;label&gt; &amp; &quot;{{app_open}}&quot;</title>' in response.text
     payload = response.text.split('<script id="app-copy" type="application/json">', 1)[1]
     assert json.loads(payload.split("</script>", 1)[0])["app_title"] == translated
+
+
+def test_unified_app_requires_copy_used_only_by_its_script(monkeypatch):
+    from baloot_platform.service import api
+
+    monkeypatch.delitem(api.ACTIVE_BUNDLE.video["challenge_copy"], "app_guest_started")
+
+    response = TestClient(api.app).get("/app")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "application copy profile is incomplete"
