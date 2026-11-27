@@ -102,6 +102,19 @@ def test_workspace_root_is_the_repository_root(root: Path) -> None:
     assert not (root / "deliveries").exists()
 
 
+def test_localization_history_receipt_copies_are_marked_generated(root: Path) -> None:
+    receipt = "54c66cf722210dbbc72ff2c552597c4f2c039419be7165f0be41c099ab23a582.json"
+    generated = f"generated/localization-history/{receipt}"
+    paths = (generated, f"src/baloot_platform/resources/{generated}")
+    attributes = subprocess.check_output(
+        ["git", "check-attr", "linguist-generated", "--", *paths],
+        cwd=root,
+        text=True,
+        timeout=10,
+    ).splitlines()
+    assert attributes == [f"{path}: linguist-generated: set" for path in paths]
+
+
 def test_active_engine_video_surfaces_use_responsibility_names(root: Path) -> None:
     required = (
         "src/baloot_platform/benchmark/strength.py",
