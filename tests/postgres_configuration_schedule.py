@@ -441,6 +441,7 @@ def test_runtime_boot_and_recovery_across_scheduled_handoff(
         research: tuple[str, str, str] = ("", "", ""),
         recovery_research_scopes: tuple[tuple[str, str], ...] = (),
         access_rows: dict[str, tuple[str, str]] | None = None,
+        recovery_audit: tuple[str, str] | None = None,
     ) -> None:
         subprocess.run(
             [sys.executable, "-c", """
@@ -455,9 +456,11 @@ import baloot_platform
 from baloot_platform.configuration import service
 from baloot_platform.service import container
 
-instant, expected, recovery_target, diagnostic, source_path, bundle_id, environment, research_id, scope_json, access_json = sys.argv[1:]
+(instant, expected, recovery_target, diagnostic, source_path, bundle_id,
+ environment, research_id, scope_json, access_json, audit_json) = sys.argv[1:]
 recovery_research_scopes = json.loads(scope_json)
 access_rows = json.loads(access_json)
+recovery_audit = json.loads(audit_json)
 assert Path(baloot_platform.__file__).resolve().is_relative_to(Path(source_path).resolve() / 'src')
 
 class Clock(datetime):
@@ -805,6 +808,18 @@ with TestClient(app) as client:
         assert client.get('/api/v1/options').status_code == 200
         _, research = RESEARCH.execution_context_factory.resolve_bundle_revision(expected)
         assert research.bundle_revision_id == expected
+        if recovery_audit is not None:
+            recovered_bundle, replaced_revision = recovery_audit
+            registry = '/api/v1/configuration-registry'
+            effective = client.get(f'{registry}/resolve', headers=admin, params={'bundleId': recovered_bundle})
+            assert effective.status_code == 200, effective.text
+            assert effective.json()['bundle']['revisionId'] == expected
+            events = client.get(f'{registry}/bundles/{expected}/events', headers=admin)
+            assert events.status_code == 200 and events.json()['verification']['valid'], events.text
+            rollback_event = events.json()['items'][-1]
+            assert rollback_event['eventType'] == 'rollback_created'
+            assert rollback_event['payload']['replacedRevisionId'] == replaced_revision
+            print('scheduleRecoveryAuditAfterRestart: verified')
         if access_rows:
             check_configuration_access(client)
             print('configurationReadScope: HTTP and gRPC')
@@ -869,11 +884,11 @@ with TestClient(app) as client:
             restored_id = restored.json()['revisionId']
             assert restored.json()['supersedesRevisionId'] == expected
             events = client.get(f'/api/v1/configuration-registry/bundles/{restored_id}/events', headers=admin)
-            assert events.status_code == 200 and events.json()['verification']['valid'], events.text
-            assert events.json()['items'][-1]['payload']['replacedRevisionId'] == expected
+            assert events.status_code == 503, events.text
+            assert client.get('/readyz').status_code == 503
         assert CONFIGURATION.resolve(bundle_id=restored.json()['bundleId'])['bundle']['revisionId'] == restored.json()['revisionId']
 """, instant, expected, recovery_target, diagnostic, str(source), *research, json.dumps(recovery_research_scopes),
-             json.dumps(access_rows)],
+             json.dumps(access_rows), json.dumps(recovery_audit)],
             cwd=source,
             env={
                 **startup_environment, "BALOOT_ROOT": str(source), "PYTHONPATH": str(source / "src"),
@@ -1305,6 +1320,9 @@ finally:
                 partial["revisionId"], recovery_target=original["revisionId"],
                 diagnostic="scheduled publication could not be verified",
             )
+            replacement = service.resolve(bundle_id=original["bundleId"])["bundle"]
+            assert replacement["supersedesRevisionId"] == partial["revisionId"]
+            probe(replacement["revisionId"], recovery_audit=(original["bundleId"], partial["revisionId"]))
     finally:
         CURRENT_DATABASE_IDENTITY.reset(token)
         store.close()

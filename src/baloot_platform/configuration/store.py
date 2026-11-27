@@ -234,7 +234,7 @@ _POSTGRES_VISIBLE_BUNDLE = _VISIBLE_BUNDLE.format(
 )
 
 
-def _scoped_bundle_rows(table: str, visibility: str, nullable_equal: str) -> str:
+def _scoped_bundle_rows(table: str, visibility: str, nullable_equal: str, columns: str) -> str:
     same_scope = f"""candidate.bundle_id=anchor.bundle_id AND candidate.scope=anchor.scope
         AND candidate.scope_key=anchor.scope_key
         AND candidate.tenant_id {nullable_equal} anchor.tenant_id
@@ -262,7 +262,7 @@ def _scoped_bundle_rows(table: str, visibility: str, nullable_equal: str) -> str
             JOIN visible_bundle_ids ON visible_bundle_ids.revision_id=candidate.revision_id
             WHERE candidate.status='superseded' AND {same_scope}
         ), scoped_bundle_rows AS (
-            SELECT revision.*,
+            SELECT {columns},
                 CASE WHEN revision.status='published' AND EXISTS (
                     SELECT 1 FROM visible_heads WHERE anchor_id=revision.revision_id
                 ) THEN 'superseded'
@@ -273,6 +273,15 @@ def _scoped_bundle_rows(table: str, visibility: str, nullable_equal: str) -> str
             JOIN visible_bundle_ids ON visible_bundle_ids.revision_id=revision.revision_id
         )
     """
+
+
+_SQLITE_SCOPED_BUNDLE_ROWS = _scoped_bundle_rows(
+    "configuration_bundle_revisions", _SQLITE_VISIBLE_BUNDLE, "IS", "revision.*",
+)
+_POSTGRES_SCOPED_BUNDLE_ROWS = _scoped_bundle_rows(
+    "configuration.bundle_revisions", _POSTGRES_VISIBLE_BUNDLE, "IS NOT DISTINCT FROM",
+    ",".join(f"revision.{column}" for column in _POSTGRES_BUNDLE_COLUMNS.split(",")),
+)
 
 
 def _read_visible_revision_ids(
@@ -1645,8 +1654,9 @@ class SQLiteConfigurationStore:
         )
         args = (revision_id,)
         if visible_to_tenant is not None:
-            projection = _scoped_bundle_rows("configuration_bundle_revisions", _SQLITE_VISIBLE_BUNDLE, "IS")
-            sql = projection + "SELECT *, visible_registry_status AS registry_status FROM scoped_bundle_rows WHERE revision_id=?"
+            sql = _SQLITE_SCOPED_BUNDLE_ROWS + (
+                "SELECT *, visible_registry_status AS registry_status FROM scoped_bundle_rows WHERE revision_id=?"
+            )
             args = (visible_to_tenant, visible_to_tenant, revision_id)
         with self._connect() as conn:
             return self._bundle(conn.execute(sql, args).fetchone())
@@ -1715,7 +1725,7 @@ class SQLiteConfigurationStore:
         table = "configuration_bundle_revisions"
         status_expression = _SQLITE_BUNDLE_REGISTRY_STATUS if include_scheduled else "status"
         if visible_to_tenant is not None:
-            prefix = _scoped_bundle_rows(table, _SQLITE_VISIBLE_BUNDLE, "IS")
+            prefix = _SQLITE_SCOPED_BUNDLE_ROWS
             table = "scoped_bundle_rows"
             args.extend((visible_to_tenant, visible_to_tenant))
             status_expression = "visible_registry_status" if include_scheduled else "status"
@@ -3040,10 +3050,10 @@ class PostgresConfigurationStore:
         )
         args = (revision_id,)
         if visible_to_tenant is not None:
-            projection = _scoped_bundle_rows(
-                "configuration.bundle_revisions", _POSTGRES_VISIBLE_BUNDLE, "IS NOT DISTINCT FROM",
+            sql = _POSTGRES_SCOPED_BUNDLE_ROWS + (
+                f"SELECT {_POSTGRES_BUNDLE_COLUMNS}, visible_registry_status AS registry_status "
+                "FROM scoped_bundle_rows WHERE revision_id=%s"
             )
-            sql = projection + "SELECT *, visible_registry_status AS registry_status FROM scoped_bundle_rows WHERE revision_id=%s"
             args = (visible_to_tenant, visible_to_tenant, revision_id)
         with contextual_connection(self.pool) as conn:
             row = conn.execute(sql, args).fetchone()
@@ -3140,7 +3150,7 @@ class PostgresConfigurationStore:
         table = "configuration.bundle_revisions"
         status_expression = _POSTGRES_BUNDLE_REGISTRY_STATUS if include_scheduled else "status"
         if visible_to_tenant is not None:
-            prefix = _scoped_bundle_rows(table, _POSTGRES_VISIBLE_BUNDLE, "IS NOT DISTINCT FROM")
+            prefix = _POSTGRES_SCOPED_BUNDLE_ROWS
             table = "scoped_bundle_rows"
             args.extend((visible_to_tenant, visible_to_tenant))
             status_expression = "visible_registry_status" if include_scheduled else "status"

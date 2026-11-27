@@ -1581,10 +1581,14 @@ class _ConcurrentEventSnapshotStore:
     ],
 )
 def test_event_route_projects_items_and_verification_from_one_snapshot(
-    tmp_path: Path, path: str
+    root: Path, tmp_path: Path, path: str
 ) -> None:
     store = _ConcurrentEventSnapshotStore()
-    service = SimpleNamespace(store=store)
+    service = VersionedConfigurationService(
+        store,
+        root=root,
+        profile=_minimal_control_plane("global_published"),
+    )
     identities = IdentityService(
         SQLiteIdentityStore(tmp_path / "events-identity.sqlite3")
     )
@@ -1597,7 +1601,7 @@ def test_event_route_projects_items_and_verification_from_one_snapshot(
 
     app.include_router(
         build_configuration_router(
-            service,  # type: ignore[arg-type]
+            service,
             identities,
             AuthorizationPolicy(),
             {"id": "test"},
