@@ -25,4 +25,4 @@
 ## Served pages
 
 - The `/app`, `/play` and `/c` pages take their visible copy from `challenge_copy` in the [premium profile](configs/video/premium.yaml). The page templates and scripts hold copy keys only. Keep the Arabic pages right-to-left, and mark room codes, game numbers and case numbers left-to-right.
-- `/app` requires the full set of app copy keys declared in the [video schema](schemas/profiles/video.schema.json). Exact Research revisions keep the video payload they were saved with.
+- `/app` requires the full set of app copy keys declared in the [video schema](schemas/profiles/video.schema.json). The guest display name follows the identity service's length limit. Exact Research revisions keep the video payload they were saved with.

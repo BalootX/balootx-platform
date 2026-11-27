@@ -1074,6 +1074,8 @@ def _validate_scenario_research_v4(
 
 def _semantic_validate(family: str, data: dict[str, Any]) -> None:
     if family == "video":
+        from baloot_platform.identity.models import DISPLAY_NAME_MAX_LENGTH
+
         render = data.get("render", {})
         width = int(render.get("width", 0))
         height = int(render.get("height", 0))
@@ -1088,6 +1090,11 @@ def _semantic_validate(family: str, data: dict[str, Any]) -> None:
         if int(render.get("fps", 0)) not in {24, 25, 30, 50, 60}:
             raise ValueError("video fps must be one of 24,25,30,50,60")
         _validate_video_copy_templates(data)
+        guest_name = data.get("challenge_copy", {}).get("app_guest_name", "")
+        if len(guest_name) > DISPLAY_NAME_MAX_LENGTH:
+            raise ValueError(
+                f"challenge_copy.app_guest_name must be at most {DISPLAY_NAME_MAX_LENGTH} characters"
+            )
         from baloot_platform.video.render_bundle import validate_majlis_profile
 
         validate_majlis_profile(data)

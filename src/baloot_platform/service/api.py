@@ -576,6 +576,37 @@ def configuration_studio():
     return RedirectResponse("/foundry?section=settings", status_code=307)
 
 
+def _render_copy_page(
+    template: str,
+    governed_copy: Mapping[str, str],
+    *,
+    json_key: str,
+    surface: str,
+    asset_version: str | None = None,
+) -> HTMLResponse:
+    def render_copy(match: re.Match[str]) -> str:
+        key = match[1]
+        if key == json_key:
+            return (
+                json.dumps(
+                    dict(governed_copy),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                .replace("<", "\\u003c")
+                .replace("&", "\\u0026")
+            )
+        if key == "player_asset_version" and asset_version is not None:
+            return asset_version
+        if key is not None and key in governed_copy:
+            return html.escape(governed_copy[key], quote=True)
+        raise HTTPException(503, f"{surface} copy profile is incomplete")
+
+    rendered = re.sub(r"\{\{([a-zA-Z0-9_]+)\}\}|\{\{|\}\}", render_copy, template)
+    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/app", include_in_schema=False)
 def unified_app():
     if not _APP_STATIC.exists():
@@ -584,27 +615,9 @@ def unified_app():
     governed_copy = ACTIVE_BUNDLE.video["challenge_copy"]
     if any(not governed_copy.get(key, "").strip() for key in _APP_COPY_KEYS):
         raise HTTPException(503, "application copy profile is incomplete")
-    serialized = (
-        json.dumps(
-            dict(governed_copy),
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        .replace("<", "\\u003c")
-        .replace("&", "\\u0026")
+    return _render_copy_page(
+        template, governed_copy, json_key="app_copy_json", surface="application"
     )
-
-    def render_copy(match: re.Match[str]) -> str:
-        key = match[1]
-        if key == "app_copy_json":
-            return serialized
-        if key not in governed_copy:
-            raise HTTPException(503, "application copy profile is incomplete")
-        return html.escape(str(governed_copy[key]), quote=True)
-
-    rendered = re.sub(r"\{\{([a-zA-Z0-9_]+)\}\}", render_copy, template)
-    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
 
 
 app.include_router(build_auth_router(IDENTITY, pagination=CONTAINER.identity_pagination, policy=AUTHORIZATION_POLICY))
@@ -7521,28 +7534,10 @@ def player_app():
         asset_digest.update(asset_name.encode("utf-8"))
         asset_digest.update((player_root / asset_name).read_bytes())
     asset_version = asset_digest.hexdigest()[:12]
-    governed_copy = dict(ACTIVE_BUNDLE.video["challenge_copy"])
-    serialized = (
-        json.dumps(
-            governed_copy,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        .replace("<", "\\u003c")
-        .replace("&", "\\u0026")
+    return _render_copy_page(
+        template, ACTIVE_BUNDLE.video["challenge_copy"],
+        json_key="player_copy_json", surface="player", asset_version=asset_version,
     )
-    rendered = template.replace("{{player_copy_json}}", serialized).replace(
-        "{{player_asset_version}}", asset_version
-    )
-    for key, value in governed_copy.items():
-        rendered = rendered.replace(
-            "{{" + str(key) + "}}",
-            html.escape(str(value), quote=True),
-        )
-    if "{{" in rendered or "}}" in rendered:
-        raise HTTPException(503, "player copy profile is incomplete")
-    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/v1/challenge-copy")
@@ -7562,25 +7557,10 @@ def public_duplicate_challenge(code: str):
     if not _CHALLENGE_STATIC.exists():
         raise HTTPException(503, "challenge player assets are unavailable")
     template = (_CHALLENGE_STATIC / "index.html").read_text(encoding="utf-8")
-    governed_copy = dict(ACTIVE_BUNDLE.video["challenge_copy"])
-    serialized = (
-        json.dumps(
-            governed_copy,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        .replace("<", "\\u003c")
-        .replace("&", "\\u0026")
+    return _render_copy_page(
+        template, ACTIVE_BUNDLE.video["challenge_copy"],
+        json_key="challenge_copy_json", surface="challenge",
     )
-    rendered = template.replace("{{challenge_copy_json}}", serialized)
-    rendered = rendered.replace(
-        "{{page_title}}",
-        html.escape(str(governed_copy["page_title"]), quote=True),
-    )
-    if "{{" in rendered or "}}" in rendered:
-        raise HTTPException(503, "challenge copy profile is incomplete")
-    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/healthz")
