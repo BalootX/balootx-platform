@@ -1224,15 +1224,15 @@ finally:
         print(f"retirementAuditAtomicity: {backend}")
 
         anchor = store.get_bundle(original["revisionId"])
-        def write_successor(successor):
+        def write_successor(anchor_id, successor):
             with (contextual_connection(store.pool) if app_dsn is not None else store._connect()) as conn:
-                store._set_scheduled_successor_tx(conn, anchor.revision_id, successor)
+                store._set_scheduled_successor_tx(conn, anchor_id, successor)
 
         invalid_successors = ["", " ", competing_id, anchor.revision_id]
         if backend == "sqlite":
             invalid_successors.append(b"non-text successor")
         for invalid_successor in invalid_successors:
-            write_successor(invalid_successor)
+            write_successor(anchor.revision_id, invalid_successor)
             service._invalidate_cache()
             try:
                 with pytest.raises(ConfigurationIntegrityError, match="scheduled publication could not be verified"):
@@ -1240,14 +1240,14 @@ finally:
                 with pytest.raises(ConfigurationIntegrityError, match="scheduled publication could not be verified"):
                     service.resolve(**selection)
             finally:
-                write_successor(anchor.scheduled_successor_id)
+                write_successor(anchor.revision_id, anchor.scheduled_successor_id)
         try:
-            write_successor(None)
+            write_successor(anchor.revision_id, None)
             service._invalidate_cache()
             assert service.resolve(**selection)["bundle"]["revisionId"] == anchor.revision_id
             assert service.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)["bundle"]["revisionId"] == anchor.revision_id
         finally:
-            write_successor(anchor.scheduled_successor_id)
+            write_successor(anchor.revision_id, anchor.scheduled_successor_id)
             service._invalidate_cache()
         print(f"scheduleLinkIntegrity: {backend}")
         print(f"startupRetirementSnapshot: {backend}")
@@ -1313,16 +1313,44 @@ finally:
             )
         assert store.list_bundles(bundle_id=original["bundleId"]) == before
         assert [store.events("bundle", row.revision_id) for row in before] == audit_before
+        other_scope = {**defaults, "scope": "tenant", "tenant_id": "fixture-tenant-a"}
+        service.create_bundle(
+            **other_scope, version="99.7.14", component_revisions=original["componentRevisions"],
+        )
+        wrong_scope_id = service.create_bundle(
+            **other_scope, version="99.7.15", component_revisions=bounded_components,
+            effective_from="2026-07-01T16:00:00Z",
+        )["revisionId"]
+        wrong_scope = store.get_bundle(wrong_scope_id)
+        wrong_scope_audit = store.events("bundle", wrong_scope_id)
+        missing_id = "CBR-000000000000000000000000"
+        assert store.get_bundle(missing_id) is None
+        invalid_links: list[tuple[str, str | bytes]] = [
+            ("missing", missing_id), ("wrong-scope", wrong_scope_id),
+        ]
         if backend == "sqlite":
-            with store._connect() as connection:
-                store._set_scheduled_successor_tx(connection, partial["revisionId"], b"non-text successor")
+            invalid_links.append(("non-text", b"non-text successor"))
+        affected_id = partial["revisionId"]
+        for case, successor in invalid_links:
+            write_successor(affected_id, successor)
+            service._invalidate_cache()
+            with pytest.raises(ConfigurationIntegrityError, match="scheduled publication could not be verified"):
+                service.resolve(bundle_id=original["bundleId"])
+            prior_events = store.events("bundle", affected_id)
             probe(
-                partial["revisionId"], recovery_target=original["revisionId"],
+                affected_id, recovery_target=original["revisionId"],
                 diagnostic="scheduled publication could not be verified",
             )
             replacement = service.resolve(bundle_id=original["bundleId"])["bundle"]
-            assert replacement["supersedesRevisionId"] == partial["revisionId"]
-            probe(replacement["revisionId"], recovery_audit=(original["bundleId"], partial["revisionId"]))
+            assert replacement["supersedesRevisionId"] == affected_id
+            events = store.events("bundle", affected_id)
+            assert events[:-1] == prior_events
+            assert events[-1]["eventType"] == "superseded"
+            assert store.get_bundle(wrong_scope_id) == wrong_scope
+            assert store.events("bundle", wrong_scope_id) == wrong_scope_audit
+            probe(replacement["revisionId"], recovery_audit=(original["bundleId"], affected_id))
+            print(f"scheduleRecoveryLineage: {backend} {case}")
+            affected_id = replacement["revisionId"]
     finally:
         CURRENT_DATABASE_IDENTITY.reset(token)
         store.close()

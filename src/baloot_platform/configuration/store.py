@@ -6,7 +6,7 @@ import threading
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, TypeVar
+from typing import Any, Callable, Iterable, Iterator, Mapping, TypeVar
 
 from baloot_platform.storage.request_context import apply_postgres_identity_context, contextual_connection
 
@@ -521,11 +521,47 @@ def _publication_predecessor(anchor: BundleRevision | None, *, timed: bool, pres
     return anchor.revision_id if preserve_research else None
 
 
-def _replaced_publication_id(anchor: BundleRevision | None) -> str | None:
+def scheduled_bundle_history(
+    anchor: BundleRevision, revisions: Mapping[str, BundleRevision],
+) -> Iterator[BundleRevision]:
+    revision_id = anchor.scheduled_successor_id
+    if revision_id is not None:
+        dimensions = _bundle_dimensions(anchor)
+        seen = {anchor.revision_id}
+        while True:
+            revision = revisions.get(revision_id) if valid_schedule_link(revision_id) else None
+            if (
+                revision is None
+                or revision_id in seen
+                or revision.status not in {"published", "superseded"}
+                or revision.scheduled_predecessor_id is None
+                or _bundle_dimensions(revision) != dimensions
+            ):
+                raise ConfigurationIntegrityError(
+                    anchor.revision_id,
+                    "The scheduled publication could not be verified. Publish a current replacement or roll back.",
+                )
+            seen.add(revision_id)
+            yield revision
+            revision_id = revision.scheduled_predecessor_id
+            if revision_id == anchor.revision_id:
+                break
+    yield anchor
+
+
+def _replaced_publication_id(
+    anchor: BundleRevision | None, read_history: Callable[[], list[BundleHistory]],
+) -> str | None:
     if anchor is None:
         return None
-    successor = anchor.scheduled_successor_id
-    return successor if valid_schedule_link(successor) else anchor.revision_id
+    if not valid_schedule_link(anchor.scheduled_successor_id):
+        return anchor.revision_id
+    history = read_history()[0]
+    try:
+        return tuple(scheduled_bundle_history(anchor, history.revisions))[0].revision_id
+    except ConfigurationIntegrityError:
+        # Recovery replaces the locked anchor when its handoff does not identify a valid successor.
+        return anchor.revision_id
 
 
 class SQLiteConfigurationStore:
@@ -1570,7 +1606,9 @@ class SQLiteConfigurationStore:
                     "SELECT * FROM configuration_bundle_revisions WHERE revision_id=?", (rollback_target_revision_id,),
                 ).fetchone())
                 _require_rollback_target(target, dimensions, component_revisions)
-                supersedes_revision_id = _replaced_publication_id(anchor)
+                supersedes_revision_id = _replaced_publication_id(
+                    anchor, lambda: self._bundle_histories_tx(conn, dimensions, False, 1),
+                )
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) FROM configuration_bundle_revisions "
                 "WHERE bundle_id=? AND scope=? AND scope_key=? "
@@ -2936,7 +2974,9 @@ class PostgresConfigurationStore:
                     (rollback_target,),
                 ).fetchone())
                 _require_rollback_target(target, dimensions, kwargs["component_revisions"])
-                supersedes_revision_id = _replaced_publication_id(anchor)
+                supersedes_revision_id = _replaced_publication_id(
+                    anchor, lambda: self._bundle_histories_tx(conn, dimensions, False, 1),
+                )
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) AS max_sequence "
                 "FROM configuration.bundle_revisions "

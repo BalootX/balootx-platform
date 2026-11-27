@@ -9,7 +9,7 @@ import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterator, Mapping
+from typing import Any, Callable, Mapping
 
 from baloot_platform.config import (
     PROFILE_FAMILIES,
@@ -31,8 +31,8 @@ from .models import (
     configuration_tenant_visible,
     digest,
 )
-from .schedule import ConfigurationIntegrityError, parse_instant, valid_schedule_link, verify_revision_schedule
-from .store import BundleHistory
+from .schedule import ConfigurationIntegrityError, parse_instant, verify_revision_schedule
+from .store import BundleHistory, scheduled_bundle_history
 
 _SEMVER = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
@@ -440,42 +440,11 @@ class VersionedConfigurationService:
         )
         return bucket < percentage
 
-    @staticmethod
-    def _scheduled_bundle_history(
-        anchor: BundleRevision, revisions: Mapping[str, BundleRevision],
-    ) -> Iterator[BundleRevision]:
-        dimensions = (anchor.bundle_id, anchor.scope, anchor.scope_key, anchor.tenant_id, anchor.environment)
-        revision_id = anchor.scheduled_successor_id
-        if revision_id is None:
-            yield anchor
-            return
-        seen = {anchor.revision_id}
-        while True:
-            revision = revisions.get(revision_id) if valid_schedule_link(revision_id) else None
-            if (
-                revision is None
-                or revision_id in seen
-                or revision.status not in {RevisionStatus.PUBLISHED.value, RevisionStatus.SUPERSEDED.value}
-                or revision.scheduled_predecessor_id is None
-                or (revision.bundle_id, revision.scope, revision.scope_key,
-                    revision.tenant_id, revision.environment) != dimensions
-            ):
-                raise ConfigurationIntegrityError(
-                    anchor.revision_id,
-                    "The scheduled publication could not be verified. Publish a current replacement or roll back.",
-                )
-            seen.add(revision_id)
-            yield revision
-            revision_id = revision.scheduled_predecessor_id
-            if revision_id == anchor.revision_id:
-                break
-        yield anchor
-
     def _effective_scheduled_bundle(
         self, stored_history: BundleHistory,
         context: ResolutionContext, now: datetime, trace: list[dict[str, Any]],
     ) -> BundleRevision | None:
-        history = tuple(self._scheduled_bundle_history(stored_history.anchor, stored_history.revisions))
+        history = tuple(scheduled_bundle_history(stored_history.anchor, stored_history.revisions))
         for revision in history:
             verify_revision_schedule(revision)
         for revision in history:
