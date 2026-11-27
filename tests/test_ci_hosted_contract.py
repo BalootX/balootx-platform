@@ -13,6 +13,7 @@ from xml.etree import ElementTree
 
 import pytest
 import yaml
+from jsonschema import Draft202012Validator, ValidationError
 
 from ci import critical_review
 from ci import review_verdict_poster
@@ -109,6 +110,46 @@ def test_ci_shard_verifiers_use_python_safe_path(root):
     ]
     assert len(commands) == 3
     assert all(len(command) >= 3 and ast.unparse(command[1]) == "'-P'" for command in commands)
+
+
+@pytest.fixture
+def commit_identity_policy(root):
+    return json.loads((root / "ci/commit-identities.json").read_bytes())
+
+
+def test_commit_identity_policy_schema(root, commit_identity_policy):
+    policy = commit_identity_policy
+    schema = json.loads((root / "schemas/contracts/commit-identities-v1.schema.json").read_bytes())
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema)
+    validator.validate(policy)
+    rows = policy["identities"]
+    assert len({(row["name"], row["email"]) for row in rows}) == len(rows)
+    _, domain = rows[0]["email"].split("@", 1)
+    test_domain = "example.test"
+    for field, invalid in (
+        ("name", "Fixture *"), ("name", "Fixture Bot\n"),
+        ("email", f"fixture@{test_domain}"), ("email", f"noreply@{test_domain}\n"),
+        ("email", f"fixture@{domain}.{test_domain}"), ("reason", " "),
+    ):
+        with pytest.raises(ValidationError):
+            validator.validate({**policy, "identities": [{**rows[0], field: invalid}]})
+
+
+def test_commit_identity_schema_limits_dependabot_signoff(root, commit_identity_policy):
+    policy = commit_identity_policy
+    schema = json.loads((root / "schemas/contracts/commit-identities-v1.schema.json").read_bytes())
+    validator = Draft202012Validator(schema)
+    scoped, = (row for row in policy["identities"] if row["use"] == "Signed-off-by")
+    assert scoped["name"] == "dependabot[bot]"
+    validator.validate({**policy, "identities": [scoped]})
+    local, domain = scoped["email"].split("@", 1)
+    for field, invalid in (
+        ("use", "all"), ("use", "Co-authored-by"), ("use", "author"), ("use", "committer"),
+        ("name", "Dependabot Fixture"), ("email", f"{local}+fixture@{domain}"),
+    ):
+        with pytest.raises(ValidationError):
+            validator.validate({**policy, "identities": [{**scoped, field: invalid}]})
 
 
 def test_hosted_ci_contract(root):

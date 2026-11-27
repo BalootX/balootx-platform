@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "identities": [
+    {
+      "name": "tree-publisher[bot]",
+      "email": "357558349+tree-publisher[bot]@users.noreply.github.com",
+      "use": "all",
+      "reason": "Repository publishing App"
+    },
+    {
+      "name": "GitHub",
+      "email": "noreply@github.com",
+      "use": "all",
+      "reason": "GitHub web and merge queue committer"
+    },
+    {
+      "name": "BalootX Automation",
+      "email": "balootx-automation@users.noreply.github.com",
+      "use": "all",
+      "reason": "BalootX public automation attribution"
+    },
+    {
+      "name": "dependabot[bot]",
+      "email": "49699333+dependabot[bot]@users.noreply.github.com",
+      "use": "all",
+      "reason": "GitHub dependency update bot"
+    },
+    {
+      "name": "dependabot[bot]",
+      "email": "support@github.com",
+      "use": "Signed-off-by",
+      "reason": "GitHub-provided Dependabot sign-off approved in issue 159"
+    },
+    {
+      "name": "Claude Opus 5.5",
+      "email": "noreply@anthropic.com",
+      "use": "all",
+      "reason": "Claude tool attribution"
+    },
+    {
+      "name": "Codex",
+      "email": "codex@users.noreply.github.com",
+      "use": "all",
+      "reason": "Codex tool attribution"
+    },
+    {
+      "name": "Codex gpt-6.2-sol",
+      "email": "codex@users.noreply.github.com",
+      "use": "all",
+      "reason": "Codex tool attribution with model name"
+    },
+    {
+      "name": "OpenAI Codex",
+      "email": "codex@users.noreply.github.com",
+      "use": "all",
+      "reason": "OpenAI Codex tool attribution"
+    }
+  ]
+}

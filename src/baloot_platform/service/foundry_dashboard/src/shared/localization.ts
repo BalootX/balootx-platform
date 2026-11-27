@@ -100,6 +100,13 @@ export function t(key: string): string {
   return value;
 }
 
+/** Profiles published before the timeout key keep the generic request failure. */
+export function requestTimeoutMessage(): string {
+  return hasFoundryCopy('helpers.request_timeout')
+    ? t('helpers.request_timeout')
+    : `${t('helpers.m_dc85c66d7c4d')}408)`;
+}
+
 export function tCatalog(key: string): string {
   const normalized = key.includes('.') ? key : `workflow.${key}`;
   const separator = normalized.indexOf('.');

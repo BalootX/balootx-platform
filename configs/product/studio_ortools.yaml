@@ -346,6 +346,7 @@ foundry_copy:
       m_f93fe26f6b35: "حجم رمز QR"
       m_fa5467a76b43: "السماح بمعاينة محلية قبل الاعتماد"
       m_fd4ee4b4001a: "منظور المشاهد"
+      request_timeout: "انتهت مهلة الطلب. حدّث الصفحة وتحقّق من النتيجة قبل إعادة المحاولة."
     workflow:
       research_native_delayed_payoff_label: "إثبات فائدة الورقة المتأخرة"
       research_native_delayed_payoff_label_en: "Native delayed-payoff proof"

@@ -55,6 +55,8 @@
       ".github/**",
       "ci/**",
       "ci/review_verdict_poster.py",
+      "ci/commit-identities.json",
+      "schemas/contracts/commit-identities-v1.schema.json",
       "scripts/ci_scope.py",
       "scripts/ci_known_failures.py",
       "scripts/run_isolated_pytest.py",
