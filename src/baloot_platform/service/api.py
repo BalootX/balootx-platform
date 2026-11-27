@@ -35,6 +35,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
+from starlette._utils import get_route_path
 from pydantic import (
     BaseModel,
     Field,
@@ -120,6 +121,16 @@ from baloot_platform.service.routes import (
 )
 from baloot_platform.service.container import PlatformContainer, build_container
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER
+from baloot_platform.security import Scope
+from baloot_platform.service.authorization import (
+    DEFAULT_TENANT,
+    HISTORY_GAME_AUDIT_PATH,
+    HISTORY_GAME_REOPEN_PATH,
+    credentials,
+    history_without_media,
+    http_request_scope,
+    tenant_job_http,
+)
 from baloot_platform.service.client_identity import (
     initialize_service_subject_ownership,
     service_subject_ownership,
@@ -134,6 +145,7 @@ from baloot_platform.service.routes.configuration import (
 )
 from baloot_platform.shared import (
     SharedDecisionAccessError,
+    SharedGameNotFound,
     project_shared_decision,
     resolve_shared_decision_access,
     resolve_shared_game_access,
@@ -257,7 +269,14 @@ def _project_decision_for_request(
     request: Request,
 ) -> dict[str, Any]:
     access, subject_id = _shared_decision_access(decision, request)
-    return project_shared_decision(decision, access, subject_id=subject_id)
+    value = project_shared_decision(decision, access, subject_id=subject_id)
+    scopes = AUTHORIZATION_POLICY.effective_scopes(
+        role=getattr(request.state, "role", "anonymous"),
+        claims=getattr(request.state, "access_claims", None),
+    )
+    if Scope.CONFIG_ADMIN not in scopes:
+        value.pop("videoRecords", None)
+    return value
 
 
 def _require_private_decision_access(
@@ -273,20 +292,34 @@ def _require_private_decision_access(
     return decision
 
 
-def _require_completed_shared_game_access(game_id: str) -> None:
+def _archive_reader(request: Request) -> str | None:
+    if request.state.auth.has_scope(AUTHORIZATION_POLICY, Scope.CONFIG_ADMIN):
+        return None
+    identity, _ = require_identity(request, IDENTITY)
+    return identity.subject_id
+
+
+def _require_completed_shared_game_access(
+    game_id: str,
+    subject_id: str | None = None,
+    *,
+    not_found_detail: str = "archived game not found",
+) -> None:
     try:
-        access = resolve_shared_game_access(SAKKA.store, game_id)
+        access = resolve_shared_game_access(SAKKA.store, game_id, subject_id=subject_id)
+    except SharedGameNotFound as exc:
+        raise HTTPException(404, not_found_detail) from exc
     except SharedDecisionAccessError as exc:
         raise HTTPException(403, str(exc)) from exc
     if access is not None and not access.completed:
         raise HTTPException(403, "aggregate game analysis is unavailable during an active shared run")
 
 
-def _require_private_history_game(identifier: str) -> dict[str, Any]:
+def _require_private_history_game(identifier: str, subject_id: str | None = None) -> dict[str, Any]:
     game = LEARNING_STORE.get_game(identifier)
     if game is None:
         raise HTTPException(404, "archived game not found")
-    _require_completed_shared_game_access(str(game.get("gameId") or ""))
+    _require_completed_shared_game_access(str(game.get("gameId") or ""), subject_id)
     _require_completed_shared_analysis_decisions(game)
     return game
 
@@ -584,7 +617,6 @@ app.include_router(
         SECURITY_STATE,
     )
 )
-app.include_router(build_canonical_history_router(CANONICAL_HISTORY, IDENTITY, GAMES))
 
 
 def _truthy(name: str, default: str = "false") -> bool:
@@ -597,10 +629,16 @@ def _trusted_authorized(request: Request) -> bool:
     Production deployments are deny-by-default. Local development and tests may
     opt in explicitly or rely on the loopback-only development default.
     """
+    scopes = AUTHORIZATION_POLICY.effective_scopes(
+        role=getattr(request.state, "role", "anonymous"),
+        claims=getattr(request.state, "access_claims", None),
+    )
+    if Scope.HIDDEN_READ not in scopes:
+        return False
     configured = os.environ.get("BALOOT_TRUSTED_API_KEY", "")
     supplied = request.headers.get("x-baloot-trusted-key", "")
     if configured:
-        return bool(supplied) and hmac.compare_digest(configured, supplied)
+        return bool(supplied) and hmac.compare_digest(configured.encode(), supplied.encode())
     if _truthy("BALOOT_ALLOW_TRUSTED_CONTEXT"):
         return True
     environment = os.environ.get("BALOOT_ENV", "development").strip().lower()
@@ -616,6 +654,11 @@ def _trusted_authorized(request: Request) -> bool:
 def _require_trusted(request: Request) -> None:
     if not _trusted_authorized(request):
         raise HTTPException(403, "trusted hidden-information access is not enabled")
+
+
+app.include_router(
+    build_canonical_history_router(CANONICAL_HISTORY, IDENTITY, GAMES, require_trusted=_require_trusted)
+)
 
 
 _RESEARCH_MUTATION_OPENAPI = {
@@ -780,38 +823,38 @@ async def platform_security(request: Request, call_next):
         )
         response.headers["retry-after"] = str(retry_after)
         return response
-    token = request_token(request)
-    identity, identity_session = IDENTITY.resolve(token)
-    access_claims = None
-    if identity is None and token and token.count(".") == 2:
-        try:
-            access_claims = ACCESS_TOKENS.verify(token)
-        except (ValueError, KeyError, TypeError):
-            access_claims = None
+    auth = credentials(request.headers, request_token(request), IDENTITY, ACCESS_TOKENS)
+    request.state.auth = auth
+    identity, identity_session = auth.identity, auth.session
+    access_claims = auth.claims
     request.state.identity = identity
     request.state.identity_session = identity_session
     request.state.access_claims = access_claims
     api_key = os.environ.get("BALOOT_API_KEY")
-    supplied_key = request.headers.get("x-api-key", "")
-    api_key_valid = (
-        bool(api_key)
-        and bool(supplied_key)
-        and hmac.compare_digest(api_key, supplied_key)
-    )
+    api_key_valid = auth.api_key_valid
     request.state.api_key_valid = api_key_valid
+    request.state.tenant_id = auth.tenant_id
+    request.state.role = auth.role
     session_valid = (
         identity is not None and identity_session is not None
     ) or access_claims is not None
-    auth_bootstrap = request.url.path.startswith("/api/v1/auth/")
-    if (
-        api_key
-        and request.method not in {"GET", "HEAD", "OPTIONS"}
-        and not (api_key_valid or session_valid or auth_bootstrap)
-    ):
-        return JSONResponse(
-            {"detail": "authentication required", "requestId": request_id},
-            status_code=401,
+    path = get_route_path(request.scope)
+    required_scope = http_request_scope(request.app.router, request.scope)
+    csrf_exempt = request.method == "POST" and required_scope is None
+    if required_scope is not None:
+        if not auth.authenticated:
+            return JSONResponse(
+                {"detail": "authentication required", "requestId": request_id},
+                status_code=401,
+            )
+        denial = auth.denial(
+            AUTHORIZATION_POLICY, required_scope,
+            tenant_job=tenant_job_http(request.method, path),
         )
+        if denial is not None:
+            return JSONResponse(
+                {"detail": denial, "requestId": request_id}, status_code=403,
+            )
     enforce_csrf = _truthy("BALOOT_ENFORCE_SESSION_CSRF") or (
         os.environ.get("BALOOT_ENV", "development").lower() == "production"
         and bool(IDENTITY_PROFILE.get("csrf", {}).get("enabled_in_production", True))
@@ -821,7 +864,7 @@ async def platform_security(request: Request, call_next):
         and session_valid
         and not api_key_valid
         and access_claims is None
-        and not auth_bootstrap
+        and not csrf_exempt
         and enforce_csrf
     ):
         supplied_csrf = request.headers.get("x-csrf-token", "")
@@ -836,21 +879,11 @@ async def platform_security(request: Request, call_next):
         getattr(access_claims, "subject_id", "")
         or (identity.subject_id if identity else "")
     )
-    tenant = str(
-        getattr(access_claims, "tenant_id", "")
-        or request.headers.get("x-baloot-tenant-id", "")
-    )
-    role = str(
-        getattr(access_claims, "role", "")
-        or request.headers.get(
-            "x-baloot-role", "player" if claims_subject else "anonymous"
-        )
-    )
     context_token = CURRENT_DATABASE_IDENTITY.set(
         DatabaseIdentityContext(
             subject_id=claims_subject,
-            tenant_id=tenant,
-            role=role,
+            tenant_id=auth.tenant_id if auth.authenticated else "",
+            role=auth.role,
             request_id=request_id,
             session_id=str(
                 getattr(access_claims, "session_id", "")
@@ -7680,7 +7713,7 @@ def get_video_job(job_id: str, request: Request):
                 "Link": '</api/v2/research-results>; rel="successor-version"',
             },
         )
-    if not job_id.startswith("RUN-"):
+    if not job_id.startswith("RUN-") or request.state.tenant_id != DEFAULT_TENANT:
         raise HTTPException(404, "job not found")
     _require_trusted(request)
     run = RESEARCH.get_run(job_id)
@@ -7940,7 +7973,7 @@ def video_job_events(job_id: str, request: Request):
             content={"jobId": job_id, "events": STORE.events(job_id)},
             headers={"Deprecation": "true"},
         )
-    if not job_id.startswith("RUN-"):
+    if not job_id.startswith("RUN-") or request.state.tenant_id != DEFAULT_TENANT:
         raise HTTPException(404, "job not found")
     _require_trusted(request)
     try:
@@ -8094,24 +8127,33 @@ def history_games(search: str = "", limit: int = 100):
 
 
 @app.get("/api/v1/history/games/{identifier}")
-def history_game(identifier: str):
-    return _require_private_history_game(identifier)
+def history_game(identifier: str, request: Request):
+    reader = _archive_reader(request)
+    game = _require_private_history_game(identifier, reader)
+    return game if reader is None else history_without_media(game)
 
 
 @app.get("/api/v1/history/games/{identifier}/replay")
-def replay_history_package(identifier: str):
-    game = _require_private_history_game(identifier)
+def replay_history_package(identifier: str, request: Request):
+    reader = _archive_reader(request)
+    game = _require_private_history_game(identifier, reader)
     game_hash = game.get("gameHash")
     game_id = game.get("gameId")
+    decisions = game.get("decisions") or LEARNING_STORE.list_decisions(game_hash or game_id)
+    videos = []
+    if reader is not None:
+        game = history_without_media({**game, "decisions": decisions})
+        decisions = game["decisions"]
+    elif game_hash:
+        videos = LEARNING_STORE.list_video_records(game_hash=game_hash, limit=100)
+    else:
+        videos = LEARNING_STORE.list_video_records("game", str(game_id), limit=100)
     return {
         "game": game,
         "verification": LEARNING_STORE.verify_game(identifier),
         "audits": LEARNING_STORE.list_game_audits(game_hash or game_id, limit=50),
-        "videos": LEARNING_STORE.list_video_records(game_hash=game_hash, limit=100)
-        if game_hash
-        else LEARNING_STORE.list_video_records("game", str(game_id), limit=100),
-        "decisions": game.get("decisions")
-        or LEARNING_STORE.list_decisions(game_hash or game_id),
+        "videos": videos,
+        "decisions": decisions,
         "bundle": {
             "hash": game.get("bundleHash"),
             "engineVersion": game.get("engineVersion"),
@@ -8134,15 +8176,15 @@ def history_game_video_records(identifier: str):
 
 
 @app.get("/api/v1/history/games/{identifier}/verification")
-def verify_history_game(identifier: str):
-    _require_private_history_game(identifier)
+def verify_history_game(identifier: str, request: Request):
+    _require_private_history_game(identifier, _archive_reader(request))
     result = LEARNING_STORE.verify_game(identifier)
     if result.get("error") == "not found":
         raise HTTPException(404, "archived game not found")
     return result
 
 
-@app.post("/api/v1/history/games/{identifier}:reopen", status_code=201)
+@app.post(HISTORY_GAME_REOPEN_PATH, status_code=201)
 def reopen_history_game(identifier: str, branch: bool = False):
     _require_private_history_game(identifier)
     try:
@@ -8318,7 +8360,7 @@ def render_history_decision(
     return {"jobId": job_id, "challengeId": challenge_id, "status": "queued"}
 
 
-@app.post("/api/v1/history/games/{identifier}:audit")
+@app.post(HISTORY_GAME_AUDIT_PATH)
 def audit_history_game(identifier: str, request: ReplayAuditRequest):
     _require_private_history_game(identifier)
     try:
@@ -8343,8 +8385,8 @@ def audit_history_game(identifier: str, request: ReplayAuditRequest):
 
 
 @app.get("/api/v1/history/games/{identifier}/audits")
-def list_history_game_audits(identifier: str, limit: int = 50):
-    _require_private_history_game(identifier)
+def list_history_game_audits(identifier: str, request: Request, limit: int = 50):
+    _require_private_history_game(identifier, _archive_reader(request))
     return {"audits": LEARNING_STORE.list_game_audits(identifier, limit=limit)}
 
 
@@ -8357,7 +8399,9 @@ def get_replay_audit(audit_id: str, request: Request):
     if decision_id:
         _require_private_decision_access(decision_id, request)
     else:
-        _require_completed_shared_game_access(str(value.get("gameId") or ""))
+        _require_completed_shared_game_access(
+            str(value.get("gameId") or ""), _archive_reader(request), not_found_detail="audit not found"
+        )
         _require_completed_shared_analysis_decisions(value)
     return value
 

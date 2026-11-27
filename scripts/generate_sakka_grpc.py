@@ -35,6 +35,7 @@ message("RunActionRequest", [("run_id", 1, TYPE.TYPE_STRING), ("canonical_json",
 message("RunAuditRequest", [("run_id", 1, TYPE.TYPE_STRING), ("deep", 2, TYPE.TYPE_BOOL), ("force", 3, TYPE.TYPE_BOOL), ("maximum_decisions", 4, TYPE.TYPE_UINT32)])
 message("ShareDecisionRequest", [("run_id", 1, TYPE.TYPE_STRING), ("sequence", 2, TYPE.TYPE_UINT32), ("canonical_json", 3, TYPE.TYPE_BYTES)])
 message("FeedbackRequest", [("run_id", 1, TYPE.TYPE_STRING), ("sequence", 2, TYPE.TYPE_UINT32), ("canonical_json", 3, TYPE.TYPE_BYTES)])
+message("CompareRunsRequest", [("run_a", 1, TYPE.TYPE_STRING), ("run_b", 2, TYPE.TYPE_STRING)])
 message("JsonResult", [("canonical_json", 1, TYPE.TYPE_BYTES)])
 
 svc = fd.service.add(); svc.name = "SakkaPlatform"
@@ -45,7 +46,7 @@ methods = [
     ("StartRun", "Identifier"), ("GetRun", "Identifier"), ("VerifyRun", "Identifier"),
     ("PlayAction", "RunActionRequest"), ("AuditRun", "RunAuditRequest"),
     ("ShareDecision", "ShareDecisionRequest"), ("RecordFeedback", "FeedbackRequest"),
-    ("GetLeaderboard", "Identifier"),
+    ("GetLeaderboard", "Identifier"), ("CompareRuns", "CompareRunsRequest"),
 ]
 for name, input_name in methods:
     method = svc.method.add(); method.name = name

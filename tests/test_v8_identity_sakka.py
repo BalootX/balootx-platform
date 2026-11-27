@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
 
@@ -28,7 +29,7 @@ from baloot_platform.learning.store import LearningStore
 from baloot_platform.sakka import SakkaService, SQLiteSakkaStore
 from baloot_platform.security import AuthorizationPolicy, Scope, SignedAccessTokenService
 from baloot_platform.service.game import GameManager
-from baloot_platform.service.routes.auth import PendingRequestItem, build_auth_router
+from baloot_platform.service.routes.auth import COOKIE_NAME, PendingRequestItem, build_auth_router
 from baloot_platform.storage.game_store import SQLiteGameStore
 
 
@@ -106,7 +107,7 @@ def test_python_sdk_forwards_identity_pagination_options():
     ]
 
 
-def test_friend_routes_preserve_service_delegation_and_apply_v2_read_scope(tmp_path, monkeypatch):
+def test_friend_routes_preserve_service_delegation_and_require_read_scope(tmp_path, monkeypatch):
     from baloot_platform.service import api
     from baloot_platform.service.client_identity import service_subject_ownership
 
@@ -138,16 +139,16 @@ def test_friend_routes_preserve_service_delegation_and_apply_v2_read_scope(tmp_p
         return {"Authorization": "Bearer " + tokens.issue(subject_id="SUB-DELEGATED", role=role, scopes=[scope], now=now)}
 
     with TestClient(app) as client:
-        v2_search = "/api/v2/users:search"
         query = {"query": "SUB"}
-        assert client.get(v2_search, params=query).status_code == 401
-        for headers in ({"x-api-key": key}, delegated):
-            assert client.get(v2_search, params=query, headers=headers).status_code == 200
-        for role in ("guest", "player", "expert", "referee", "admin", "service", "unknown"):
-            expected = 403 if role in {"guest", "unknown"} else 200
-            assert client.get(v2_search, params=query, headers=bearer(role, Scope.READ)).status_code == expected
-            assert client.get(v2_search, params=query, headers=bearer(role, Scope.PLAY)).status_code == 403
         for version in ("v1", "v2"):
+            search = f"/api/{version}/users:search"
+            assert client.get(search, params=query).status_code == 401
+            for headers in ({"x-api-key": key}, delegated):
+                assert client.get(search, params=query, headers=headers).status_code == 200
+            for role in ("guest", "player", "expert", "referee", "admin", "service", "unknown"):
+                denied = role == "unknown" or (version == "v2" and role == "guest")
+                assert client.get(search, params=query, headers=bearer(role, Scope.READ)).status_code == (403 if denied else 200)
+                assert client.get(search, params=query, headers=bearer(role, Scope.PLAY)).status_code == 403
             for resource in ("friends", "friends/requests"):
                 path = f"/api/{version}/{resource}"
                 assert client.get(path).status_code == 401
@@ -167,8 +168,8 @@ def test_friend_routes_preserve_service_delegation_and_apply_v2_read_scope(tmp_p
                     allowed = client.get(path, headers=bearer(role, Scope.READ))
                     assert allowed.status_code == 200
                     assert len(allowed.json()["items"]) == 1
-                    assert client.get(path, headers=bearer(role, Scope.PLAY)).status_code == (200 if version == "v1" else 403)
-                assert client.get(path, headers=bearer("unknown", Scope.READ)).status_code == (200 if version == "v1" else 403)
+                    assert client.get(path, headers=bearer(role, Scope.PLAY)).status_code == 403
+                assert client.get(path, headers=bearer("unknown", Scope.READ)).status_code == 403
 
         outgoing = client.post("/api/v1/friends/requests", json={"recipientId": "SUB-SENDER"}, headers=delegated)
         assert outgoing.status_code == 201
@@ -177,6 +178,67 @@ def test_friend_routes_preserve_service_delegation_and_apply_v2_read_scope(tmp_p
         response = client.post(f"/api/v1/friends/requests/{pending['request_id']}:respond", json={"accept": False}, headers=delegated)
         assert response.status_code == 200
         assert client.get("/api/v1/friends/requests", headers=delegated).json() == {"items": []}
+
+
+@pytest.mark.parametrize("credential", ["cookie", "bearer"])
+def test_sdk_logout_is_idempotent_and_revokes_valid_sessions(tmp_path, monkeypatch, credential):
+    from baloot_platform.identity import service as identity_service
+    from baloot_platform.service import api
+
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    class FixtureClock(datetime):
+        @classmethod
+        def now(cls, tz=timezone.utc):
+            return now.astimezone(tz)
+
+    def session_headers(token):
+        if credential == "cookie":
+            return {"cookie": f"{COOKIE_NAME}={token}"}
+        return {"authorization": f"Bearer {token}"}
+
+    monkeypatch.setattr(identity_service, "datetime", FixtureClock)
+    monkeypatch.setenv("BALOOT_ENV", "production")
+    monkeypatch.setenv("BALOOT_RATE_LIMIT_PER_MINUTE", "0")
+    service = IdentityService(SQLiteIdentityStore(tmp_path / "logout-identity.sqlite3"), guest_hours=1)
+    monkeypatch.setattr(api, "IDENTITY", service)
+    app = security_probe_app()
+    app.include_router(build_auth_router(
+        service, pagination=api.CONTAINER.identity_pagination, policy=api.AUTHORIZATION_POLICY,
+    ))
+
+    with TestClient(app, base_url="https://testserver") as client:
+        guest = client.post("/api/v1/auth/guest", json={"displayName": "Logout fixture"})
+        assert guest.status_code == 201, guest.text
+        token = guest.json()["accessToken"]
+        headers = {}
+        if credential == "bearer":
+            client.cookies.clear()
+            headers = session_headers(token)
+        assert client.get("/api/v1/friends", headers=headers).status_code == 200
+        mutation = client.post(
+            "/api/v1/friends/requests", headers=headers, json={"recipientId": "SUB-FIXTURE"},
+        )
+        assert mutation.status_code == 403
+        assert mutation.json()["detail"] == "csrf token required"
+
+        response = client.post("/api/v1/auth/logout", headers=headers)
+        assert response.status_code == 204, response.text
+        assert response.headers["set-cookie"].startswith(f"{COOKIE_NAME}=")
+        assert "Max-Age=0" in response.headers["set-cookie"]
+        assert client.cookies.get(COOKIE_NAME) is None
+        assert client.get("/api/v1/friends", headers=session_headers(token)).status_code == 401
+
+        expired = service.create_guest("Expired logout fixture")["session"]["token"]
+        assert client.get("/api/v1/friends", headers=session_headers(expired)).status_code == 200
+        now += timedelta(hours=1)
+        assert client.get("/api/v1/friends", headers=session_headers(expired)).status_code == 401
+
+        for stale in ({}, session_headers(token), session_headers(expired)):
+            repeated = client.post("/api/v1/auth/logout", headers=stale)
+            assert repeated.status_code == 204, repeated.text
+            assert repeated.headers["set-cookie"].startswith(f"{COOKIE_NAME}=")
+            assert "Max-Age=0" in repeated.headers["set-cookie"]
 
 
 def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):

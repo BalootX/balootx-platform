@@ -54,6 +54,7 @@
     "repo-settings-branch-protection-and-release-gates": [
       ".github/**",
       "ci/**",
+      "ci/review_verdict_poster.py",
       "scripts/ci_scope.py",
       "scripts/ci_known_failures.py",
       "scripts/run_isolated_pytest.py",

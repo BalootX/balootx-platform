@@ -109,7 +109,10 @@ def build_adjudication_router(service: AdjudicationService, identities: Identity
     def ruling(case_id: str, body: RulingRequest, request: Request):
         identity, _ = require_identity(request, identities)
         try:
-            policy.require(role=_role(request), required=Scope.REFEREE)
+            policy.require(
+                role=_role(request), required=Scope.REFEREE,
+                claims=getattr(request.state, "access_claims", None),
+            )
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
         try:
@@ -137,7 +140,10 @@ def build_adjudication_router(service: AdjudicationService, identities: Identity
     def resolve(case_id: str, body: RulingRequest, request: Request):
         identity, _ = require_identity(request, identities)
         try:
-            policy.require(role=_role(request), required=Scope.REFEREE)
+            policy.require(
+                role=_role(request), required=Scope.REFEREE,
+                claims=getattr(request.state, "access_claims", None),
+            )
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
         try:

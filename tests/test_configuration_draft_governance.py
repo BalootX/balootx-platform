@@ -852,7 +852,7 @@ if entry_point == 'worker':
     raise AssertionError('Worker returned without refusing startup')
 
 from fastapi.testclient import TestClient
-from baloot_platform.service.api import CONFIGURATION, app
+from baloot_platform.service.api import ACCESS_TOKENS, CONFIGURATION, app
 from baloot_platform.service.container import build_container
 
 baseline = json.loads(baseline_json)
@@ -871,6 +871,12 @@ with TestClient(app) as client:
     assert revision_id not in readiness.text
     assert not environment or environment not in readiness.text
     assert client.get('/readyz', headers=player).json()['detail'] == readiness.json()['detail']
+    tenant_admin_token = ACCESS_TOKENS.issue(
+        subject_id='TEST-TENANT-ADMIN', role='admin', scopes=['baloot.config.admin'], tenant_id='fixture-tenant',
+    )
+    tenant_readiness = client.get('/readyz', headers={'authorization': f'Bearer {tenant_admin_token}'})
+    assert tenant_readiness.status_code == 503
+    assert tenant_readiness.json()['detail'] == readiness.json()['detail']
     admin_readiness = client.get('/readyz', headers=admin)
     assert admin_readiness.status_code == 503
     detail = admin_readiness.json()['detail']
@@ -881,7 +887,9 @@ with TestClient(app) as client:
     assert 'the saved schedule cannot be verified' in detail
     assert client.get('/api/v1/options').status_code == (200 if environment else 503)
     gauge = f'baloot_research_configuration_unavailable {int(bool(environment))}'
-    assert gauge in client.get('/metrics').text.splitlines()
+    metrics = client.get('/metrics', headers=admin)
+    assert metrics.status_code == 200, metrics.text
+    assert gauge in metrics.text.splitlines()
     if not environment:
         assert client.get('/api/v1/options', headers=admin).status_code == 503
         listing = client.get(f'{registry}/bundles', headers=admin)
@@ -892,7 +900,7 @@ with TestClient(app) as client:
             'componentRevisions': CONFIGURATION.store.get_bundle(revision_id).component_revisions,
             'publish': True,
         }
-        assert client.post(f'{registry}/bundles', headers=player, json=request).status_code == 503
+        assert client.post(f'{registry}/bundles', headers=player, json=request).status_code == 403
         # Different verified component content yields a replacement revision.
         payload = CONFIGURATION.store.get_profile(request['componentRevisions']['performance']).to_dict()['payload']
         payload['profile']['version'] = '99.0.5'
@@ -910,7 +918,7 @@ with TestClient(app) as client:
         )
         assert rollback.status_code == 201, rollback.text
         assert client.get('/api/v1/options', headers=admin).status_code == 503
-        assert baseline['revisionId'] not in client.get('/metrics').text
+        assert baseline['revisionId'] not in client.get('/metrics', headers=admin).text
 
 if not environment:
     restarted = build_container()
@@ -1249,20 +1257,21 @@ class _ExactDimensionResolutionStore:
         ]
         return sorted(values, key=lambda item: item.sequence, reverse=True)
 
-    def list_bundles(self, **filters: Any) -> list[BundleRevision]:
-        self.bundle_calls.append(dict(filters))
-        assert filters["exact_dimensions"] is True
+    def list_bundle_histories(
+        self, dimensions: tuple[str | None, str, str, str | None, str | None],
+        *, include_unpublished: bool = False, limit: int = 100,
+    ) -> list[tuple[BundleRevision, dict[str, BundleRevision]]]:
+        bundle_id, scope, scope_key, tenant_id, environment = dimensions
+        self.bundle_calls.append({"tenant_id": tenant_id, "environment": environment})
         values = [
             item
             for item in self.bundles
-            if item.bundle_id == filters["bundle_id"]
-            and item.scope == filters["scope"]
-            and item.scope_key == filters["scope_key"]
-            and item.tenant_id == filters["tenant_id"]
-            and item.environment == filters["environment"]
-            and item.status == filters["status"]
+            if (bundle_id is None or item.bundle_id == bundle_id)
+            and (item.scope, item.scope_key, item.tenant_id, item.environment) == (scope, scope_key, tenant_id, environment)
+            and (include_unpublished or item.status == "published")
         ]
-        return sorted(values, key=lambda item: item.sequence, reverse=True)
+        values.sort(key=lambda item: item.sequence, reverse=True)
+        return [(item, {item.revision_id: item}) for item in values[:limit]]
 
     def verify_events(self, aggregate_type: str, aggregate_id: str) -> dict[str, Any]:
         return {

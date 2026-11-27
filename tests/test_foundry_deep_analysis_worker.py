@@ -332,7 +332,7 @@ def test_batch_parser_rejects_non_hex_content_identity(tmp_path):
 
 
 def test_typed_deep_analysis_api_submits_reads_and_cancels(tmp_path, monkeypatch):
-    from fastapi.testclient import TestClient
+    from service_test_client import OperatorClient as TestClient
     from baloot_platform.service import api
 
     service, spec, _ = _service(tmp_path)
@@ -352,7 +352,7 @@ def test_typed_deep_analysis_api_submits_reads_and_cancels(tmp_path, monkeypatch
 
 
 def test_typed_candidate_catalog_api_lists_and_prepares(monkeypatch):
-    from fastapi.testclient import TestClient
+    from service_test_client import OperatorClient as TestClient
     from baloot_platform.service import api
 
     candidate_hash = "a" * 64
@@ -412,7 +412,7 @@ def test_typed_candidate_catalog_api_lists_and_prepares(monkeypatch):
 def test_typed_finalist_validation_api_requires_idempotency_and_is_bounded(
     monkeypatch,
 ):
-    from fastapi.testclient import TestClient
+    from service_test_client import OperatorClient as TestClient
     from baloot_platform.service import api
 
     candidate_hash = "a" * 64

@@ -185,6 +185,9 @@ def _admin(request: Request, policy: AuthorizationPolicy) -> None:
 
 
 def is_configuration_admin(request: Request, policy: AuthorizationPolicy) -> bool:
+    auth = getattr(request.state, "auth", None)
+    if auth is not None:
+        return auth.authenticated and auth.denial(policy, Scope.CONFIG_ADMIN, tenant_job=False) is None
     if not (getattr(request.state, "access_claims", None) or getattr(request.state, "api_key_valid", False)):
         return False
     try:

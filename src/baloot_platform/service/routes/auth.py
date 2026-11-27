@@ -15,6 +15,7 @@ from baloot_platform.identity.pagination import (
     InvalidIdentityCursor,
 )
 from baloot_platform.security import AuthorizationPolicy, Scope
+from baloot_platform.service.authorization import claims_identity
 from baloot_platform.service.client_identity import service_client_identity
 
 COOKIE_NAME = "baloot_session"
@@ -86,11 +87,8 @@ def current_identity(request: Request, service: IdentityService) -> tuple[Identi
         return identity, session
     claims = getattr(request.state, "access_claims", None)
     if claims is not None:
-        role = str(getattr(claims, "role", "player"))
-        synthetic = Identity(
-            str(claims.subject_id), role,
-            request.headers.get("x-baloot-subject-name", str(claims.subject_id))[:40],
-            None, role in {"service", "admin", "referee"}, None,
+        synthetic = claims_identity(
+            claims, request.headers.get("x-baloot-subject-name", claims.subject_id),
         )
         return synthetic, {
             "session_id": getattr(claims, "session_id", None),
@@ -205,10 +203,11 @@ def build_auth_router(
         }
 
     @router.post("/auth/logout", status_code=204)
-    def logout(request: Request, response: Response):
+    def logout(request: Request):
         service.logout(request_token(request))
-        response.delete_cookie(COOKIE_NAME, path="/")
-        return Response(status_code=204)
+        response = Response(status_code=204)
+        response.delete_cookie(COOKIE_NAME, path="/", httponly=True, secure=_cookie_secure(request))
+        return response
 
     @router.get("/users:search")
     def search_users(request: Request, query: str, limit: int = 20):

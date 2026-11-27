@@ -19,6 +19,7 @@ _SPECS = {
     'ShareDecision': (sakka__pb2.ShareDecisionRequest, sakka__pb2.JsonResult),
     'RecordFeedback': (sakka__pb2.FeedbackRequest, sakka__pb2.JsonResult),
     'GetLeaderboard': (sakka__pb2.Identifier, sakka__pb2.JsonResult),
+    'CompareRuns': (sakka__pb2.CompareRunsRequest, sakka__pb2.JsonResult),
 }
 
 class SakkaPlatformStub:

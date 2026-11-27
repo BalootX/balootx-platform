@@ -507,7 +507,7 @@ with TestClient(app) as client:
         finally:
             CURRENT_DATABASE_IDENTITY.reset(token)
         before = snapshot(target.bundle_id)
-        for headers, expected_status in (({}, 401), ({**admin, 'x-baloot-role': 'player'}, 503)):
+        for headers, expected_status in (({}, 401), ({**admin, 'x-baloot-role': 'player'}, 403)):
             denied = client.post(rollback, headers=headers, json=body)
             assert denied.status_code == expected_status, denied.text
             assert expected not in denied.text

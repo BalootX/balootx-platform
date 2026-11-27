@@ -5,7 +5,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 from pydantic import ValidationError
 
 from baloot_platform.research.result_authority import (
