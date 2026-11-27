@@ -169,21 +169,24 @@ test('retains governed live-result latency and Foundry page performance samples'
     visibleSignal: 'campaign_progress.provisional_result',
     browser: {name: 'chrome', version: browser.version()},
     latenciesMilliseconds,
-    pagePerformance: undefined as Awaited<ReturnType<typeof measureFoundryPage>> | undefined,
   };
+  let pagePerformance: Awaited<ReturnType<typeof measureFoundryPage>> | undefined;
   try {
     if (!baseURL || !locale) throw new Error('Foundry performance requires the project base URL and locale');
-    measurement.pagePerformance = await test.step('Measure Foundry overview load and research interaction',
+    pagePerformance = await test.step('Measure Foundry overview load and research interaction',
       () => measureFoundryPage(browser, baseURL, locale));
   } finally {
-    const receipt = `${JSON.stringify(measurement, null, 2)}\n`;
+    const receipt = `${JSON.stringify({...measurement, pagePerformance}, null, 2)}\n`;
     await mkdir(dirname(sampleOutput), {recursive: true});
     await writeFile(sampleOutput, receipt, 'utf8');
     await test.info().attach('research-live-result-latency-samples.json', {
-      body: receipt,
+      path: sampleOutput,
       contentType: 'application/json',
     });
   }
+  const {lcp, inp} = pagePerformance;
+  expect.soft(lcp.p75Milliseconds, 'Foundry p75 LCP (ms)').toBeLessThan(lcp.budgetMilliseconds);
+  expect.soft(inp.p75Milliseconds, 'Foundry p75 INP (ms)').toBeLessThan(inp.budgetMilliseconds);
 });
 
 test('refreshes terminal run stats when a progress event observes completion', async ({page}) => {
