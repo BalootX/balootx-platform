@@ -51,8 +51,10 @@ from baloot_platform.challenge.tactical_evidence import (
     CausalTacticalDetectorV1,
     TacticalDetectorProfileV1,
 )
-from baloot_platform.config import ProfileBundle, profile_bundle_from_resolved
+from baloot_platform.config import ProfileBundle, profile_bundle_from_resolved, resolved_bundle_identity
 from baloot_platform.configuration import EffectiveRuntimeConfigV2
+from baloot_platform.configuration.models import BundleRevision
+from baloot_platform.configuration.schedule import ConfigurationIntegrityError
 from baloot_platform.native.accelerator import NativeAccelerator, NativeUnavailable
 
 from .contracts import (
@@ -1088,6 +1090,23 @@ class ResearchExecutionContextFactoryV1:
             raise ValueError("Research model availability or identity mismatch")
         return context
 
+    def _unverifiable_bundle_might_match(self, candidate: BundleRevision, bundle_hash: str) -> bool:
+        store = self.configuration_service.store
+        current = store.get_bundle(candidate.revision_id)
+        if current is None:
+            return True
+        hashes = {}
+        for family, revision_id in current.component_revisions.items():
+            profile = store.get_profile(revision_id)
+            if profile is None or profile.family != family:
+                return True
+            hashes[family] = canonical_sha256(dict(profile.payload))
+        # Lifecycle status participates in the legacy hash and can change during the scan.
+        return any(
+            canonical_sha256(resolved_bundle_identity(row.to_dict(), hashes)) == bundle_hash
+            for row in (candidate, current)
+        )
+
     def resolve_recipe(
         self,
         recipe: ResearchRecipeV1 | ResearchRecipeV2 | ResearchRecipeV3 | ResearchRecipeV4,
@@ -1102,7 +1121,7 @@ class ResearchExecutionContextFactoryV1:
             )
         expected = dict(recipe.profiles)
         matches: list[ResearchExecutionContextV1] = []
-        rows = self.configuration_service.store.list_bundles(status=None, limit=10_000)
+        rows = self.configuration_service.store.list_bundles(status=None, limit=10_000, include_scheduled=True)
         for row in rows:
             if str(row.status) not in {"published", "superseded"}:
                 continue
@@ -1110,6 +1129,10 @@ class ResearchExecutionContextFactoryV1:
                 effective, context = self.resolve_bundle_revision(
                     str(row.revision_id), require_published=False
                 )
+            except ConfigurationIntegrityError as exc:
+                if self._unverifiable_bundle_might_match(row, expected["bundleHash"]):
+                    raise ValueError("historical_record_requires_readjudication") from exc
+                continue
             except (KeyError, PermissionError, RuntimeError, ValueError):
                 continue
             projection = {

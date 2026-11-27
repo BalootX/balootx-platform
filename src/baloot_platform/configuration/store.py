@@ -6,7 +6,7 @@ import threading
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, TypeVar
+from typing import Any, Callable, Iterable, Mapping, TypeVar
 
 from baloot_platform.storage.request_context import contextual_connection
 
@@ -16,6 +16,7 @@ from .schedule import ConfigurationScheduleConflict, normalize_schedule, verify_
 
 _UNSET = object()
 Revision = TypeVar("Revision", ProfileRevision, BundleRevision)
+BundleHistory = tuple[BundleRevision, dict[str, BundleRevision]]
 
 _POSTGRES_PROFILE_COLUMNS = """
 revision_id,family,profile_id,version,scope,scope_key,tenant_id,environment,
@@ -203,6 +204,57 @@ def _require_rollback_target(
 
 _SQLITE_BUNDLE_REGISTRY_STATUS = _bundle_registry_status("configuration_bundle_revisions")
 _POSTGRES_BUNDLE_REGISTRY_STATUS = _bundle_registry_status("configuration.bundle_revisions")
+
+
+def _read_bundle_histories(
+    conn: Any,
+    dimensions: tuple[str | None, str, str, str | None, str | None],
+    *,
+    table: str,
+    parameter: str,
+    nullable_equal: str,
+    decode: Callable[[Any], BundleRevision | None],
+    include_unpublished: bool,
+    limit: int,
+) -> list[BundleHistory]:
+    bundle_id, *scope = dimensions
+    filters = [f"scope={parameter}", f"scope_key={parameter}",
+               f"tenant_id {nullable_equal} {parameter}", f"environment {nullable_equal} {parameter}"]
+    args = list(scope)
+    if bundle_id is not None:
+        filters.append(f"bundle_id={parameter}")
+        args.append(bundle_id)
+    if not include_unpublished:
+        filters.append("status='published'")
+    args.append(limit)
+    # One statement binds each anchor to the revisions it can reach at that snapshot.
+    rows = conn.execute(f"""
+        WITH RECURSIVE anchors AS (
+            SELECT revision_id, sequence, created_at FROM {table}
+            WHERE {' AND '.join(filters)}
+            ORDER BY sequence DESC, created_at DESC, revision_id LIMIT {parameter}
+        ), history(anchor_id, revision_id) AS (
+            SELECT revision_id, revision_id FROM anchors
+            UNION
+            SELECT history.anchor_id, linked.revision_id
+            FROM history JOIN {table} AS current_revision ON current_revision.revision_id=history.revision_id
+            JOIN {table} AS linked ON linked.revision_id=CASE
+                WHEN history.revision_id=history.anchor_id THEN current_revision.scheduled_successor_id
+                ELSE current_revision.scheduled_predecessor_id END
+        )
+        SELECT history.anchor_id, revision.*
+        FROM history JOIN anchors ON anchors.revision_id=history.anchor_id
+        JOIN {table} AS revision ON revision.revision_id=history.revision_id
+        ORDER BY anchors.sequence DESC, anchors.created_at DESC, anchors.revision_id
+    """, args).fetchall()
+    histories: dict[str, dict[str, BundleRevision]] = {}
+    for row in rows:
+        revision = decode(row)
+        assert revision is not None
+        histories.setdefault(row["anchor_id"], {})[revision.revision_id] = revision
+    return [(history[anchor_id], history) for anchor_id, history in histories.items()]
+
+
 _PUBLISHED_BUNDLE_COMPONENT = """
     WITH RECURSIVE reachable(revision_id, components, predecessor, successor) AS (
         SELECT revision_id, {components}, scheduled_predecessor_id, scheduled_successor_id
@@ -1425,6 +1477,16 @@ class SQLiteConfigurationStore:
                 f"SELECT *, {_SQLITE_BUNDLE_REGISTRY_STATUS} AS registry_status FROM configuration_bundle_revisions "
                 "WHERE revision_id=?", (revision_id,),
             ).fetchone())
+
+    def list_bundle_histories(
+        self, dimensions: tuple[str | None, str, str, str | None, str | None], *,
+        include_unpublished: bool = False, limit: int = 100,
+    ) -> list[BundleHistory]:
+        with self._connect() as conn:
+            return _read_bundle_histories(
+                conn, dimensions, table="configuration_bundle_revisions", parameter="?", nullable_equal="IS",
+                decode=self._bundle, include_unpublished=include_unpublished, limit=limit,
+            )
 
     def find_bundle_by_content(self, *, bundle_id: str, scope: str, tenant_id: str | None, content_sha256: str,
                                scope_key: str = "*", environment: str | None = None) -> BundleRevision | None:
@@ -2752,6 +2814,17 @@ class PostgresConfigurationStore:
                 (revision_id,),
             ).fetchone()
         return self._bundle(row)
+
+    def list_bundle_histories(
+        self, dimensions: tuple[str | None, str, str, str | None, str | None], *,
+        include_unpublished: bool = False, limit: int = 100,
+    ) -> list[BundleHistory]:
+        with contextual_connection(self.pool) as conn:
+            return _read_bundle_histories(
+                conn, dimensions, table="configuration.bundle_revisions", parameter="%s",
+                nullable_equal="IS NOT DISTINCT FROM", decode=self._bundle,
+                include_unpublished=include_unpublished, limit=limit,
+            )
 
     def find_bundle_by_content(
         self,

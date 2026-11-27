@@ -36,6 +36,9 @@ order and uses the first one whose window includes the requested instant.
 The selected revision remains subject to its rollout policy. An immediate,
 unscheduled publication ends the schedule. The previous release continues to
 use the underlying publication before, during and after a scheduled window.
+The current service reads the anchor and its linked history in one database
+snapshot. Concurrent retirement can select the schedule from before or after
+the commit, with the links and revisions from the same state.
 Packaged Research scopes retain their packaged publication for the previous
 service during immediate replacements as well. The current service can use a
 replacement in that same scope. Both Research scopes are registered before the
@@ -65,6 +68,11 @@ gRPC reports `UNAVAILABLE`. An authenticated configuration administrator can
 see the failed revision or research environment in the REST diagnosis. Other
 callers receive a safe message and a request ID. Startup logs record the
 revision ID and environment as structured fields.
+
+Profile lookups without `atTime` apply the current clock at the next schedule
+boundary, including when a higher-priority profile takes effect. Legacy Research
+replay requires one verified configuration matching its saved recipe identity.
+An unverifiable schedule on an unrelated bundle does not prevent that match.
 
 If no runtime bundle is effective or its verification fails at startup, HTTP
 serves liveness, readiness, metrics and the authenticated configuration-admin

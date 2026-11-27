@@ -444,6 +444,20 @@ class ProfileBundle:
         return {**core, "sha256": _sha(core)}
 
 
+def resolved_bundle_identity(
+    bundle_row: Mapping[str, Any], component_hashes: Mapping[str, str],
+) -> dict[str, Any]:
+    return {
+        "bundleProfile": {
+            "id": str(bundle_row.get("bundleId") or "row_bundle"),
+            "version": str(bundle_row.get("version") or "0.0.0"),
+            "status": str(bundle_row.get("status") or "published"),
+        },
+        "mode": str(bundle_row.get("mode") or "full"),
+        "components": dict(component_hashes),
+    }
+
+
 def profile_bundle_from_resolved(
     resolved: Mapping[str, Any], *, root: Path | None = None
 ) -> ProfileBundle:
@@ -513,24 +527,12 @@ def profile_bundle_from_resolved(
         resolved_root,
     )
 
-    bundle_profile = {
-        "profile": {
-            "id": str(bundle_row.get("bundleId") or "row_bundle"),
-            "version": str(bundle_row.get("version") or "0.0.0"),
-            "status": str(bundle_row.get("status") or "published"),
-        }
-    }
-    mode = str(bundle_row.get("mode") or "full")
-    identity = {
-        "bundleProfile": bundle_profile["profile"],
-        "mode": mode,
-        "components": component_hashes,
-    }
+    identity = resolved_bundle_identity(bundle_row, component_hashes)
     return ProfileBundle(
         rules=rules,
         components=artifacts,
-        mode=mode,
-        bundle_profile=bundle_profile,
+        mode=identity["mode"],
+        bundle_profile={"profile": identity["bundleProfile"]},
         sha256=_sha(identity),
     )
 

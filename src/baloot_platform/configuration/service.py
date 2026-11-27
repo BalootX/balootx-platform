@@ -432,12 +432,15 @@ class VersionedConfigurationService:
         )
         return bucket < percentage
 
-    def _scheduled_bundle_history(self, anchor: BundleRevision) -> Iterator[BundleRevision]:
+    @staticmethod
+    def _scheduled_bundle_history(
+        anchor: BundleRevision, revisions: Mapping[str, BundleRevision],
+    ) -> Iterator[BundleRevision]:
         dimensions = (anchor.bundle_id, anchor.scope, anchor.scope_key, anchor.tenant_id, anchor.environment)
         seen: set[str] = set()
         revision_id = anchor.scheduled_successor_id or anchor.revision_id
         while revision_id != anchor.revision_id:
-            revision = self.store.get_bundle(revision_id)
+            revision = revisions.get(revision_id)
             if (
                 revision_id in seen
                 or revision is None
@@ -456,10 +459,10 @@ class VersionedConfigurationService:
         yield anchor
 
     def _effective_scheduled_bundle(
-        self, head: BundleRevision, context: ResolutionContext, now: datetime,
-        trace: list[dict[str, Any]],
+        self, head: BundleRevision, revisions: Mapping[str, BundleRevision],
+        context: ResolutionContext, now: datetime, trace: list[dict[str, Any]],
     ) -> BundleRevision | None:
-        for revision in self._scheduled_bundle_history(head):
+        for revision in self._scheduled_bundle_history(head, revisions):
             verify_revision_schedule(revision)
             in_window = self._inside_window(revision, now)
             eligible = in_window and self._in_rollout(revision, context)
@@ -596,6 +599,7 @@ class VersionedConfigurationService:
             return result
         trace = []
         now = parse_instant(context.at_time, "atTime") or datetime.now(timezone.utc)
+        cacheable = True
         for (
             scope,
             scope_key,
@@ -615,6 +619,8 @@ class VersionedConfigurationService:
             )
             for revision in rows:
                 verify_revision_schedule(revision)
+                if context.at_time is None and (revision.effective_from or revision.effective_until):
+                    cacheable = False
                 eligible = self._inside_window(revision, now) and self._in_rollout(revision, context)
                 trace.append(
                     {
@@ -628,7 +634,8 @@ class VersionedConfigurationService:
                     result = revision.to_dict()
                     result["resolutionTrace"] = trace
                     result["invalidationEpoch"] = epoch
-                    self._cache_put(key, result)
+                    if cacheable:
+                        self._cache_put(key, result)
                     return result
         raise KeyError(
             f"published configuration profile not found: {family}/{profile_id}"
@@ -950,23 +957,17 @@ class VersionedConfigurationService:
                 scoped_tenant,
                 scoped_environment,
             ) in self._scope_candidates(context):
-                rows = self.store.list_bundles(
-                    bundle_id=bundle_id,
-                    scope=scope,
-                    scope_key=scope_key,
-                    tenant_id=scoped_tenant,
-                    environment=scoped_environment,
-                    status=None if allow_draft else RevisionStatus.PUBLISHED.value,
-                    limit=100,
-                    exact_dimensions=True,
+                histories = self.store.list_bundle_histories(
+                    (bundle_id, scope, scope_key, scoped_tenant, scoped_environment),
+                    include_unpublished=allow_draft,
                 )
-                for head in rows:
+                for head, revisions in histories:
                     if head.scheduled_predecessor_id is not None:
                         continue
                     # Clock changes do not bump the registry epoch.
                     if context.at_time is None and (head.effective_from or head.effective_until or head.scheduled_successor_id):
                         cacheable = False
-                    bundle = self._effective_scheduled_bundle(head, context, now, trace)
+                    bundle = self._effective_scheduled_bundle(head, revisions, context, now, trace)
                     if bundle is not None:
                         selected_predecessor = bundle.revision_id != head.revision_id
                         break
@@ -979,14 +980,13 @@ class VersionedConfigurationService:
             and bundle.status == RevisionStatus.SUPERSEDED.value
         ):
             cacheable = False
-            heads = self.store.list_bundles(
-                bundle_id=bundle.bundle_id, scope=bundle.scope, scope_key=bundle.scope_key,
-                tenant_id=bundle.tenant_id, environment=bundle.environment,
-                status=RevisionStatus.PUBLISHED.value, limit=1, exact_dimensions=True,
+            histories = self.store.list_bundle_histories(
+                (bundle.bundle_id, bundle.scope, bundle.scope_key, bundle.tenant_id, bundle.environment), limit=1,
             )
-            if heads and heads[0].scheduled_successor_id is not None:
+            if histories and histories[0][0].scheduled_successor_id is not None:
+                head, revisions = histories[0]
                 now = parse_instant(context.at_time, "atTime") or datetime.now(timezone.utc)
-                selected = self._effective_scheduled_bundle(heads[0], context, now, trace)
+                selected = self._effective_scheduled_bundle(head, revisions, context, now, trace)
                 selected_predecessor = selected is not None and selected.revision_id == revision_id
         exact_historical = (
             revision_id is not None and (
@@ -1231,19 +1231,15 @@ class VersionedConfigurationService:
                     actor_id=actor_id,
                 )
             rid = existing_bundle.revision_id
-        rows = self.store.list_bundles(
-            bundle_id=bundle_id, scope=scope, scope_key=scope_key, tenant_id=tenant_id,
-            environment=environment, status=RevisionStatus.PUBLISHED.value, limit=1, exact_dimensions=True,
-        )
-        anchor = rows[0] if rows else None
+        histories = self.store.list_bundle_histories((bundle_id, scope, scope_key, tenant_id, environment), limit=1)
         context = ResolutionContext(tenant_id=tenant_id, environment=environment)
-        selected = (
-            self._effective_scheduled_bundle(anchor, context, datetime.now(timezone.utc), [])
-            if anchor is not None else None
-        )
+        selected = None
+        if histories:
+            anchor, revisions = histories[0]
+            selected = self._effective_scheduled_bundle(anchor, revisions, context, datetime.now(timezone.utc), [])
         if selected is None:
             raise ConfigurationIntegrityError(
-                anchor.revision_id if anchor is not None else rid,
+                histories[0][0].revision_id if histories else rid,
                 "No configuration bundle is effective. Publish a current replacement or roll back.",
             )
         return self._bundle_snapshot(selected, trace=[], epoch=self._epoch(), runtime=True, effective=True)

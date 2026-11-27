@@ -821,3 +821,83 @@ def test_legacy_recipe_without_unique_retained_identity_fails_closed():
     recipe = build_research_recipe(legacy)
     with pytest.raises(ValueError, match="historical_record_requires_readjudication"):
         api.RESEARCH.execution_context_factory.resolve_recipe(recipe)
+
+
+def test_legacy_replay_checks_schedule_integrity_only_for_possible_matches(root, tmp_path):
+    from baloot_platform.config import build_bundle
+    from baloot_platform.configuration import SQLiteConfigurationStore, VersionedConfigurationService
+    from baloot_platform.configuration.schedule import ConfigurationIntegrityError
+    from baloot_platform.service import api
+
+    base = api.RESEARCH.execution_context_factory
+    store = SQLiteConfigurationStore(tmp_path / "configuration.sqlite3")
+    configuration = VersionedConfigurationService(store, root=root, profile=base.configuration_service.profile)
+    packaged = build_bundle(root)
+    current = configuration.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)["bundle"]
+    factory = ResearchExecutionContextFactoryV1(
+        configuration_service=configuration,
+        artifact_store=base.artifact_store,
+        root=root,
+        plugin_capabilities=base.plugin_capabilities,
+        shared_plugin_descriptors=base.shared_plugin_descriptors,
+        active_bundle=packaged,
+        active_exact_search_backend=base.active_exact_search_backend,
+    )
+    _, saved = factory.resolve_bundle_revision(current["revisionId"])
+    raw = _selector_recipe(current["revisionId"])
+    del raw["configuration"]
+    raw["profiles"] = {
+        "domainHash": saved.legacy_domain_v2.sha256,
+        "bundleHash": saved.bundle.sha256,
+        "rulesHash": saved.legacy_domain_v2.rules_hash,
+        "conventionHash": saved.legacy_domain_v2.convention_hash,
+        "agentRelease": saved.simulator.agent_release,
+        "analysisProfileHash": saved.analyzers["screening"].profile.sha256,
+        "scoreProfileHash": saved.score_profile.sha256,
+    }
+    v1 = {key: value for key, value in raw.items() if key not in {"diversity", "renderPolicy"}}
+    recipes = [build_research_recipe({**v1, "schemaVersion": 1}), build_research_recipe({**raw, "schemaVersion": 2})]
+    common = {"mode": current["mode"], "component_revisions": current["componentRevisions"],
+              "created_by": "TEST", "publish": True}
+    window = {"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00"}
+
+    def corrupt(revision_id):
+        with store._connect() as connection:
+            connection.execute(
+                "UPDATE configuration_bundle_revisions SET effective_from=? WHERE revision_id=?",
+                ("2026-07-01T15:00:00+00:00", revision_id),
+            )
+
+    published = configuration.create_bundle(
+        **common, bundle_id="replay-unrelated-published", version="1.0.0", local_schedule=window,
+    )
+    archived = configuration.create_bundle(
+        **common, bundle_id="replay-unrelated-archived", version="1.0.0", local_schedule=window,
+    )
+    configuration.create_bundle(
+        **common, bundle_id=archived["bundleId"], version="1.0.1", force_new_revision=True,
+    )
+    assert store.get_bundle(archived["revisionId"]).status == "superseded"
+    for bundle in (published, archived):
+        corrupt(bundle["revisionId"])
+        with pytest.raises(ConfigurationIntegrityError):
+            factory.resolve_bundle_revision(bundle["revisionId"], require_published=False)
+    for recipe in recipes:
+        replay = factory.resolve_recipe(recipe)
+        assert replay.bundle_revision_id == saved.bundle_revision_id
+        assert replay.source_effective_hash == saved.source_effective_hash
+        _, exact = factory.resolve_bundle_revision(current["revisionId"], require_published=False)
+        assert replay.effective_runtime_config_hash == exact.effective_runtime_config_hash
+
+    matching = configuration.create_bundle(
+        **common, bundle_id=current["bundleId"], version=current["version"], local_schedule=window,
+        scope="tenant", tenant_id="TEST-REPLAY-MATCH",
+    )
+    for recipe in recipes:
+        with pytest.raises(ValueError, match="historical_record_requires_readjudication"):
+            factory.resolve_recipe(recipe)
+    corrupt(matching["revisionId"])
+    configuration._invalidate_cache()
+    for recipe in recipes:
+        with pytest.raises(ValueError, match="historical_record_requires_readjudication"):
+            factory.resolve_recipe(recipe)

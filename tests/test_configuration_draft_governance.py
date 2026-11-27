@@ -75,6 +75,43 @@ def _draft_performance(service: VersionedConfigurationService) -> dict[str, Any]
     )
 
 
+def test_current_profile_cache_follows_scoped_schedule_boundaries(root, tmp_path, monkeypatch):
+    from datetime import datetime
+
+    import baloot_platform.configuration.service as configuration_service
+
+    service = _service(root, tmp_path)
+    baseline = service.resolve()
+    profile = baseline["profileRevisions"]["performance"]
+    payload = copy.deepcopy(baseline["profiles"]["performance"])
+    payload["profile"]["version"] = "99.0.6"
+    tenant = "TEST-SCHEDULE"
+    scheduled = service.create_profile(
+        family="performance", payload=payload, created_by="TEST", publish=True,
+        scope="tenant", tenant_id=tenant,
+        local_schedule={"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00",
+                        "effectiveUntil": "2026-07-01T13:00"},
+    )
+    lookup = {"family": "performance", "profile_id": profile["profileId"], "tenant_id": tenant}
+    instant = "2026-07-01T15:59:59+00:00"
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromisoformat(instant).astimezone(tz)
+
+    monkeypatch.setattr(configuration_service, "datetime", Clock)
+    assert service.resolve_profile(**lookup)["revisionId"] == profile["revisionId"]
+    instant = "2026-07-01T16:00:00+00:00"
+    assert service.resolve_profile(**lookup)["revisionId"] == scheduled["revisionId"]
+    instant = "2026-07-01T16:59:59+00:00"
+    assert service.resolve_profile(**lookup)["revisionId"] == scheduled["revisionId"]
+    instant = "2026-07-01T17:00:00+00:00"
+    assert service.resolve_profile(**lookup)["revisionId"] == profile["revisionId"]
+    assert service.resolve_profile(**lookup, at_time="2026-07-01T16:00:00Z")["revisionId"] == scheduled["revisionId"]
+    assert service.resolve_profile(**lookup, at_time=instant)["revisionId"] == profile["revisionId"]
+
+
 def test_native_challenge_clone_retains_supported_version(root: Path, tmp_path: Path) -> None:
     service = _service(root, tmp_path)
     payload = yaml.safe_load((root / "configs/challenge/intelligent_research.yaml").read_text(encoding="utf-8"))

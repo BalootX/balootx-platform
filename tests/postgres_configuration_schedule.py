@@ -37,6 +37,7 @@ from baloot_platform.service.routes.configuration import (
 from baloot_platform.storage.request_context import (
     CURRENT_DATABASE_IDENTITY,
     DatabaseIdentityContext,
+    contextual_connection,
 )
 from scripts.migrate_postgres import apply_migrations
 from scripts.verify_live_postgres_research import (
@@ -719,7 +720,20 @@ finally:
         assert store.get_invalidation_epoch() == epoch_before
         assert service.resolve(**selection)["bundle"]["revisionId"] == competing_id
 
-        retired = service.retire_bundle(**retirement)
+        instant = "2026-07-02T00:00:00+00:00"
+        choose = service._effective_scheduled_bundle
+        retired = {}
+
+        def retire_between_snapshot_and_selection(*args, **kwargs):
+            retired.update(service.retire_bundle(**retirement))
+            assert store.get_bundle(competing_id).status == "retired"
+            return choose(*args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(service, "_effective_scheduled_bundle", retire_between_snapshot_and_selection)
+            startup = service.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)
+        assert startup["bundle"]["revisionId"] == competing_id
+        assert service.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)["bundle"]["revisionId"] == original["revisionId"]
         assert retired["status"] == "retired" and retired["etag"] == competing["etag"] + 1
         events = store.events("bundle", competing_id)
         assert events[:-2] == audit_before[competing_id]
@@ -731,6 +745,19 @@ finally:
         assert store.get_invalidation_epoch() == epoch_before + 1
         assert service.resolve(**selection)["bundle"]["revisionId"] == original["revisionId"]
         print(f"retirementAuditAtomicity: {backend}")
+
+        anchor = store.get_bundle(original["revisionId"])
+        def write_successor(successor):
+            with (contextual_connection(store.pool) if app_dsn is not None else store._connect()) as conn:
+                store._set_scheduled_successor_tx(conn, anchor.revision_id, successor)
+
+        write_successor(competing_id)
+        try:
+            with pytest.raises(ConfigurationIntegrityError, match="scheduled publication could not be verified"):
+                service.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)
+        finally:
+            write_successor(anchor.scheduled_successor_id)
+        print(f"startupRetirementSnapshot: {backend}")
 
         scheduled_profile_id = scheduled["componentRevisions"]["performance"]
         scheduled_profile = store.get_profile(scheduled_profile_id)
