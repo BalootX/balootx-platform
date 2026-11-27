@@ -2,9 +2,12 @@
 import ast
 from importlib.machinery import BYTECODE_SUFFIXES, EXTENSION_SUFFIXES
 import json
+import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
+import sys
 from types import SimpleNamespace
 from xml.etree import ElementTree
 
@@ -171,9 +174,14 @@ def test_hosted_ci_contract(root):
         "(github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'merge_group'"
     )
     assert review_step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert review_step["env"]["REVIEW_BASE"] == "${{ github.event.merge_group.base_sha }}"
+    resolve_base, _ = review_step["run"].split("base_files=", 1)
+    assert 'if [[ "$GITHUB_EVENT_NAME" == pull_request ]]' in resolve_base
+    assert "git rev-parse --verify 'HEAD^1^{commit}'" in resolve_base
     assert 'git show "$REVIEW_BASE:ci/critical_review.py"' in review_step["run"]
     assert 'python3 -I "$RUNNER_TEMP/critical-review.py"' in review_step["run"]
     assert "python3 -I ci/critical_review.py" not in review_step["run"]
+    assert not re.search(r"^\s*exit\s+0\s*$", review_step["run"], re.MULTILINE)
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
         "media-inputs", "media-render", "media-release-smoke", "remotion-image-parity",
@@ -181,6 +189,38 @@ def test_hosted_ci_contract(root):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)
         assert flags and all("-P" in options.split() for options in flags), name
+
+
+def test_preflight_requires_an_approved_pull_request_opener(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    step = jobs["preflight"]["steps"][0]
+    assert step["name"] == "Check pull request opener"
+    assert step["if"] == "github.event_name == 'pull_request'"
+    assert step["env"]["PR_OPENER_ID"] == "${{ github.event.pull_request.user.id }}"
+    assert step["env"]["PR_OPENER_TYPE"] == "${{ github.event.pull_request.user.type }}"
+    allowed = step["env"]["ALLOWED_PR_OPENER_IDS"]
+    approved_ids = allowed.split()
+    assert approved_ids and all(account_id.isascii() and account_id.isdecimal() for account_id in approved_ids)
+    command = shlex.split(step["run"])
+    assert command[:3] == ["python3", "-I", "-c"]
+    cases = [(account_id, "Bot", 0) for account_id in approved_ids] + [
+        (approved_ids[0], "User", 1),
+        (approved_ids[0], "", 1),
+        (approved_ids[0][:-1], "Bot", 1),
+        ("", "Bot", 1),
+    ]
+    for opener_id, opener_type, expected in cases:
+        result = subprocess.run(
+            [sys.executable, *command[1:]],
+            env={
+                **os.environ, "ALLOWED_PR_OPENER_IDS": allowed,
+                "PR_OPENER_ID": opener_id, "PR_OPENER_TYPE": opener_type,
+            },
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == expected, result.stderr
+        if expected:
+            assert result.stderr.strip() == "::error::Open this pull request through an approved GitHub App."
 
 
 @pytest.fixture
@@ -282,6 +322,30 @@ def test_critical_review_on_pull_request(review_history, monkeypatch, path, foll
         critical_review.check(*args)
 
 
+def test_pull_request_review_uses_merge_base_and_binds_head(review_history, monkeypatch):
+    path = "scripts/render_kickoff.py"
+    base, _, head, candidate = review_history(path)
+    pr = {"number": 104, "base": {"sha": "f" * 40}, "head": {"sha": head}}
+    endpoint = "repos/test/example/pulls/104"
+
+    def github(*args):
+        if args == (endpoint,):
+            return {**pr, "state": "open", "changed_files": 1}
+        if args == ("--paginate", "--slurp", f"{endpoint}/files?per_page=100"):
+            return [[{"filename": path, "status": "modified"}]]
+        assert args == ("--paginate", "--slurp", "repos/test/example/issues/104/comments?per_page=100")
+        return []
+
+    monkeypatch.setattr(critical_review, "github", github)
+    args = ("pull_request", {"pull_request": pr}, "test/example", "refs/pull/104/merge", candidate)
+    with pytest.raises(ValueError, match="needs a VERDICT"):
+        critical_review.check(*args)
+
+    pr["head"]["sha"] = base
+    with pytest.raises(ValueError, match="second parent.*Update the PR branch"):
+        critical_review.check(*args)
+
+
 def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatch):
     base, _, head, candidate = review_history("scripts/render-kickoff.json", squash=True)
     reviewer_ids, _ = critical_review.policy(base)
@@ -311,6 +375,9 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
         critical_review.check(*args)
     comment["body"] = f"VERDICT: GO {head}"
     critical_review.check(*args)
+    files[0]["filename"] = "ci/fixture.json"
+    with pytest.raises(ValueError, match="absent from both the PR base and head"):
+        critical_review.check(*args)
     files[0]["filename"] = "README.md"
     critical_review.check(*args)
     snapshot["changed_files"] = 2
@@ -493,6 +560,34 @@ def test_workflow_only_cancels_superseded_runs_of_the_same_pr(root):
     assert all("concurrency" not in job for job in workflow["jobs"].values())
 
 
+def test_foundry_reuses_the_locked_browser_and_system_packages(root):
+    job = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]["foundry"]
+    assert job["timeout-minutes"] == 10
+    steps = job["steps"]
+    identity = next(step for step in steps if step.get("id") == "playwright-runtime")
+    restore = next(step for step in steps if step.get("id") == "playwright-cache")
+    install = next(step for step in steps if step.get("id") == "playwright-install")
+    save = steps[steps.index(install) + 1]
+    assert "require('./package-lock.json').packages['node_modules/playwright'].version" in identity["run"]
+    assert "$RUNNER_ARCH-${ImageVersion:?}-playwright-chromium-$version" in identity["run"]
+    assert restore["with"] == save["with"] == {
+        "key": "${{ steps.playwright-runtime.outputs.key }}",
+        "path": "${{ runner.temp }}/playwright-browsers\n${{ runner.temp }}/playwright-debs/*.deb\n",
+    }
+    assert restore["uses"].startswith("actions/cache/restore@")
+    assert save["uses"].startswith("actions/cache/save@")
+    assert save["if"] == (
+        "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
+        "steps.playwright-cache.outputs.cache-hit != 'true'"
+    )
+    offline, cold = install["run"].split("\nelse\n", 1)
+    assert install["env"]["CACHE_HIT"] == "${{ steps.playwright-cache.outputs.cache-hit }}"
+    assert 'dpkg --skip-same-version --install "${packages[@]}"' in offline
+    assert "playwright install" not in offline
+    assert "playwright install --with-deps chromium" in cold
+    assert cold.index("\nfi\n") < cold.index(".chromium.launch()")
+
+
 def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
     parity = jobs["remotion-image-parity"]
@@ -520,7 +615,7 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert "target=/checkout,readonly" in check_checkout["run"]
     assert "target=/receipts,readonly" in check_checkout["run"]
     assert 'test "$(id -u)" -eq 10001' in check_checkout["run"]
-    assert "notice.main(public=True, source_head=head, source_tree=tree)" in check_checkout["run"]
+    assert "notice.main(source_head=head, source_tree=tree)" in check_checkout["run"]
     assert 'run_producer("wrong", source_tree, source_tree)' in check_checkout["run"]
     assert 'notice.STYLE.parents[1] / "node_modules"' in check_checkout["run"]
     assert "safe.directory" not in check_checkout["run"]
@@ -742,6 +837,32 @@ def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):
     assert "dpkg --skip-same-version --install" in install["run"]
     assert "ffmpeg-packages" in jobs["media-inputs"]["needs"]
     assert jobs["media-render"]["timeout-minutes"] == 25
+
+
+def test_main_ci_retains_synthetic_visual_evidence(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    main_push = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    foundry_steps = jobs["foundry"]["steps"]
+    playwright = next(step for step in foundry_steps if step.get("id") == "foundry-playwright")
+    output_dir = playwright["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+    output_ref = output_dir.removeprefix("${{ ").removesuffix(" }}")
+    foundry = next(step for step in foundry_steps if step.get("name") == "Upload Foundry test receipts")
+    assert foundry["if"] == "${{ !cancelled() }}"
+    assert foundry["with"]["path"].splitlines()[-1] == (
+        "${{ " + main_push + " && job.status == 'success' && "
+        f"format('{{0}}/**/*.png', {output_ref}) || '' " + "}}"
+    )
+    media_steps = jobs["media-render"]["steps"]
+    hook = next(step for step in media_steps if step.get("name") == "Check synthetic hook layouts")
+    assert hook["if"] == "matrix.shard == 'decision'"
+    assert hook["env"]["HOOK_FRAMES_DIR"] == "${{ runner.temp }}/notice-on-hook-frames"
+    assert hook["run"].endswith(' "$HOOK_FRAMES_DIR"')
+    shard = next(step for step in media_steps if step.get("name") == "Upload shard media")
+    assert shard["with"]["path"].splitlines() == [
+        "${{ runner.temp }}/media-shard.tar",
+        "${{ matrix.shard == 'decision' && " + main_push + " && "
+        "format('{0}/notice-on-hook-frames/*.png', runner.temp) || '' }}",
+    ]
 
 
 @pytest.mark.parametrize("event", ["pull_request", "push", "workflow_dispatch", "merge_group"])
