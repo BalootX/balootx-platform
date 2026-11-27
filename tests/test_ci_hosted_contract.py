@@ -892,8 +892,17 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert 'test "$(id -u)" -eq 10001' in check_checkout["run"]
     assert "notice.main(source_head=head, source_tree=tree)" in check_checkout["run"]
     assert 'run_producer("wrong", source_tree, source_tree)' in check_checkout["run"]
-    assert 'notice.STYLE.parents[1] / "node_modules"' in check_checkout["run"]
-    assert "safe.directory" not in check_checkout["run"]
+    checkout_run = check_checkout["run"]
+    assert "checkout_renderer = notice.STYLE.parents[1]" in checkout_run
+    assert 'assert not (checkout_renderer / "node_modules").exists()' in checkout_run
+    assert (
+        'for asset in ("scripts/ffmpeg-runtime.json", "src/style.css", "src/playback-timing.mjs"):\n'
+        "    assert (WORKER_RENDERER_ROOT / asset).read_bytes()"
+        " == (checkout_renderer / asset).read_bytes(), asset"
+    ) in checkout_run
+    assert "import './scripts/ffmpeg-profile.mjs'; import './src/playback-timing.mjs';" in checkout_run
+    assert "cwd=WORKER_RENDERER_ROOT, check=True" in checkout_run
+    assert "safe.directory" not in checkout_run
     dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
     assert re.fullmatch(r"FROM python:3\.13-slim@sha256:[0-9a-f]{64} AS python-base", dockerfile.splitlines()[0])
     assert jobs["python-wheelhouse"]["strategy"]["matrix"]["python"] == jobs["python-fast-run"]["strategy"]["matrix"]["python"]

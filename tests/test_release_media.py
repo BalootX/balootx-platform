@@ -638,7 +638,6 @@ def test_release_renderer_stops_when_a_new_media_stage_fails(
 def test_ci_companion_fails_when_collection_render_fails(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(render_release, "ROOT", tmp_path)
     monkeypatch.setattr(render_release, "_new_render_evidence_dir", lambda: tmp_path)
-    monkeypatch.setenv("BALOOTX_CI_SHORT_COLLECTION_SAMPLE", "true")
 
     def run(command, *, stage, **_kwargs):
         if stage == "collection":

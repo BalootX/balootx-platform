@@ -887,8 +887,10 @@ jobs:
                   notice.main(source_head=head, source_tree=tree)
 
           source_head, source_tree = sys.argv[1:]
-          assert not (notice.STYLE.parents[1] / "node_modules").exists()
-          assert (WORKER_RENDERER_ROOT / "src/style.css").read_bytes() == notice.STYLE.read_bytes()
+          checkout_renderer = notice.STYLE.parents[1]
+          assert not (checkout_renderer / "node_modules").exists()
+          for asset in ("scripts/ffmpeg-runtime.json", "src/style.css", "src/playback-timing.mjs"):
+              assert (WORKER_RENDERER_ROOT / asset).read_bytes() == (checkout_renderer / asset).read_bytes(), asset
           with (
               patch.object(render_kickoff, "utc_now", return_value=datetime(2026, 1, 1, tzinfo=UTC)),
               patch.object(notice, "build_notice_bundle", side_effect=PreflightPassed),
@@ -908,7 +910,8 @@ jobs:
                   raise SystemExit("public producer accepted the wrong source commit")
           subprocess.run(
               ["node", "--input-type=module", "-e",
-               "import '@remotion/bundler'; import '@remotion/renderer'; import './scripts/ffmpeg-profile.mjs';"],
+               "import '@remotion/bundler'; import '@remotion/renderer'; "
+               "import './scripts/ffmpeg-profile.mjs'; import './src/playback-timing.mjs';"],
               cwd=WORKER_RENDERER_ROOT, check=True,
           )
           PY
@@ -957,7 +960,6 @@ jobs:
         working-directory: .
         env:
           SHARD: ${{ matrix.shard }}
-          BALOOTX_CI_SHORT_COLLECTION_SAMPLE: ${{ github.event_name == 'pull_request' && matrix.shard == 'companion' }}
           BALOOT_RENDER_EVIDENCE_DIR: ${{ runner.temp }}/media-stage-logs
         run: |
           cpus="$(python -c 'import os; print(",".join(map(str, sorted(os.sched_getaffinity(0))[:4])))')"
