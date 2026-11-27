@@ -880,7 +880,7 @@ with TestClient(app) as client:
             print('researchRecoveryRefusedUnsafeWrites: true')
         restored = client.post(rollback, headers=admin, json=body)
         assert restored.status_code == 201, restored.text
-        if diagnostic == 'scheduled publication could not be verified':
+        if recovery_research_scopes or diagnostic == 'scheduled publication could not be verified':
             restored_id = restored.json()['revisionId']
             assert restored.json()['supersedesRevisionId'] == expected
             events = client.get(f'/api/v1/configuration-registry/bundles/{restored_id}/events', headers=admin)
@@ -911,53 +911,60 @@ with TestClient(app) as client:
             revision = service.create_profile(family="performance", payload=payload, created_by="TEST", publish=True)
             return {**original["componentRevisions"], "performance": revision["revisionId"]}
 
-        legacy_request = {
-            **defaults, "version": "99.7.13", "component_revisions": new_components("99.7.13"),
-            "effective_until": "2026-07-01T17:00:00Z",
-        }
         research_scopes = tuple(
             (build_bundle(root, bundle_path=path).bundle_profile["profile"]["id"], environment)
             for path, environment in _PACKAGED_RESEARCH_BUNDLES
         )
-        # The previous release could write a window without an underlying publication.
-        expired = subprocess.run(
-            [sys.executable, "-c", """
-import json
-import os
-import sys
-from pathlib import Path
+        for bundle_id, environment in research_scopes:
+            service.create_bundle(
+                bundle_id=bundle_id, version="99.8.0", mode="full", scope="environment",
+                environment=environment, component_revisions=original["componentRevisions"], created_by="TEST",
+            )
 
-import baloot_platform
-from baloot_platform.config import build_bundle
-from baloot_platform.configuration import PostgresConfigurationStore, SQLiteConfigurationStore, VersionedConfigurationService
-from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
-
-root = Path(os.environ['BALOOT_ROOT'])
-assert Path(baloot_platform.__file__).resolve().is_relative_to(root.resolve() / 'src')
-dsn = os.environ['BALOOT_DATABASE_URL']
-store = PostgresConfigurationStore(dsn) if dsn else SQLiteConfigurationStore(Path(os.environ['BALOOT_RUNTIME']) / 'configuration.sqlite3')
-CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(subject_id='TEST', role='service'))
-try:
-    service = VersionedConfigurationService(store, root=root, profile=build_bundle(root).component('configuration'))
-    request = json.loads(sys.argv[1])
-    for bundle_id, environment in json.loads(sys.argv[2]):
-        service.create_bundle(
-            bundle_id=bundle_id, version='99.8.0', mode='full', scope='environment',
-            environment=environment, component_revisions=json.loads(sys.argv[3]), created_by='TEST',
-        )
-    print(service.create_bundle(**request, force_new_revision=True)['revisionId'])
-finally:
-    store.close()
-""", json.dumps(legacy_request), json.dumps(research_scopes), json.dumps(original["componentRevisions"])],
-            cwd=previous,
-            env={
-                **startup_environment, "BALOOT_ROOT": str(previous), "PYTHONPATH": str(previous / "src"),
-                "BALOOT_DATABASE_URL": app_dsn or "",
-            },
-            check=True, capture_output=True, text=True,
-        )
-        expiring_id = expired.stdout.strip()
+        # Seed a historical standalone publication independently of the rolling predecessor's writer.
         instant = "2026-07-01T17:00:00+00:00"
+        expiring_draft = service.create_bundle(
+            **{**defaults, "publish": False}, version="99.7.13",
+            component_revisions=new_components("99.7.13"), effective_until=instant,
+        )
+        expiring_id = expiring_draft["revisionId"]
+        if app_dsn is None:
+            connection = store._connect()
+            table, parameter = "configuration_bundle_revisions", "?"
+        else:
+            connection = contextual_connection(store.pool)
+            table, parameter = "configuration.bundle_revisions", "%s"
+        with connection as conn:
+            if app_dsn is None:
+                conn.execute("BEGIN IMMEDIATE")
+            replaced = store._supersede_published_bundles_tx(
+                conn, bundle_id=original["bundleId"], scope=original["scope"], scope_key=original["scopeKey"],
+                tenant_id=original["tenantId"], environment=original["environment"],
+                except_revision_id=expiring_id, actor_id="TEST",
+            )
+            assert replaced == [original["revisionId"]]
+            updated = conn.execute(
+                f"UPDATE {table} SET status='published', published_by=created_by, "
+                "published_at=created_at, updated_at=created_at, etag=etag+1 "
+                f"WHERE revision_id={parameter} AND status='draft'",
+                (expiring_id,),
+            )
+            assert updated.rowcount == 1
+            store._append_event_tx(
+                conn, "bundle", expiring_id, "published", "TEST",
+                {"etag": expiring_draft["etag"] + 1, "status": "published"},
+            )
+            store._bump_invalidation_epoch_tx(conn)
+
+        expired, = store.list_bundles(bundle_id=original["bundleId"], scope="global", status="published")
+        assert expired.revision_id == expiring_id and expired.effective_until == instant
+        assert expired.scheduled_predecessor_id is None and expired.scheduled_successor_id is None
+        assert store.get_bundle(original["revisionId"]).status == "superseded"
+        assert store.verify_events("bundle", expiring_id)["valid"]
+        assert service.resolve(bundle_id=original["bundleId"], at_time="2026-07-01T16:59:59Z")["bundle"]["revisionId"] == expiring_id
+        with pytest.raises(KeyError, match="published configuration bundle not found"):
+            service.resolve(bundle_id=original["bundleId"], at_time=instant)
+        print(f"legacyExpiredPublication: {backend}")
         probe(
             expiring_id, recovery_target=original["revisionId"],
             diagnostic="No configuration bundle is effective", recovery_research_scopes=research_scopes,
@@ -1046,7 +1053,7 @@ finally:
             )["revisionId"]
             for bundle_name, components in (("scoped-draft-visible", shared_components), ("scoped-draft-edge", hidden_components))
         )
-        probe(recovered, access_rows=access_rows)
+        probe(recovered, access_rows=access_rows, recovery_audit=(original["bundleId"], expiring_id))
         probe(recovered, source=previous)
 
         original = service.resolve(bundle_id=original["bundleId"])["bundle"]
