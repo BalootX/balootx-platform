@@ -50,7 +50,11 @@ from pydantic.json_schema import SkipJsonSchema
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from baloot_platform.config import build_bundle, profile_bundle_from_resolved
+from baloot_platform.config import build_bundle
+from baloot_platform.configuration.schedule import (
+    ConfigurationIntegrityError,
+    ConfigurationScheduleConflict,
+)
 from baloot_platform.guide import build_engine_guide
 from baloot_platform.analysis.belief_v7 import (
     BeliefPolicy,
@@ -126,12 +130,21 @@ from baloot_platform.service.authorization import (
     history_without_media,
     http_request_scope,
     tenant_job_http,
+    tenant_configuration_http,
 )
 from baloot_platform.service.client_identity import (
     initialize_service_subject_ownership,
+    service_client_identity,
     service_subject_ownership,
 )
 from baloot_platform.service.routes.auth import request_token, require_identity
+from baloot_platform.service.routes.configuration import (
+    configuration_integrity_response,
+    configuration_schedule_conflict_response,
+    configuration_unavailable_response,
+    is_configuration_admin,
+    is_configuration_recovery_route,
+)
 from baloot_platform.shared import (
     SharedDecisionAccessError,
     SharedGameNotFound,
@@ -174,7 +187,15 @@ from baloot_platform.research.result_authority import (
     RuntimeCompatibilityV1 as RuntimeCompatibilityContractV1,
 )
 
-CONTAINER: PlatformContainer = build_container()
+CONTAINER: PlatformContainer = build_container(allow_unavailable_configuration=True)
+
+
+def require_verified_configuration() -> None:
+    error = CONTAINER.configuration_error or next(iter(CONTAINER.research_configuration_errors.values()), None)
+    if error is not None:
+        raise error
+
+
 ROOT = CONTAINER.root
 DATA_ROOT = CONTAINER.data_root
 OUTPUTS = CONTAINER.outputs
@@ -212,12 +233,7 @@ RESEARCH_RENDERS = CONTAINER.research_renders
 _LOCAL_FOUNDRY_LOCK = threading.Lock()
 _LOCAL_FOUNDRY_CAMPAIGNS: set[str] = set()
 _LOCAL_ANALYSIS_WORKER_ACTIVE = False
-ACTIVE_BUNDLE = profile_bundle_from_resolved(
-    CONTAINER.configuration.resolve(
-        revision_id=FOUNDRY_PROFILE["runtimeBundleRevisionId"]
-    ),
-    root=ROOT,
-)
+ACTIVE_BUNDLE = CONTAINER.runtime_bundle
 LAFFA_LIBRARY = LaffaLibraryServiceV1(
     learning_store=LEARNING_STORE,
     research=RESEARCH,
@@ -416,12 +432,11 @@ class RequestLoggingMiddleware:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    initialize_service_subject_ownership()
-    # In-process recovery is deliberately local-only. Distributed deployments
-    # use separately supervised, leased workers so multiple API replicas cannot
-    # execute the same persisted job concurrently.
-    if not DATABASE_URL:
-        _recover_local_foundry_work()
+    if CONTAINER.configuration_error is None:
+        initialize_service_subject_ownership()
+        # Distributed deployments use independently supervised workers.
+        if not DATABASE_URL:
+            _recover_local_foundry_work()
     yield
     # Test clients and short-lived workers must not leak executor threads.
     if os.environ.get("BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT", "false").lower() in {
@@ -440,6 +455,8 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
 )
+app.add_exception_handler(ConfigurationIntegrityError, configuration_integrity_response)
+app.add_exception_handler(ConfigurationScheduleConflict, configuration_schedule_conflict_response)
 
 
 @app.exception_handler(SearchTimeBudgetExceeded)
@@ -480,8 +497,41 @@ _PLAYER_STATIC = Path(__file__).resolve().parent / "static" / "player"
 if _PLAYER_STATIC.exists():
     app.mount("/play-assets", StaticFiles(directory=_PLAYER_STATIC), name="play-assets")
 _APP_STATIC = Path(__file__).resolve().parent / "static" / "app"
+_APP_COPY_KEYS = frozenset(
+    key
+    for key in json.loads(
+        (ROOT / "schemas/profiles/video.schema.json").read_text(encoding="utf-8")
+    )["properties"]["challenge_copy"]["properties"]
+    if key.startswith("app_")
+)
 if _APP_STATIC.exists():
     app.mount("/app-assets", StaticFiles(directory=_APP_STATIC), name="app-assets")
+_SHARED_STATIC = Path(__file__).resolve().parent / "static" / "shared"
+
+
+def _mount_shared_assets(application: FastAPI, directory: Path) -> None:
+    """Mount the browser request helper, or stop the service from starting.
+
+    Every served page calls the API through these two files, so an installation
+    that lacks them must fail at start-up instead of serving pages that cannot work.
+    """
+    missing = [
+        name
+        for name in ("request.js", "request-loader.js")
+        if not (directory / name).is_file()
+    ]
+    if missing:
+        raise RuntimeError(
+            "shared browser assets are missing: "
+            + ", ".join(missing)
+            + ". Reinstall the package so static/shared is included."
+        )
+    application.mount(
+        "/shared-assets", StaticFiles(directory=directory), name="shared-assets"
+    )
+
+
+_mount_shared_assets(app, _SHARED_STATIC)
 _CHALLENGE_STATIC = Path(__file__).resolve().parent / "static" / "challenge"
 if _CHALLENGE_STATIC.exists():
     app.mount(
@@ -543,11 +593,48 @@ def configuration_studio():
     return RedirectResponse("/foundry?section=settings", status_code=307)
 
 
+def _render_copy_page(
+    template: str,
+    governed_copy: Mapping[str, str],
+    *,
+    json_key: str,
+    surface: str,
+    asset_version: str | None = None,
+) -> HTMLResponse:
+    def render_copy(match: re.Match[str]) -> str:
+        key = match[1]
+        if key == json_key:
+            return (
+                json.dumps(
+                    dict(governed_copy),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                .replace("<", "\\u003c")
+                .replace("&", "\\u0026")
+            )
+        if key == "player_asset_version" and asset_version is not None:
+            return asset_version
+        if key is not None and key in governed_copy:
+            return html.escape(governed_copy[key], quote=True)
+        raise HTTPException(503, f"{surface} copy profile is incomplete")
+
+    rendered = re.sub(r"\{\{([a-zA-Z0-9_]+)\}\}|\{\{|\}\}", render_copy, template)
+    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/app", include_in_schema=False)
 def unified_app():
     if not _APP_STATIC.exists():
         raise HTTPException(404, "application assets are unavailable")
-    return FileResponse(_APP_STATIC / "index.html")
+    template = (_APP_STATIC / "index.html").read_text(encoding="utf-8")
+    governed_copy = ACTIVE_BUNDLE.video["challenge_copy"]
+    if any(not governed_copy.get(key, "").strip() for key in _APP_COPY_KEYS):
+        raise HTTPException(503, "application copy profile is incomplete")
+    return _render_copy_page(
+        template, governed_copy, json_key="app_copy_json", surface="application"
+    )
 
 
 app.include_router(build_auth_router(IDENTITY, pagination=CONTAINER.identity_pagination, policy=AUTHORIZATION_POLICY))
@@ -834,7 +921,9 @@ async def platform_security(request: Request, call_next):
             )
         denial = auth.denial(
             AUTHORIZATION_POLICY, required_scope,
-            tenant_job=tenant_job_http(request.method, path),
+            tenant_scoped=tenant_job_http(request.method, path) or tenant_configuration_http(
+                request.method, path, required_scope,
+            ),
         )
         if denial is not None:
             return JSONResponse(
@@ -864,6 +953,12 @@ async def platform_security(request: Request, call_next):
         getattr(access_claims, "subject_id", "")
         or (identity.subject_id if identity else "")
     )
+    if (
+        not claims_subject
+        and api_key_valid
+        and path.startswith(("/api/v1/configuration-registry/", "/api/v2/configuration/"))
+    ):
+        claims_subject = service_client_identity(request.headers, "API Client").subject_id
     context_token = CURRENT_DATABASE_IDENTITY.set(
         DatabaseIdentityContext(
             subject_id=claims_subject,
@@ -881,16 +976,26 @@ async def platform_security(request: Request, call_next):
         if api_key_valid and not session_valid else None
     )
     started = time.monotonic()
+    metric_path = request.url.path
     try:
-        response = await call_next(request)
+        error = CONTAINER.configuration_error
+        if error is not None and metric_path not in {"/healthz", "/api/v1/health", "/readyz", "/metrics"}:
+            # Public metrics must not expose recovery revision IDs.
+            metric_path = "/configuration-unavailable"
+            if is_configuration_recovery_route(request) and is_configuration_admin(request, AUTHORIZATION_POLICY):
+                response = await call_next(request)
+            else:
+                response = await configuration_integrity_response(request, error)
+        else:
+            response = await call_next(request)
     finally:
         SERVICE_SUBJECT_OWNER.reset(ownership_token)
         CURRENT_DATABASE_IDENTITY.reset(context_token)
     elapsed = time.monotonic() - started
     with _METRIC_LOCK:
-        _METRICS[(request.method, request.url.path, response.status_code)] += 1
+        _METRICS[(request.method, metric_path, response.status_code)] += 1
         # Keep a coarse latency sum in integer microseconds without another dependency.
-        _METRICS[("LATENCY_US", request.url.path, 0)] += int(elapsed * 1_000_000)
+        _METRICS[("LATENCY_US", metric_path, 0)] += int(elapsed * 1_000_000)
     response.headers["x-content-type-options"] = "nosniff"
     response.headers["x-frame-options"] = "DENY"
     response.headers["referrer-policy"] = "no-referrer"
@@ -899,6 +1004,19 @@ async def platform_security(request: Request, call_next):
         "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
     )
     return response
+
+
+if CONTAINER.configuration_error is not None:
+    def unavailable_configuration(app):
+        async def guarded(scope, receive, send):
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1013})
+                return
+            await app(scope, receive, send)
+
+        return guarded
+
+    app.add_middleware(unavailable_configuration)
 
 
 app.add_middleware(RequestLoggingMiddleware)
@@ -7464,28 +7582,10 @@ def player_app():
         asset_digest.update(asset_name.encode("utf-8"))
         asset_digest.update((player_root / asset_name).read_bytes())
     asset_version = asset_digest.hexdigest()[:12]
-    governed_copy = dict(ACTIVE_BUNDLE.video["challenge_copy"])
-    serialized = (
-        json.dumps(
-            governed_copy,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        .replace("<", "\\u003c")
-        .replace("&", "\\u0026")
+    return _render_copy_page(
+        template, ACTIVE_BUNDLE.video["challenge_copy"],
+        json_key="player_copy_json", surface="player", asset_version=asset_version,
     )
-    rendered = template.replace("{{player_copy_json}}", serialized).replace(
-        "{{player_asset_version}}", asset_version
-    )
-    for key, value in governed_copy.items():
-        rendered = rendered.replace(
-            "{{" + str(key) + "}}",
-            html.escape(str(value), quote=True),
-        )
-    if "{{" in rendered or "}}" in rendered:
-        raise HTTPException(503, "player copy profile is incomplete")
-    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/v1/challenge-copy")
@@ -7505,25 +7605,10 @@ def public_duplicate_challenge(code: str):
     if not _CHALLENGE_STATIC.exists():
         raise HTTPException(503, "challenge player assets are unavailable")
     template = (_CHALLENGE_STATIC / "index.html").read_text(encoding="utf-8")
-    governed_copy = dict(ACTIVE_BUNDLE.video["challenge_copy"])
-    serialized = (
-        json.dumps(
-            governed_copy,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        .replace("<", "\\u003c")
-        .replace("&", "\\u0026")
+    return _render_copy_page(
+        template, ACTIVE_BUNDLE.video["challenge_copy"],
+        json_key="challenge_copy_json", surface="challenge",
     )
-    rendered = template.replace("{{challenge_copy_json}}", serialized)
-    rendered = rendered.replace(
-        "{{page_title}}",
-        html.escape(str(governed_copy["page_title"]), quote=True),
-    )
-    if "{{" in rendered or "}}" in rendered:
-        raise HTTPException(503, "challenge copy profile is incomplete")
-    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/healthz")
@@ -7533,7 +7618,17 @@ def health():
 
 
 @app.get("/readyz")
-def ready():
+def ready(request: Request):
+    if CONTAINER.configuration_error is not None:
+        return configuration_unavailable_response(request, str(CONTAINER.configuration_error))
+    if CONTAINER.research_configuration_errors:
+        return configuration_unavailable_response(
+            request,
+            {
+                environment: str(error)
+                for environment, error in CONTAINER.research_configuration_errors.items()
+            },
+        )
     bundle = ACTIVE_BUNDLE
     return {
         "status": "ready",
@@ -7547,6 +7642,8 @@ def metrics():
     lines = [
         "# TYPE baloot_http_requests_total counter",
         "# TYPE baloot_http_latency_microseconds_total counter",
+        "# TYPE baloot_research_configuration_unavailable gauge",
+        f"baloot_research_configuration_unavailable {len(CONTAINER.research_configuration_errors)}",
     ]
     with _METRIC_LOCK:
         items = list(_METRICS.items())

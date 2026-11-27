@@ -73,6 +73,18 @@ _VIDEO_TEMPLATE_FIELDS: dict[tuple[str, str], frozenset[str]] = {
     ("challenge_copy", "player_share_created"): frozenset({"code"}),
     ("challenge_copy", "player_replay_verified"): frozenset({"actions"}),
     ("challenge_copy", "player_replay_failed"): frozenset({"issues"}),
+    ("challenge_copy", "app_case_summary_id"): frozenset({"case"}),
+    ("challenge_copy", "app_live_room_heading"): frozenset({"code"}),
+    ("challenge_copy", "app_replay_summary_game"): frozenset({"game"}),
+    ("challenge_copy", "app_replay_summary_phase"): frozenset({"phase"}),
+    ("challenge_copy", "app_replay_summary_score"): frozenset({"score"}),
+    ("challenge_copy", "app_replay_summary_turn"): frozenset({"turn"}),
+    ("challenge_copy", "app_room_summary_code"): frozenset({"code"}),
+    ("challenge_copy", "app_room_summary_players"): frozenset({"count"}),
+    ("challenge_copy", "app_room_summary_version"): frozenset({"version"}),
+    ("challenge_copy", "app_shared_summary_code"): frozenset({"code"}),
+    ("challenge_copy", "app_summary_kind"): frozenset({"kind"}),
+    ("challenge_copy", "app_summary_status"): frozenset({"status"}),
 }
 _TEMPLATE_FIELD = re.compile(r"\{([a-zA-Z0-9_]+)\}")
 
@@ -80,11 +92,14 @@ _TEMPLATE_FIELD = re.compile(r"\{([a-zA-Z0-9_]+)\}")
 def _validate_video_copy_templates(data: Mapping[str, Any]) -> None:
     """Keep editable copy compatible with every Python and browser consumer."""
     for (section, key), expected in _VIDEO_TEMPLATE_FIELDS.items():
-        if key == "video.analysis.unique_awarded_margin" and key not in dict(data.get(section) or {}):
+        copy_section = data.get(section) or {}
+        if key.startswith("app_") and key not in copy_section:
+            continue  # The served /app page requires these keys; older bundles do not.
+        if key == "video.analysis.unique_awarded_margin" and key not in copy_section:
             continue  # Historical video profiles predate score-swing explanations.
         if key == "video.decision.your_turn" and "majlis" not in data:
             continue  # Historical video profiles predate the Majlis look.
-        value = str(dict(data.get(section) or {}).get(key) or "")
+        value = str(copy_section.get(key) or "")
         fields = frozenset(_TEMPLATE_FIELD.findall(value))
         residue = _TEMPLATE_FIELD.sub("", value)
         if "{" in residue or "}" in residue or fields != expected:
@@ -444,6 +459,20 @@ class ProfileBundle:
         return {**core, "sha256": _sha(core)}
 
 
+def resolved_bundle_identity(
+    bundle_row: Mapping[str, Any], component_hashes: Mapping[str, str],
+) -> dict[str, Any]:
+    return {
+        "bundleProfile": {
+            "id": str(bundle_row.get("bundleId") or "row_bundle"),
+            "version": str(bundle_row.get("version") or "0.0.0"),
+            "status": str(bundle_row.get("status") or "published"),
+        },
+        "mode": str(bundle_row.get("mode") or "full"),
+        "components": dict(component_hashes),
+    }
+
+
 def profile_bundle_from_resolved(
     resolved: Mapping[str, Any], *, root: Path | None = None
 ) -> ProfileBundle:
@@ -513,24 +542,12 @@ def profile_bundle_from_resolved(
         resolved_root,
     )
 
-    bundle_profile = {
-        "profile": {
-            "id": str(bundle_row.get("bundleId") or "row_bundle"),
-            "version": str(bundle_row.get("version") or "0.0.0"),
-            "status": str(bundle_row.get("status") or "published"),
-        }
-    }
-    mode = str(bundle_row.get("mode") or "full")
-    identity = {
-        "bundleProfile": bundle_profile["profile"],
-        "mode": mode,
-        "components": component_hashes,
-    }
+    identity = resolved_bundle_identity(bundle_row, component_hashes)
     return ProfileBundle(
         rules=rules,
         components=artifacts,
-        mode=mode,
-        bundle_profile=bundle_profile,
+        mode=identity["mode"],
+        bundle_profile={"profile": identity["bundleProfile"]},
         sha256=_sha(identity),
     )
 
@@ -1059,6 +1076,8 @@ def _validate_scenario_research_v4(
 
 def _semantic_validate(family: str, data: dict[str, Any]) -> None:
     if family == "video":
+        from baloot_platform.identity.models import DISPLAY_NAME_MAX_LENGTH
+
         render = data.get("render", {})
         width = int(render.get("width", 0))
         height = int(render.get("height", 0))
@@ -1073,6 +1092,11 @@ def _semantic_validate(family: str, data: dict[str, Any]) -> None:
         if int(render.get("fps", 0)) not in {24, 25, 30, 50, 60}:
             raise ValueError("video fps must be one of 24,25,30,50,60")
         _validate_video_copy_templates(data)
+        guest_name = data.get("challenge_copy", {}).get("app_guest_name", "")
+        if len(guest_name) > DISPLAY_NAME_MAX_LENGTH:
+            raise ValueError(
+                f"challenge_copy.app_guest_name must be at most {DISPLAY_NAME_MAX_LENGTH} characters"
+            )
         from baloot_platform.video.render_bundle import validate_majlis_profile
 
         validate_majlis_profile(data)

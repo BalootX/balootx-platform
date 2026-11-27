@@ -115,8 +115,25 @@
     const method = (options.method || 'GET').toUpperCase();
     const headers = {'content-type': 'application/json', ...(options.headers || {})};
     if (state.csrf && !['GET', 'HEAD'].includes(method)) headers['x-csrf-token'] = state.csrf;
-    const response = await fetch(path, {credentials: 'include', ...options, headers});
-    const text = await response.text();
+    let helper;
+    try {
+      helper = await loadRequestHelper();
+    } catch {
+      // Challenges frozen before request_unavailable existed carry only request_error.
+      throw new Error(state.copy?.request_unavailable || copy('request_error', {status: 503}));
+    }
+    const {fetchWithDeadline, isDeadlineError} = helper;
+    let response;
+    let text;
+    try {
+      response = await fetchWithDeadline(path, {credentials: 'include', ...options, headers});
+      text = await response.text();
+    } catch (error) {
+      // Challenges frozen before request_timeout existed carry only request_error.
+      throw isDeadlineError(error)
+        ? new Error(state.copy?.request_timeout || copy('request_error', {status: 408}))
+        : error;
+    }
     let value = {};
     try { value = text ? JSON.parse(text) : {}; } catch { value = {detail: text}; }
     if (!response.ok) {
@@ -131,7 +148,8 @@
     return value;
   }
   async function frozenChallenge(code) {
-    const response = await fetch(
+    const {fetchWithDeadline} = await loadRequestHelper();
+    const response = await fetchWithDeadline(
       `/api/v2/challenge-locators/${encodeURIComponent(code)}`,
       {credentials: 'include', headers: {'content-type': 'application/json'}},
     );

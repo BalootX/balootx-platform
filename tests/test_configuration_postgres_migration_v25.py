@@ -3,16 +3,20 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
+from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from scripts import migrate_postgres
 
 
 MIGRATION_NAME = "025_configuration_store_contract.sql"
 SHARED_RUN_MIGRATION_NAME = "029_shared_run_game_access.sql"
-LATEST_MIGRATION_NAME = "032_identity_pending_requests_index.sql"
+SCHEDULE_MIGRATION_NAME = "033_configuration_local_schedule.sql"
+LATEST_MIGRATION_NAME = "034_configuration_schedule_handoff.sql"
 FROZEN_PREDECESSOR_HASHES = {
     "011_configuration_registry_v19.sql": (
         "1e79c94b6244244afe0a2fd1f9ef421dcfadca6c32a48bd4c7f4b8fee97b9931"
@@ -90,6 +94,22 @@ def test_shared_run_access_migration_matches_store_bootstrap(
     assert "TRUNCATE " not in normalized
 
 
+def test_local_schedule_migration_preserves_rows_and_content_uniqueness(root: Path) -> None:
+    sql = (root / "migrations" / SCHEDULE_MIGRATION_NAME).read_text(encoding="utf-8")
+    normalized = _normalized(sql)
+    assert normalized.startswith("BEGIN;")
+    assert normalized.endswith("COMMIT;")
+    for table in ("PROFILE_REVISIONS", "BUNDLE_REVISIONS"):
+        assert _statement(normalized, f"ALTER TABLE CONFIGURATION.{table}") == (
+            f"ALTER TABLE CONFIGURATION.{table} ADD COLUMN IF NOT EXISTS LOCAL_SCHEDULE JSONB;"
+        )
+        assert f"BEFORE UPDATE OF LOCAL_SCHEDULE ON CONFIGURATION.{table}" in normalized
+    assert normalized.count("NEW.LOCAL_SCHEDULE IS DISTINCT FROM OLD.LOCAL_SCHEDULE") == 2
+    assert "DROP INDEX" not in normalized
+    assert "UPDATE CONFIGURATION." not in normalized
+    assert "DELETE " not in normalized
+
+
 def test_v25_preserves_published_predecessor_migration_bytes(root: Path) -> None:
     authored = root / "migrations"
     packaged = root / "src/baloot_platform/resources/migrations"
@@ -99,15 +119,24 @@ def test_v25_preserves_published_predecessor_migration_bytes(root: Path) -> None
         assert (packaged / name).read_bytes() == source
 
 
-def test_full_history_bootstrap_order_is_exactly_repeatable(
-    root: Path, monkeypatch
+def test_runner_applies_history_in_order_and_skips_recorded_migrations(
+    root: Path, monkeypatch, capsys,
 ) -> None:
     expected_paths = sorted((root / "migrations").glob("*.sql"))
-    expected_sql = [path.read_text(encoding="utf-8") for path in expected_paths]
+    sql_by_name = {}
+    for path in expected_paths:
+        sql = path.read_bytes().decode("utf-8").strip()
+        if sql.startswith("BEGIN;") and sql.endswith("COMMIT;"):
+            sql = sql[len("BEGIN;"):-len("COMMIT;")]
+        sql_by_name[path.name] = sql
+    expected_sql = list(sql_by_name.values())
+    receipts: dict[str, str] = {}
     executed: list[str] = []
+    indexes: dict[str, bool] = {}
 
     class FakeConnection:
-        autocommit = False
+        in_transaction = False
+        index = None
 
         def __enter__(self):
             return self
@@ -115,27 +144,118 @@ def test_full_history_bootstrap_order_is_exactly_repeatable(
         def __exit__(self, *_args):
             return False
 
-        def commit(self) -> None:
-            pass
+        @contextmanager
+        def transaction(self):
+            assert not self.in_transaction
+            self.in_transaction = True
+            try:
+                yield
+            finally:
+                self.in_transaction = False
 
         def execute(self, sql: str, params=None):
-            if params is not None:
-                assert self.autocommit
-                return SimpleNamespace(fetchone=lambda: None)
-            assert self.autocommit == sql.startswith("CREATE INDEX CONCURRENTLY ")
+            if sql.startswith("SELECT name, sha256"):
+                return list(receipts.items())
+            if sql.startswith("INSERT INTO baloot_migrations.applied"):
+                name, digest = params
+                assert self.in_transaction
+                assert name not in receipts
+                receipts[name] = digest
+                return
+            if sql.startswith(("SELECT pg_advisory_lock", "CREATE SCHEMA IF NOT EXISTS baloot_migrations",
+                               "CREATE TABLE IF NOT EXISTS baloot_migrations.applied")):
+                return
+            if sql.startswith("SELECT indisvalid"):
+                (self.index,) = params
+                valid = indexes.get(self.index)
+                return SimpleNamespace(fetchone=lambda: None if valid is None else (valid,))
+            if sql.startswith("CREATE INDEX CONCURRENTLY "):
+                assert not self.in_transaction and self.index is not None
+                assert indexes.get(self.index) is not False
+                indexes[self.index] = True
+            elif sql.startswith("DROP INDEX CONCURRENTLY "):
+                assert not self.in_transaction and sql == f"DROP INDEX CONCURRENTLY {self.index}"
+                assert indexes.pop(self.index) is False
+            elif sql.startswith("SELECT pg_advisory_unlock"):
+                return
+            else:
+                assert self.in_transaction
             executed.append(sql)
 
-    fake_psycopg = SimpleNamespace(connect=lambda _dsn: FakeConnection())
+    def connect(_dsn, *, autocommit):
+        assert autocommit
+        return FakeConnection()
+
+    fake_psycopg = SimpleNamespace(connect=connect)
     monkeypatch.setitem(sys.modules, "psycopg", fake_psycopg)
     monkeypatch.setenv("BALOOT_DATABASE_URL", "postgresql://bootstrap.invalid/test")
     monkeypatch.setenv("BALOOT_ROOT", str(root))
 
     migrate_postgres.main()
+    assert executed == expected_sql
+    completion = "Baloot PostgreSQL schema is current"
+    assert capsys.readouterr().out.splitlines() == [
+        *(f"applied {path.name}" for path in expected_paths), completion,
+    ]
     migrate_postgres.main()
 
-    assert executed == expected_sql + expected_sql
+    assert executed == expected_sql
+    assert capsys.readouterr().out.splitlines() == [
+        *(f"verified {path.name}" for path in expected_paths), completion,
+    ]
+    assert list(receipts.items()) == [
+        (path.name, hashlib.sha256(path.read_bytes()).hexdigest()) for path in expected_paths
+    ]
     assert any(path.name == MIGRATION_NAME for path in expected_paths)
     assert expected_paths[-1].name == LATEST_MIGRATION_NAME
+
+    index = "identity.idx_identity_pending_requests"
+    indexes[index] = False
+    migrate_postgres.main()
+    assert executed == expected_sql + [
+        f"DROP INDEX CONCURRENTLY {index}",
+        sql_by_name["032_identity_pending_requests_index.sql"],
+    ]
+    assert indexes[index] is True
+    assert "repaired 032_identity_pending_requests_index.sql" in capsys.readouterr().out.splitlines()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        b"-- comment before transaction\nBEGIN; SELECT 1; COMMIT;",
+        b"BEGIN; SELECT 1; COMMIT; SELECT 2; COMMIT;",
+        b"SELECT 1; commit /* trailing comment */",
+        b"SELECT 1; PREPARE /* comment */ TRANSACTION 'receipt-free';",
+    ],
+)
+def test_migration_runner_rejects_remaining_transaction_commands(source: bytes) -> None:
+    with pytest.raises(ValueError, match="Unexpected transaction control in test.sql"):
+        migrate_postgres._migration_sql(source, "test.sql")
+
+
+def test_migration_runner_ignores_transaction_words_inside_sql_literals() -> None:
+    inner = b"/* outer /* inner */ BEGIN; */ DO $code$ BEGIN RAISE NOTICE 'COMMIT;'; END; $code$;"
+    assert migrate_postgres._migration_sql(b"BEGIN; " + inner + b" COMMIT;", "test.sql").strip().encode() == inner
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        b"CREATE FUNCTION schedule_test() RETURNS integer",
+        b"CREATE OR REPLACE PROCEDURE schedule_test()",
+    ],
+)
+def test_migration_runner_accepts_sql_routine_bodies_and_checks_following_statements(
+    declaration: bytes,
+) -> None:
+    routine = (
+        declaration
+        + b" LANGUAGE SQL BEGIN /* body */ ATOMIC SELECT CASE WHEN true THEN 1 ELSE 0 END; END;"
+    )
+    assert migrate_postgres._migration_sql(routine, "test.sql").encode() == routine
+    with pytest.raises(ValueError, match="Unexpected transaction control in test.sql: COMMIT"):
+        migrate_postgres._migration_sql(routine + b" COMMIT;", "test.sql")
 
 
 def test_v25_is_forward_only_and_schema_idempotent_by_construction(root: Path) -> None:

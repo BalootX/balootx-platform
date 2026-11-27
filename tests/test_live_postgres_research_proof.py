@@ -769,9 +769,10 @@ def test_migration_proof_runs_twice_and_rejects_schema_drift(
         "_run_migration_once",
         lambda _url, _root, names, _secrets: calls.append(list(names))
         or {
-            "applied": 1,
+            "applied": len(names),
+            "verified": len(inventory) - len(names),
             "executedInventorySha256": proof._sha256_text(
-                proof._canonical_json(inventory)
+                proof._canonical_json(inventory if names else [])
             ),
         },
     )
@@ -788,7 +789,7 @@ def test_migration_proof_runs_twice_and_rejects_schema_drift(
         "postgresql://secret", tmp_path, secrets_to_remove=["secret"]
     )
 
-    assert calls == [["001.sql"], ["001.sql"]]
+    assert calls == [["001.sql"], []]
     assert result == {
         "inventory": inventory,
         "migrationCount": 1,
@@ -797,14 +798,16 @@ def test_migration_proof_runs_twice_and_rejects_schema_drift(
         "passes": [
             {
                 "applied": 1,
+                "verified": 0,
                 "executedInventorySha256": proof._sha256_text(
                     proof._canonical_json(inventory)
                 ),
             },
             {
-                "applied": 1,
+                "applied": 0,
+                "verified": 1,
                 "executedInventorySha256": proof._sha256_text(
-                    proof._canonical_json(inventory)
+                    proof._canonical_json([])
                 ),
             },
         ],
@@ -864,6 +867,12 @@ def test_current_migration_stage_freezes_complete_inventory_and_required_tail(
         if item["name"] in proof.REQUIRED_MIGRATION_HASHES
     } == proof.REQUIRED_MIGRATION_HASHES
     assert names.index("029_shared_run_game_access.sql") < names.index("031_identity_list_pagination.sql")
+    assert names[-4:] == [
+        "031_identity_list_pagination.sql",
+        "032_identity_pending_requests_index.sql",
+        "033_configuration_local_schedule.sql",
+        "034_configuration_schedule_handoff.sql",
+    ]
     assert (
         proof.REQUIRED_MIGRATION_HASHES["029_shared_run_game_access.sql"]
         == "4612ba64ff50b969fc978a9671267aca8afbd12d817de0d586b5fab4edab8b5b"
@@ -966,7 +975,7 @@ def test_current_migration_policy_contract_is_final_and_deterministic(
     assert first == second
     assert (
         first["sha256"]
-        == "2c0d7519af7b36a7f63bef34c25612c3f49ab0ab3710beeff397d891a907c983"
+        == "2aef297746610cc95a6a27dc0ba7920e1f36295ced34353f5c157efa020004a8"
     )
     assert policies.isdisjoint(legacy_configuration_policies)
     assert configuration_v25_policies.issubset(policies)
@@ -1361,6 +1370,12 @@ def _install_full_wiring_fixture(
         "_prove_configuration_v25_schema",
         lambda _url: {"contractSha256": "c" * 64},
     )
+
+    def prove_configuration_schedule(store, components):
+        assert store is configuration_store
+        assert components == resolved["bundle"]["componentRevisions"]
+
+    monkeypatch.setattr(proof, "_prove_configuration_schedule", prove_configuration_schedule)
     immutable_calls: list[tuple[str, str]] = []
     monkeypatch.setattr(
         proof,
@@ -1489,6 +1504,7 @@ def test_full_wiring_proves_postgres_configuration_authority_and_cleanup(
         "postgresResearchStore": True,
         "postgresConfigurationStore": True,
         "configurationServiceRlsContext": True,
+        "configurationLocalScheduleRoundTrip": True,
         "packagedBundleResolved": True,
         "activeBundleRevisionId": "CBR-LIVE-PROOF",
         "packagedBundleSha256": fixture["packagedSha256"],
@@ -1912,7 +1928,7 @@ def test_configuration_v25_schema_probe_is_exact_and_fail_closed(
                     )
                 )
             if "FROM pg_trigger" in sql:
-                return Result(rows=proof.CONFIGURATION_V25_TRIGGERS)
+                return Result(rows=proof.CONFIGURATION_V25_TRIGGERS | proof.CONFIGURATION_SCHEDULE_TRIGGERS)
             if "FROM pg_policies" in sql:
                 rows = [
                     (*value, "PERMISSIVE") for value in proof.CONFIGURATION_V25_POLICIES
@@ -1948,14 +1964,14 @@ def test_configuration_v25_schema_probe_is_exact_and_fail_closed(
                     "rlsRelations": sorted(proof.CONFIGURATION_V25_RLS_RELATIONS),
                     "triggers": [
                         list(value)
-                        for value in sorted(proof.CONFIGURATION_V25_TRIGGERS)
+                        for value in sorted(proof.CONFIGURATION_V25_TRIGGERS | proof.CONFIGURATION_SCHEDULE_TRIGGERS)
                     ],
                 }
             )
         ),
         "rolloutPercentageNumeric": True,
         "validatedConstraintCount": 6,
-        "immutabilityTriggerCount": 2,
+        "immutabilityTriggerCount": 5,
         "policyCount": 6,
         "forcedRlsRelationCount": 3,
         "invalidationEpochPresent": True,

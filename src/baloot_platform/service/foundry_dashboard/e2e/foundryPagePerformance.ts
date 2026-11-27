@@ -90,7 +90,7 @@ export async function measureFoundryPage(browser: Browser, baseURL: string, loca
     eventDurationThresholdMilliseconds,
     percentileMethod: 'nearest-rank',
     budgetSource: 'DESIGN.md#foundry-dashboard',
-    budgetMode: 'record-only',
+    budgetMode: 'enforced',
     sampleCount,
     samples,
     lcp: summarize(samples.map((sample) => sample.lcpMilliseconds), lcpBudget),

@@ -19,7 +19,7 @@ VERSIONS = ("3.12", "3.13")
 FULL = {
     "python-wheelhouse", "ffmpeg-packages", "native-build", "native-sanitizers", "python-fast-run",
     "python-backend-run", "python-heavy", "python-windows", "python-coverage", "media-inputs",
-    "media-render", "media-release-smoke", "identity-postgres",
+    "media-render", "media-release-smoke", "identity-postgres", "postgres-configuration",
 }
 SCOPED = {
     "sdks": "sdk", "foundry": "foundry", "remotion-checks": "remotion", "remotion-image-parity": "video_worker",

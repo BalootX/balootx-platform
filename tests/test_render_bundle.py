@@ -685,10 +685,10 @@ def test_renderer_rejects_unapproved_layout_table_before_render(
     ("legacy_profile", "timeline_sha"),
     [
         pytest.param(
-            True, "553f7f627320b073462b9eb7bfc688703c22684fe8df4929c53c50b7cba5ae0f", id="legacy-voice-profile",
+            True, "80ce9569078bfbbeff0347a4d2e002bfcd0dea748b04e175ec930cd56d020f02", id="legacy-voice-profile",
         ),
         pytest.param(
-            False, "906beef957f3af75da9b62f0957e4fc3d79e954922fab6aca19b9679d0d2c571", id="voice-off-profile",
+            False, "8be2d1fc201add5b68ac7e43f7dce99fb279f2f5762e5f7cccb195dfa78cba61", id="voice-off-profile",
         ),
     ],
 )

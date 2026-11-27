@@ -21,6 +21,16 @@ def digest(value: Any) -> str:
     return hashlib.sha256(canonical(value).encode("utf-8")).hexdigest()
 
 
+def bundle_payload_fingerprint(mode: str, profile_hashes: Mapping[str, str]) -> str:
+    return digest({"mode": mode, "profiles": dict(profile_hashes)})
+
+
+def configuration_tenant_visible(
+    scope: str, tenant_id: str | None, visible_to_tenant: str | None,
+) -> bool:
+    return visible_to_tenant is None or scope == "global" or tenant_id == visible_to_tenant
+
+
 class RevisionStatus(StrEnum):
     DRAFT = "draft"
     PUBLISHED = "published"
@@ -83,6 +93,7 @@ class ProfileRevision:
     published_at: str | None = None
     supersedes_revision_id: str | None = None
     etag: int = 1
+    local_schedule: Mapping[str, str] | None = None
 
     def to_dict(self, *, include_payload: bool = True) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -112,6 +123,8 @@ class ProfileRevision:
         }
         if include_payload:
             result["payload"] = dict(self.payload)
+        if self.local_schedule is not None:
+            result["localSchedule"] = dict(self.local_schedule)
         return result
 
 
@@ -140,9 +153,12 @@ class BundleRevision:
     published_at: str | None = None
     supersedes_revision_id: str | None = None
     etag: int = 1
+    local_schedule: Mapping[str, str] | None = None
+    scheduled_predecessor_id: str | None = None
+    scheduled_successor_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "revisionId": self.revision_id,
             "bundleId": self.bundle_id,
             "version": self.version,
@@ -168,6 +184,9 @@ class BundleRevision:
             "supersedesRevisionId": self.supersedes_revision_id,
             "etag": self.etag,
         }
+        if self.local_schedule is not None:
+            result["localSchedule"] = dict(self.local_schedule)
+        return result
 
 
 @dataclass(frozen=True, slots=True)

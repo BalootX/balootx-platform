@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from functools import partial
 from typing import Any
 
-from .models import Identity, utc_now
+from .models import DISPLAY_NAME_MAX_LENGTH, Identity, utc_now
 from .ownership import owns_subject
 from .pagination import cursor_scope, decode_cursor, encode_cursor
 from .store import PostgresIdentityStore, SQLiteIdentityStore
@@ -80,7 +80,7 @@ class IdentityService:
 
     def create_guest(self, display_name: str | None = None, *, user_agent: str | None = None) -> dict[str, Any]:
         subject_id = f"GST-{uuid.uuid4().hex[:20].upper()}"
-        name = (display_name or "ضيف البلوت").strip()[:40] or "ضيف البلوت"
+        name = (display_name or "ضيف البلوت").strip()[:DISPLAY_NAME_MAX_LENGTH] or "ضيف البلوت"
         created = utc_now()
         self.store.insert_subject(
             subject_id=subject_id, kind="guest", username=None, display_name=name,
@@ -103,7 +103,7 @@ class IdentityService:
         salt = secrets.token_bytes(16)
         password_hash = self._password_hash(password, salt)
         created = utc_now()
-        visible_name = (display_name or username).strip()[:40] or username
+        visible_name = (display_name or username).strip()[:DISPLAY_NAME_MAX_LENGTH] or username
         if upgrade_guest_id:
             self.store.upgrade_guest(
                 subject_id=upgrade_guest_id, username=username, display_name=visible_name,
@@ -165,7 +165,7 @@ class IdentityService:
             created = utc_now()
             self.store.insert_subject(
                 subject_id=selected, kind=kind, username=username,
-                display_name=(display_name or "مستخدم البلوت").strip()[:40] or "مستخدم البلوت",
+                display_name=(display_name or "مستخدم البلوت").strip()[:DISPLAY_NAME_MAX_LENGTH] or "مستخدم البلوت",
                 password_salt=None, password_hash=None, created_at=created,
             )
         row = self.store.get_subject(selected) or {}

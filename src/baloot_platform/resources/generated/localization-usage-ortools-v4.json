@@ -1281,8 +1281,8 @@
     ]
   },
   "kind": "LocalizationUsageManifestV1",
-  "productHash": "54c66cf722210dbbc72ff2c552597c4f2c039419be7165f0be41c099ab23a582",
-  "receiptCount": 3302,
+  "productHash": "626fd5a0bf5238459c2fc9f3f876ff3384dd2d7ac8a18e22f5763b5f07cda8a2",
+  "receiptCount": 3303,
   "receipts": [
     {
       "consumers": [
@@ -11407,10 +11407,11 @@
     },
     {
       "consumers": [
-        "foundry_dashboard/src/main.tsx"
+        "foundry_dashboard/src/main.tsx",
+        "foundry_dashboard/src/shared/localization.ts"
       ],
       "primitiveId": "localization.foundry_copy.groups.helpers.m_dc85c66d7c4d",
-      "proofHash": "c0c9751c9853baab8b58972bcc8fc3ccd13c050327078dfdbe797c569eb34537",
+      "proofHash": "8e5ab88ab7d0ab488484888feb614bdc8bace424b3017980c31db1933d9c2244",
       "proofKind": "static_ast_reference",
       "status": "proven_behavioral",
       "templateFields": []
@@ -11553,6 +11554,16 @@
       ],
       "primitiveId": "localization.foundry_copy.groups.helpers.m_fd4ee4b4001a",
       "proofHash": "da64c7906dc6876e153c0aa4f8701235180fa6a1fe9c0eefaee0a2cc11fc187f",
+      "proofKind": "static_ast_reference",
+      "status": "proven_behavioral",
+      "templateFields": []
+    },
+    {
+      "consumers": [
+        "foundry_dashboard/src/shared/localization.ts"
+      ],
+      "primitiveId": "localization.foundry_copy.groups.helpers.request_timeout",
+      "proofHash": "d5a8a94a5fde9060ee53df11f23ec80917fb3ce8a53f8c40622bceb4086f7027",
       "proofKind": "static_ast_reference",
       "status": "proven_behavioral",
       "templateFields": []
@@ -27909,10 +27920,11 @@
     },
     {
       "consumers": [
-        "foundry_dashboard/src/features/research/scenarioStudio.tsx"
+        "foundry_dashboard/src/features/research/scenarioStudio.tsx",
+        "foundry_dashboard/src/main.tsx"
       ],
       "primitiveId": "localization.foundry_copy.groups.workflow.research_scenario_json_invalid",
-      "proofHash": "06408ddbc45bf1fc0d793d8edb13f7566a44d696cfeb7d34254fde11e67d1c4c",
+      "proofHash": "9b53ad8c1248d4e9508dda92ef5ed0260fa9878074e34122565109a50a25d56d",
       "proofKind": "static_ast_reference",
       "status": "proven_behavioral",
       "templateFields": []
@@ -36973,7 +36985,7 @@
     }
   ],
   "schemaVersion": 1,
-  "sha256": "c7359f345d717c66cce10389460455844d72e633fad23b49e37b716b80424109",
+  "sha256": "6abf8af7a75599989ef7003614cd9ba1dcd4ae1d2523d32487d8dc633b5f3322",
   "sources": {
     "schemas/profiles/challenge.schema.json": "5f1c300a375345eea30be2c7bf239903326b0d39edba030be4a195aebd594b46",
     "src/baloot_platform/guide.py": "0a80e1079d71c55a9606d1094f4f7ac798b7507b12af66a058af3ec2134a603e",
@@ -36984,26 +36996,26 @@
     "src/baloot_platform/research/scenario_registry_v2.py": "22168718feabe7374931eeea4132659af13663e8ff3c755d449a1894854c4d04",
     "src/baloot_platform/research/service.py": "6564891dbf25d27f11200d3c65927d760ba43afad55a7f0d7f7ef5c504b310d0",
     "src/baloot_platform/service/foundry_dashboard/scripts/extract-copy-usage.mjs": "4f656aebeaa7cc559778b818472c9b613eabbd8ae75ffea4a39bc6cef8f57562",
-    "src/baloot_platform/service/foundry_dashboard/src/api/research.ts": "f8a64f3c5b3011192a021b35d6632a258e74f63efd12801f6f221c68eb64a65d",
+    "src/baloot_platform/service/foundry_dashboard/src/api/research.ts": "abb6c2244d12c438301765ecd3522aeeccce5a89ad1834bd3966863fa1acbfed",
     "src/baloot_platform/service/foundry_dashboard/src/features/configuration/model.ts": "cbb26597057d16abc10c0825e9e9d1ad592ea3ac44d7643e292c17b4ba3757b2",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/audit.tsx": "88bc6c262f932825e4944e3db7e6d597a7e31f6c8e8ba1aa9dd6621d33c7724f",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/cardSelector.tsx": "ec719c2af6324a47282d5ce39acd4b4c565a1c09a941b0844c5c4f9cc76a1d84",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/catalog.ts": "35ae5297637aed6b4af9b11aeb78595ca3e6d497a32e7fc5042dcba4305ea1d5",
-    "src/baloot_platform/service/foundry_dashboard/src/features/research/errorCopy.ts": "2e5d0df33cc5bca627767da3a1f209b7b8f88cea4c150ea189c7e0c37ff93cd1",
+    "src/baloot_platform/service/foundry_dashboard/src/features/research/errorCopy.ts": "d17cfd0a51b0e21022f871d8d9f3d623e816786d1862d8d4411d16d9e99de232",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/familyGeneration.ts": "8f7a6952e55d0205451d4d1e45091ceb771ae8063064fdfde6821d6e341bd4e9",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/lessonTags.tsx": "1dc0a1be1d79882205c1c127e70702c7228ad24bdf337f0ae3439d73bb371479",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/model.ts": "d36b687c8f9a5d0cc650cc9f0db31daa09328ad7d0572738269668d24f082d01",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/ortoolsScenarioUi.ts": "98310c5f50ab74d27cd5455e2bc357aec4b9230f1e33d3a5c801a271f4b08dbc",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/recipeLedger.tsx": "5fc92045ada41501ce7efc0e318af81d0f4cc0cd9551ec8d1c8da404ab07450e",
-    "src/baloot_platform/service/foundry_dashboard/src/features/research/recipes.ts": "4ba1fe4b04441d7e72f046b435aafd90ad9ce3a791b7eb7edea808ffb7e4a1d3",
+    "src/baloot_platform/service/foundry_dashboard/src/features/research/recipes.ts": "a22324c4afa3db493c201c9122f9eff24f25cf721b5c4d7b2f94287ebdfa4d3e",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/ruleAuthority.ts": "c707c094c7b235d9c629040c07bcfbc82698541a56ea42d01a3ba98c13f769ae",
-    "src/baloot_platform/service/foundry_dashboard/src/features/research/scenarioStudio.tsx": "19baf59d73b195d23d0d8249f8d6f2c84f9bccfcb09cc0878a4f1fdfd43e2451",
+    "src/baloot_platform/service/foundry_dashboard/src/features/research/scenarioStudio.tsx": "d017fadbb33fb565712d8a62ec51c265909feff18245c66cc17738332631e107",
     "src/baloot_platform/service/foundry_dashboard/src/features/research/workspace.tsx": "3fee276419a4288ab3ff87509172af3de03461532f8064cb659d7a766c6f54c1",
     "src/baloot_platform/service/foundry_dashboard/src/features/videos/model.ts": "b00bed40ca5b05ec165115949331d4165579b335b37bbc31c2bcd343de7146db",
-    "src/baloot_platform/service/foundry_dashboard/src/main.tsx": "d5e6ea524dc171ae8d0163295ae514679df9a772ea8614ae4580450cc7b5dbc7",
+    "src/baloot_platform/service/foundry_dashboard/src/main.tsx": "3b9dd701d378125a845b4a6556abbc1070a9b6adb6cdd8fc384a920944740186",
     "src/baloot_platform/service/foundry_dashboard/src/shared/format.ts": "4394ffa5e301f38f310ca7fd54bdf8888c6fba15e4c7b74a17e441501e57437f",
     "src/baloot_platform/service/foundry_dashboard/src/shared/json.ts": "dc8e07997a8b1be3a5229247bbe8c7b4dfe29e8e13681b964f893593b9ce3188",
-    "src/baloot_platform/service/foundry_dashboard/src/shared/localization.ts": "7ba906239a3050cedca5961a4f4ff596e30c9c479470cbbfb98c6839879b3393",
+    "src/baloot_platform/service/foundry_dashboard/src/shared/localization.ts": "62575d6ac2cdd3498d03ee8d6063a58217f73a0e4b7b046178608b665da1994c",
     "src/baloot_platform/service/foundry_dashboard/src/shared/presentation.tsx": "358dcef61e22062b0d27a5dc8586562784b4b5fcf2fd17f8770cfa9513ddd58d",
     "src/baloot_platform/service/foundry_dashboard/src/vite-env.d.ts": "5fb2f1c8a2d69b164d63d0965fecbf7acf1775805f3f021a6207a294e5a37208"
   }
