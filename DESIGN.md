@@ -13,7 +13,8 @@
 ## Foundry dashboard
 
 - The [Foundry dashboard](src/baloot_platform/service/foundry_dashboard/index.html) uses an Arabic, right-to-left layout. The [Foundry styles](src/baloot_platform/service/foundry_dashboard/src/styles.css) use Noto Sans Arabic, dark green surfaces, gold accents and semantic colors for status. Follow the existing panel, form and table patterns.
-- Keep scenario authoring, proof, execution and results easy to find. Keep status understandable in text and controls operable by keyboard. Preserve responsive layouts and reduced-motion support.
+- Keep scenario authoring, proof, execution and results easy to find. Keep status understandable in text and controls operable by keyboard. Preserve responsive layouts and reduced-motion support. The scenario journey links scroll vertically with the form and can be scrolled horizontally on narrow screens. The sticky side panels and settings save bar sit below the status notice while it is shown. Focus scrolling uses the notice height to keep controls clear of it.
+- The `WCAG 2.2 AA` tests in the [accessibility spec](src/baloot_platform/service/foundry_dashboard/e2e/foundry_scenario_accessibility.spec.ts) are the AA evidence for status notices, the overview and its readiness drawer, scenario authoring, proof, execution and results, and the advanced JSON editor in settings. The Foundry CI job runs them on desktop and mobile-touch. They run axe-core's WCAG A and AA rules, including target size, and check that Tab reaches each control, focus is visible and not hidden, and status messages arrive in a live region.
 - On the overview, keep readiness details disabled while their data loads and the layout is still settling. Once enabled, each detail opens by touch, mouse or keyboard.
 - The page budgets are p75 Largest Contentful Paint under 2.5 seconds and p75 Interaction to Next Paint under 200 ms.
 

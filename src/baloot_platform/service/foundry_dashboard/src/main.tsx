@@ -1,4 +1,4 @@
-import {CSSProperties, FormEvent, Fragment, ReactNode, SetStateAction, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {CSSProperties, FormEvent, Fragment, ReactNode, SetStateAction, useCallback, useEffect, useId, useMemo, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {
   createColumnHelper,
@@ -1178,6 +1178,15 @@ function App() {
   const [openHelp, setOpenHelp] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const noticeRegion = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const region = noticeRegion.current;
+    if (!region) return;
+    // The sticky panels and focus scrolling use this height to stay clear of the sticky notice.
+    const observer = new ResizeObserver(() => document.documentElement.style.setProperty('--notice-height', `${region.offsetHeight}px`));
+    observer.observe(region);
+    return () => observer.disconnect();
+  }, []);
   const [generationLane, setGenerationLane] = useState<'organic' | 'guided' | 'disagreement'>('guided');
   const [seedStart, setSeedStart] = useState(0);
   const [seedCount, setSeedCount] = useState(4);
@@ -2217,7 +2226,7 @@ function App() {
         <div className="runtime-badge"><i />{t("workflow.m_7b8ec1caafbd")}<b dir="ltr">{profile?.engineVersion ?? '—'}</b></div>
       </div>
     </header>
-    {message && <div className="notice" role="status"><span>{message}</span><button onClick={() => setMessage('')} aria-label={t("workflow.m_ca90c297b099")}>×</button></div>}
+    <div ref={noticeRegion} className="notice-region" role="status">{message && <div className="notice"><span>{message}</span><button onClick={() => setMessage('')} aria-label={t("workflow.m_ca90c297b099")}>×</button></div>}</div>
 
     <div className="foundry-layout">
       <aside className="foundry-sidebar">
@@ -2251,16 +2260,16 @@ function App() {
         <JourneyStep index={5} title={t("workflow.m_d94d3fee9506")} description={t("workflow.m_a510e3b8ce0a")} state={publications.length ? 'active' : 'locked'} help={t("workflow.m_5dbe2b0c5803")} example={t("workflow.m_c9548a76b9d2")} openHelp={openHelp} setOpenHelp={setOpenHelp} />
       </section>
 
-      {profile?.finalistAgentQualification && <button className={`panel agent-readiness ${profile.finalistAgentQualification.expertGenerationAllowed ? 'qualified' : 'local'}`} onClick={() => setDrawer({
+      {profile?.finalistAgentQualification && <section className={`panel agent-readiness ${profile.finalistAgentQualification.expertGenerationAllowed ? 'qualified' : 'local'}`}><button type="button" onClick={() => setDrawer({
         kind:'agent-qualification',
         title:t("workflow.label_agent_details"),
         subtitle:profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_ready_local"),
         content:<AgentQualificationDetails value={profile.finalistAgentQualification} pilot={profile.finalistAgentPilotEvidence} />,
         audit:{qualification:profile.finalistAgentQualification, localPilot:profile.finalistAgentPilotEvidence} as unknown as JsonObject,
       })}>
-        <div><span className="eyebrow">{t("workflow.label_agent_title")}</span><h2>{profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_ready_local")}</h2><small>{profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_pending")}</small></div>
+        <span className="eyebrow">{t("workflow.label_agent_title")}</span><h2>{profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_ready_local")}</h2><small>{profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_pending")}</small></button>
         <div className="agent-badges"><span>✓ {t("workflow.label_agent_equal")}</span><span>✓ {t("workflow.label_agent_search")}</span>{profile.finalistAgentPilotEvidence?.passed && <span>✓ {t("workflow.label_agent_local_pilot")}</span>}<InfoBadge id="agent-readiness" text={t("workflow.label_agent_help")} example={t("workflow.label_agent_example")} openHelp={openHelp} setOpenHelp={setOpenHelp} /></div>
-      </button>}
+      </section>}
 
       <section className="metrics" aria-label={t("workflow.m_9a21bfcc41a4")}>
         <Metric label={t("workflow.m_deb6cb326493")} value={campaigns.length} help={t("workflow.m_d00bd4ce79ab")} example={t("workflow.m_abb954f9fbf9")} openHelp={openHelp} setOpenHelp={setOpenHelp} />
@@ -2835,12 +2844,12 @@ function ConfigObjectArraySection({name, technicalKey, value, schema, rootSchema
   const id = `config-${path.join('-')}`;
   const added = configurationEditorObjectArrayAdd(value, schema);
   const minimum = typeof schema.minItems === 'number' ? schema.minItems : 0;
-  return <details className="config-section" data-config-path={path.join('.')} open={expanded} onToggle={(event)=>setExpanded(event.currentTarget.open)}>
-    <summary><span>{name} · {number.format(items.length)}</span><InfoBadge id={id} text={schema.description || name} example={t("evidence.m_81ef2928b9cc")} technical={technicalKey} openHelp={openHelp} setOpenHelp={setOpenHelp}/>{onRemove&&<button type="button" className="quiet" disabled={disabled} aria-label={`${t("workflow.research_scenario_remove")} · ${name}`} onClick={(event)=>{event.preventDefault();onRemove();}}>{t("workflow.research_scenario_remove")}</button>}</summary>
+  return <div className="config-section" data-config-path={path.join('.')}>
+    <div className="config-section-head"><button type="button" aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}>{name} · {number.format(items.length)}</button><InfoBadge id={id} text={schema.description || name} example={t("evidence.m_81ef2928b9cc")} technical={technicalKey} openHelp={openHelp} setOpenHelp={setOpenHelp}/>{onRemove&&<button type="button" className="quiet" disabled={disabled} aria-label={`${t("workflow.research_scenario_remove")} · ${name}`} onClick={()=>onRemove()}>{t("workflow.research_scenario_remove")}</button>}</div>
     {expanded&&<div className="json-editor">{items.map((item,index)=>
       <ConfigObjectSection key={index} technicalKey={technicalKey} name={`${name} · ${number.format(index+1)}`} value={item} schema={itemSchema} rootSchema={rootSchema} disabled={disabled} path={[...path,index]} onChange={onChange} onRemove={items.length>minimum?()=>{const removed=configurationEditorObjectArrayRemove(value,schema,index);if(!disabled&&removed)onChange(path,removed);}:undefined} defaultOpen={index===0} openHelp={openHelp} setOpenHelp={setOpenHelp}/>
     )}<button type="button" className="secondary" disabled={disabled||!added} aria-label={`${t("workflow.research_scenario_expression_add_group")} · ${name}`} onClick={()=>{if(!disabled&&added)onChange(path,added);}}>{t("workflow.research_scenario_expression_add_group")}</button></div>}
-  </details>;
+  </div>;
 }
 function configSchemaHelp(schema: JsonSchema | undefined, fallback: string): string {
   const key = schema?.['x-helpArKey'];
@@ -2857,7 +2866,7 @@ function ConfigObjectSection({technicalKey, name, value, schema, rootSchema, dis
     : thrillSection && technicalKey === 'weights'
       ? t("helpers.thrill_weight_example")
       : t("evidence.m_81ef2928b9cc");
-  return <details className="config-section" data-config-path={path.join('.')} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}><summary><span>{name}</span><InfoBadge id={id} text={help} example={example} technical={technicalKey} openHelp={openHelp} setOpenHelp={setOpenHelp} />{onRemove && <button type="button" className="quiet" disabled={disabled} aria-label={`${t("workflow.research_scenario_remove")} · ${name}`} onClick={(event)=>{event.preventDefault();onRemove();}}>{t("workflow.research_scenario_remove")}</button>}</summary>{expanded && <JsonEditor value={value} schema={schema} rootSchema={rootSchema} disabled={disabled} path={path} onChange={onChange} openHelp={openHelp} setOpenHelp={setOpenHelp} />}</details>;
+  return <div className="config-section" data-config-path={path.join('.')}><div className="config-section-head"><button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{name}</button><InfoBadge id={id} text={help} example={example} technical={technicalKey} openHelp={openHelp} setOpenHelp={setOpenHelp} />{onRemove && <button type="button" className="quiet" disabled={disabled} aria-label={`${t("workflow.research_scenario_remove")} · ${name}`} onClick={()=>onRemove()}>{t("workflow.research_scenario_remove")}</button>}</div>{expanded && <JsonEditor value={value} schema={schema} rootSchema={rootSchema} disabled={disabled} path={path} onChange={onChange} openHelp={openHelp} setOpenHelp={setOpenHelp} />}</div>;
 }
 function ConfigField({name, technicalKey, value, schema, disabled, path, onChange, onRemove, id, openHelp, setOpenHelp}: {name:string;technicalKey:string;value:JsonValue;schema:JsonSchema|undefined;disabled:boolean;path:(string|number)[];onChange:(path:(string|number)[],value:JsonValue)=>void;onRemove?:()=>void;id:string;openHelp:string|null;setOpenHelp:(value:string|null)=>void}) {
   const help = configSchemaHelp(schema, t("evidence.m_1f81dffaa812") + name + t("evidence.m_24b96014dd3a"));
@@ -2909,8 +2918,9 @@ function ConfigField({name, technicalKey, value, schema, disabled, path, onChang
 }
 function RawJsonFallback({value,disabled,onApply}:{value:JsonObject;disabled:boolean;onApply:(value:JsonObject)=>void}) {
   const [text,setText]=useState(()=>JSON.stringify(value,null,2)); const [valid,setValid]=useState(true);
+  const id=useId();
   useEffect(()=>{setText(JSON.stringify(value,null,2));setValid(true);},[value]);
-  return <details className="raw-json-fallback"><summary>{t("settings.rules_advanced_json")}</summary><p>{t("settings.rules_advanced_json_help")}</p><textarea dir="ltr" disabled={disabled} value={text} onChange={(event)=>{setText(event.target.value);try{const parsed=JSON.parse(event.target.value);setValid(Boolean(parsed)&&typeof parsed==='object'&&!Array.isArray(parsed));}catch{setValid(false);}}}/><button className="secondary" type="button" disabled={disabled||!valid} onClick={()=>onApply(JSON.parse(text) as JsonObject)}>{t("settings.rules_advanced_json_apply")}</button></details>;
+  return <details className="raw-json-fallback"><summary id={`${id}-title`}>{t("settings.rules_advanced_json")}</summary><p id={`${id}-help`}>{t("settings.rules_advanced_json_help")}</p><textarea dir="ltr" aria-labelledby={`${id}-title`} aria-describedby={`${id}-help ${id}-error`} aria-invalid={!valid} disabled={disabled} value={text} onChange={(event)=>{setText(event.target.value);try{const parsed=JSON.parse(event.target.value);setValid(Boolean(parsed)&&typeof parsed==='object'&&!Array.isArray(parsed));}catch{setValid(false);}}}/><span id={`${id}-error`} role="status">{valid?'':t("workflow.research_scenario_json_invalid")}</span><button className="secondary" type="button" disabled={disabled||!valid} onClick={()=>onApply(JSON.parse(text) as JsonObject)}>{t("settings.rules_advanced_json_apply")}</button></details>;
 }
 function diffPaths(left: JsonValue, right: JsonValue, path = ''): string[] {
   if (JSON.stringify(left) === JSON.stringify(right)) return [];
