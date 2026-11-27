@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, TypeVar
@@ -16,8 +16,15 @@ from .schedule import ConfigurationScheduleConflict, normalize_schedule, verify_
 
 _UNSET = object()
 Revision = TypeVar("Revision", ProfileRevision, BundleRevision)
-BundleHistory = tuple[BundleRevision, dict[str, BundleRevision]]
 BundleDimensions = tuple[str | None, str, str, str | None, str | None]
+
+
+@dataclass(frozen=True)
+class BundleHistory:
+    anchor: BundleRevision
+    revisions: dict[str, BundleRevision]
+    visible_revision_ids: frozenset[str]
+
 
 _POSTGRES_PROFILE_COLUMNS = """
 revision_id,family,profile_id,version,scope,scope_key,tenant_id,environment,
@@ -237,6 +244,8 @@ def _read_bundle_histories(
     decode: Callable[[Any], BundleRevision | None],
     include_unpublished: bool,
     limit: int,
+    visible_to_tenant: str | None,
+    visibility_sql: str,
 ) -> list[BundleHistory]:
     bundle_id, *scope = dimensions
     filters = [f"scope={parameter}", f"scope_key={parameter}",
@@ -248,6 +257,10 @@ def _read_bundle_histories(
     if not include_unpublished:
         filters.append("status='published'")
     args.append(limit)
+    visibility = "TRUE"
+    if visible_to_tenant is not None:
+        visibility = visibility_sql
+        args.extend((visible_to_tenant, visible_to_tenant))
     # One statement binds each anchor to the revisions it can reach at that snapshot.
     rows = conn.execute(f"""
         WITH RECURSIVE anchors AS (
@@ -263,17 +276,24 @@ def _read_bundle_histories(
                 WHEN history.revision_id=history.anchor_id THEN current_revision.scheduled_successor_id
                 ELSE current_revision.scheduled_predecessor_id END
         )
-        SELECT history.anchor_id, revision.*
+        SELECT history.anchor_id, {table}.*, ({visibility}) AS revision_visible
         FROM history JOIN anchors ON anchors.revision_id=history.anchor_id
-        JOIN {table} AS revision ON revision.revision_id=history.revision_id
+        JOIN {table} ON {table}.revision_id=history.revision_id
         ORDER BY anchors.sequence DESC, anchors.created_at DESC, anchors.revision_id
     """, args).fetchall()
     histories: dict[str, dict[str, BundleRevision]] = {}
+    visible_ids: set[str] = set()
     for row in rows:
         revision = decode(row)
         assert revision is not None
         histories.setdefault(row["anchor_id"], {})[revision.revision_id] = revision
-    return [(history[anchor_id], history) for anchor_id, history in histories.items()]
+        if row["revision_visible"]:
+            visible_ids.add(revision.revision_id)
+    visible_revision_ids = frozenset(visible_ids)
+    return [
+        BundleHistory(revisions[anchor_id], revisions, visible_revision_ids)
+        for anchor_id, revisions in histories.items()
+    ]
 
 
 def _read_bootstrap_bundle(
@@ -282,7 +302,7 @@ def _read_bootstrap_bundle(
     decode: Callable[[Any], ProfileRevision | None],
     events: Callable[[Any, str, str], list[dict[str, Any]]],
 ) -> tuple[BundleRevision | None, BundleRevision | None, dict[str, ProfileRevision], int, dict[str, Any]]:
-    anchor = histories[0][0] if histories else None
+    anchor = histories[0].anchor if histories else None
     selected = select(histories[0]) if histories else None
     if selected is None:
         return anchor, None, {}, 0, {}
@@ -1558,15 +1578,18 @@ class SQLiteConfigurationStore:
 
     def list_bundle_histories(
         self, dimensions: BundleDimensions, *,
-        include_unpublished: bool = False, limit: int = 100,
+        include_unpublished: bool = False, limit: int = 100, visible_to_tenant: str | None = None,
     ) -> list[BundleHistory]:
         with self._connect() as conn:
-            return self._bundle_histories_tx(conn, dimensions, include_unpublished, limit)
+            return self._bundle_histories_tx(conn, dimensions, include_unpublished, limit, visible_to_tenant)
 
-    def _bundle_histories_tx(self, conn, dimensions, include_unpublished, limit) -> list[BundleHistory]:
+    def _bundle_histories_tx(
+        self, conn, dimensions, include_unpublished, limit, visible_to_tenant=None,
+    ) -> list[BundleHistory]:
         return _read_bundle_histories(
             conn, dimensions, table="configuration_bundle_revisions", parameter="?", nullable_equal="IS",
             decode=self._bundle, include_unpublished=include_unpublished, limit=limit,
+            visible_to_tenant=visible_to_tenant, visibility_sql=_SQLITE_VISIBLE_BUNDLE,
         )
 
     def read_bootstrap_bundle(self, dimensions: BundleDimensions, select: Callable[[BundleHistory], BundleRevision | None]):
@@ -2937,16 +2960,19 @@ class PostgresConfigurationStore:
 
     def list_bundle_histories(
         self, dimensions: BundleDimensions, *,
-        include_unpublished: bool = False, limit: int = 100,
+        include_unpublished: bool = False, limit: int = 100, visible_to_tenant: str | None = None,
     ) -> list[BundleHistory]:
         with contextual_connection(self.pool) as conn:
-            return self._bundle_histories_tx(conn, dimensions, include_unpublished, limit)
+            return self._bundle_histories_tx(conn, dimensions, include_unpublished, limit, visible_to_tenant)
 
-    def _bundle_histories_tx(self, conn, dimensions, include_unpublished, limit) -> list[BundleHistory]:
+    def _bundle_histories_tx(
+        self, conn, dimensions, include_unpublished, limit, visible_to_tenant=None,
+    ) -> list[BundleHistory]:
         return _read_bundle_histories(
             conn, dimensions, table="configuration.bundle_revisions", parameter="%s",
             nullable_equal="IS NOT DISTINCT FROM", decode=self._bundle,
             include_unpublished=include_unpublished, limit=limit,
+            visible_to_tenant=visible_to_tenant, visibility_sql=_POSTGRES_VISIBLE_BUNDLE,
         )
 
     def read_bootstrap_bundle(self, dimensions: BundleDimensions, select: Callable[[BundleHistory], BundleRevision | None]):

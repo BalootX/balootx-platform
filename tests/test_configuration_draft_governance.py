@@ -30,6 +30,7 @@ from baloot_platform.configuration.models import (
     ProfileRevision,
     digest,
 )
+from baloot_platform.configuration.store import BundleHistory
 from baloot_platform.identity import IdentityService, SQLiteIdentityStore
 from baloot_platform.security import AuthorizationPolicy
 import baloot_platform.service.container as container_module
@@ -1259,8 +1260,8 @@ class _ExactDimensionResolutionStore:
 
     def list_bundle_histories(
         self, dimensions: tuple[str | None, str, str, str | None, str | None],
-        *, include_unpublished: bool = False, limit: int = 100,
-    ) -> list[tuple[BundleRevision, dict[str, BundleRevision]]]:
+        *, include_unpublished: bool = False, limit: int = 100, visible_to_tenant: str | None = None,
+    ) -> list[BundleHistory]:
         bundle_id, scope, scope_key, tenant_id, environment = dimensions
         self.bundle_calls.append({"tenant_id": tenant_id, "environment": environment})
         values = [
@@ -1271,7 +1272,7 @@ class _ExactDimensionResolutionStore:
             and (include_unpublished or item.status == "published")
         ]
         values.sort(key=lambda item: item.sequence, reverse=True)
-        return [(item, {item.revision_id: item}) for item in values[:limit]]
+        return [BundleHistory(item, {item.revision_id: item}, frozenset({item.revision_id})) for item in values[:limit]]
 
     def verify_events(self, aggregate_type: str, aggregate_id: str) -> dict[str, Any]:
         return {

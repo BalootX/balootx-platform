@@ -514,6 +514,8 @@ def check_configuration_access(client):
     default_profile, default_bundle = access_rows['default']
     isolated_profile, isolated_bundle = access_rows['environment']
     _, linked_bundle = access_rows['edge']
+    handoff_anchor, handoff_successor = access_rows['handoff']
+    visible_draft, hidden_draft = access_rows['drafts']
 
     def signed(tenant, role, scopes=('baloot.read',)):
         return {'authorization': 'Bearer ' + ACCESS_TOKENS.issue(
@@ -597,6 +599,28 @@ def check_configuration_access(client):
         assert client.get(route, headers=admin).status_code == 200
         assert client.get(route, headers=elevated).status_code == 404
         assert client.get(route, headers=allowed).status_code == 404
+
+    def assert_handoff_fallback(result):
+        assert result['bundle']['revisionId'] == handoff_anchor
+        assert [row['revisionId'] for row in result['resolutionTrace']] == [handoff_anchor]
+        assert handoff_successor not in json.dumps(result)
+
+    handoff = {'bundleId': 'scoped-handoff'}
+    admin_handoff = client.get(f'{registry}/resolve', params={**handoff, 'atTime': '2026-07-01T18:00Z'}, headers=admin)
+    assert admin_handoff.status_code == 200 and admin_handoff.json()['bundle']['revisionId'] == handoff_successor
+    for cred in (allowed, elevated):
+        for route in ('resolve', 'resolve-v2'):
+            for at_time in ('2026-07-01T17:00Z', '2026-07-01T18:00Z'):
+                result = client.get(f'{registry}/{route}', params={**handoff, 'atTime': at_time}, headers=cred)
+                assert result.status_code == 200, result.text
+                assert_handoff_fallback(result.json())
+        for suffix in (':resolve', ':resolve-v2'):
+            hidden = client.get(f'{registry}/bundles/{hidden_draft}{suffix}', headers=cred)
+            visible = client.get(f'{registry}/bundles/{visible_draft}{suffix}', headers=cred)
+            assert hidden.status_code == 404 and hidden_draft not in hidden.text, hidden.text
+            assert visible.status_code == 403, visible.text
+    preview = client.get(f'{registry}/bundles/{hidden_draft}:resolve', params={'allowDraft': 'true'}, headers=admin)
+    assert preview.status_code == 200 and preview.json()['bundle']['status'] == 'draft', preview.text
     assert client.get(f'{registry}/bundles', headers=no_read).status_code == 403
     assert client.get(f'{registry}/bundles/{access_rows[tenant_a][1]}:resolve', headers=no_read).status_code == 403
     assert client.get('/api/v2/configuration/bundles', headers=headers[tenant_b]).status_code == 403
@@ -662,6 +686,24 @@ def check_configuration_access(client):
                 await stub.CompareProfiles(proto.ProfileCompare(left=shared_profile, right=isolated_profile),
                                            metadata=tuple(role_headers.items()), timeout=5)
             assert failure.value.code() == missing
+        handoff_request = proto.BundleResolution(bundle_id='scoped-handoff')
+        admin_metadata = tuple(admin.items())
+        admin_result = await stub.ResolveBundle(handoff_request, metadata=admin_metadata, timeout=5)
+        assert handoff_successor in {row['revisionId'] for row in json.loads(admin_result.canonical_json)['resolutionTrace']}
+        preview = await stub.ResolveBundle(
+            proto.BundleResolution(revision_id=hidden_draft, allow_draft=True), metadata=admin_metadata, timeout=5,
+        )
+        assert json.loads(preview.canonical_json)['bundle']['status'] == 'draft'
+        for role_headers in (elevated, allowed):
+            metadata = tuple(role_headers.items())
+            for method in (stub.ResolveBundle, stub.ResolveEffectiveRuntimeConfigV2):
+                result = await method(handoff_request, metadata=metadata, timeout=5)
+                assert_handoff_fallback(json.loads(result.canonical_json))
+                for draft, expected in ((hidden_draft, missing), (visible_draft, denied)):
+                    with raises(grpc.aio.AioRpcError) as failure:
+                        await method(proto.BundleResolution(revision_id=draft), metadata=metadata, timeout=5)
+                    assert failure.value.code() == expected
+                    assert hidden_draft not in failure.value.details()
     with MonkeyPatch.context() as grpc_patch:
         grpc_probe(Path(environ['BALOOT_RUNTIME']), grpc_patch, rpc, stub_type=ConfigurationControlStub)
 
@@ -840,6 +882,24 @@ finally:
             component_revisions={**original["componentRevisions"], "performance": isolated_profile},
         )
         access_rows["edge"] = (isolated_profile, linked_bundle["revisionId"])
+        access_bundle = {"mode": original["mode"], "created_by": "TEST"}
+        shared_components = original["componentRevisions"]
+        hidden_components = {**shared_components, "performance": isolated_profile}
+        handoff_anchor = service.create_bundle(
+            **access_bundle, bundle_id="scoped-handoff", version="1.0.0",
+            component_revisions=shared_components, publish=True,
+        )
+        handoff_successor = service.create_bundle(
+            **access_bundle, bundle_id="scoped-handoff", version="1.0.1",
+            component_revisions=hidden_components, publish=True, effective_from="2026-07-01T18:00Z",
+        )
+        access_rows["handoff"] = (handoff_anchor["revisionId"], handoff_successor["revisionId"])
+        access_rows["drafts"] = tuple(
+            service.create_bundle(
+                **access_bundle, bundle_id=bundle_name, version="1.0.0", component_revisions=components,
+            )["revisionId"]
+            for bundle_name, components in (("scoped-draft-visible", shared_components), ("scoped-draft-edge", hidden_components))
+        )
         probe(recovered, access_rows=access_rows)
         probe(recovered, source=previous)
 
@@ -1019,13 +1079,25 @@ finally:
             with (contextual_connection(store.pool) if app_dsn is not None else store._connect()) as conn:
                 store._set_scheduled_successor_tx(conn, anchor.revision_id, successor)
 
-        for invalid_successor in (competing_id, anchor.revision_id):
+        for invalid_successor in ("", " ", competing_id, anchor.revision_id):
             write_successor(invalid_successor)
+            service._invalidate_cache()
             try:
                 with pytest.raises(ConfigurationIntegrityError, match="scheduled publication could not be verified"):
                     service.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)
+                with pytest.raises(ConfigurationIntegrityError, match="scheduled publication could not be verified"):
+                    service.resolve(**selection)
             finally:
                 write_successor(anchor.scheduled_successor_id)
+        try:
+            write_successor(None)
+            service._invalidate_cache()
+            assert service.resolve(**selection)["bundle"]["revisionId"] == anchor.revision_id
+            assert service.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)["bundle"]["revisionId"] == anchor.revision_id
+        finally:
+            write_successor(anchor.scheduled_successor_id)
+            service._invalidate_cache()
+        print(f"scheduleLinkIntegrity: {backend}")
         print(f"startupRetirementSnapshot: {backend}")
 
         scheduled_profile_id = scheduled["componentRevisions"]["performance"]

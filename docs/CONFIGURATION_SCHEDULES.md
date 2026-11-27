@@ -33,6 +33,8 @@ If that underlying publication is missing or unusable, the store refuses the
 bounded publication before changing the bundle or its audit history. The current
 release verifies the complete scheduled predecessor chain before using the
 first revision whose window includes the requested instant.
+Only a NULL successor link denotes an absent successor. A malformed link
+leaves the runtime unavailable until an administrator restores a valid revision.
 The selected revision remains subject to its rollout policy. An immediate,
 unscheduled publication ends the schedule. The previous release continues to
 use the underlying publication before, during and after a scheduled window.
