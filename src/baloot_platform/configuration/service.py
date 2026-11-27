@@ -7,63 +7,41 @@ import re
 import threading
 import time
 from collections import OrderedDict
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from baloot_platform.config import (
     PROFILE_FAMILIES,
+    ProfileBundle,
     build_bundle,
     validate_research_profile_bundle,
     validate_profile_payload,
-)
-from baloot_platform.security.oidc import (
-    OIDC_PROVIDER_FAMILY,
-    OidcProviderProfile,
-    validate_oidc_provider_profile,
 )
 from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY
 from baloot_platform.version import PROFILE_VERSION_PATTERN
 
 from .models import (
+    BundleRevision,
     ConfigScope,
     EffectiveRuntimeConfigV2,
+    ProfileRevision,
     ResolutionContext,
     RevisionStatus,
+    bundle_payload_fingerprint,
+    configuration_tenant_visible,
     digest,
 )
+from .profile_families import PROFILE_FAMILY_DEFINITIONS
+from .schedule import ConfigurationIntegrityError, parse_instant, verify_revision_schedule
+from .store import BundleHistory, scheduled_bundle_history
 
 _SEMVER = re.compile(PROFILE_VERSION_PATTERN)
 
 
-@dataclass(frozen=True)
-class ProfileFamily:
-    validate: Callable[[dict[str, Any]], Any]
-    schema: Callable[[], dict[str, Any]]
-    requires_config_admin: bool = False
-    in_bundle: bool = True
-
-
-_PROFILE_FAMILIES = {
-    OIDC_PROVIDER_FAMILY: ProfileFamily(
-        validate_oidc_provider_profile,
-        OidcProviderProfile.model_json_schema,
-        requires_config_admin=True,
-        in_bundle=False,
-    )
-}
 _BUNDLE_FAMILIES = set(PROFILE_FAMILIES) | {
-    family for family, definition in _PROFILE_FAMILIES.items() if definition.in_bundle
+    family for family, definition in PROFILE_FAMILY_DEFINITIONS.items() if definition.in_bundle
 }
-
-
-def profile_families_require_admin(*families: str) -> bool:
-    return any(
-        (definition := _PROFILE_FAMILIES.get(family)) is not None
-        and definition.requires_config_admin
-        for family in families
-    )
 
 _PRECEDENCE_KEYS = {
     "request_override",
@@ -76,13 +54,11 @@ _PRECEDENCE_KEYS = {
     "global_published",
     "file_bundle_fallback",
 }
-
-
-def _parse_time(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    result = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    return result if result.tzinfo else result.replace(tzinfo=timezone.utc)
+_PROFILE_LINK_FIELDS = ("supersedesRevisionId",)
+_BUNDLE_LINK_FIELDS = (
+    "supersedesRevisionId", "scheduledPredecessorId", "targetRevisionId", "replacedRevisionId",
+    "previousPublishedRevisionId",
+)
 
 
 class VersionedConfigurationService:
@@ -163,7 +139,6 @@ class VersionedConfigurationService:
     def _cache_get(self, key: tuple[Any, ...]) -> dict[str, Any] | None:
         if self._cache_entries <= 0 or self._cache_ttl_seconds <= 0:
             return None
-        key = self._resolution_cache_key(key)
         with self._cache_lock:
             value = self._cache.get(key)
             if value is None:
@@ -178,20 +153,11 @@ class VersionedConfigurationService:
     def _cache_put(self, key: tuple[Any, ...], payload: dict[str, Any]) -> None:
         if self._cache_entries <= 0 or self._cache_ttl_seconds <= 0:
             return
-        key = self._resolution_cache_key(key)
         with self._cache_lock:
             self._cache[key] = (time.monotonic(), copy.deepcopy(payload))
             self._cache.move_to_end(key)
             while len(self._cache) > self._cache_entries:
                 self._cache.popitem(last=False)
-
-    @staticmethod
-    def _resolution_cache_key(key: tuple[Any, ...]) -> tuple[Any, ...]:
-        identity = CURRENT_DATABASE_IDENTITY.get()
-        return (
-            *key, identity.role, identity.tenant_id, bool(identity.subject_id),
-            identity.configuration_admin, identity.oidc_registry_read,
-        )
 
     @staticmethod
     def _profile_identity(payload: dict[str, Any]) -> tuple[str, str]:
@@ -268,6 +234,7 @@ class VersionedConfigurationService:
                 raise ValueError(f"{name} must be nonblank when provided")
             return normalized
 
+        instant = parse_instant(at_time, "atTime")
         return ResolutionContext(
             optional("tenant_id", tenant_id),
             optional("environment", environment),
@@ -276,13 +243,13 @@ class VersionedConfigurationService:
             optional("shared_game_id", shared_game_id),
             optional("video_profile_id", video_profile_id),
             optional("subject_id", subject_id),
-            optional("at_time", at_time),
+            instant.isoformat() if instant is not None else None,
         )
 
     def validate_profile(self, family: str, payload: dict[str, Any]) -> dict[str, Any]:
         if len(str(payload).encode("utf-8")) > self.maximum_payload_bytes:
             raise ValueError("configuration profile payload exceeds maximum size")
-        definition = _PROFILE_FAMILIES.get(family)
+        definition = PROFILE_FAMILY_DEFINITIONS.get(family)
         if definition is not None:
             return definition.validate(payload).model_dump(mode="json", exclude_none=True)
         return validate_profile_payload(family, payload, root=self.root)
@@ -291,7 +258,7 @@ class VersionedConfigurationService:
         """Return the same closed schema used by row validation."""
 
         family = str(family)
-        definition = _PROFILE_FAMILIES.get(family)
+        definition = PROFILE_FAMILY_DEFINITIONS.get(family)
         if definition is not None:
             return definition.schema()
         if family not in PROFILE_FAMILIES:
@@ -316,10 +283,12 @@ class VersionedConfigurationService:
         environment: str | None = None,
         effective_from: str | None = None,
         effective_until: str | None = None,
+        local_schedule: Mapping[str, str] | None = None,
         rollout_percentage: float = 100.0,
         rollout_seed: str = "default",
         supersedes_revision_id: str | None = None,
         publish: bool = False,
+        require_matching_schedule: bool = True,
     ) -> dict[str, Any]:
         validated = self.validate_profile(str(family), payload)
         profile_id, version = self._profile_identity(validated)
@@ -346,9 +315,11 @@ class VersionedConfigurationService:
             created_by=created_by,
             effective_from=effective_from,
             effective_until=effective_until,
+            local_schedule=local_schedule,
             rollout_percentage=percentage,
             rollout_seed=str(rollout_seed or "default"),
             supersedes_revision_id=supersedes_revision_id,
+            require_matching_schedule=require_matching_schedule,
         )
         self._invalidate_cache()
         return revision.to_dict()
@@ -461,14 +432,13 @@ class VersionedConfigurationService:
         return result.to_dict()
 
     @staticmethod
-    def _eligible(revision: Any, context: ResolutionContext) -> bool:
-        now = _parse_time(context.at_time) or datetime.now(timezone.utc)
-        start = _parse_time(revision.effective_from)
-        end = _parse_time(revision.effective_until)
-        if start and now < start:
-            return False
-        if end and now >= end:
-            return False
+    def _inside_window(revision: BundleRevision | ProfileRevision, at_time: datetime) -> bool:
+        start = parse_instant(revision.effective_from, f"{revision.revision_id}.effectiveFrom")
+        end = parse_instant(revision.effective_until, f"{revision.revision_id}.effectiveUntil")
+        return (start is None or start <= at_time) and (end is None or at_time < end)
+
+    @staticmethod
+    def _in_rollout(revision: BundleRevision | ProfileRevision, context: ResolutionContext) -> bool:
         percentage = float(revision.rollout_percentage)
         if percentage >= 100:
             return True
@@ -482,8 +452,28 @@ class VersionedConfigurationService:
         )
         return bucket < percentage
 
+    def _effective_scheduled_bundle(
+        self, stored_history: BundleHistory,
+        context: ResolutionContext, now: datetime, trace: list[dict[str, Any]],
+    ) -> BundleRevision | None:
+        history = tuple(scheduled_bundle_history(stored_history.anchor, stored_history.revisions))
+        for revision in history:
+            verify_revision_schedule(revision)
+        for revision in history:
+            if revision.revision_id not in stored_history.visible_revision_ids:
+                continue
+            in_window = self._inside_window(revision, now)
+            eligible = in_window and self._in_rollout(revision, context)
+            trace.append({
+                "scope": revision.scope, "scopeKey": revision.scope_key,
+                "revisionId": revision.revision_id, "eligible": eligible,
+            })
+            if in_window:
+                return revision if eligible else None
+        return None
+
     def _scope_candidates(
-        self, context: ResolutionContext
+        self, context: ResolutionContext, visible_to_tenant: str | None = None,
     ) -> list[tuple[str, str, str | None, str | None]]:
         values: list[tuple[str, str, str | None, str | None]] = []
         for item in self._precedence:
@@ -547,7 +537,48 @@ class VersionedConfigurationService:
                 values.append(
                     (ConfigScope.GLOBAL.value, "*", None, context.environment)
                 )
-        return values
+        return [item for item in values if configuration_tenant_visible(item[0], item[2], visible_to_tenant)]
+
+    @staticmethod
+    def _cache_authority(visible_to_tenant: str | None) -> tuple[Any, ...]:
+        identity = CURRENT_DATABASE_IDENTITY.get()
+        return (
+            visible_to_tenant, identity.role, identity.tenant_id, bool(identity.subject_id),
+            identity.configuration_admin, identity.oidc_registry_read,
+        )
+
+    def project_revision_links(
+        self, kind: str, documents: list[dict[str, Any]], visible_to_tenant: str | None,
+    ) -> list[dict[str, Any]]:
+        if visible_to_tenant is None:
+            return documents
+        fields = _PROFILE_LINK_FIELDS if kind == "profile" else _BUNDLE_LINK_FIELDS
+        references = {
+            value for document in documents for field in fields
+            if isinstance(value := document.get(field), str)
+        }
+        if not references:
+            return documents
+        visible = self.store.visible_revision_ids(kind, references, visible_to_tenant)
+        hidden = references - visible
+        return [
+            {
+                **document,
+                **{field: None for field in fields if isinstance(document.get(field), str) and document[field] in hidden},
+            }
+            for document in documents
+        ]
+
+    def revision_events(
+        self, kind: str, revision_id: str, visible_to_tenant: str | None,
+    ) -> dict[str, Any]:
+        history = self.store.events_with_verification(kind, revision_id)
+        if visible_to_tenant is None:
+            return history
+        events = history["items"]
+        # Verification covers the original stored events, including any protected links.
+        payloads = self.project_revision_links(kind, [event["payload"] for event in events], visible_to_tenant)
+        return {**history, "items": [{**event, "payload": payload} for event, payload in zip(events, payloads, strict=True)]}
 
     def resolve_profile(
         self,
@@ -563,6 +594,7 @@ class VersionedConfigurationService:
         subject_id: str | None = None,
         at_time: str | None = None,
         revision_id: str | None = None,
+        visible_to_tenant: str | None = None,
     ) -> dict[str, Any]:
         context = self._resolution_context(
             tenant_id=tenant_id,
@@ -580,6 +612,7 @@ class VersionedConfigurationService:
             family,
             profile_id,
             revision_id or "",
+            self._cache_authority(visible_to_tenant),
             epoch,
             *context.cache_key(),
         )
@@ -592,25 +625,29 @@ class VersionedConfigurationService:
                 revision is None
                 or revision.family != family
                 or revision.profile_id != profile_id
+                or not configuration_tenant_visible(revision.scope, revision.tenant_id, visible_to_tenant)
             ):
                 raise KeyError(revision_id)
             if revision.status != RevisionStatus.PUBLISHED.value:
                 raise PermissionError(
                     "runtime resolution requires a published revision"
                 )
-            result = revision.to_dict()
+            verify_revision_schedule(revision)
+            result, = self.project_revision_links("profile", [revision.to_dict()], visible_to_tenant)
             result["resolutionTrace"] = [
                 {"scope": "exact_revision", "revisionId": revision_id}
             ]
             self._cache_put(key, result)
             return result
         trace = []
+        now = parse_instant(context.at_time, "atTime") or datetime.now(timezone.utc)
+        cacheable = True
         for (
             scope,
             scope_key,
             scoped_tenant,
             scoped_environment,
-        ) in self._scope_candidates(context):
+        ) in self._scope_candidates(context, visible_to_tenant):
             rows = self.store.list_profiles(
                 family=family,
                 profile_id=profile_id,
@@ -623,7 +660,10 @@ class VersionedConfigurationService:
                 exact_dimensions=True,
             )
             for revision in rows:
-                eligible = self._eligible(revision, context)
+                verify_revision_schedule(revision)
+                if context.at_time is None and (revision.effective_from or revision.effective_until):
+                    cacheable = False
+                eligible = self._inside_window(revision, now) and self._in_rollout(revision, context)
                 trace.append(
                     {
                         "scope": scope,
@@ -633,10 +673,11 @@ class VersionedConfigurationService:
                     }
                 )
                 if eligible:
-                    result = revision.to_dict()
+                    result, = self.project_revision_links("profile", [revision.to_dict()], visible_to_tenant)
                     result["resolutionTrace"] = trace
                     result["invalidationEpoch"] = epoch
-                    self._cache_put(key, result)
+                    if cacheable:
+                        self._cache_put(key, result)
                     return result
         raise KeyError(
             f"published configuration profile not found: {family}/{profile_id}"
@@ -689,6 +730,7 @@ class VersionedConfigurationService:
         environment: str | None = None,
         effective_from: str | None = None,
         effective_until: str | None = None,
+        local_schedule: Mapping[str, str] | None = None,
         rollout_percentage: float = 100.0,
         rollout_seed: str = "default",
         supersedes_revision_id: str | None = None,
@@ -696,6 +738,8 @@ class VersionedConfigurationService:
         allow_draft_components: bool = False,
         allow_historical_components: bool = False,
         force_new_revision: bool = False,
+        rollback_target_revision_id: str | None = None,
+        require_matching_schedule: bool = True,
     ) -> dict[str, Any]:
         if not _SEMVER.match(str(version)):
             raise ValueError("configuration bundle version must be semantic")
@@ -737,10 +781,13 @@ class VersionedConfigurationService:
             created_by=created_by,
             effective_from=effective_from,
             effective_until=effective_until,
+            local_schedule=local_schedule,
             rollout_percentage=float(rollout_percentage),
             rollout_seed=str(rollout_seed or "default"),
             supersedes_revision_id=supersedes_revision_id,
             force_new_revision=force_new_revision,
+            rollback_target_revision_id=rollback_target_revision_id,
+            require_matching_schedule=require_matching_schedule,
             allowed_component_statuses=tuple(sorted(allowed_component_statuses)),
         )
         self._invalidate_cache()
@@ -851,13 +898,7 @@ class VersionedConfigurationService:
             expected_etag=expected_etag,
             status=RevisionStatus.RETIRED.value,
             actor_id=actor_id,
-        )
-        self.store.append_event(
-            "bundle",
-            revision_id,
-            "retirement_reason",
-            actor_id,
-            {"reason": str(reason)[:2000]},
+            retirement_reason=str(reason)[:2000],
         )
         self._invalidate_cache()
         return result.to_dict()
@@ -879,18 +920,7 @@ class VersionedConfigurationService:
             raise ValueError(
                 "configuration rollback target must be published or superseded"
             )
-        current = self.store.list_bundles(
-            bundle_id=target.bundle_id,
-            scope=target.scope,
-            scope_key=target.scope_key,
-            tenant_id=target.tenant_id,
-            environment=target.environment,
-            status=RevisionStatus.PUBLISHED.value,
-            limit=100,
-            exact_dimensions=True,
-        )
-        current_revision_id = current[0].revision_id if current else None
-        result = self.create_bundle(
+        return self.create_bundle(
             bundle_id=target.bundle_id,
             version=new_version,
             mode=target.mode,
@@ -900,23 +930,10 @@ class VersionedConfigurationService:
             scope_key=target.scope_key,
             tenant_id=target.tenant_id,
             environment=target.environment,
-            supersedes_revision_id=current_revision_id,
             publish=True,
             allow_historical_components=True,
-            force_new_revision=True,
+            rollback_target_revision_id=target_revision_id,
         )
-        self.store.append_event(
-            "bundle",
-            result["revisionId"],
-            "rollback_created",
-            actor_id,
-            {
-                "targetRevisionId": target_revision_id,
-                "replacedRevisionId": current_revision_id,
-            },
-        )
-        self._invalidate_cache()
-        return result
 
     def resolve(
         self,
@@ -933,6 +950,8 @@ class VersionedConfigurationService:
         at_time: str | None = None,
         allow_draft: bool = False,
         allow_retired: bool = False,
+        allow_scheduled_predecessor: bool = False,
+        visible_to_tenant: str | None = None,
     ) -> dict[str, Any]:
         if allow_retired and revision_id is None:
             raise ValueError("retired configuration requires an exact bundle revision")
@@ -953,16 +972,25 @@ class VersionedConfigurationService:
             bundle_id or "",
             bool(allow_draft),
             bool(allow_retired),
+            bool(allow_scheduled_predecessor),
+            self._cache_authority(visible_to_tenant),
             epoch,
             *context.cache_key(),
         )
-        if not allow_draft:
+        cacheable = not allow_draft
+        if cacheable:
             cached = self._cache_get(key)
             if cached is not None:
                 return cached
-        bundle = self.store.get_bundle(revision_id) if revision_id else None
-        if revision_id is not None and bundle is None:
-            raise KeyError(revision_id)
+        bundle = None
+        if revision_id is not None:
+            bundle = (
+                self.store.get_bundle(revision_id)
+                if visible_to_tenant is None
+                else self.store.get_bundle(revision_id, visible_to_tenant=visible_to_tenant)
+            )
+            if bundle is None:
+                raise KeyError(revision_id)
         if (
             bundle is not None
             and bundle_id is not None
@@ -970,40 +998,50 @@ class VersionedConfigurationService:
         ):
             raise KeyError(revision_id or bundle_id)
         trace = []
+        selected_predecessor = False
         if bundle is None:
+            now = parse_instant(context.at_time, "atTime") or datetime.now(timezone.utc)
             for (
                 scope,
                 scope_key,
                 scoped_tenant,
                 scoped_environment,
-            ) in self._scope_candidates(context):
-                rows = self.store.list_bundles(
-                    bundle_id=bundle_id,
-                    scope=scope,
-                    scope_key=scope_key,
-                    tenant_id=scoped_tenant,
-                    environment=scoped_environment,
-                    status=None if allow_draft else RevisionStatus.PUBLISHED.value,
-                    limit=100,
-                    exact_dimensions=True,
+            ) in self._scope_candidates(context, visible_to_tenant):
+                histories = self.store.list_bundle_histories(
+                    (bundle_id, scope, scope_key, scoped_tenant, scoped_environment),
+                    include_unpublished=allow_draft,
+                    visible_to_tenant=visible_to_tenant,
                 )
-                for item in rows:
-                    eligible = self._eligible(item, context)
-                    trace.append(
-                        {
-                            "scope": scope,
-                            "scopeKey": scope_key,
-                            "revisionId": item.revision_id,
-                            "eligible": eligible,
-                        }
-                    )
-                    if eligible:
-                        bundle = item
+                for history in histories:
+                    head = history.anchor
+                    if head.scheduled_predecessor_id is not None:
+                        continue
+                    # Clock changes do not bump the registry epoch.
+                    if context.at_time is None and (
+                        head.effective_from or head.effective_until or head.scheduled_successor_id is not None
+                    ):
+                        cacheable = False
+                    bundle = self._effective_scheduled_bundle(history, context, now, trace)
+                    if bundle is not None:
+                        selected_predecessor = bundle.revision_id != head.revision_id
                         break
                 if bundle is not None:
                     break
-        if bundle is None:
+        if bundle is None or not configuration_tenant_visible(bundle.scope, bundle.tenant_id, visible_to_tenant):
             raise KeyError("published configuration bundle not found")
+        if (
+            allow_scheduled_predecessor and revision_id
+            and bundle.status == RevisionStatus.SUPERSEDED.value
+        ):
+            cacheable = False
+            histories = self.store.list_bundle_histories(
+                (bundle.bundle_id, bundle.scope, bundle.scope_key, bundle.tenant_id, bundle.environment),
+                limit=1, visible_to_tenant=visible_to_tenant,
+            )
+            if histories and histories[0].anchor.scheduled_successor_id is not None:
+                now = parse_instant(context.at_time, "atTime") or datetime.now(timezone.utc)
+                selected = self._effective_scheduled_bundle(histories[0], context, now, trace)
+                selected_predecessor = selected is not None and selected.revision_id == revision_id
         exact_historical = (
             revision_id is not None and (
                 bundle.status == RevisionStatus.SUPERSEDED.value
@@ -1013,19 +1051,47 @@ class VersionedConfigurationService:
         if (
             bundle.status != RevisionStatus.PUBLISHED.value
             and not exact_historical
+            and not selected_predecessor
             and not allow_draft
         ):
             raise PermissionError(
                 "unpublished configuration bundle requires explicit preview access"
             )
+        if revision_id is not None:
+            verify_revision_schedule(bundle)
+        result = self._bundle_snapshot(
+            bundle, trace=trace, epoch=epoch, allow_draft=allow_draft, allow_retired=allow_retired,
+            runtime=revision_id is None, effective=selected_predecessor, visible_to_tenant=visible_to_tenant,
+        )
+        if cacheable:
+            self._cache_put(key, result)
+        return result
+
+    def _bundle_snapshot(
+        self, bundle: BundleRevision, *, trace: list[dict[str, Any]], epoch: int, runtime: bool,
+        allow_draft: bool = False, allow_retired: bool = False, effective: bool = False,
+        snapshot_profiles: Mapping[str, ProfileRevision] | None = None,
+        snapshot_audit: dict[str, Any] | None = None,
+        visible_to_tenant: str | None = None,
+    ) -> dict[str, Any]:
         profiles = {}
         identities = {}
         for family, rid in bundle.component_revisions.items():
-            revision = self.store.get_profile(rid)
+            revision = self.store.get_profile(rid) if snapshot_profiles is None else snapshot_profiles.get(rid)
             if revision is None:
+                if visible_to_tenant is not None:
+                    raise KeyError("configuration component revision not found")
+                if runtime:
+                    raise ConfigurationIntegrityError(rid, "The effective bundle references a missing component. Publish a replacement or roll back.")
                 raise RuntimeError(
                     f"configuration bundle references missing revision {rid}"
                 )
+            if visible_to_tenant is not None and (
+                revision.family != family
+                or not configuration_tenant_visible(revision.scope, revision.tenant_id, visible_to_tenant)
+            ):
+                raise KeyError("configuration component revision not found")
+            verify_revision_schedule(revision)
             if (
                 revision.status
                 not in {
@@ -1035,12 +1101,18 @@ class VersionedConfigurationService:
                 and not (allow_retired and revision.status == RevisionStatus.RETIRED.value)
                 and not allow_draft
             ):
+                if runtime:
+                    raise ConfigurationIntegrityError(rid, "The effective bundle references an unavailable component. Publish a replacement or roll back.")
                 raise PermissionError(
                     f"configuration bundle references unavailable revision {rid}"
                 )
             profiles[family] = copy.deepcopy(dict(revision.payload))
             identities[family] = revision.to_dict(include_payload=False)
-        bundle_document = bundle.to_dict()
+        bundle_document, = self.project_revision_links("bundle", [bundle.to_dict()], visible_to_tenant)
+        profile_documents = self.project_revision_links("profile", list(identities.values()), visible_to_tenant)
+        identities = dict(zip(identities, profile_documents, strict=True))
+        if effective:
+            bundle_document["status"] = RevisionStatus.PUBLISHED.value
         effective_hash = digest(
             {
                 "bundleAuthority": {
@@ -1068,19 +1140,16 @@ class VersionedConfigurationService:
                 },
             }
         )
-        result = {
-            "bundle": bundle.to_dict(),
+        return {
+            "bundle": bundle_document,
             "profiles": profiles,
             "profileRevisions": identities,
             "effectiveHash": effective_hash,
-            "audit": self.store.verify_events("bundle", bundle.revision_id),
+            "audit": self.store.verify_events("bundle", bundle.revision_id) if snapshot_audit is None else snapshot_audit,
             "resolutionTrace": trace
             or [{"scope": "exact_revision", "revisionId": bundle.revision_id}],
             "invalidationEpoch": epoch,
         }
-        if not allow_draft:
-            self._cache_put(key, result)
-        return result
 
     def freeze(self, **context: Any) -> dict[str, Any]:
         resolved = self.resolve(**context)
@@ -1120,6 +1189,23 @@ class VersionedConfigurationService:
             **context,
         ).to_dict()
 
+    @staticmethod
+    def _packaged_bundle_id(packaged: ProfileBundle) -> str:
+        return str((packaged.bundle_profile.get("profile") or {}).get("id") or "packaged_bundle")
+
+    def register_packaged_research_bundle(self, bundle_path: str, environment: str) -> ProfileBundle:
+        packaged = build_bundle(self.root, bundle_path=bundle_path)
+        dimensions = self._scope(
+            ConfigScope.ENVIRONMENT.value, scope_key=None, tenant_id=None, environment=environment,
+        )
+        fingerprint = bundle_payload_fingerprint(
+            packaged.mode, {family: digest(component.data) for family, component in packaged.components.items()}
+        )
+        self.store.register_runtime_bundle(
+            (self._packaged_bundle_id(packaged), *dimensions), protected_fingerprint=fingerprint,
+        )
+        return packaged
+
     def bootstrap_packaged_bundle(
         self,
         *,
@@ -1130,14 +1216,20 @@ class VersionedConfigurationService:
         scope_key: str | None = None,
         tenant_id: str | None = None,
         environment: str | None = None,
+        packaged_bundle: ProfileBundle | None = None,
     ) -> dict[str, Any]:
-        packaged = build_bundle(self.root, mode=mode, bundle_path=bundle_path)
+        packaged = packaged_bundle or build_bundle(self.root, mode=mode, bundle_path=bundle_path)
+        mode = packaged.mode
         scope, scope_key, tenant_id, environment = self._scope(
             scope,
             scope_key=scope_key,
             tenant_id=tenant_id,
             environment=environment,
         )
+        profile = dict(packaged.bundle_profile.get("profile") or {})
+        bundle_id = self._packaged_bundle_id(packaged)
+        version = str(profile.get("version") or "0.0.0")
+        self.store.register_runtime_bundle((bundle_id, scope, scope_key, tenant_id, environment))
         revision_ids = {}
         for family in PROFILE_FAMILIES:
             if family == "rules":
@@ -1173,9 +1265,6 @@ class VersionedConfigurationService:
                         actor_id=actor_id,
                     )
                 revision_ids[family] = existing.revision_id
-        profile = dict(packaged.bundle_profile.get("profile") or {})
-        bundle_id = str(profile.get("id") or "packaged_bundle")
-        version = str(profile.get("version") or "0.0.0")
         content_hash = digest({"mode": mode, "components": revision_ids})
         existing_bundle = self.store.find_bundle_by_content(
             bundle_id=bundle_id,
@@ -1207,8 +1296,19 @@ class VersionedConfigurationService:
                     expected_etag=existing_bundle.etag,
                     actor_id=actor_id,
                 )
-            if existing_bundle.status == RevisionStatus.PUBLISHED.value:
-                rid = existing_bundle.revision_id
-            else:
-                return self.resolve(bundle_id=bundle_id)
-        return self.resolve(revision_id=rid)
+            rid = existing_bundle.revision_id
+        context = ResolutionContext(tenant_id=tenant_id, environment=environment)
+        now = datetime.now(timezone.utc)
+        anchor, selected, profiles, epoch, audit = self.store.read_bootstrap_bundle(
+            (bundle_id, scope, scope_key, tenant_id, environment),
+            lambda history: self._effective_scheduled_bundle(history, context, now, []),
+        )
+        if selected is None:
+            raise ConfigurationIntegrityError(
+                anchor.revision_id if anchor is not None else rid,
+                "No configuration bundle is effective. Publish a current replacement or roll back.",
+            )
+        return self._bundle_snapshot(
+            selected, trace=[], epoch=epoch, runtime=True, effective=True,
+            snapshot_profiles=profiles, snapshot_audit=audit,
+        )

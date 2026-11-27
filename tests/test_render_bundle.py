@@ -636,7 +636,7 @@ def test_render_bundle_voice_guard(root: Path, case: str, error: str | None) -> 
 def test_public_notice_profile_builds_a_qualified_bundle_with_the_exact_notice():
     from scripts import render_research_notice as notice
 
-    profile = notice.notice_profile(public=True)
+    profile = notice.notice_profile()
     design = profile["approved_design"]
     assert design["variant"] == "public_v4_no_justification_red_notice"
     assert design["reference_variant"] == "public_v4_no_justification_no_notice"
@@ -644,7 +644,7 @@ def test_public_notice_profile_builds_a_qualified_bundle_with_the_exact_notice()
 
     rules = notice.RuleBook.load(notice.ROOT / "configs/rules/saudi_common_v1.yaml")
     bundle = notice.build_notice_bundle(rules, profile)
-    notice.validate_notice_bundle(bundle, notice.engine_round_result(rules), public=True)
+    notice.validate_notice_bundle(bundle, notice.engine_round_result(rules))
     sentence = bundle.value["localizations"]["video.notice.sentence"]
     assert "video.notice.title" not in profile["localizations"]
     assert "video.notice.title" not in bundle.value["localizations"]
@@ -662,7 +662,7 @@ def test_renderer_rejects_unapproved_layout_table_before_render(
 ):
     from scripts import render_research_notice as notice
 
-    profile = notice.notice_profile(public=True)
+    profile = notice.notice_profile()
     rules = notice.RuleBook.load(root / "configs/rules/saudi_common_v1.yaml")
     bundle = notice.build_notice_bundle(rules, profile)
     renderer = notice.RemotionProfessionalRenderer(profile, repository_root=root)
@@ -685,10 +685,10 @@ def test_renderer_rejects_unapproved_layout_table_before_render(
     ("legacy_profile", "timeline_sha"),
     [
         pytest.param(
-            True, "553f7f627320b073462b9eb7bfc688703c22684fe8df4929c53c50b7cba5ae0f", id="legacy-voice-profile",
+            True, "80ce9569078bfbbeff0347a4d2e002bfcd0dea748b04e175ec930cd56d020f02", id="legacy-voice-profile",
         ),
         pytest.param(
-            False, "906beef957f3af75da9b62f0957e4fc3d79e954922fab6aca19b9679d0d2c571", id="voice-off-profile",
+            False, "8be2d1fc201add5b68ac7e43f7dce99fb279f2f5762e5f7cccb195dfa78cba61", id="voice-off-profile",
         ),
     ],
 )
@@ -698,7 +698,7 @@ def test_public_notice_identity_and_five_visible_voice_phrases(
     from scripts import render_research_notice as notice
 
     rules = notice.RuleBook.load(root / "configs/rules/saudi_common_v1.yaml")
-    profile = notice.notice_profile(public=True)
+    profile = notice.notice_profile()
     if legacy_profile:
         # Recover the pre-guard profile without copying a second justification transcript.
         profile["audio"].update(_RETIRED_VOICE_DEFAULTS, voice_callouts=True, spoken_voice_pack=True)
@@ -715,6 +715,7 @@ def test_public_notice_identity_and_five_visible_voice_phrases(
     assert audio["voice_callouts"] is audio["spoken_voice_pack"] is False
     assert value["audioCues"] == []
     question = next(scene for scene in value["scenes"] if scene["stage"] == "question")
+    assert (question["locale"], question["direction"]) == ("ar-SA", "rtl")
     prompt = next(layer["content"] for layer in question["layers"] if layer["id"] == "decision-prompt")
     name = value["identity"]["players"][prompt["actingSeat"]]
     value["assets"].append({"id": "unit-voice", "path": "assets/audio/unit-voice.wav"})
@@ -741,7 +742,7 @@ def test_public_notice_identity_follows_the_deal_and_name_pool(root: Path) -> No
     from scripts.render_research_scenario_v4_goldens import _fixture_result_code
 
     rules = notice.RuleBook.load(root / "configs/rules/saudi_common_v1.yaml")
-    profile = notice.notice_profile(public=True)
+    profile = notice.notice_profile()
     profile["identity"]["player_name_pool"] = list("ABCD")
     identity = notice.build_notice_bundle(rules, profile).value["identity"]
     assert identity["gameSerial"] == "LAF-98FBED199A"

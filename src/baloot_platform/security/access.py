@@ -139,8 +139,7 @@ class AuthorizationPolicy:
         role_values = self.role_scopes.get(role, frozenset())
         if claims is None:
             return role_values
-        claimed = frozenset(claims.scopes)
-        return role_values & claimed if role_values else claimed
+        return role_values.intersection(claims.scopes)
 
     def require(self, *, role: str, required: Scope | str, claims: AccessClaims | None = None) -> None:
         value = str(Scope(required).value)

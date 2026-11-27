@@ -7,25 +7,34 @@ No Baloot rules are duplicated in this adapter.
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 import hmac
 import json
 import os
 import uuid
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 from baloot_platform.audit import build_video_audit_map
 from baloot_platform.analysis.search_errors import SearchTimeBudgetExceeded
 from baloot_platform.config import data_root, platform_root
+from baloot_platform.configuration.models import configuration_tenant_visible
+from baloot_platform.configuration.schedule import ConfigurationIntegrityError, ConfigurationScheduleConflict
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER, owns_subject
+from baloot_platform.observability import configure_event_logging
+from baloot_platform.security import Scope
+from baloot_platform.service.authorization import (
+    DEFAULT_TENANT, RPC_SERVICE_KEY_METHODS, Credentials, claims_identity, configuration_read_tenant,
+    configuration_tenant_filter, credentials, history_without_media, rpc_scope,
+    tenant_configuration_rpc, tenant_job_rpc,
+)
 from baloot_platform.service.client_identity import (
-    caller_role,
     initialize_service_subject_ownership,
     service_client_identity,
     service_subject_ownership,
 )
 from baloot_platform.version import __version__
+from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
 
 ROOT = platform_root()
 
@@ -62,20 +71,20 @@ async def serve() -> None:  # pragma: no cover - optional runtime
     from baloot_platform.core.cards import Card
     from baloot_platform.core.enums import Seat, Suit
     from baloot_platform.core.serialization import continue_trusted_context, replay_trusted_context
-    from baloot_platform.configuration.service import profile_families_require_admin
-    from baloot_platform.security import Scope
     from baloot_platform.service.api import (
-        ADJUDICATION, AUDIT, AUTHORIZATION_POLICY, CONFIGURATION, CONFIGURATION_PROFILE, DIFFICULTY, EXECUTOR, EXPLANATIONS, IDENTITY,
+        ACCESS_TOKENS, ADJUDICATION, AUDIT, AUTHORIZATION_POLICY, CONFIGURATION, CONFIGURATION_PROFILE, DIFFICULTY, EXECUTOR, EXPLANATIONS, IDENTITY,
         HITL, HITL_PROFILE, HITL_REVIEW_RENDERER, LEARNING, LEARNING_STORE, LIVE, OUTPUTS, PERFORMANCE, PERFORMANCE_PROFILE, CAPABILITY_MATRIX, CERTIFICATION_PROFILE, BENCHMARK_PROFILE, OPERATIONS_PROFILE, REGISTRY, RENDER_BATCHES, RESEARCH, REVIEWS, SAKKA, STORE,
         HistoricalReplayRenderRequest, LegacyVideoCompatibilityError, VideoJobRequest,
         _accepted_actions_for_challenge, _accepted_actions_for_decision,
         _execute_history_replay_render_job, _legacy_video_run_is_v4,
         _legacy_video_run_view,
         _submit_legacy_video_compatibility,
+        require_verified_configuration,
     )
     from baloot_platform.service.game import GameManager
     from baloot_platform.shared import (
         SharedDecisionAccessError,
+        SharedGameNotFound,
         observer_relation,
         private_decision_review_allowed,
         resolve_shared_decision_access,
@@ -84,8 +93,8 @@ async def serve() -> None:  # pragma: no cover - optional runtime
     from baloot_platform.benchmark import IntelligenceBenchmarkV18
     from baloot_platform.certification import verify_certification_candidate
     from baloot_platform.storage.game_store import SQLiteGameStore
-    from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
 
+    require_verified_configuration()
     initialize_service_subject_ownership()
     runtime = Path(os.environ.get("BALOOT_RUNTIME", data_root() / "runtime")).expanduser().resolve()
     runtime.mkdir(parents=True, exist_ok=True)
@@ -94,25 +103,17 @@ async def serve() -> None:  # pragma: no cover - optional runtime
     def _metadata(context) -> dict[str, str]:
         return {str(item.key).lower(): str(item.value) for item in context.invocation_metadata()}
 
-    async def _require_api(context) -> None:
-        configured_key = os.environ.get("BALOOT_API_KEY")
-        if configured_key and not hmac.compare_digest(
-            configured_key.encode("utf-8"), _metadata(context).get("x-api-key", "").encode("utf-8"),
-        ):
-            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "authentication required")
+    authenticated_rpc: ContextVar[Credentials] = ContextVar("authenticated_rpc")
 
     async def _identity(context):
         metadata = _metadata(context)
-        authorization = metadata.get("authorization", "")
-        token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else None
-        identity, _session = IDENTITY.resolve(token)
-        if identity is not None:
-            return identity
-        await _require_api(context)
-        # gRPC gives each RPC a separate Context, inherited by the handler.
-        SERVICE_SUBJECT_OWNER.set(service_subject_ownership(
-            metadata, configured_key=os.environ.get("BALOOT_API_KEY"), keyless=True,
-        ))
+        auth = authenticated_rpc.get()
+        if auth.identity is not None:
+            return auth.identity
+        if auth.claims is not None:
+            return claims_identity(
+                auth.claims, metadata.get("x-baloot-subject-name", auth.claims.subject_id),
+            )
         return service_client_identity(metadata, "gRPC Client")
 
     async def _require_private_decision(context, decision_id: str) -> dict[str, Any]:
@@ -132,12 +133,16 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 )
         return decision
 
-    async def _require_private_game(context, identifier: str) -> dict[str, Any]:
+    async def _require_private_game(context, identifier: str, subject_id: str | None = None) -> dict[str, Any]:
         game = LEARNING_STORE.get_game(identifier)
         if game is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, "archived game not found")
         try:
-            access = resolve_shared_game_access(SAKKA.store, str(game.get("gameId") or ""))
+            access = resolve_shared_game_access(
+                SAKKA.store, str(game.get("gameId") or ""), subject_id=subject_id,
+            )
+        except SharedGameNotFound:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "archived game not found")
         except SharedDecisionAccessError as exc:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
         if access is not None and not access.completed:
@@ -165,15 +170,23 @@ async def serve() -> None:  # pragma: no cover - optional runtime
         return value
 
     async def _require_trusted(context) -> None:
+        auth = authenticated_rpc.get()
+        if Scope.HIDDEN_READ not in AUTHORIZATION_POLICY.effective_scopes(
+            role=auth.role, claims=auth.claims,
+        ):
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "trusted hidden-information access is not enabled")
         configured = os.environ.get("BALOOT_TRUSTED_API_KEY", "")
         supplied = _metadata(context).get("x-baloot-trusted-key", "")
         if configured:
-            if supplied != configured:
+            if not hmac.compare_digest(configured.encode(), supplied.encode()):
                 await context.abort(grpc.StatusCode.PERMISSION_DENIED, "trusted hidden-information access is not enabled")
             return
         if os.environ.get("BALOOT_ALLOW_TRUSTED_CONTEXT", "false").lower() in {"1", "true", "yes"}:
             return
-        if os.environ.get("BALOOT_ENV", "development").lower() in {"development", "test"}:
+        if (
+            os.environ.get("BALOOT_ENV", "development").lower() in {"development", "test"}
+            and context.peer().startswith(("ipv4:127.0.0.1:", "ipv6:[::1]:"))
+        ):
             return
         await context.abort(grpc.StatusCode.PERMISSION_DENIED, "trusted hidden-information access is not enabled")
 
@@ -205,7 +218,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return platform_pb2.Health(status="ok", version=__import__("baloot_platform.version", fromlist=["__version__"]).__version__, bundle_sha256=bundle.sha256)
 
         async def CreateGame(self, request, context):
-            await _require_api(context)
             try:
                 game = manager.create(
                     seed=request.seed,
@@ -224,7 +236,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.NOT_FOUND, "game not found")
 
         async def SubmitBid(self, request, context):
-            await _require_api(context)
             try:
                 game = manager.bid(
                     request.game_id,
@@ -240,7 +251,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def PlayCard(self, request, context):
-            await _require_api(context)
             try:
                 card: Any = request.card.id if request.card.code == "" else request.card.code
                 game = manager.play(
@@ -311,7 +321,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
         async def CreateVideo(self, request, context):
-            await _require_api(context)
             await _require_trusted(context)
             try:
                 payload = json.loads(request.canonical_json)
@@ -342,9 +351,11 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def GetJob(self, request, context):
+            tenant = authenticated_rpc.get().tenant_id
             job = STORE.get(request.job_id)
             if job is None:
-                await _require_api(context)
+                if tenant != DEFAULT_TENANT or not request.job_id.startswith("RUN-"):
+                    await context.abort(grpc.StatusCode.NOT_FOUND, "job not found")
                 await _require_trusted(context)
                 run = RESEARCH.get_run(request.job_id)
                 if run is None or not _legacy_video_run_is_v4(run):
@@ -356,7 +367,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def CreateRenderBatch(self, request, context):
-            await _require_api(context)
             await _require_trusted(context)
             try:
                 items = validate_render_batch_request_payload(request.canonical_json)
@@ -373,7 +383,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def GetRenderBatch(self, request, context):
-            await _require_api(context)
             await _require_trusted(context)
             job = RENDER_BATCHES.get(request.job_id)
             if job is None:
@@ -386,7 +395,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def CancelRenderBatch(self, request, context):
-            await _require_api(context)
             await _require_trusted(context)
             job = RENDER_BATCHES.get(request.job_id)
             if job is None:
@@ -407,14 +415,20 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def GetReplay(self, request, context):
-            game = await _require_private_game(context, request.value)
+            operator = authenticated_rpc.get().has_scope(AUTHORIZATION_POLICY, Scope.CONFIG_ADMIN)
+            reader = None if operator else (await _identity(context)).subject_id
+            game = await _require_private_game(context, request.value, reader)
             game_hash = game.get("gameHash")
+            decisions = game.get("decisions") or LEARNING_STORE.list_decisions(game_hash or game.get("gameId"))
+            if not operator:
+                game = history_without_media({**game, "decisions": decisions})
+                decisions = game["decisions"]
             package = {
                 "game": game,
                 "verification": LEARNING_STORE.verify_game(request.value),
                 "audits": LEARNING_STORE.list_game_audits(game_hash or game.get("gameId"), limit=50),
-                "videos": LEARNING_STORE.list_video_records(game_hash=game_hash, limit=100) if game_hash else [],
-                "decisions": game.get("decisions") or LEARNING_STORE.list_decisions(game_hash or game.get("gameId")),
+                "videos": LEARNING_STORE.list_video_records(game_hash=game_hash, limit=100) if operator and game_hash else [],
+                "decisions": decisions,
             }
             return platform_pb2.ReplayPackage(
                 canonical_json=_json_bytes(package),
@@ -423,7 +437,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def ReopenGame(self, request, context):
-            await _require_api(context)
             await _require_private_game(context, request.identifier)
             try:
                 value = LEARNING.reopen_game(request.identifier, branch=bool(request.branch))
@@ -438,7 +451,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def ForkDecision(self, request, context):
-            await _require_api(context)
             await _require_private_decision(context, request.decision_id)
             try:
                 action = json.loads(request.action_json) if request.action_json else None
@@ -533,7 +545,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def RecordDecisionAttempt(self, request, context):
-            await _require_api(context)
             await _require_private_decision(context, request.decision_id)
             try:
                 chosen = json.loads(request.chosen_action_json)
@@ -572,7 +583,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def RecordChallengeAttempt(self, request, context):
-            await _require_api(context)
             challenge = LEARNING_STORE.get_challenge(request.challenge_id)
             if challenge is None:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "challenge not found")
@@ -649,7 +659,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             )
 
         async def RenderGameReplay(self, request, context):
-            await _require_api(context)
             if not request.identifier:
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "identifier is required")
             game = await _require_private_game(context, request.identifier)
@@ -1276,12 +1285,23 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             except KeyError: await context.abort(grpc.StatusCode.NOT_FOUND, "proposal not found")
 
         async def ApproveImprovement(self, request, context):
-            identity = await _identity(context); data = _payload(request.canonical_json)
-            try: return await self._result(HITL.approve_improvement(str(data["proposalId"]), approved_by=identity.subject_id,
-                role=str(data.get("role") or identity.kind)))
-            except KeyError: await context.abort(grpc.StatusCode.NOT_FOUND, "proposal not found")
-            except PermissionError as exc: await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
-            except ValueError as exc: await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            identity = await _identity(context)
+            auth = authenticated_rpc.get()
+            data = _payload(request.canonical_json)
+            role = identity.kind.strip().lower()
+            if auth.api_key_valid and auth.identity is None and auth.claims is None:
+                # Key-only callers retain the legacy delegated-role contract.
+                role = str(data.get("role") or identity.kind)
+            try:
+                return await self._result(HITL.approve_improvement(
+                    str(data["proposalId"]), approved_by=identity.subject_id, role=role,
+                ))
+            except KeyError:
+                await context.abort(grpc.StatusCode.NOT_FOUND, "proposal not found")
+            except PermissionError as exc:
+                await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
+            except ValueError as exc:
+                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def FinalizeImprovement(self, request, context):
             identity = await _identity(context); data = _payload(request.canonical_json)
@@ -1443,34 +1463,13 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             value = _metadata(context).get("x-baloot-tenant-id", "").strip()
             return value or None
 
-        @asynccontextmanager
-        async def _profile_context(self, context, *, create_family: str = "", revision_ids: tuple[str, ...] = (), write: bool = False):
-            if write:
-                await _require_api(context)
-            configured_key = os.environ.get("BALOOT_API_KEY")
-            metadata = _metadata(context)
-            key_valid = bool(configured_key) and hmac.compare_digest(
-                configured_key.encode("utf-8"), metadata.get("x-api-key", "").encode("utf-8"),
-            )
-            role = caller_role(metadata, api_key_valid=key_valid)
-            admin = key_valid and Scope.CONFIG_ADMIN.value in AUTHORIZATION_POLICY.effective_scopes(role=role)
-            if not admin and profile_families_require_admin(create_family):
-                await context.abort(grpc.StatusCode.PERMISSION_DENIED, f"missing required scope: {Scope.CONFIG_ADMIN.value}")
-            identity = await _identity(context)
-            token = None
-            if admin:
-                token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(
-                    role=role, subject_id=identity.subject_id, tenant_id=self._tenant(context) or "",
-                    configuration_admin=True,
-                ))
+        @staticmethod
+        async def _read_tenants(context, requested: str = "") -> tuple[str | None, str | None]:
+            visible = configuration_read_tenant(authenticated_rpc.get(), AUTHORIZATION_POLICY)
             try:
-                revisions = [CONFIGURATION.store.get_profile(revision_id) for revision_id in revision_ids]
-                if any(revision is None for revision in revisions):
-                    await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
-                yield identity, revisions
-            finally:
-                if token is not None:
-                    CURRENT_DATABASE_IDENTITY.reset(token)
+                return visible, configuration_tenant_filter(visible, requested)
+            except PermissionError as exc:
+                return await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
 
         async def GetCapabilities(self, request, context):
             await _identity(context)
@@ -1481,22 +1480,25 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             })
 
         async def ListProfiles(self, request, context):
-            async with self._profile_context(context):
-                values = CONFIGURATION.store.list_profiles(
-                    tenant_id=request.tenant_id or self._tenant(context), family=request.family or None,
-                    profile_id=request.profile_id or None, status=request.status or None,
-                    scope=request.scope or None, limit=request.limit or 200,
-                )
-                return self._result({"items": [item.to_dict(include_payload=False) for item in values]})
+            visible, tenant = await self._read_tenants(context, request.tenant_id)
+            values = CONFIGURATION.store.list_profiles(
+                tenant_id=tenant, visible_to_tenant=visible, family=request.family or None,
+                profile_id=request.profile_id or None, status=request.status or None,
+                scope=request.scope or None, limit=request.limit or 200,
+            )
+            return self._result({"items": CONFIGURATION.project_revision_links(
+                "profile", [item.to_dict(include_payload=False) for item in values], visible,
+            )})
 
         async def CreateProfile(self, request, context):
+            identity = await _identity(context)
             try:
-                async with self._profile_context(context, create_family=request.family, write=True) as (identity, _):
-                    value = CONFIGURATION.create_profile(
-                        family=request.family, payload=_payload(request.canonical_json), created_by=identity.subject_id,
-                        scope=request.scope or "global", tenant_id=request.tenant_id or self._tenant(context),
-                        supersedes_revision_id=request.supersedes_revision_id or None, publish=request.publish,
-                    )
+                value = CONFIGURATION.create_profile(
+                    family=request.family, payload=_payload(request.canonical_json), created_by=identity.subject_id,
+                    scope=request.scope or "global", tenant_id=request.tenant_id or self._tenant(context),
+                    supersedes_revision_id=request.supersedes_revision_id or None, publish=request.publish,
+                    require_matching_schedule=False,
+                )
                 return self._result(value)
             except ValueError as exc:
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
@@ -1504,11 +1506,11 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.ABORTED, str(exc))
 
         async def PublishProfile(self, request, context):
+            identity = await _identity(context)
             try:
-                async with self._profile_context(context, write=True) as (identity, _):
-                    return self._result(CONFIGURATION.publish_profile(
-                        request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id,
-                    ))
+                return self._result(CONFIGURATION.publish_profile(
+                    request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id,
+                ))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
             except RuntimeError as exc:
@@ -1517,9 +1519,9 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def RejectProfile(self, request, context):
+            identity = await _identity(context)
             try:
-                async with self._profile_context(context, write=True) as (identity, _):
-                    return self._result(CONFIGURATION.reject_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
+                return self._result(CONFIGURATION.reject_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
             except RuntimeError as exc:
@@ -1528,9 +1530,9 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def RetireProfile(self, request, context):
+            identity = await _identity(context)
             try:
-                async with self._profile_context(context, write=True) as (identity, _):
-                    return self._result(CONFIGURATION.retire_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
+                return self._result(CONFIGURATION.retire_profile(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
             except RuntimeError as exc:
@@ -1539,33 +1541,45 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def ResolveProfile(self, request, context):
+            visible, tenant = await self._read_tenants(context, request.tenant_id)
             try:
-                async with self._profile_context(context):
-                    return self._result(CONFIGURATION.resolve_profile(
-                        family=request.family, profile_id=request.profile_id,
-                        tenant_id=request.tenant_id or self._tenant(context),
-                    ))
+                return self._result(CONFIGURATION.resolve_profile(
+                    family=request.family, profile_id=request.profile_id,
+                    tenant_id=tenant or visible, visible_to_tenant=visible,
+                ))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile not resolved")
 
         async def CompareProfiles(self, request, context):
-            async with self._profile_context(context, revision_ids=(request.left, request.right)) as (_, revisions):
-                left, right = revisions
-                return self._result({
-                    "left": left.to_dict(include_payload=False), "right": right.to_dict(include_payload=False),
-                    "changes": CONFIGURATION.compare_payloads(dict(left.payload), dict(right.payload)),
-                })
+            visible, _ = await self._read_tenants(context)
+            left = CONFIGURATION.store.get_profile(request.left)
+            right = CONFIGURATION.store.get_profile(request.right)
+            if any(
+                value is None or not configuration_tenant_visible(value.scope, value.tenant_id, visible)
+                for value in (left, right)
+            ):
+                await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
+            left_info, right_info = CONFIGURATION.project_revision_links(
+                "profile", [left.to_dict(include_payload=False), right.to_dict(include_payload=False)], visible,
+            )
+            return self._result({
+                "left": left_info, "right": right_info,
+                "changes": CONFIGURATION.compare_payloads(dict(left.payload), dict(right.payload)),
+            })
 
         async def ListBundles(self, request, context):
-            await _identity(context)
+            visible, tenant = await self._read_tenants(context, request.tenant_id)
             values = CONFIGURATION.store.list_bundles(
-                tenant_id=request.tenant_id or self._tenant(context), bundle_id=request.bundle_id or None,
+                tenant_id=tenant, visible_to_tenant=visible, bundle_id=request.bundle_id or None,
                 status=request.status or None, scope=request.scope or None, limit=request.limit or 200,
+                include_scheduled=True,
             )
-            return self._result({"items": [item.to_dict() for item in values]})
+            return self._result({"items": CONFIGURATION.project_revision_links(
+                "bundle", [item.to_dict() for item in values], visible,
+            )})
 
         async def CreateBundle(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.create_bundle(
                     bundle_id=request.bundle_id, version=request.version, mode=request.mode or "full",
@@ -1573,6 +1587,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                     scope=request.scope or "global", tenant_id=request.tenant_id or self._tenant(context),
                     supersedes_revision_id=request.supersedes_revision_id or None,
                     publish=request.publish, allow_draft_components=request.allow_drafts,
+                    require_matching_schedule=False,
                 ))
             except ValueError as exc:
                 await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
@@ -1580,7 +1595,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.ABORTED, str(exc))
 
         async def PublishBundle(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.publish_bundle(
                     request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id,
@@ -1593,7 +1608,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def RejectBundle(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.reject_bundle(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
@@ -1604,7 +1619,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def RetireBundle(self, request, context):
-            await _require_api(context); identity = await _identity(context)
+            identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.retire_bundle(request.value, expected_etag=request.expected_etag or 1, actor_id=identity.subject_id, reason=request.reason))
             except KeyError:
@@ -1615,11 +1630,13 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def ResolveBundle(self, request, context):
-            await _identity(context)
+            visible, tenant = await self._read_tenants(context, request.tenant_id)
+            if request.allow_draft and visible is not None:
+                await context.abort(grpc.StatusCode.PERMISSION_DENIED, "configuration preview requires an administrator")
             try:
                 return self._result(CONFIGURATION.resolve(
                     revision_id=request.revision_id or None, bundle_id=request.bundle_id or None,
-                    tenant_id=request.tenant_id or self._tenant(context), allow_draft=request.allow_draft,
+                    tenant_id=tenant or visible, visible_to_tenant=visible, allow_draft=request.allow_draft,
                 ))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "bundle not resolved")
@@ -1627,12 +1644,12 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
 
         async def ResolveEffectiveRuntimeConfigV2(self, request, context):
-            await _identity(context)
+            visible, tenant = await self._read_tenants(context, request.tenant_id)
             try:
                 return self._result(CONFIGURATION.freeze_v2(
                     revision_id=request.revision_id or None,
                     bundle_id=request.bundle_id or None,
-                    tenant_id=request.tenant_id or self._tenant(context),
+                    tenant_id=tenant or visible, visible_to_tenant=visible,
                 ))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "bundle not resolved")
@@ -1640,7 +1657,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
 
         async def RollbackBundle(self, request, context):
-            await _require_api(context)
             identity = await _identity(context)
             try:
                 return self._result(CONFIGURATION.rollback_bundle(
@@ -1664,7 +1680,6 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result(PERFORMANCE_PROFILE)
 
         async def RunPerformanceQuick(self, request, context):
-            await _require_api(context)
             await _identity(context)
             values = [
                 PERFORMANCE.measure("configuration_resolve_p95_ms", CONFIGURATION.resolve, iterations=50, warmup=5),
@@ -1681,7 +1696,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result({"profile": CERTIFICATION_PROFILE, "automaticRuleActivation": False})
 
         async def VerifyCertificationCandidate(self, request, context):
-            await _require_api(context); await _identity(context)
+            await _identity(context)
             try:
                 return self._result(verify_certification_candidate(_payload(request.canonical_json).get("candidate", _payload(request.canonical_json))))
             except (ValueError, TypeError) as exc:
@@ -1692,7 +1707,7 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result({"profile": BENCHMARK_PROFILE, "automaticPromotion": False})
 
         async def EvaluateIntelligenceBenchmark(self, request, context):
-            await _require_api(context); await _identity(context)
+            await _identity(context)
             value = _payload(request.canonical_json)
             try:
                 result = IntelligenceBenchmarkV18(BENCHMARK_PROFILE).evaluate(str(value.get("modelId") or value.get("model_id") or "candidate"), list(value.get("examples") or []))
@@ -1705,7 +1720,63 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             return self._result({"profile": OPERATIONS_PROFILE, "automaticProductionChange": False})
 
 
-    class TimeCensoredInterceptor(grpc.aio.ServerInterceptor):
+    class AuthorizationInterceptor(grpc.aio.ServerInterceptor):
+        async def intercept_service(self, continuation, handler_call_details):
+            handler = await continuation(handler_call_details)
+            method = handler_call_details.method
+            if handler is None or handler.unary_unary is None:
+                return None
+
+            async def invoke(request, context):
+                try:
+                    scope = rpc_scope(method)
+                except KeyError:
+                    return await context.abort(
+                        grpc.StatusCode.PERMISSION_DENIED, "RPC authorization policy is unavailable",
+                    )
+                if scope is None:
+                    return await handler.unary_unary(request, context)
+                metadata = _metadata(context)
+                authorization = metadata.get("authorization", "")
+                token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else None
+                auth = credentials(metadata, token, IDENTITY, ACCESS_TOKENS)
+                if not auth.authenticated or (
+                    method in RPC_SERVICE_KEY_METHODS and not auth.api_key_valid
+                ):
+                    await context.abort(grpc.StatusCode.UNAUTHENTICATED, "authentication required")
+                denial = auth.denial(
+                    AUTHORIZATION_POLICY, scope,
+                    tenant_scoped=tenant_job_rpc(method) or tenant_configuration_rpc(method),
+                )
+                if denial is not None:
+                    await context.abort(grpc.StatusCode.PERMISSION_DENIED, denial)
+                auth_token = authenticated_rpc.set(auth)
+                ownership_token = SERVICE_SUBJECT_OWNER.set(
+                    service_subject_ownership(metadata, configured_key=os.environ.get("BALOOT_API_KEY"))
+                    if auth.api_key_valid and auth.identity is None and auth.claims is None else None
+                )
+                try:
+                    identity = await _identity(context)
+                    database_token = CURRENT_DATABASE_IDENTITY.set(DatabaseIdentityContext(
+                        subject_id=identity.subject_id, tenant_id=auth.tenant_id, role=auth.role,
+                        configuration_admin=auth.can_administer_configuration(AUTHORIZATION_POLICY),
+                        session_id=str((auth.session or {}).get("session_id") or
+                                       (auth.claims.session_id if auth.claims else "") or ""),
+                    ))
+                    try:
+                        return await handler.unary_unary(request, context)
+                    finally:
+                        CURRENT_DATABASE_IDENTITY.reset(database_token)
+                finally:
+                    SERVICE_SUBJECT_OWNER.reset(ownership_token)
+                    authenticated_rpc.reset(auth_token)
+
+            return grpc.unary_unary_rpc_method_handler(
+                invoke, request_deserializer=handler.request_deserializer,
+                response_serializer=handler.response_serializer,
+            )
+
+    class ApplicationErrorInterceptor(grpc.aio.ServerInterceptor):
         async def intercept_service(self, continuation, handler_call_details):
             handler = await continuation(handler_call_details)
             # shortcut: current RPCs are unary-only, wrap streams when one is added.
@@ -1720,13 +1791,20 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                         grpc.StatusCode.FAILED_PRECONDITION,
                         json.dumps(exc.to_detail(), sort_keys=True, separators=(",", ":")),
                     )
+                except ConfigurationScheduleConflict as exc:
+                    await context.abort(grpc.StatusCode.ALREADY_EXISTS, str(exc))
+                except ConfigurationIntegrityError:
+                    await context.abort(
+                        grpc.StatusCode.UNAVAILABLE,
+                        "Configuration is unavailable. Ask a configuration administrator to restore a verified revision.",
+                    )
 
             return grpc.unary_unary_rpc_method_handler(
                 invoke, request_deserializer=handler.request_deserializer,
                 response_serializer=handler.response_serializer,
             )
 
-    server = grpc.aio.server(interceptors=[TimeCensoredInterceptor()], options=[
+    server = grpc.aio.server(interceptors=[AuthorizationInterceptor(), ApplicationErrorInterceptor()], options=[
         ("grpc.max_receive_message_length", 2 * 1024 * 1024),
         ("grpc.max_send_message_length", 8 * 1024 * 1024),
     ])
@@ -1748,7 +1826,11 @@ async def serve() -> None:  # pragma: no cover - optional runtime
 
 
 def main() -> None:  # pragma: no cover
-    asyncio.run(serve())
+    configure_event_logging()
+    try:
+        asyncio.run(serve())
+    except ConfigurationIntegrityError:
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from fastapi import FastAPI, Request
@@ -82,6 +83,50 @@ def test_hitl_admin_reads_the_requested_reviewer_profile(hitl_reviewer_routes):
     assert response.status_code == 200
     assert response.json()["subjectId"] == "TEST-REVIEWER"
     assert response.json()["calibration"] == 0.75
+
+
+@pytest.mark.parametrize(("method", "resource", "body", "operation", "success"), [
+    ("POST", "/cases/FIXTURE/moderation-flags", {"code": "fixture"}, "open_moderation_flag", 201),
+    ("POST", "/moderation-flags/FIXTURE:resolve", {"resolution": "fixture"}, "resolve_moderation_flag", 200),
+    (
+        "POST", "/training-candidates/FIXTURE/evaluations",
+        {"validatorId": "FIXTURE", "validatorType": "challenger", "status": "passed"},
+        "record_challenger_evaluation", 201,
+    ),
+    ("POST", "/training-candidates/FIXTURE:accept", None, "accept_training_candidate", 200),
+    (
+        "POST", "/improvements/FIXTURE/evaluations", {"validatorId": "FIXTURE", "status": "passed"},
+        "evaluate_improvement", 201,
+    ),
+    ("POST", "/improvements/FIXTURE:finalize", {"changeManifest": {}}, "finalize_improvement", 200),
+    ("PUT", "/reviewers/FIXTURE", {}, "set_reviewer_profile", 200),
+])
+def test_hitl_privileged_write_dispatch_requires_model_admin(tmp_path, method, resource, body, operation, success):
+    from security_probe_helpers import security_probe_app
+
+    from baloot_platform.service import api
+
+    service = Mock(spec=ReviewGovernanceServiceV18)
+    write = getattr(service, operation)
+    write.return_value = {"fixture": True}
+    app = security_probe_app()
+    app.include_router(build_hitl_router(
+        service, api.IDENTITY, api.AUTHORIZATION_POLICY,
+        api.HITL_REVIEW_RENDERER, tmp_path, api.HITL_PROFILE,
+    ))
+
+    with TestClient(app) as client:
+        for scope, status in ((Scope.PLAY, 403), (Scope.MODEL_ADMIN, success)):
+            token = api.ACCESS_TOKENS.issue(subject_id="TEST-OPERATOR", role="admin", scopes=[scope])
+            response = client.request(
+                method, f"/api/v1/hitl{resource}", json=body, headers={"authorization": f"Bearer {token}"},
+            )
+            assert response.status_code == status, response.text
+            if scope == Scope.PLAY:
+                write.assert_not_called()
+            else:
+                assert response.json() == {"fixture": True}
+                write.assert_called_once()
 
 
 def _eligible_case(root: Path, tmp_path: Path):

@@ -136,6 +136,8 @@ def test_video_and_playable_copy_have_no_second_authority_in_source(root: Path) 
         root / "src/baloot_platform/service/static/challenge/index.html",
         root / "src/baloot_platform/service/static/challenge/app.js",
         root / "src/baloot_platform/challenge/analysis_catalog.py",
+        root / "src/baloot_platform/service/static/app/index.html",
+        root / "src/baloot_platform/service/static/app/app.js",
     ]
     for path in sources:
         source = path.read_text(encoding="utf-8")
@@ -187,6 +189,16 @@ def test_video_and_playable_copy_have_no_second_authority_in_source(root: Path) 
         placeholders - {"player_copy_json", "player_asset_version"} <= configured_keys
     )
 
+    app_template = sources[7].read_text(encoding="utf-8")
+    assert '<html lang="ar" dir="rtl">' in app_template
+    assert 'id="shareCode" dir="ltr"' in app_template
+    app_placeholders = set(re.findall(r"\{\{([a-zA-Z0-9_]+)\}\}", app_template))
+    assert app_placeholders - {"app_copy_json"} <= set(profile["challenge_copy"])
+    app_keys = set(
+        re.findall(r"copy\('([a-zA-Z0-9_]+)'", sources[8].read_text(encoding="utf-8"))
+    )
+    assert app_keys and app_keys <= set(profile["challenge_copy"])
+
     challenge_template = sources[4].read_text(encoding="utf-8")
     challenge_placeholders = set(
         re.findall(r"\{\{([a-zA-Z0-9_]+)\}\}", challenge_template)
@@ -202,6 +214,143 @@ def test_video_and_playable_copy_have_no_second_authority_in_source(root: Path) 
     assert "value.detail ||" not in challenge_script
     assert "copy('request_error'" in player_script
     assert "copy('request_error'" in challenge_script
+
+
+def test_active_browser_api_helpers_share_one_request_deadline(root: Path) -> None:
+    service = root / "src/baloot_platform/service"
+    shared = (service / "static/shared/request.js").read_text(encoding="utf-8")
+    assert shared.count("REQUEST_DEADLINE_MS =") == 1
+    assert "AbortSignal.timeout(REQUEST_DEADLINE_MS)" in shared
+    assert "AbortSignal.any([caller, deadline])" in shared
+
+    assert "AbortSignal.timeout(LONG_CALL_DEADLINE_MS)" in shared
+    assert shared.count("AbortSignal.timeout(") == 2
+
+    # Pages reach the helper only through the loader, which drops a failed load.
+    loader = (service / "static/shared/request-loader.js").read_text(encoding="utf-8")
+    assert "'/shared-assets/request.js'" in loader
+    assert "pending = null;" in loader
+    loader_tag = '<script src="/shared-assets/request-loader.js" defer></script>'
+    bare_fetch = re.compile(r"(?<![.\w])fetch\(")
+    for page, assets in (
+        ("app", "/app-assets/"),
+        ("challenge", "/challenge-assets/"),
+        ("player", "/play-assets/"),
+    ):
+        script = (service / f"static/{page}/app.js").read_text(encoding="utf-8")
+        assert "await loadRequestHelper()" in script, page
+        assert "import(" not in script, page
+        assert "request_timeout" in script, page
+        assert "request_unavailable" in script, page
+        assert not bare_fetch.search(script), page
+        template = (service / f"static/{page}/index.html").read_text(encoding="utf-8")
+        assert template.count(loader_tag) == 1, page
+        assert template.index(loader_tag) < template.index(f"{assets}app.js"), page
+
+    foundry = service / "foundry_dashboard/src"
+    for source in sorted(foundry.rglob("*.ts*")):
+        if "generated" not in source.parts:
+            assert not bare_fetch.search(source.read_text(encoding="utf-8")), source
+    assert "defaultClient.setConfig({fetch: fetchWithDeadline})" in (
+        foundry / "api/research.ts"
+    ).read_text(encoding="utf-8")
+    assert '"static/shared/*.js"' in (root / "pyproject.toml").read_text(
+        encoding="utf-8"
+    )
+
+
+def _request_constant(shared: str, name: str) -> int:
+    declared = re.findall(rf"^export const {name} = ([0-9_]+);$", shared, re.M)
+    assert len(declared) == 1, name
+    return int(declared[0].replace("_", ""))
+
+
+def _interactive_wall_seconds(value: object) -> list[float]:
+    if isinstance(value, dict):
+        found = [
+            float(profile["maximumWallSeconds"])
+            for key, profile in value.items()
+            if key == "interactive_validation_v1"
+            and isinstance(profile, dict)
+            and "maximumWallSeconds" in profile
+        ]
+        return found + [
+            seconds
+            for item in value.values()
+            for seconds in _interactive_wall_seconds(item)
+        ]
+    if isinstance(value, list):
+        return [
+            seconds for item in value for seconds in _interactive_wall_seconds(item)
+        ]
+    return []
+
+
+def test_browser_deadlines_exceed_the_server_budgets_they_cover(root: Path) -> None:
+    import inspect
+
+    from baloot_platform.challenge.analysis_catalog import (
+        FoundryAnalysisCandidateServiceV1,
+    )
+    from baloot_platform.research.play_compiler import OrToolsCpSatPlayCompilerV1
+    from baloot_platform.research.project_compiler import (
+        OrToolsCpSatProjectCompilerV1,
+    )
+    from baloot_platform.research.render_service import (
+        ResearchRenderPreparationServiceV1,
+    )
+
+    service = root / "src/baloot_platform/service"
+    shared = (service / "static/shared/request.js").read_text(encoding="utf-8")
+    request_ms = _request_constant(shared, "REQUEST_DEADLINE_MS")
+    long_ms = _request_constant(shared, "LONG_CALL_DEADLINE_MS")
+    margin_ms = _request_constant(shared, "LONG_CALL_MARGIN_MS")
+    assert margin_ms >= 10_000
+
+    def solver_seconds(compiler: type) -> float:
+        # The solver stops at compile's default; the descriptor declares the same budget.
+        default = inspect.signature(compiler.compile).parameters["timeout_seconds"]
+        return max(float(default.default), float(compiler.descriptor.timeout_seconds))
+
+    # :verify-play-compiler answers after the project compiler and then the play compiler.
+    research = (root / "src/baloot_platform/research/service.py").read_text(
+        encoding="utf-8"
+    )
+    verify = research.split("    def verify_play_compiler(", 1)[1]
+    verify = verify.split("    def list_disagreements(", 1)[0]
+    assert verify.count(".verify_trace(") == 2
+    verify_ms = 1000 * (
+        solver_seconds(OrToolsCpSatProjectCompilerV1)
+        + solver_seconds(OrToolsCpSatPlayCompilerV1)
+    )
+    prepare_ms = 1000 * max(
+        float(FoundryAnalysisCandidateServiceV1.descriptor.timeout_seconds),
+        float(ResearchRenderPreparationServiceV1.descriptor.timeout_seconds),
+    )
+    assert long_ms >= max(verify_ms, prepare_ms) + margin_ms
+
+    # Every call the Foundry client makes to a covered endpoint uses the long deadline.
+    main = (service / "foundry_dashboard/src/main.tsx").read_text(encoding="utf-8")
+    assert "api<T>(path, init, fetchWithLongDeadline)" in main
+    assert main.count("await longApi<") == 9
+    assert "await api<ResearchPreparedRender>(" not in main
+    assert not re.search(
+        r"\bapi<[^(]*\(`[^`]*:(?:prepare|prepare-best|prepare-render"
+        r"|verify-play-compiler|compile)`",
+        main,
+    )
+
+    # Interactive calls stay inside the default deadline with the same margin.
+    interactive = [
+        seconds
+        for path in sorted((root / "configs").rglob("*.yaml"))
+        if "interactive_validation_v1" in path.read_text(encoding="utf-8")
+        for seconds in _interactive_wall_seconds(
+            yaml.safe_load(path.read_text(encoding="utf-8"))
+        )
+    ]
+    assert interactive
+    assert request_ms >= 1000 * max(interactive) + margin_ms
 
 
 def test_mobile_choice_breakdown_uses_bounded_card_geometry(root: Path) -> None:
@@ -428,9 +577,14 @@ def test_renderer_provenance_changes_leave_foley_and_identity_unchanged(
         shutil.copyfile(path, target)
     fingerprint = renderer_source_sha256
     assert fingerprint(fingerprint_root) == fingerprint(root)
-    scripts = fingerprint_root / "src/baloot_platform/video/remotion/scripts"
-    for name in ("approved-layout-adjacencies.json", "ffmpeg-runtime.json"):
-        source = scripts / name
+    remotion = fingerprint_root / "src/baloot_platform/video/remotion"
+    for name in (
+        "scripts/approved-layout-adjacencies.json",
+        "scripts/approved-layout-pin.json",
+        "scripts/ffmpeg-runtime.json",
+        "src/playback-timing.mjs",
+    ):
+        source = remotion / name
         original = source.read_bytes()
         source.write_bytes(original + b"\n")
         assert fingerprint(fingerprint_root) != fingerprint(root)
@@ -444,7 +598,7 @@ def test_renderer_provenance_changes_leave_foley_and_identity_unchanged(
 
     def capture() -> dict:
         bundles = {
-            "notice": notice.build_notice_bundle(rules, notice.notice_profile(public=True)),
+            "notice": notice.build_notice_bundle(rules, notice.notice_profile()),
             "v7-decision": renderer.build_render_request(episode, export_preset="decision_clip"),
             "flagship": renderer.build_render_request(episode, export_preset="hooked_flagship"),
         }

@@ -1,10 +1,10 @@
 import React from "react";
 import {QRCodeSVG} from "qrcode.react";
 import {AbsoluteFill, Artifact, cancelRender, continueRender, delayRender, Easing, Img, interpolate, staticFile, useCurrentFrame} from "remotion";
+import {playbackMotionTiming, trickCollectionProgress} from "./playback-timing.mjs";
 import {
   derivePlaybackState,
   collectionOpacity,
-  playbackMotionTiming,
   type PlaybackPlay as PublicPlay,
   type PlaybackTrick as PublicTrick,
   type Seat,
@@ -728,15 +728,11 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
     : bundle.source?.exactStateId ?? bundle.identity.sceneId;
   const qrSize = Number(presentation.qr_size_px ?? 72);
   const qrMargin = Number(presentation.qr_quiet_zone_modules ?? 4);
-  const {flightFrames, collectionFrames, collectionStart} = playbackMotionTiming(
-    playInterval, Number(motion.flight_steps ?? 21), Number(motion.collection_steps ?? 22),
-    Number(motion.transition_steps ?? 4),
-  );
+  const playbackTiming = playbackMotionTiming(playInterval, motion);
+  const {flightFrames} = playbackTiming;
   if (playInterval > 0) playProgress = reducedMotion || flightFrames === 0 ? 1 : clamp(lastPlayAge / flightFrames, 0, 1);
   const collectionProgress = winner && !showOutcome
-    ? collectionFrames === 0
-      ? Number(lastPlayAge >= collectionStart)
-      : clamp((lastPlayAge - collectionStart) / collectionFrames, 0, 1)
+    ? trickCollectionProgress(lastPlayAge, playbackTiming)
     : 0;
   const collectionEase = Easing.bezier(0.4, 0, 0.2, 1)(collectionProgress);
   const tableOpacity = collectionOpacity(collectionProgress);

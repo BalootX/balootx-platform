@@ -396,6 +396,9 @@
             ],
             "title": "Environment"
           },
+          "localSchedule": {
+            "$ref": "#/components/schemas/LocalSchedule"
+          },
           "mode": {
             "default": "full",
             "title": "Mode",
@@ -1479,6 +1482,10 @@
             "minimum": 1.0,
             "title": "Etag",
             "type": "integer"
+          },
+          "localSchedule": {
+            "$ref": "#/components/schemas/StoredLocalSchedule",
+            "title": "Localschedule"
           },
           "mode": {
             "title": "Mode",
@@ -6569,6 +6576,91 @@
         "title": "HistoricalReplayRenderRequest",
         "type": "object"
       },
+      "IdentityItem": {
+        "properties": {
+          "authenticated": {
+            "title": "Authenticated",
+            "type": "boolean"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "displayName": {
+            "title": "Displayname",
+            "type": "string"
+          },
+          "guest": {
+            "title": "Guest",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "subjectId": {
+            "title": "Subjectid",
+            "type": "string"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "subjectId",
+          "kind",
+          "displayName",
+          "username",
+          "authenticated",
+          "guest",
+          "createdAt"
+        ],
+        "title": "IdentityItem",
+        "type": "object"
+      },
+      "IdentityPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "title": "IdentityPage",
+        "type": "object"
+      },
       "ImprovementEvaluationRequest": {
         "properties": {
           "evidence": {
@@ -7090,6 +7182,42 @@
           "kind"
         ],
         "title": "LiveActionRequest",
+        "type": "object"
+      },
+      "LocalSchedule": {
+        "additionalProperties": false,
+        "properties": {
+          "effectiveFrom": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effectivefrom"
+          },
+          "effectiveUntil": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effectiveuntil"
+          },
+          "timeZone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timeZone"
+        ],
+        "title": "LocalSchedule",
         "type": "object"
       },
       "LoginRequest": {
@@ -8131,6 +8259,85 @@
         "title": "PauseRequest",
         "type": "object"
       },
+      "PendingRequestItem": {
+        "properties": {
+          "createdAt": {
+            "title": "Createdat",
+            "type": "string"
+          },
+          "recipientId": {
+            "title": "Recipientid",
+            "type": "string"
+          },
+          "requestId": {
+            "title": "Requestid",
+            "type": "string"
+          },
+          "senderDisplayName": {
+            "title": "Senderdisplayname",
+            "type": "string"
+          },
+          "senderId": {
+            "title": "Senderid",
+            "type": "string"
+          },
+          "senderUsername": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Senderusername"
+          },
+          "status": {
+            "const": "pending",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requestId",
+          "senderId",
+          "recipientId",
+          "status",
+          "createdAt",
+          "senderDisplayName",
+          "senderUsername"
+        ],
+        "title": "PendingRequestItem",
+        "type": "object"
+      },
+      "PendingRequestPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PendingRequestItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "title": "PendingRequestPage",
+        "type": "object"
+      },
       "PlayRequest": {
         "properties": {
           "card": {
@@ -8346,6 +8553,9 @@
           "family": {
             "title": "Family",
             "type": "string"
+          },
+          "localSchedule": {
+            "$ref": "#/components/schemas/LocalSchedule"
           },
           "payload": {
             "additionalProperties": true,
@@ -26288,6 +26498,47 @@
         "title": "SpectatorRequest",
         "type": "object"
       },
+      "StoredLocalSchedule": {
+        "additionalProperties": false,
+        "properties": {
+          "effectiveFrom": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effectivefrom"
+          },
+          "effectiveUntil": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effectiveuntil"
+          },
+          "timeZone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "zoneDataVersion": {
+            "title": "Zonedataversion",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timeZone",
+          "zoneDataVersion"
+        ],
+        "title": "StoredLocalSchedule",
+        "type": "object"
+      },
       "StoredResearchRecipeResponse": {
         "additionalProperties": false,
         "properties": {
@@ -40389,6 +40640,140 @@
         "summary": "Get Foundry Runtime Profile"
       }
     },
+    "/api/v2/friends": {
+      "get": {
+        "operationId": "friends_page_api_v2_friends_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Friends Page",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
+    "/api/v2/friends/requests": {
+      "get": {
+        "operationId": "friend_requests_page_api_v2_friends_requests_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingRequestPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Friend Requests Page",
+        "tags": [
+          "identity"
+        ]
+      }
+    },
     "/api/v2/laffat": {
       "get": {
         "operationId": "list_laffat_api_v2_laffat_get",
@@ -44914,6 +45299,82 @@
           }
         },
         "summary": "Create Trace Import Catalog"
+      }
+    },
+    "/api/v2/users:search": {
+      "get": {
+        "operationId": "search_users_page_api_v2_users_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "title": "Query",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Users Page",
+        "tags": [
+          "identity"
+        ]
       }
     },
     "/api/v2/video-production-batches": {

@@ -10,17 +10,6 @@ from baloot_platform.identity import Identity
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER
 
 
-def caller_role(
-    headers: Mapping[str, str], *, api_key_valid: bool, claims_role: str | None = None,
-    subject_id: str = "",
-) -> str:
-    if claims_role:
-        return claims_role.lower()
-    if api_key_valid:
-        return headers.get("x-baloot-role", "service").lower()
-    return "player" if subject_id else "anonymous"
-
-
 def _derived_subject_id(configured_key: str) -> str:
     digest = hashlib.pbkdf2_hmac(
         "sha256", configured_key.encode("utf-8"),
@@ -49,18 +38,13 @@ def initialize_service_subject_ownership() -> None:
 
 
 def service_subject_ownership(
-    headers: Mapping[str, str], *, configured_key: str | None, keyless: bool = False,
+    headers: Mapping[str, str], *, configured_key: str | None,
 ) -> tuple[str, str] | None:
-    """Select ownership only after authentication or gRPC's explicit keyless mode."""
+    """Resolve the service subject's existing ownership after authentication."""
     if headers.get("x-baloot-subject-id", "").strip():
         return None
     if configured_key:
         return _configured_subject_ownership(configured_key)
-    if keyless:
-        # Without a configured credential the header is only a caller selector.
-        selector = headers.get("x-api-key", "")
-        digest = hmac.digest(selector.encode("utf-8"), b"baloot-platform:keyless-grpc-subject:v2", "sha256")
-        return f"SVC-KL-{digest[:10].hex().upper()}", _legacy_subject_id(selector)
     return None
 
 

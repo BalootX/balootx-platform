@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+DISPLAY_NAME_MAX_LENGTH = 40
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 

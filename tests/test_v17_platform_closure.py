@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -20,9 +21,9 @@ from baloot_platform.analysis.belief_calibration_v17 import (
 )
 from baloot_platform.analysis.models import InformationState
 from baloot_platform.analysis.team_public_cfr_v17 import analyze_team_public_coordinator
-from baloot_platform.config import build_bundle
+from baloot_platform.config import build_bundle, validate_profile_payload
 from baloot_platform.core.engine import BalootEngine
-from baloot_platform.core.enums import Contract, Seat
+from baloot_platform.core.enums import Contract, GamePhase, Seat
 from baloot_platform.core.models import Event
 from baloot_platform.core.scenario import ScenarioRequest, generate_episode
 from baloot_platform.history.canonical_store_v17 import CanonicalHistoryStore
@@ -173,6 +174,10 @@ def test_access_tokens_oidc_pkce_passkeys_and_authorization():
     policy.require(role="player", required=Scope.PLAY, claims=claims)
     with pytest.raises(PermissionError):
         policy.require(role="player", required=Scope.REFEREE, claims=claims)
+    with pytest.raises(PermissionError):
+        policy.require(role="unknown", required=Scope.READ, claims=claims)
+    with pytest.raises(PermissionError):
+        AuthorizationPolicy({"player": ()}).require(role="player", required=Scope.READ, claims=claims)
 
     pkce = PkceTransactionStore(ttl_seconds=60)
     transaction = pkce.create("provider", return_to="/app")
@@ -225,6 +230,234 @@ def test_canonical_event_store_snapshots_branches_and_corrections(tmp_path: Path
     assert lineage["branches"][0]["child_game_id"] == branch.child_game_id
     assert lineage["corrections"][0]["corrected_game_id"] == correction.corrected_game_id
     assert store.verify("GAME-17:round:1")["valid"] is True
+
+
+@pytest.fixture
+def canonical_history_http(root, tmp_path, monkeypatch):
+    from security_probe_helpers import security_probe_app
+
+    from baloot_platform.service import api
+    from baloot_platform.service.routes.canonical_history import build_canonical_history_router
+
+    monkeypatch.setenv("BALOOT_ENV", "production")
+    monkeypatch.setenv("BALOOT_RATE_LIMIT_PER_MINUTE", "0")
+    trusted_key = "canonical-fixture-trusted-key"
+    monkeypatch.setenv("BALOOT_TRUSTED_API_KEY", trusted_key)
+
+    store = CanonicalHistoryStore(tmp_path / "canonical-http.sqlite3")
+    games = GameManager(root, canonical_history=store)
+    probe_app = security_probe_app()
+    probe_app.include_router(build_canonical_history_router(
+        store, api.IDENTITY, games, require_trusted=api._require_trusted,
+    ))
+
+    def bearer(*scopes, role="admin", tenant_id=None):
+        token = api.ACCESS_TOKENS.issue(
+            subject_id="CANONICAL-FIXTURE", role=role, scopes=scopes, tenant_id=tenant_id,
+        )
+        return {"authorization": f"Bearer {token}"}
+
+    return store, games, probe_app, bearer, trusted_key
+
+
+def test_canonical_history_http_authorizes_full_state_and_lineage_writes(canonical_history_http):
+    store, games, probe_app, bearer, trusted_key = canonical_history_http
+    game = games.create(seed=1709, dealer=Seat.EAST)
+    stream = f"{game.id}:round:{game.state.round_number}"
+    record = store.latest_snapshot(stream)
+    assert record is not None
+    expected = record.to_dict()
+    assert isinstance(expected["state"]["hands"]["east"], list)
+
+    child = games.create(seed=1710, dealer=Seat.EAST)
+    corrected = games.create(seed=1711, dealer=Seat.WEST)
+    child_id = child.id
+    corrected_id = corrected.id
+
+    player = bearer(Scope.READ, Scope.PLAY, role="player")
+    reader = bearer(Scope.READ, role="player")
+    outside_reader = bearer(Scope.READ, role="player", tenant_id="fixture-other")
+    hidden_reader = bearer(Scope.HIDDEN_READ, role="referee")
+    trusted_reader = {**hidden_reader, "x-baloot-trusted-key": trusted_key}
+    operator = bearer(Scope.CONFIG_ADMIN)
+    outside_operator = bearer(Scope.CONFIG_ADMIN, tenant_id="fixture-other")
+
+    with TestClient(probe_app) as client:
+        history_path = "/api/v1/canonical-history"
+        source_path = f"{history_path}/{game.id}"
+        stream_path = f"{history_path}/{stream}"
+        snapshot_path = f"{source_path}/snapshot"
+        verification_path = f"{stream_path}/verification"
+        for path in (snapshot_path, verification_path):
+            assert client.get(path).status_code == 401
+            assert client.get(path, headers={**player, "x-baloot-trusted-key": trusted_key}).status_code == 403
+            denied = client.get(path, headers=hidden_reader)
+            assert denied.status_code == 403 and denied.json() == {
+                "detail": "trusted hidden-information access is not enabled",
+            }
+        snapshot = client.get(snapshot_path, headers=trusted_reader)
+        assert snapshot.status_code == 200 and snapshot.json() == expected
+        verification = client.get(verification_path, headers=trusted_reader)
+        assert verification.status_code == 200 and verification.json()["latestSnapshot"] == expected
+
+        for path in (f"{source_path}/lineage", f"{stream_path}/lineage"):
+            assert client.get(path).status_code == 401
+            for denied_headers in (operator, outside_reader):
+                assert client.get(path, headers=denied_headers).status_code == 403
+            lineage = client.get(path, headers=reader)
+            assert lineage.status_code == 200
+            assert lineage.json() == {
+                "gameId": stream, "parentBranch": None, "parentCorrection": None,
+                "branches": [], "corrections": [],
+            }
+
+        reason = "Synthetic lineage"
+        case_id = "FIXTURE-CASE"
+        writes = (
+            ("branches", {"childGameId": child_id, "reason": reason}, "parentGameId", child_id),
+            ("corrections", {
+                "correctedGameId": corrected_id, "reason": reason, "adjudicationCaseId": case_id,
+            }, "sourceGameId", corrected_id),
+        )
+        records = {}
+        for suffix, body, source_field, target_id in writes:
+            path = f"{source_path}/{suffix}"
+            assert client.post(path, json=body).status_code == 401
+            for denied_headers in (player, trusted_reader, outside_operator):
+                assert client.post(path, headers=denied_headers, json=body).status_code == 403
+            assert store.lineage(stream)[suffix] == []
+
+            missing_id = "FIXTURE-MISSING"
+            source_before = store.lineage(missing_id)
+            target_before = store.lineage(target_id)
+            missing = client.post(f"{history_path}/{missing_id}/{suffix}", headers=operator, json=body)
+            assert missing.status_code == 409
+            assert store.lineage(missing_id) == source_before
+            assert store.lineage(target_id) == target_before
+
+            written = client.post(path, headers=operator, json=body)
+            assert written.status_code == 201, written.text
+            records[suffix] = written.json()
+            assert records[suffix][source_field] == stream
+            assert records[suffix]["createdBy"] == "CANONICAL-FIXTURE"
+
+        branch = records["branches"]
+        correction = records["corrections"]
+        assert branch["childGameId"] == child_id
+        assert correction["correctedGameId"] == corrected_id
+        source_lineage = client.get(f"{source_path}/lineage", headers=reader)
+        assert source_lineage.status_code == 200
+        assert source_lineage.json() == {
+            "gameId": stream, "parentBranch": None, "parentCorrection": None,
+            "branches": [{
+                "child_game_id": child_id, "branch_id": branch["branchId"], "created_at": branch["createdAt"],
+            }],
+            "corrections": [{
+                "corrected_game_id": corrected_id, "correction_id": correction["correctionId"],
+                "created_at": correction["createdAt"],
+            }],
+        }
+        assert client.get(f"{stream_path}/lineage", headers=reader).json() == source_lineage.json()
+
+        parents = (
+            (child, "parentBranch", {
+                "branch_id": branch["branchId"], "parent_game_id": stream,
+                "parent_event_count": expected["eventCount"], "parent_head_hash": expected["headHash"],
+                "child_game_id": child_id, "created_at": branch["createdAt"],
+            }, {}),
+            (corrected, "parentCorrection", {
+                "correction_id": correction["correctionId"], "source_game_id": stream,
+                "source_event_count": expected["eventCount"], "source_head_hash": expected["headHash"],
+                "corrected_game_id": corrected_id, "created_at": correction["createdAt"],
+            }, {"adjudication_case_id": case_id}),
+        )
+        for destination, parent_field, fields, private_fields in parents:
+            destination_stream = f"{destination.id}:round:{destination.state.round_number}"
+            for identifier in (destination.id, destination_stream):
+                path = f"{history_path}/{identifier}"
+                visible = client.get(f"{path}/lineage", headers=reader)
+                assert visible.status_code == 200
+                assert visible.json() == {
+                    "gameId": destination_stream, "parentBranch": None, "parentCorrection": None,
+                    "branches": [], "corrections": [], parent_field: fields,
+                }
+
+                trusted = client.get(f"{path}/verification", headers=trusted_reader)
+                assert trusted.status_code == 200
+                assert trusted.json()["lineage"] == {**store.lineage(destination.id), "gameId": destination_stream}
+                assert trusted.json()["lineage"][parent_field] == {
+                    **fields, **private_fields, "created_by": "CANONICAL-FIXTURE", "reason": reason,
+                }
+
+
+def test_canonical_history_reverse_lookup_prefers_exact_round(canonical_history_http):
+    store, games, probe_app, bearer, trusted_key = canonical_history_http
+    source = games.create(seed=1712, dealer=Seat.EAST)
+    destination = games.create(seed=1713, dealer=Seat.WEST)
+    source_stream = f"{source.id}:round:{source.state.round_number}"
+    first_stream = f"{destination.id}:round:{destination.state.round_number}"
+    legacy_branch = store.create_branch(
+        parent_game_id=source_stream, child_game_id=destination.id,
+        created_by="FIXTURE-OPERATOR", reason="Synthetic branch",
+    )
+    legacy_correction = store.create_correction(
+        source_game_id=source_stream, corrected_game_id=destination.id,
+        created_by="FIXTURE-OPERATOR", reason="Synthetic correction",
+    )
+    history_path = "/api/v1/canonical-history"
+    reader = bearer(Scope.READ, role="player")
+    operator = bearer(Scope.CONFIG_ADMIN)
+    trusted = {**bearer(Scope.HIDDEN_READ, role="referee"), "x-baloot-trusted-key": trusted_key}
+
+    with TestClient(probe_app) as client:
+        def assert_parents(identifier, stream, branch_id, correction_id):
+            path = f"{history_path}/{identifier}"
+            visible = client.get(f"{path}/lineage", headers=reader)
+            verified = client.get(f"{path}/verification", headers=trusted)
+            assert visible.status_code == verified.status_code == 200
+            assert verified.json()["latestSnapshot"]["gameId"] == stream
+            for lineage in (visible.json(), verified.json()["lineage"]):
+                assert lineage["gameId"] == stream
+                for field, key, expected_id in (
+                    ("parentBranch", "branch_id", branch_id),
+                    ("parentCorrection", "correction_id", correction_id),
+                ):
+                    if expected_id is None:
+                        assert lineage[field] is None
+                    else:
+                        assert lineage[field][key] == expected_id
+
+        legacy_ids = (legacy_branch.branch_id, legacy_correction.correction_id)
+        for identifier in (destination.id, first_stream):
+            assert_parents(identifier, first_stream, *legacy_ids)
+
+        branch = client.post(f"{history_path}/{source_stream}/branches", headers=operator, json={
+            "childGameId": first_stream, "reason": "Synthetic round branch",
+        })
+        correction = client.post(f"{history_path}/{source_stream}/corrections", headers=operator, json={
+            "correctedGameId": first_stream, "reason": "Synthetic round correction",
+        })
+        assert branch.status_code == correction.status_code == 201
+        assert branch.json()["childGameId"] == correction.json()["correctedGameId"] == first_stream
+        exact_ids = (branch.json()["branchId"], correction.json()["correctionId"])
+        for identifier in (destination.id, first_stream):
+            assert_parents(identifier, first_stream, *exact_ids)
+
+        destinations = {destination.id, first_stream}
+        descendants = client.get(f"{history_path}/{source.id}/lineage", headers=reader).json()
+        assert {row["child_game_id"] for row in descendants["branches"]} == destinations
+        assert {row["corrected_game_id"] for row in descendants["corrections"]} == destinations
+
+        destination.state.phase = GamePhase.SCORED
+        games.next_round(destination.id, seed=1714)
+        second_stream = f"{destination.id}:round:{destination.state.round_number}"
+        destination.state.phase = GamePhase.SCORED
+        games.next_round(destination.id, seed=1715)
+        current_stream = f"{destination.id}:round:{destination.state.round_number}"
+        for identifier in (destination.id, current_stream):
+            assert_parents(identifier, current_stream, *legacy_ids)
+        assert_parents(first_stream, first_stream, *exact_ids)
+        assert_parents(second_stream, second_stream, None, None)
 
 
 def test_calibration_league_and_promotion_gates():
@@ -327,22 +560,145 @@ def test_encrypted_canonical_snapshots_and_live_broker(tmp_path: Path):
     asyncio.run(exercise())
     broker.close()
 
+def test_service_does_not_start_without_the_shared_browser_assets(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("BALOOT_ENV", "test")
+    from fastapi import FastAPI
+
+    from baloot_platform.service.api import _mount_shared_assets
+
+    shared = tmp_path / "shared"
+    with pytest.raises(RuntimeError, match="request.js, request-loader.js"):
+        _mount_shared_assets(FastAPI(), shared)
+    shared.mkdir()
+    (shared / "request.js").write_text("export {};", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="missing: request-loader.js"):
+        _mount_shared_assets(FastAPI(), shared)
+    (shared / "request-loader.js").write_text("// loader", encoding="utf-8")
+    application = FastAPI()
+    _mount_shared_assets(application, shared)
+    served = TestClient(application).get("/shared-assets/request-loader.js")
+    assert served.status_code == 200 and served.text == "// loader"
+
+
 def test_v17_api_routes_and_unified_arabic_app(monkeypatch):
     monkeypatch.setenv("BALOOT_ENV", "test")
     from baloot_platform.service.api import app
     client = TestClient(app)
     capabilities = client.get("/api/v1/security/capabilities")
     assert capabilities.status_code == 200 and capabilities.json()["passkeys"] is True
-    guest = client.post("/api/v1/auth/guest", json={"displayName": "ضيف V17"})
-    assert guest.status_code == 201
     app_page = client.get("/app")
     assert app_page.status_code == 200
     text = app_page.text
+    markup = text.partition('<script id="app-copy"')[0]
     for label in ("شارك لفة أو صكّة", "صكّة كاملة", "ليش لعبها؟", "طاولة مباشرة"):
-        assert label in text
+        assert label in markup
+    assert '"request_timeout":' in text and "{{" not in text
+    assert '<html lang="ar" dir="rtl">' in text and 'id="shareCode" dir="ltr"' in text
+    assert '"request_unavailable":' in text
+    assert '<script src="/shared-assets/request-loader.js" defer></script>' in text
+    shared = client.get("/shared-assets/request.js")
+    assert shared.status_code == 200 and "REQUEST_DEADLINE_MS" in shared.text
+    loader = client.get("/shared-assets/request-loader.js")
+    assert loader.status_code == 200 and "loadRequestHelper" in loader.text
+    assert client.head("/shared-assets/request.js").status_code == 200
+    assert client.post("/shared-assets/request.js").status_code == 401
+    guest = client.post("/api/v1/auth/guest", json={"displayName": "ضيف V17"})
+    assert guest.status_code == 201
     openapi = client.get("/openapi.json").json()
     paths = openapi["paths"]
     assert "/api/v1/live/rooms" in paths
     assert "/api/v1/adjudication/cases" in paths
     assert "/api/v1/security/capabilities" in paths
     assert "/api/v1/canonical-history/{identifier}/verification" in paths
+
+
+def test_served_pages_preserve_literal_copy_and_player_asset_version(root, monkeypatch):
+    from baloot_platform.service import api
+
+    translated = 'Example <label> & "{{player_asset_version}}" {{app_open}}'
+    escaped = 'Example &lt;label&gt; &amp; &quot;{{player_asset_version}}&quot; {{app_open}}'
+    video = api.ACTIVE_BUNDLE.video
+    governed_copy = dict(
+        video["challenge_copy"], app_title=translated, player_brand_aria=translated
+    )
+    validated = validate_profile_payload(
+        "video", {**video, "challenge_copy": governed_copy}, root=root
+    )
+    monkeypatch.setitem(video, "challenge_copy", validated["challenge_copy"])
+    client = TestClient(api.app)
+
+    app_page = client.get("/app")
+    player = client.get("/play")
+    challenge = client.get("/c/SYNTHETIC-COPY")
+
+    for response, script_id, language in (
+        (app_page, "app-copy", "ar"),
+        (player, "player-copy", "ar-SA"),
+    ):
+        assert response.status_code == 200
+        assert f'<html lang="{language}" dir="rtl"' in response.text
+        assert f"<title>{escaped}</title>" in response.text
+        payload = response.text.split(f'<script id="{script_id}" type="application/json">', 1)[1]
+        assert json.loads(payload.split("</script>", 1)[0]) == governed_copy
+
+    player_root = root / "src/baloot_platform/service/static/player"
+    digest = hashlib.sha256()
+    for asset_name in ("app.css", "app.js"):
+        digest.update(asset_name.encode("utf-8"))
+        digest.update((player_root / asset_name).read_bytes())
+    asset_version = digest.hexdigest()[:12]
+    assert f'href="/play-assets/app.css?v={asset_version}"' in player.text
+    assert f'src="/play-assets/app.js?v={asset_version}"' in player.text
+
+    assert challenge.status_code == 200
+    assert '<html lang="ar-SA" dir="rtl"' in challenge.text
+    assert 'id="loading-copy"' in challenge.text
+    assert 'id="challenge-copy"' not in challenge.text
+    copy_response = client.get("/api/v1/challenge-copy")
+    assert copy_response.status_code == 200
+    assert copy_response.json()["copy"] == governed_copy
+
+
+def test_app_guest_copy_validates_the_identity_limit_before_serving(root, monkeypatch):
+    from baloot_platform.service import api
+
+    video = api.ACTIVE_BUNDLE.video
+    guest_name = "ض" * 40
+    governed_copy = dict(video["challenge_copy"], app_guest_name=guest_name)
+    validated = validate_profile_payload(
+        "video", {**video, "challenge_copy": governed_copy}, root=root
+    )
+    monkeypatch.setitem(video, "challenge_copy", validated["challenge_copy"])
+    client = TestClient(api.app)
+
+    page = client.get("/app")
+    assert page.status_code == 200
+    payload = page.text.split('<script id="app-copy" type="application/json">', 1)[1]
+    served_name = json.loads(payload.split("</script>", 1)[0])["app_guest_name"]
+    assert served_name == guest_name
+    guest = client.post("/api/v1/auth/guest", json={"displayName": served_name})
+    assert guest.status_code == 201
+    assert guest.json()["identity"]["displayName"] == guest_name
+
+    too_long = dict(governed_copy, app_guest_name=guest_name + "ض")
+    with pytest.raises(
+        ValueError, match=r"challenge_copy\.app_guest_name must be at most 40 characters"
+    ):
+        validate_profile_payload("video", {**video, "challenge_copy": too_long}, root=root)
+
+
+@pytest.mark.parametrize(
+    ("path", "key", "surface"),
+    [("/app", "app_guest_started", "application"), ("/play", "player_brand_aria", "player")],
+)
+def test_served_page_rejects_missing_copy(monkeypatch, path, key, surface):
+    from baloot_platform.service import api
+
+    monkeypatch.delitem(api.ACTIVE_BUNDLE.video["challenge_copy"], key)
+
+    response = TestClient(api.app).get(path)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == f"{surface} copy profile is incomplete"

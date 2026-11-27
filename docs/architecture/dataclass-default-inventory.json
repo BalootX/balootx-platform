@@ -341,6 +341,14 @@
       "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
     },
     {
+      "key": "src/baloot_platform/configuration/models.py:BundleRevision.local_schedule",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:BundleRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
       "key": "src/baloot_platform/configuration/models.py:BundleRevision.published_at",
       "default": "None",
       "classification": "protocol_or_mathematical_invariant",
@@ -373,6 +381,22 @@
       "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
     },
     {
+      "key": "src/baloot_platform/configuration/models.py:BundleRevision.scheduled_predecessor_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:BundleRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:BundleRevision.scheduled_successor_id",
+      "default": "None",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:BundleRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
       "key": "src/baloot_platform/configuration/models.py:BundleRevision.supersedes_revision_id",
       "default": "None",
       "classification": "protocol_or_mathematical_invariant",
@@ -399,6 +423,14 @@
     {
       "key": "src/baloot_platform/configuration/models.py:ProfileRevision.etag",
       "default": "1",
+      "classification": "protocol_or_mathematical_invariant",
+      "status": "compliant",
+      "owner": "src/baloot_platform/configuration/models.py:ProfileRevision",
+      "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
+    },
+    {
+      "key": "src/baloot_platform/configuration/models.py:ProfileRevision.local_schedule",
+      "default": "None",
       "classification": "protocol_or_mathematical_invariant",
       "status": "compliant",
       "owner": "src/baloot_platform/configuration/models.py:ProfileRevision",
@@ -509,19 +541,19 @@
       "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
     },
     {
-      "key": "src/baloot_platform/configuration/service.py:ProfileFamily.in_bundle",
+      "key": "src/baloot_platform/configuration/profile_families.py:ProfileFamily.in_bundle",
       "default": "True",
       "classification": "protocol_or_mathematical_invariant",
       "status": "compliant",
-      "owner": "src/baloot_platform/configuration/service.py:ProfileFamily",
+      "owner": "src/baloot_platform/configuration/profile_families.py:ProfileFamily",
       "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
     },
     {
-      "key": "src/baloot_platform/configuration/service.py:ProfileFamily.requires_config_admin",
+      "key": "src/baloot_platform/configuration/profile_families.py:ProfileFamily.requires_config_admin",
       "default": "False",
       "classification": "protocol_or_mathematical_invariant",
       "status": "compliant",
-      "owner": "src/baloot_platform/configuration/service.py:ProfileFamily",
+      "owner": "src/baloot_platform/configuration/profile_families.py:ProfileFamily",
       "rationale": "Neutral serialized state, result, or absence value; it does not select product tuning."
     },
     {
@@ -1678,7 +1710,7 @@
     }
   ],
   "summary": {
-    "total": 208,
+    "total": 212,
     "migrationRequired": 0
   }
 }

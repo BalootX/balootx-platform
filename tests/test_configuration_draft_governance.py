@@ -1,17 +1,25 @@
 from __future__ import annotations
 
+import asyncio
 import copy
+import json
+import os
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 import yaml
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+from tzdata import IANA_VERSION
 
+from baloot_platform.config import build_bundle
 from baloot_platform.configuration import (
     PostgresConfigurationStore,
     SQLiteConfigurationStore,
@@ -22,11 +30,20 @@ from baloot_platform.configuration.models import (
     ProfileRevision,
     digest,
 )
+from baloot_platform.configuration.store import BundleHistory
 from baloot_platform.identity import IdentityService, SQLiteIdentityStore
 from baloot_platform.security import AuthorizationPolicy
 import baloot_platform.service.container as container_module
 from baloot_platform.service.container import build_container
-from baloot_platform.service.routes.configuration import build_configuration_router
+from baloot_platform.service.routes.configuration import (
+    build_configuration_router,
+    configuration_integrity_response,
+    configuration_schedule_conflict_response,
+)
+from baloot_platform.configuration.schedule import (
+    ConfigurationIntegrityError,
+    ConfigurationScheduleConflict,
+)
 from baloot_platform.storage.request_context import (
     CURRENT_DATABASE_IDENTITY,
     DatabaseIdentityContext,
@@ -57,6 +74,43 @@ def _draft_performance(service: VersionedConfigurationService) -> dict[str, Any]
     return service.create_profile(
         family="performance", payload=payload, created_by="TEST"
     )
+
+
+def test_current_profile_cache_follows_scoped_schedule_boundaries(root, tmp_path, monkeypatch):
+    from datetime import datetime
+
+    import baloot_platform.configuration.service as configuration_service
+
+    service = _service(root, tmp_path)
+    baseline = service.resolve()
+    profile = baseline["profileRevisions"]["performance"]
+    payload = copy.deepcopy(baseline["profiles"]["performance"])
+    payload["profile"]["version"] = "99.0.6"
+    tenant = "TEST-SCHEDULE"
+    scheduled = service.create_profile(
+        family="performance", payload=payload, created_by="TEST", publish=True,
+        scope="tenant", tenant_id=tenant,
+        local_schedule={"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00",
+                        "effectiveUntil": "2026-07-01T13:00"},
+    )
+    lookup = {"family": "performance", "profile_id": profile["profileId"], "tenant_id": tenant}
+    instant = "2026-07-01T15:59:59+00:00"
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromisoformat(instant).astimezone(tz)
+
+    monkeypatch.setattr(configuration_service, "datetime", Clock)
+    assert service.resolve_profile(**lookup)["revisionId"] == profile["revisionId"]
+    instant = "2026-07-01T16:00:00+00:00"
+    assert service.resolve_profile(**lookup)["revisionId"] == scheduled["revisionId"]
+    instant = "2026-07-01T16:59:59+00:00"
+    assert service.resolve_profile(**lookup)["revisionId"] == scheduled["revisionId"]
+    instant = "2026-07-01T17:00:00+00:00"
+    assert service.resolve_profile(**lookup)["revisionId"] == profile["revisionId"]
+    assert service.resolve_profile(**lookup, at_time="2026-07-01T16:00:00Z")["revisionId"] == scheduled["revisionId"]
+    assert service.resolve_profile(**lookup, at_time=instant)["revisionId"] == profile["revisionId"]
 
 
 def test_native_challenge_clone_retains_supported_version(root: Path, tmp_path: Path) -> None:
@@ -389,28 +443,35 @@ def test_draft_bundle_compile_is_preview_only_and_publication_is_gated(
     assert published["status"] == "published"
 
 
-def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
-    root: Path, tmp_path: Path
-) -> None:
-    service = _service(root, tmp_path)
+def _configuration_client(service: VersionedConfigurationService, tmp_path: Path) -> TestClient:
     identities = IdentityService(SQLiteIdentityStore(tmp_path / "identity.sqlite3"))
     app = FastAPI()
+    app.state.authorization_policy = AuthorizationPolicy()
+    app.add_exception_handler(ConfigurationIntegrityError, configuration_integrity_response)
+    app.add_exception_handler(ConfigurationScheduleConflict, configuration_schedule_conflict_response)
 
     @app.middleware("http")
     async def mark_api_key(request: Request, call_next):
-        request.state.api_key_valid = True
+        request.state.api_key_valid = request.headers.get("x-api-key") == "test"
         return await call_next(request)
 
     app.include_router(
         build_configuration_router(
             service,
             identities,
-            AuthorizationPolicy(),
+            app.state.authorization_policy,
             {"id": "test"},
             {"id": "test"},
         )
     )
-    client = TestClient(app)
+    return TestClient(app)
+
+
+def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
+    root: Path, tmp_path: Path
+) -> None:
+    service = _service(root, tmp_path)
+    client = _configuration_client(service, tmp_path)
     headers = {
         "x-api-key": "test",
         "x-baloot-role": "admin",
@@ -444,6 +505,449 @@ def test_v1_and_v2_profile_routes_share_the_draft_update_contract(
         json={"expectedEtag": 1, "payload": payload},
     )
     assert conflict.status_code == 409
+
+    endpoint = "/api/v1/configuration-registry/profiles"
+    payload["profile"]["version"] = "99.0.2"
+    create = {"family": "performance", "payload": payload, "publish": True}
+    invalid = client.post(
+        "/api/v2/configuration/profiles", headers=headers,
+        json={**create, "effectiveFrom": "2026-07-01T12:00"},
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"].startswith("effectiveFrom requires")
+    explicit_null = client.post(
+        endpoint, headers=headers, json={**create, "localSchedule": None}
+    )
+    assert explicit_null.status_code == 422
+    assert explicit_null.json()["detail"][0]["loc"] == ["body", "localSchedule"]
+    local = {
+        "timeZone": "America/New_York",
+        "effectiveFrom": "2026-07-01T12:00:00",
+        "effectiveUntil": "2026-07-01T13:00:00",
+    }
+    missing_zone = client.post(
+        endpoint, headers=headers, json={**create, "localSchedule": {"effectiveFrom": local["effectiveFrom"]}}
+    )
+    assert missing_zone.status_code == 422
+    assert missing_zone.json()["detail"][0]["loc"] == ["body", "localSchedule", "timeZone"]
+    bad_zone = client.post(
+        endpoint, headers=headers,
+        json={**create, "localSchedule": {**local, "timeZone": "Mars/Olympus"}},
+    )
+    assert bad_zone.status_code == 422
+    assert bad_zone.json()["detail"].startswith("localSchedule.timeZone")
+    scheduled = client.post(endpoint, headers=headers, json={**create, "localSchedule": local})
+    assert scheduled.status_code == 201, scheduled.text
+    profile = scheduled.json()
+    assert profile["localSchedule"] == {**local, "zoneDataVersion": IANA_VERSION}
+    assert profile["effectiveFrom"] == "2026-07-01T16:00:00+00:00"
+    assert profile["effectiveUntil"] == "2026-07-01T17:00:00+00:00"
+    different_schedule = client.post(
+        endpoint, headers=headers,
+        json={**create, "localSchedule": {**local, "effectiveFrom": "2026-07-01T11:00:00"}},
+    )
+    assert different_schedule.status_code == 409, different_schedule.text
+    assert profile["revisionId"] in different_schedule.json()["detail"]
+    assert "Reuse its schedule" in different_schedule.json()["detail"]
+    legacy_resolution = f"{endpoint}:resolve"
+    for at_time, expected in (
+        ("2026-07-01T16:00:00", 200),
+        ("2026-07-01T16:00:00Z", 200),
+        ("2026-07-01T17:00:00Z", 404),
+    ):
+        resolved = client.get(
+            legacy_resolution,
+            headers=headers,
+            params={"family": "performance", "profileId": profile["profileId"], "atTime": at_time},
+        )
+        assert resolved.status_code == expected, resolved.text
+        if expected == 200:
+            assert resolved.json()["revisionId"] == profile["revisionId"]
+
+    bundles = "/api/v2/configuration/bundles"
+    components = dict(service.resolve()["bundle"]["componentRevisions"])
+    bundle_request = {
+        "bundleId": "schedule-test", "version": "1.0.0",
+        "componentRevisions": components, "effectiveUntil": "2026-07-01T17:00:00Z",
+        "localSchedule": {"timeZone": local["timeZone"], "effectiveFrom": local["effectiveFrom"]},
+    }
+    bundle_response = client.post(bundles, headers=headers, json=bundle_request)
+    assert bundle_response.status_code == 201, bundle_response.text
+    alternate = client.post(
+        bundles, headers=headers,
+        json={**bundle_request, "effectiveUntil": "2026-07-01T18:00:00Z"},
+    )
+    assert alternate.status_code == 409, alternate.text
+    assert bundle_response.json()["revisionId"] in alternate.json()["detail"]
+    listed = client.get(bundles, headers=headers, params={"bundleId": "schedule-test"})
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["items"] == [bundle_response.json()]
+
+    # Simulate a saved instant from older zone rules.
+    with service.store._connect() as connection:
+        connection.execute(
+            "UPDATE configuration_profile_revisions SET effective_from=? WHERE revision_id=?",
+            ("2026-07-01T15:00:00+00:00", profile["revisionId"]),
+        )
+    fault = client.get(
+        legacy_resolution,
+        headers=headers,
+        params={"family": "performance", "profileId": profile["profileId"],
+                "atTime": "2026-07-01T16:01:00Z"},
+    )
+    assert fault.status_code == 503, fault.text
+    assert profile["revisionId"] in fault.json()["detail"]
+    assert "localSchedule.effectiveFrom maps to a different UTC instant" in fault.json()["detail"]
+
+    bundle = bundle_response.json()
+    with service.store._connect() as connection:
+        connection.execute(
+            "UPDATE configuration_bundle_revisions SET effective_from=? WHERE revision_id=?",
+            ("2026-07-01T15:00:00+00:00", bundle["revisionId"]),
+        )
+    fault = client.get(
+        f"/api/v1/configuration-registry/bundles/{bundle['revisionId']}:resolve",
+        headers=headers, params={"allowDraft": "true"},
+    )
+    assert fault.status_code == 503, fault.text
+    assert bundle["revisionId"] in fault.json()["detail"]
+
+
+def test_v1_offsetless_schedule_and_resolution_keep_legacy_utc(
+    root: Path, tmp_path: Path,
+) -> None:
+    service = _service(root, tmp_path)
+    client = _configuration_client(service, tmp_path)
+    headers = {"x-api-key": "test", "x-baloot-role": "admin"}
+    registry = "/api/v1/configuration-registry"
+    bounds = {"effectiveFrom": "2026-07-01 12:00", "effectiveUntil": "2026-07-01T13:00"}
+    baseline = service.resolve()
+    payload = copy.deepcopy(baseline["profiles"]["performance"])
+    payload["profile"].update(id="legacy_utc_test", version="99.0.4")
+    profile_result = client.post(f"{registry}/profiles", headers=headers, json={
+        "family": "performance", "payload": payload, "publish": True, **bounds,
+    })
+    assert profile_result.status_code == 201, profile_result.text
+    profile = profile_result.json()
+    components = {**baseline["bundle"]["componentRevisions"], "performance": profile["revisionId"]}
+    bundle_result = client.post(f"{registry}/bundles", headers=headers, json={
+        "bundleId": "legacy-utc-test", "version": "1.0.0",
+        "componentRevisions": components, "publish": True, **bounds,
+    })
+    assert bundle_result.status_code == 201, bundle_result.text
+    bundle = bundle_result.json()
+    for revision in (profile, bundle):
+        assert revision["effectiveFrom"] == "2026-07-01T12:00:00+00:00"
+        assert revision["effectiveUntil"] == "2026-07-01T13:00:00+00:00"
+    assert service.store.get_profile(profile["revisionId"]).effective_from == profile["effectiveFrom"]
+    assert service.store.get_bundle(bundle["revisionId"]).effective_until == bundle["effectiveUntil"]
+    with service.store._connect() as connection:
+        connection.execute(
+            "UPDATE configuration_profile_revisions SET effective_from=? WHERE revision_id=?",
+            (bounds["effectiveFrom"], profile["revisionId"]),
+        )
+        connection.execute(
+            "UPDATE configuration_bundle_revisions SET effective_until=? WHERE revision_id=?",
+            (bounds["effectiveUntil"], bundle["revisionId"]),
+        )
+    for path, query in (
+        ("profiles:resolve", {"family": "performance", "profileId": profile["profileId"]}),
+        ("resolve", {"bundleId": bundle["bundleId"]}),
+        ("resolve-v2", {"bundleId": bundle["bundleId"]}),
+    ):
+        offsetless = client.get(f"{registry}/{path}", headers=headers, params={**query, "atTime": "2026-07-01 12:30"})
+        explicit = client.get(f"{registry}/{path}", headers=headers, params={**query, "atTime": "2026-07-01T12:30:00Z"})
+        assert offsetless.status_code == explicit.status_code == 200, offsetless.text
+        assert offsetless.json() == explicit.json()
+
+
+@pytest.mark.parametrize("headers, status", [
+    ({}, 401),
+    ({"x-api-key": "test", "x-baloot-role": "player"}, 403),
+])
+@pytest.mark.parametrize("operation", ["preview", "freeze", "create-profile", "create-bundle", "rollback"])
+def test_configuration_schedule_routes_refuse_unauthorized_operations_without_writes(
+    root: Path, tmp_path: Path, headers: dict[str, str], status: int, operation: str,
+) -> None:
+    service = _service(root, tmp_path)
+    baseline = service.resolve()
+    published = baseline["bundle"]
+    components = published["componentRevisions"]
+    registry = "/api/v1/configuration-registry"
+    local = {"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00"}
+    draft = service.create_bundle(
+        bundle_id="restricted-draft", version="1.0.0", mode="full",
+        component_revisions=components, created_by="TEST",
+    )
+    draft_path = f"{registry}/bundles/{draft['revisionId']}"
+    payload = copy.deepcopy(baseline["profiles"]["performance"])
+    payload["profile"].update(id="restricted_profile", version="99.0.4")
+    routes = {
+        "preview": ("GET", f"{draft_path}:resolve?allowDraft=true", None),
+        "freeze": ("GET", f"{draft_path}:resolve-v2", None),
+        "create-profile": ("POST", f"{registry}/profiles", {
+            "family": "performance", "payload": payload, "localSchedule": local,
+        }),
+        "create-bundle": ("POST", "/api/v2/configuration/bundles", {
+            "bundleId": "restricted-bundle", "version": "1.0.0",
+            "componentRevisions": components, "localSchedule": local,
+        }),
+        "rollback": ("POST", f"{registry}/bundles/{published['revisionId']}:rollback", {"newVersion": "99.0.4"}),
+    }
+    method, path, body = routes[operation]
+    with service.store._connect() as connection, _configuration_client(service, tmp_path) as client:
+        def snapshot():
+            tables = ("configuration_profile_revisions", "configuration_bundle_revisions", "configuration_events")
+            return tuple(connection.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() for table in tables)
+
+        before = snapshot()
+        response = client.request(method, path, headers=headers, json=body)
+        assert response.status_code == status, response.text
+        assert snapshot() == before
+
+
+@pytest.mark.real_clock
+def test_grpc_keeps_existing_scheduled_content_and_maps_schedule_errors(
+    root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import grpc
+
+    from baloot_platform.generated import configuration_pb2 as proto
+    from baloot_platform.generated.configuration_pb2_grpc import ConfigurationControlStub
+    from baloot_platform.service import api, grpc_service
+
+    service = _service(root, tmp_path)
+    monkeypatch.setattr(api, "CONFIGURATION", service)
+    monkeypatch.setenv("BALOOT_RUNTIME", str(tmp_path))
+    monkeypatch.setenv("BALOOT_API_KEY", "test")
+    monkeypatch.setenv("BALOOT_GRPC_BIND", "127.0.0.1:0")
+    monkeypatch.delenv("BALOOT_GRPC_TLS_CERT", raising=False)
+    monkeypatch.delenv("BALOOT_GRPC_TLS_KEY", raising=False)
+
+    baseline = service.resolve()
+    payload = copy.deepcopy(baseline["profiles"]["performance"])
+    payload["profile"].update(id="grpc_schedule_test", version="99.0.4")
+    schedule = {"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00"}
+    profile = service.create_profile(
+        family="performance", payload=payload, created_by="TEST", publish=True, local_schedule=schedule,
+    )
+    components = {**baseline["bundle"]["componentRevisions"], "performance": profile["revisionId"]}
+    bundle = service.create_bundle(
+        bundle_id="grpc-schedule-test", version="1.0.0", mode="full", component_revisions=components,
+        created_by="TEST", publish=True, local_schedule=schedule,
+    )
+    create_profile = proto.ProfileDraft(family="performance", canonical_json=json.dumps(payload).encode(), publish=True)
+    create_bundle = proto.BundleDraft(bundle_id=bundle["bundleId"], version="1.0.1", components=components, publish=True)
+    profile_resolution = proto.ProfileResolution(family="performance", profile_id=profile["profileId"])
+    bundle_resolution = proto.BundleResolution(revision_id=bundle["revisionId"])
+    rollback = proto.BundleRollback(revision_id=bundle["revisionId"], new_version="1.0.1")
+    metadata = (("x-api-key", "test"),)
+    original_server = grpc.aio.server
+
+    def with_client(*args, **kwargs):
+        server = original_server(*args, **kwargs)
+        bind = server.add_insecure_port
+        port = None
+
+        def bind_ephemeral(address):
+            nonlocal port
+            port = bind(address)
+            return port
+
+        async def exercise():
+            try:
+                assert port
+                async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
+                    client = ConfigurationControlStub(channel)
+                    for call, request, revision in (
+                        (client.CreateProfile, create_profile, profile),
+                        (client.CreateBundle, create_bundle, bundle),
+                    ):
+                        result = await call(request, metadata=metadata, timeout=5)
+                        assert json.loads(result.canonical_json)["revisionId"] == revision["revisionId"]
+                    for name, call, request in (
+                        ("create_profile", client.CreateProfile, create_profile),
+                        ("create_bundle", client.CreateBundle, create_bundle),
+                        ("resolve_profile", client.ResolveProfile, profile_resolution),
+                        ("resolve", client.ResolveBundle, bundle_resolution),
+                        ("freeze_v2", client.ResolveEffectiveRuntimeConfigV2, bundle_resolution),
+                        ("rollback_bundle", client.RollbackBundle, rollback),
+                    ):
+                        for error, code, next_step in (
+                            (ConfigurationScheduleConflict("Reuse the schedule or submit different content."),
+                             grpc.StatusCode.ALREADY_EXISTS, "Reuse the schedule"),
+                            (ConfigurationIntegrityError("TEST-REVISION", "invalid saved schedule"),
+                             grpc.StatusCode.UNAVAILABLE, "restore a verified revision"),
+                        ):
+                            with monkeypatch.context() as operation, pytest.raises(grpc.aio.AioRpcError) as failure:
+                                operation.setattr(service, name, Mock(side_effect=error))
+                                await call(request, metadata=metadata, timeout=5)
+                            assert failure.value.code() == code
+                            assert next_step in failure.value.details()
+            finally:
+                await server.stop(None)
+
+        server.add_insecure_port = bind_ephemeral
+        server.wait_for_termination = exercise
+        return server
+
+    monkeypatch.setattr(grpc.aio, "server", with_client)
+    asyncio.run(grpc_service.serve())
+
+
+@pytest.mark.parametrize("environment", [None, "research-native-v3"])
+@pytest.mark.parametrize("entry_point", ["http", "grpc", "worker"])
+def test_api_reports_schedule_integrity_failures_at_boot(
+    root: Path, tmp_path: Path, environment: str | None, entry_point: str,
+) -> None:
+    service = VersionedConfigurationService(
+        SQLiteConfigurationStore(tmp_path / "configuration.sqlite3"),
+        root=root,
+        profile=build_bundle(root).component("configuration"),
+    )
+    container_module._bootstrap_packaged_configuration(service)
+    resolved = service.resolve(environment=environment)
+    original = resolved["bundle"]
+    assert original["environment"] == environment
+    payload = copy.deepcopy(resolved["profiles"]["performance"])
+    payload["profile"]["version"] = "99.0.3"
+    profile = service.create_profile(
+        family="performance", payload=payload, created_by="TEST", publish=True,
+        scope=original["scope"], environment=environment,
+    )
+    scheduled = service.create_bundle(
+        bundle_id=original["bundleId"], version=original["version"], mode=original["mode"],
+        component_revisions={**original["componentRevisions"], "performance": profile["revisionId"]},
+        created_by="TEST", publish=True, scope=original["scope"], environment=environment,
+        local_schedule={"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00:00"},
+    )
+    with service.store._connect() as connection:
+        connection.execute(
+            "UPDATE configuration_bundle_revisions SET effective_from=? WHERE revision_id=?",
+            ("2026-07-01T15:00:00+00:00", scheduled["revisionId"]),
+        )
+
+    probe = subprocess.run(
+        [sys.executable, "-c", """
+import json
+import sys
+from unittest.mock import patch
+from uuid import UUID
+
+from baloot_platform.observability import configure_event_logging
+
+entry_point, environment, revision_id, baseline_json = sys.argv[1:]
+configure_event_logging()
+if entry_point == 'grpc':
+    import grpc
+    from baloot_platform.service.grpc_service import main
+
+    with patch.object(grpc.aio, 'server', side_effect=AssertionError('gRPC server constructed')):
+        main()
+    raise AssertionError('gRPC returned without refusing startup')
+if entry_point == 'worker':
+    from baloot_platform.service.worker import JobStore, main
+
+    with patch.object(JobStore, 'claim', side_effect=AssertionError('video job claimed')):
+        main()
+    raise AssertionError('Worker returned without refusing startup')
+
+from fastapi.testclient import TestClient
+from baloot_platform.service.api import ACCESS_TOKENS, CONFIGURATION, app
+from baloot_platform.service.container import build_container
+
+baseline = json.loads(baseline_json)
+registry = '/api/v1/configuration-registry'
+admin = {'x-api-key': 'test', 'x-baloot-role': 'admin'}
+player = {**admin, 'x-baloot-role': 'player'}
+with TestClient(app) as client:
+    assert client.get('/healthz').status_code == 200
+    readiness = client.get('/readyz')
+    assert readiness.status_code == 503, readiness.text
+    assert UUID(hex=readiness.headers['x-request-id']).version == 4
+    assert readiness.json() == {
+        'detail': 'Configuration is unavailable. Contact a configuration administrator.',
+        'requestId': readiness.headers['x-request-id'],
+    }
+    assert revision_id not in readiness.text
+    assert not environment or environment not in readiness.text
+    assert client.get('/readyz', headers=player).json()['detail'] == readiness.json()['detail']
+    tenant_admin_token = ACCESS_TOKENS.issue(
+        subject_id='TEST-TENANT-ADMIN', role='admin', scopes=['baloot.config.admin'], tenant_id='fixture-tenant',
+    )
+    tenant_readiness = client.get('/readyz', headers={'authorization': f'Bearer {tenant_admin_token}'})
+    assert tenant_readiness.status_code == 503
+    assert tenant_readiness.json()['detail'] == readiness.json()['detail']
+    admin_readiness = client.get('/readyz', headers=admin)
+    assert admin_readiness.status_code == 503
+    detail = admin_readiness.json()['detail']
+    if environment:
+        assert set(detail) == {environment}
+        detail = detail[environment]
+    assert revision_id in detail
+    assert 'the saved schedule cannot be verified' in detail
+    assert client.get('/api/v1/options').status_code == (200 if environment else 503)
+    gauge = f'baloot_research_configuration_unavailable {int(bool(environment))}'
+    metrics = client.get('/metrics', headers=admin)
+    assert metrics.status_code == 200, metrics.text
+    assert gauge in metrics.text.splitlines()
+    if not environment:
+        assert client.get('/api/v1/options', headers=admin).status_code == 503
+        listing = client.get(f'{registry}/bundles', headers=admin)
+        assert listing.status_code == 200, listing.text
+        assert revision_id in {bundle['revisionId'] for bundle in listing.json()['items']}
+        request = {
+            'bundleId': baseline['bundleId'], 'version': '99.0.4',
+            'componentRevisions': CONFIGURATION.store.get_bundle(revision_id).component_revisions,
+            'publish': True,
+        }
+        assert client.post(f'{registry}/bundles', headers=player, json=request).status_code == 403
+        # Different verified component content yields a replacement revision.
+        payload = CONFIGURATION.store.get_profile(request['componentRevisions']['performance']).to_dict()['payload']
+        payload['profile']['version'] = '99.0.5'
+        profile = client.post(f'{registry}/profiles', headers=admin, json={
+            'family': 'performance', 'payload': payload, 'publish': True,
+        })
+        assert profile.status_code == 201, profile.text
+        request['componentRevisions']['performance'] = profile.json()['revisionId']
+        replacement = client.post(f'{registry}/bundles', headers=admin, json=request)
+        assert replacement.status_code == 201, replacement.text
+        assert CONFIGURATION.resolve(bundle_id=baseline['bundleId'])['bundle']['revisionId'] == replacement.json()['revisionId']
+        rollback = client.post(
+            f"{registry}/bundles/{baseline['revisionId']}:rollback", headers=admin,
+            json={'newVersion': '99.0.6'},
+        )
+        assert rollback.status_code == 201, rollback.text
+        assert client.get('/api/v1/options', headers=admin).status_code == 503
+        assert baseline['revisionId'] not in client.get('/metrics', headers=admin).text
+
+if not environment:
+    restarted = build_container()
+    try:
+        assert restarted.configuration_error is None
+        assert restarted.configuration.resolve(bundle_id=baseline['bundleId'])['bundle']['revisionId'] == rollback.json()['revisionId']
+    finally:
+        restarted.shutdown()
+""", entry_point, environment or "", scheduled["revisionId"], json.dumps(original)],
+        env={**os.environ, "BALOOT_ROOT": str(root), "BALOOT_DATA_DIR": str(tmp_path),
+             "BALOOT_RUNTIME": str(tmp_path), "BALOOT_OUTPUTS": str(tmp_path / "outputs"),
+             "BALOOT_DATABASE_URL": "", "BALOOT_API_KEY": "test",
+             "BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT": "true"},
+        capture_output=True, text=True, check=False,
+    )
+    assert probe.returncode == (0 if entry_point == "http" else 1), probe.stderr
+    events = [json.loads(line) for line in probe.stderr.splitlines() if line.startswith('{"event":')]
+    failure = next(event for event in events if event["event"] == "configuration.schedule_unavailable")
+    assert failure["revision_id"] == scheduled["revisionId"]
+    assert failure["environment"] == environment
+    assert failure["error_type"] == "ConfigurationIntegrityError"
+    assert failure["trace_id"]
+    assert "gRPC server constructed" not in probe.stderr
+    if entry_point == "worker":
+        assert any(
+            event["event"] == "worker.failed" and event["error_type"] == "ConfigurationIntegrityError"
+            for event in events
+        )
 
 
 def test_foundry_rules_operator_flow_is_api_backed_and_coverage_gated(
@@ -754,20 +1258,21 @@ class _ExactDimensionResolutionStore:
         ]
         return sorted(values, key=lambda item: item.sequence, reverse=True)
 
-    def list_bundles(self, **filters: Any) -> list[BundleRevision]:
-        self.bundle_calls.append(dict(filters))
-        assert filters["exact_dimensions"] is True
+    def list_bundle_histories(
+        self, dimensions: tuple[str | None, str, str, str | None, str | None],
+        *, include_unpublished: bool = False, limit: int = 100, visible_to_tenant: str | None = None,
+    ) -> list[BundleHistory]:
+        bundle_id, scope, scope_key, tenant_id, environment = dimensions
+        self.bundle_calls.append({"tenant_id": tenant_id, "environment": environment})
         values = [
             item
             for item in self.bundles
-            if item.bundle_id == filters["bundle_id"]
-            and item.scope == filters["scope"]
-            and item.scope_key == filters["scope_key"]
-            and item.tenant_id == filters["tenant_id"]
-            and item.environment == filters["environment"]
-            and item.status == filters["status"]
+            if (bundle_id is None or item.bundle_id == bundle_id)
+            and (item.scope, item.scope_key, item.tenant_id, item.environment) == (scope, scope_key, tenant_id, environment)
+            and (include_unpublished or item.status == "published")
         ]
-        return sorted(values, key=lambda item: item.sequence, reverse=True)
+        values.sort(key=lambda item: item.sequence, reverse=True)
+        return [BundleHistory(item, {item.revision_id: item}, frozenset({item.revision_id})) for item in values[:limit]]
 
     def verify_events(self, aggregate_type: str, aggregate_id: str) -> dict[str, Any]:
         return {
@@ -1076,10 +1581,14 @@ class _ConcurrentEventSnapshotStore:
     ],
 )
 def test_event_route_projects_items_and_verification_from_one_snapshot(
-    tmp_path: Path, path: str
+    root: Path, tmp_path: Path, path: str
 ) -> None:
     store = _ConcurrentEventSnapshotStore()
-    service = SimpleNamespace(store=store)
+    service = VersionedConfigurationService(
+        store,
+        root=root,
+        profile=_minimal_control_plane("global_published"),
+    )
     identities = IdentityService(
         SQLiteIdentityStore(tmp_path / "events-identity.sqlite3")
     )
@@ -1092,7 +1601,7 @@ def test_event_route_projects_items_and_verification_from_one_snapshot(
 
     app.include_router(
         build_configuration_router(
-            service,  # type: ignore[arg-type]
+            service,
             identities,
             AuthorizationPolicy(),
             {"id": "test"},
@@ -1124,6 +1633,11 @@ class _BootstrapIdentityGuard:
         self.fail = fail
         self.seen: list[DatabaseIdentityContext] = []
         self.bundle_paths: list[str | None] = []
+        self.research_scopes: list[tuple[str, str]] = []
+
+    def register_packaged_research_bundle(self, bundle_path: str, environment: str) -> None:
+        assert CURRENT_DATABASE_IDENTITY.get().role == "service"
+        self.research_scopes.append((bundle_path, environment))
 
     def bootstrap_packaged_bundle(
         self, *, actor_id: str, bundle_path: str | None = None, **_: Any
@@ -1135,6 +1649,7 @@ class _BootstrapIdentityGuard:
             raise PermissionError("anonymous configuration bootstrap denied")
         assert actor_id == context.subject_id
         if self.fail:
+            assert tuple(self.research_scopes) == container_module._PACKAGED_RESEARCH_BUNDLES
             raise RuntimeError("bootstrap failed")
         return {"bundle": {"revisionId": "CBR-BOOTSTRAP"}}
 
@@ -1161,6 +1676,7 @@ def test_configuration_bootstrap_uses_service_identity_and_restores_caller() -> 
             container_module._INTELLIGENT_RESEARCH_BUNDLE,
         ]
         assert guard.seen[-1].role == "service"
+        assert tuple(guard.research_scopes) == container_module._PACKAGED_RESEARCH_BUNDLES
         assert CURRENT_DATABASE_IDENTITY.get() == caller
     finally:
         CURRENT_DATABASE_IDENTITY.reset(caller_token)

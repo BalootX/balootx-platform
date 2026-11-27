@@ -1,4 +1,4 @@
-import {CSSProperties, FormEvent, Fragment, ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {CSSProperties, FormEvent, Fragment, ReactNode, SetStateAction, useCallback, useEffect, useId, useMemo, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {
   createColumnHelper,
@@ -55,7 +55,8 @@ import {researchRecipeErrorMessage} from './features/research/errorCopy';
 import {researchRecipeApi} from './api/research';
 import {ResearchPerformanceSummary, ResearchStudio} from './features/research/workspace';
 import {copyJson, isSeatName, type JsonObject, type JsonValue, type SeatName} from './shared/json';
-import {date, number, hasFoundryCopy, t, tCatalog, tVariant, useResearchWorkflowCopyRevision} from './shared/localization';
+import {date, number, hasFoundryCopy, requestTimeoutMessage, t, tCatalog, tVariant, useResearchWorkflowCopyRevision} from './shared/localization';
+import {fetchWithDeadline, fetchWithLongDeadline, isDeadlineError} from '../../static/shared/request.js';
 import {
   renderJobReferencesResearch,
   renderJobReferencesSource,
@@ -925,18 +926,25 @@ const thrillFieldAr: Record<string, string> = {
   narrativeArc:t("configuration_fields.label_thrill_narrative_arc"),
 };
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {'accept': 'application/json', ...(init?.body ? {'content-type': 'application/json'} : {}), ...init?.headers},
-  });
-  if (!response.ok) {
-    let message = (t("helpers.m_dc85c66d7c4d") + response.status + ")");
-    try { const body = await response.json(); message = body.detail || message; } catch { /* response is not JSON */ }
-    throw new Error(message);
+async function api<T>(path: string, init?: RequestInit, request: typeof fetch = fetchWithDeadline): Promise<T> {
+  try {
+    const response = await request(path, {
+      ...init,
+      headers: {'accept': 'application/json', ...(init?.body ? {'content-type': 'application/json'} : {}), ...init?.headers},
+    });
+    if (!response.ok) {
+      let message = (t("helpers.m_dc85c66d7c4d") + response.status + ")");
+      try { const body = await response.json(); message = body.detail || message; } catch (error) { if (isDeadlineError(error)) throw error; /* response is not JSON */ }
+      throw new Error(message);
+    }
+    return await response.json() as T;
+  } catch (error) {
+    throw isDeadlineError(error) ? new Error(requestTimeoutMessage()) : error;
   }
-  return response.json() as Promise<T>;
 }
+
+// Synchronous calls that run a solver or prepare a candidate before they answer.
+const longApi = <T,>(path: string, init?: RequestInit) => api<T>(path, init, fetchWithLongDeadline);
 
 const loadResearchPerspectives = (code: string, seat: SeatName) =>
   api<{items:JsonObject[]}>(`/api/v2/research-results/${encodeURIComponent(code)}/perspectives?observerSeat=${encodeURIComponent(seat)}`);
@@ -1158,10 +1166,27 @@ function App() {
   const [qualifiedLaffatLoading, setQualifiedLaffatLoading] = useState(false);
   const [videoBatchTarget, setVideoBatchTarget] = useState<number | null>(null);
   const [videoBatchSeed, setVideoBatchSeed] = useState(0);
-  const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [drawer, setDrawerState] = useState<DrawerState>(null);
+  const drawerIntent = useRef(0);
+  // Every open or close is a new intent; a loader drops its late result once the returned check is false.
+  // An updater function edits the open drawer in place and keeps the current intent.
+  const setDrawer = useCallback((value: SetStateAction<DrawerState>) => {
+    const intent = typeof value === 'function' ? drawerIntent.current : ++drawerIntent.current;
+    setDrawerState(value);
+    return () => intent === drawerIntent.current;
+  }, []);
   const [openHelp, setOpenHelp] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const noticeRegion = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const region = noticeRegion.current;
+    if (!region) return;
+    // The sticky panels and focus scrolling use this height to stay clear of the sticky notice.
+    const observer = new ResizeObserver(() => document.documentElement.style.setProperty('--notice-height', `${region.offsetHeight}px`));
+    observer.observe(region);
+    return () => observer.disconnect();
+  }, []);
   const [generationLane, setGenerationLane] = useState<'organic' | 'guided' | 'disagreement'>('guided');
   const [seedStart, setSeedStart] = useState(0);
   const [seedCount, setSeedCount] = useState(4);
@@ -1617,6 +1642,8 @@ function App() {
     if (!identity.identity) await api('/api/v1/auth/guest', {method: 'POST', body: JSON.stringify({displayName: t("workflow.m_a53a7869033a")})});
   };
   const openCampaign = useCallback(async (campaign: Campaign) => {
+    // No drawer shows while a campaign loads, so the request itself is the intent a later open or close replaces.
+    const stillOpen = setDrawer(null);
     setSelected(campaign);
     const campaignAnalysis = analysisHistory.find((item) => item.request?.campaignHash === campaign.campaignHash) || null;
     setAnalysisJob(campaignAnalysis);
@@ -1632,6 +1659,8 @@ function App() {
       api<{shards: Shard[]}>(`/api/v2/campaigns/${campaign.campaignHash}/shards`),
       api<{attempts: Attempt[]}>(`/api/v2/campaigns/${campaign.campaignHash}/attempts`),
     ]);
+    // The selected campaign's own effect keeps its shards current; a late answer must not overwrite them.
+    if (!stillOpen()) return;
     setShards(shardPage.shards); setAttempts(attemptPage.attempts);
     setDrawer({
       kind: 'campaign', title: campaignNames.get(campaign.campaignHash) || t("workflow.m_7255069a0d81"), subtitle: t("workflow.m_97bed3db6a66"),
@@ -1750,7 +1779,7 @@ function App() {
         ? `/api/v2/research-results/${result.resultCode}:prepare-render`
         : `/api/v2/research-results/${result.resultCode}/decisions/${ordinal}:prepare-render`;
       const exportPreset = ordinal === undefined ? 'hooked_flagship' : 'decision_clip';
-      const prepared = assertPreparedObserver(await api<ResearchPreparedRender>(endpoint, {
+      const prepared = assertPreparedObserver(await longApi<ResearchPreparedRender>(endpoint, {
         method:'POST',
         body:JSON.stringify({revealPolicy:'after_commit', exportPreset, observerSeat}),
       }), observerSeat);
@@ -1784,7 +1813,7 @@ function App() {
       }
       const sourceCode = item.sourceLocator.code;
       const endpoint = `/api/v2/laffat/${encodeURIComponent(sourceCode)}:prepare-render`;
-      const prepared = await api<ResearchPreparedRender>(endpoint, {
+      const prepared = await longApi<ResearchPreparedRender>(endpoint, {
         method:'POST',
         body:JSON.stringify({revealPolicy:'after_commit'}),
       });
@@ -1813,7 +1842,7 @@ function App() {
     const code = `LAF-${traceHash.slice(0,10).toUpperCase()}`;
     setBusy(true); setMessage('');
     try {
-      const prepared = await api<ResearchPreparedRender>(`/api/v2/laffat/${encodeURIComponent(code)}:prepare-render`, {
+      const prepared = await longApi<ResearchPreparedRender>(`/api/v2/laffat/${encodeURIComponent(code)}:prepare-render`, {
         method:'POST',
         body:JSON.stringify({revealPolicy:'after_commit', exportPreset:'hooked_flagship'}),
       });
@@ -1830,7 +1859,7 @@ function App() {
   const verifyResearchPlay = async (result: ResearchResult) => {
     setBusy(true); setMessage('');
     try {
-      const proof = await api<JsonObject>(`/api/v2/research-results/${result.resultCode}:verify-play-compiler`, {method:'POST'});
+      const proof = await longApi<JsonObject>(`/api/v2/research-results/${result.resultCode}:verify-play-compiler`, {method:'POST'});
       setDrawer({
         kind:'research-play-proof',
         title:t("workflow.research_play_proof_title"),
@@ -1845,11 +1874,11 @@ function App() {
     setBusy(true); setMessage('');
     try {
       const prepared = item.finalistJobId
-        ? await api<PreparedCandidate>(`/api/v2/finalist-validations/${item.finalistJobId}:prepare-best`, {
+        ? await longApi<PreparedCandidate>(`/api/v2/finalist-validations/${item.finalistJobId}:prepare-best`, {
             method:'POST',
             body:JSON.stringify({revealPolicy:'after_commit', exportPreset:'hooked_flagship'}),
           })
-        : await api<PreparedCandidate>(`/api/v2/analysis-batches/${item.analysisJobId}/candidates/${item.candidateHash}:prepare`, {
+        : await longApi<PreparedCandidate>(`/api/v2/analysis-batches/${item.analysisJobId}/candidates/${item.candidateHash}:prepare`, {
             method:'POST',
             body:JSON.stringify({revealPolicy:'after_commit', exportPreset:'hooked_flagship'}),
           });
@@ -1923,7 +1952,7 @@ function App() {
     if (!analysisJob || !candidate.playReady) return;
     setBusy(true); setMessage('');
     try {
-      const value = await api<PreparedCandidate>(`/api/v2/analysis-batches/${analysisJob.jobId}/candidates/${candidate.candidateHash}:prepare`, {method:'POST', body:JSON.stringify({revealPolicy:'after_commit', exportPreset:'hooked_flagship'})});
+      const value = await longApi<PreparedCandidate>(`/api/v2/analysis-batches/${analysisJob.jobId}/candidates/${candidate.candidateHash}:prepare`, {method:'POST', body:JSON.stringify({revealPolicy:'after_commit', exportPreset:'hooked_flagship'})});
       setPrepared(value);
       setMessage(t("workflow.m_1a1fc084dd70") + String(value.locator.code || candidate.shortCode) + t("workflow.m_e38684c0a6d3"));
       setDrawer({kind:'prepared', title:t("workflow.m_0bab9d58c31d"), subtitle:t("workflow.m_c485c6b17790") + String(value.locator.code || candidate.shortCode), content:<PreparedDetails value={value} />, audit:value as unknown as JsonObject});
@@ -1946,7 +1975,7 @@ function App() {
     if (!finalistJob || finalistJob.status !== 'completed' || !finalistJob.result?.localPreviewReady) return;
     setBusy(true); setMessage('');
     try {
-      const value = await api<PreparedCandidate>(`/api/v2/finalist-validations/${finalistJob.jobId}:prepare-best`, {method:'POST', body:JSON.stringify({revealPolicy:'after_commit', exportPreset})});
+      const value = await longApi<PreparedCandidate>(`/api/v2/finalist-validations/${finalistJob.jobId}:prepare-best`, {method:'POST', body:JSON.stringify({revealPolicy:'after_commit', exportPreset})});
       setPrepared(value);
       setMessage(exportPreset === 'hooked_flagship' ? t("workflow.m_e9c3c87d96d7") : t("workflow.m_4f660a44646c"));
       setDrawer({kind:'prepared', title:exportPreset === 'hooked_flagship' ? t("workflow.m_bf40007eacb8") : t("workflow.m_34ef1c737707"), subtitle:t("workflow.m_c485c6b17790") + String(value.locator.code || value.candidate.shortCode), content:<PreparedDetails value={value} />, audit:value as unknown as JsonObject});
@@ -1966,12 +1995,13 @@ function App() {
   };
   const openSakka = async (item: FoundrySakka) => {
     const title = sakkaNames.get(item.catalogHash) || t("workflow.m_a71ed66fd0dc");
-    setDrawer({
+    const stillOpen = setDrawer({
       kind: 'sakka', title, subtitle: t("workflow.m_bdf45938011a"),
       content: <p className="drawer-lead">{t("workflow.sakka_library_loading")}</p>,
     });
     try {
       const detail = await api<FoundrySakkaDetail>(`/api/v2/sakkas/${item.catalogHash}`);
+      if (!stillOpen()) return;
       setDrawer({
         kind: 'sakka', title, subtitle: t("workflow.m_bdf45938011a"),
         content: <SakkaDetails
@@ -1984,6 +2014,7 @@ function App() {
         audit: detail as unknown as JsonObject,
       });
     } catch (error) {
+      if (!stillOpen()) return;
       setMessage((error as Error).message);
       setDrawer({
         kind: 'sakka', title, subtitle: t("workflow.m_bdf45938011a"),
@@ -1993,6 +2024,8 @@ function App() {
   };
 
   const openResearchResult = async (item: ResearchResult) => {
+    // No drawer shows while a result loads, so the request itself is the intent a later open or close replaces.
+    const stillOpen = setDrawer(null);
     setBusy(true); setMessage('');
     try {
       const [detail, ledger, renderPage] = await Promise.all([
@@ -2001,7 +2034,9 @@ function App() {
         api<{items:RenderJob[]}>(`/api/v2/research-results/${item.resultCode}/renders`)
           .catch(() => ({items: []})),
       ]);
+      if (!stillOpen()) return;
       const recipe = await hydrateResearchRecipe(String(detail.recipeCode || ''));
+      if (!stillOpen()) return;
       const existingVideoUrl = renderPage.items
         .filter((job) => job.status === 'completed')
         .map((job) => renderMedia(job)?.videoUrl)
@@ -2047,7 +2082,7 @@ function App() {
         audit:detail as unknown as JsonObject,
       });
     } catch (error) {
-      setMessage(researchRecipeErrorMessage(error));
+      if (stillOpen()) setMessage(researchRecipeErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -2061,7 +2096,7 @@ function App() {
     const detailRequest = item.buyer && item.dealer ? Promise.resolve(item)
       : api<UnifiedLaffa>(`/api/v2/laffat/${encodeURIComponent(item.sourceLocator.code)}`)
         .catch(() => item);
-    setDrawer({
+    const stillOpen = setDrawer({
       kind:'unified-laffa',
       title:t("workflow.laffa_library_details_title"),
       subtitle:item.humanCode,
@@ -2071,6 +2106,7 @@ function App() {
       const [exactSource, related, detail] = await Promise.all([
         api<JsonObject>(item.sourceLocator.uri), relatedRequest, detailRequest,
       ]);
+      if (!stillOpen()) return;
       setDrawer({
         kind:'unified-laffa',
         title:t("workflow.laffa_library_details_title"),
@@ -2080,6 +2116,7 @@ function App() {
       });
     } catch (error) {
       const [related, detail] = await Promise.all([relatedRequest, detailRequest]);
+      if (!stillOpen()) return;
       setDrawer({
         kind:'unified-laffa',
         title:t("workflow.laffa_library_details_title"),
@@ -2148,7 +2185,7 @@ function App() {
   };
 
   const openResearchRun = async (item: ResearchRun) => {
-    setDrawer({
+    const stillOpen = setDrawer({
       kind:'research-run',
       title:`${t("workflow.research_run_details")} · ${item.runCode}`,
       subtitle:researchRunStatusLabel(item),
@@ -2161,13 +2198,14 @@ function App() {
         api<ResearchStats>(`/api/v2/research-runs/${item.runCode}/stats`),
         hydrateResearchRecipe(item.recipeCode),
       ]);
+      if (!stillOpen()) return;
       setDrawer({
         kind:'research-run', title:`${t("workflow.research_run_details")} · ${current.runCode}`,
         subtitle:researchRunStatusLabel(current),
         content:<ResearchRunDetails key={current.runCode} run={current} recipe={recipe} stats={stats} busy={busy} onCancel={cancelResearchRun} onRetry={retryResearchRun} onResults={()=>{setDrawer(null);selectView('research');}} loadSequentialSearchReceipts={()=>api<ResearchSequentialSearchReceiptPage>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}/sequential-search-receipts?offset=0&limit=25`)} loadRun={()=>api<ResearchRun>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}`)} loadStats={()=>api<ResearchStats>(`/api/v2/research-runs/${encodeURIComponent(current.runCode)}/stats`)} onSnapshot={(nextRun, nextStats)=>setDrawer((open)=>open?.kind === 'research-run' ? {...open, subtitle:researchRunStatusLabel(nextRun), audit:{run:nextRun as unknown as JsonValue,stats:nextStats ?? (open.audit?.stats as JsonValue)}} : open)} PerformanceSummary={ResearchPerformanceSummary} />,
         audit:{run:current as unknown as JsonValue,stats},
       });
-    } catch(error) { setMessage(researchRecipeErrorMessage(error)); }
+    } catch(error) { if (stillOpen()) setMessage(researchRecipeErrorMessage(error)); }
   };
 
   const openResearchDisagreement = (item: SemanticDisagreement) => {
@@ -2188,7 +2226,7 @@ function App() {
         <div className="runtime-badge"><i />{t("workflow.m_7b8ec1caafbd")}<b dir="ltr">{profile?.engineVersion ?? '—'}</b></div>
       </div>
     </header>
-    {message && <div className="notice" role="status"><span>{message}</span><button onClick={() => setMessage('')} aria-label={t("workflow.m_ca90c297b099")}>×</button></div>}
+    <div ref={noticeRegion} className="notice-region" role="status">{message && <div className="notice"><span>{message}</span><button onClick={() => setMessage('')} aria-label={t("workflow.m_ca90c297b099")}>×</button></div>}</div>
 
     <div className="foundry-layout">
       <aside className="foundry-sidebar">
@@ -2222,16 +2260,16 @@ function App() {
         <JourneyStep index={5} title={t("workflow.m_d94d3fee9506")} description={t("workflow.m_a510e3b8ce0a")} state={publications.length ? 'active' : 'locked'} help={t("workflow.m_5dbe2b0c5803")} example={t("workflow.m_c9548a76b9d2")} openHelp={openHelp} setOpenHelp={setOpenHelp} />
       </section>
 
-      {profile?.finalistAgentQualification && <button className={`panel agent-readiness ${profile.finalistAgentQualification.expertGenerationAllowed ? 'qualified' : 'local'}`} onClick={() => setDrawer({
+      {profile?.finalistAgentQualification && <section className={`panel agent-readiness ${profile.finalistAgentQualification.expertGenerationAllowed ? 'qualified' : 'local'}`}><button type="button" onClick={() => setDrawer({
         kind:'agent-qualification',
         title:t("workflow.label_agent_details"),
         subtitle:profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_ready_local"),
         content:<AgentQualificationDetails value={profile.finalistAgentQualification} pilot={profile.finalistAgentPilotEvidence} />,
         audit:{qualification:profile.finalistAgentQualification, localPilot:profile.finalistAgentPilotEvidence} as unknown as JsonObject,
       })}>
-        <div><span className="eyebrow">{t("workflow.label_agent_title")}</span><h2>{profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_ready_local")}</h2><small>{profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_pending")}</small></div>
+        <span className="eyebrow">{t("workflow.label_agent_title")}</span><h2>{profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_ready_local")}</h2><small>{profile.finalistAgentQualification.expertGenerationAllowed ? t("workflow.label_agent_ready_release") : t("workflow.label_agent_pending")}</small></button>
         <div className="agent-badges"><span>✓ {t("workflow.label_agent_equal")}</span><span>✓ {t("workflow.label_agent_search")}</span>{profile.finalistAgentPilotEvidence?.passed && <span>✓ {t("workflow.label_agent_local_pilot")}</span>}<InfoBadge id="agent-readiness" text={t("workflow.label_agent_help")} example={t("workflow.label_agent_example")} openHelp={openHelp} setOpenHelp={setOpenHelp} /></div>
-      </button>}
+      </section>}
 
       <section className="metrics" aria-label={t("workflow.m_9a21bfcc41a4")}>
         <Metric label={t("workflow.m_deb6cb326493")} value={campaigns.length} help={t("workflow.m_d00bd4ce79ab")} example={t("workflow.m_abb954f9fbf9")} openHelp={openHelp} setOpenHelp={setOpenHelp} />
@@ -2639,7 +2677,7 @@ function ConfigurationWorkspace({runtimeProfile, openHelp, setOpenHelp, setDrawe
     if (!selected || !base || !componentRevisions || changed.length || (selected.status === 'draft' && !profileValidation?.valid)) return; setSaving(true);
     try {
       const created=await api<ConfigBundle>('/api/v2/configuration/bundles', {method:'POST',headers:adminHeaders(),body:JSON.stringify({bundleId:base.bundleId,version:nextPatchVersion(base.version),mode:base.mode||'full',componentRevisions,scope:'global',rolloutPercentage:100,rolloutSeed:'default',supersedesRevisionId:base.revisionId,publish:false,allowDraftComponents:selected.status==='draft'})});
-      const compilation=await api<BundleCompilation>(`/api/v2/configuration/bundles/${created.revisionId}:compile`, {method:'POST',headers:adminHeaders()});
+      const compilation=await longApi<BundleCompilation>(`/api/v2/configuration/bundles/${created.revisionId}:compile`, {method:'POST',headers:adminHeaders()});
       setPreviewBundle(created); setProfileCompilation(compilation); setProfileCompilationError(''); setMessage(compilation.publishable?t("settings.rules_compile_ready"):t("settings.rules_compile_blocked")); await load();
     } catch(error) { const message=configurationErrorCopy(error); setProfileCompilation(null); setProfileCompilationError(message); setPreviewBundle(null); setMessage(''); } finally { setSaving(false); }
   };
@@ -2806,12 +2844,12 @@ function ConfigObjectArraySection({name, technicalKey, value, schema, rootSchema
   const id = `config-${path.join('-')}`;
   const added = configurationEditorObjectArrayAdd(value, schema);
   const minimum = typeof schema.minItems === 'number' ? schema.minItems : 0;
-  return <details className="config-section" data-config-path={path.join('.')} open={expanded} onToggle={(event)=>setExpanded(event.currentTarget.open)}>
-    <summary><span>{name} · {number.format(items.length)}</span><InfoBadge id={id} text={schema.description || name} example={t("evidence.m_81ef2928b9cc")} technical={technicalKey} openHelp={openHelp} setOpenHelp={setOpenHelp}/>{onRemove&&<button type="button" className="quiet" disabled={disabled} aria-label={`${t("workflow.research_scenario_remove")} · ${name}`} onClick={(event)=>{event.preventDefault();onRemove();}}>{t("workflow.research_scenario_remove")}</button>}</summary>
+  return <div className="config-section" data-config-path={path.join('.')}>
+    <div className="config-section-head"><button type="button" aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}>{name} · {number.format(items.length)}</button><InfoBadge id={id} text={schema.description || name} example={t("evidence.m_81ef2928b9cc")} technical={technicalKey} openHelp={openHelp} setOpenHelp={setOpenHelp}/>{onRemove&&<button type="button" className="quiet" disabled={disabled} aria-label={`${t("workflow.research_scenario_remove")} · ${name}`} onClick={()=>onRemove()}>{t("workflow.research_scenario_remove")}</button>}</div>
     {expanded&&<div className="json-editor">{items.map((item,index)=>
       <ConfigObjectSection key={index} technicalKey={technicalKey} name={`${name} · ${number.format(index+1)}`} value={item} schema={itemSchema} rootSchema={rootSchema} disabled={disabled} path={[...path,index]} onChange={onChange} onRemove={items.length>minimum?()=>{const removed=configurationEditorObjectArrayRemove(value,schema,index);if(!disabled&&removed)onChange(path,removed);}:undefined} defaultOpen={index===0} openHelp={openHelp} setOpenHelp={setOpenHelp}/>
     )}<button type="button" className="secondary" disabled={disabled||!added} aria-label={`${t("workflow.research_scenario_expression_add_group")} · ${name}`} onClick={()=>{if(!disabled&&added)onChange(path,added);}}>{t("workflow.research_scenario_expression_add_group")}</button></div>}
-  </details>;
+  </div>;
 }
 function configSchemaHelp(schema: JsonSchema | undefined, fallback: string): string {
   const key = schema?.['x-helpArKey'];
@@ -2828,7 +2866,7 @@ function ConfigObjectSection({technicalKey, name, value, schema, rootSchema, dis
     : thrillSection && technicalKey === 'weights'
       ? t("helpers.thrill_weight_example")
       : t("evidence.m_81ef2928b9cc");
-  return <details className="config-section" data-config-path={path.join('.')} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}><summary><span>{name}</span><InfoBadge id={id} text={help} example={example} technical={technicalKey} openHelp={openHelp} setOpenHelp={setOpenHelp} />{onRemove && <button type="button" className="quiet" disabled={disabled} aria-label={`${t("workflow.research_scenario_remove")} · ${name}`} onClick={(event)=>{event.preventDefault();onRemove();}}>{t("workflow.research_scenario_remove")}</button>}</summary>{expanded && <JsonEditor value={value} schema={schema} rootSchema={rootSchema} disabled={disabled} path={path} onChange={onChange} openHelp={openHelp} setOpenHelp={setOpenHelp} />}</details>;
+  return <div className="config-section" data-config-path={path.join('.')}><div className="config-section-head"><button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{name}</button><InfoBadge id={id} text={help} example={example} technical={technicalKey} openHelp={openHelp} setOpenHelp={setOpenHelp} />{onRemove && <button type="button" className="quiet" disabled={disabled} aria-label={`${t("workflow.research_scenario_remove")} · ${name}`} onClick={()=>onRemove()}>{t("workflow.research_scenario_remove")}</button>}</div>{expanded && <JsonEditor value={value} schema={schema} rootSchema={rootSchema} disabled={disabled} path={path} onChange={onChange} openHelp={openHelp} setOpenHelp={setOpenHelp} />}</div>;
 }
 function ConfigField({name, technicalKey, value, schema, disabled, path, onChange, onRemove, id, openHelp, setOpenHelp}: {name:string;technicalKey:string;value:JsonValue;schema:JsonSchema|undefined;disabled:boolean;path:(string|number)[];onChange:(path:(string|number)[],value:JsonValue)=>void;onRemove?:()=>void;id:string;openHelp:string|null;setOpenHelp:(value:string|null)=>void}) {
   const help = configSchemaHelp(schema, t("evidence.m_1f81dffaa812") + name + t("evidence.m_24b96014dd3a"));
@@ -2880,8 +2918,9 @@ function ConfigField({name, technicalKey, value, schema, disabled, path, onChang
 }
 function RawJsonFallback({value,disabled,onApply}:{value:JsonObject;disabled:boolean;onApply:(value:JsonObject)=>void}) {
   const [text,setText]=useState(()=>JSON.stringify(value,null,2)); const [valid,setValid]=useState(true);
+  const id=useId();
   useEffect(()=>{setText(JSON.stringify(value,null,2));setValid(true);},[value]);
-  return <details className="raw-json-fallback"><summary>{t("settings.rules_advanced_json")}</summary><p>{t("settings.rules_advanced_json_help")}</p><textarea dir="ltr" disabled={disabled} value={text} onChange={(event)=>{setText(event.target.value);try{const parsed=JSON.parse(event.target.value);setValid(Boolean(parsed)&&typeof parsed==='object'&&!Array.isArray(parsed));}catch{setValid(false);}}}/><button className="secondary" type="button" disabled={disabled||!valid} onClick={()=>onApply(JSON.parse(text) as JsonObject)}>{t("settings.rules_advanced_json_apply")}</button></details>;
+  return <details className="raw-json-fallback"><summary id={`${id}-title`}>{t("settings.rules_advanced_json")}</summary><p id={`${id}-help`}>{t("settings.rules_advanced_json_help")}</p><textarea dir="ltr" aria-labelledby={`${id}-title`} aria-describedby={`${id}-help ${id}-error`} aria-invalid={!valid} disabled={disabled} value={text} onChange={(event)=>{setText(event.target.value);try{const parsed=JSON.parse(event.target.value);setValid(Boolean(parsed)&&typeof parsed==='object'&&!Array.isArray(parsed));}catch{setValid(false);}}}/><span id={`${id}-error`} role="status">{valid?'':t("workflow.research_scenario_json_invalid")}</span><button className="secondary" type="button" disabled={disabled||!valid} onClick={()=>onApply(JSON.parse(text) as JsonObject)}>{t("settings.rules_advanced_json_apply")}</button></details>;
 }
 function diffPaths(left: JsonValue, right: JsonValue, path = ''): string[] {
   if (JSON.stringify(left) === JSON.stringify(right)) return [];

@@ -35,6 +35,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
+from starlette._utils import get_route_path
 from pydantic import (
     BaseModel,
     Field,
@@ -49,9 +50,12 @@ from pydantic.json_schema import SkipJsonSchema
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from baloot_platform.config import build_bundle, profile_bundle_from_resolved
+from baloot_platform.config import build_bundle
+from baloot_platform.configuration.schedule import (
+    ConfigurationIntegrityError,
+    ConfigurationScheduleConflict,
+)
 from baloot_platform.security.oidc import http_oidc_runtime
-from baloot_platform.security.access import Scope
 from baloot_platform.guide import build_engine_guide
 from baloot_platform.analysis.belief_v7 import (
     BeliefPolicy,
@@ -118,15 +122,34 @@ from baloot_platform.service.routes import (
 )
 from baloot_platform.service.container import PlatformContainer, build_container
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER
+from baloot_platform.security import Scope
+from baloot_platform.service.authorization import (
+    DEFAULT_TENANT,
+    HISTORY_GAME_AUDIT_PATH,
+    HISTORY_GAME_REOPEN_PATH,
+    credentials,
+    history_without_media,
+    http_request_scope,
+    tenant_job_http,
+    tenant_configuration_http,
+)
 from baloot_platform.service.client_identity import (
-    caller_role,
     initialize_service_subject_ownership,
+    service_client_identity,
     service_subject_ownership,
 )
 from baloot_platform.service.routes.auth import request_token, require_identity
 from baloot_platform.service.routes.security import OIDC_SIGN_IN_PATHS
+from baloot_platform.service.routes.configuration import (
+    configuration_integrity_response,
+    configuration_schedule_conflict_response,
+    configuration_unavailable_response,
+    is_configuration_admin,
+    is_configuration_recovery_route,
+)
 from baloot_platform.shared import (
     SharedDecisionAccessError,
+    SharedGameNotFound,
     project_shared_decision,
     resolve_shared_decision_access,
     resolve_shared_game_access,
@@ -166,7 +189,15 @@ from baloot_platform.research.result_authority import (
     RuntimeCompatibilityV1 as RuntimeCompatibilityContractV1,
 )
 
-CONTAINER: PlatformContainer = build_container()
+CONTAINER: PlatformContainer = build_container(allow_unavailable_configuration=True)
+
+
+def require_verified_configuration() -> None:
+    error = CONTAINER.configuration_error or next(iter(CONTAINER.research_configuration_errors.values()), None)
+    if error is not None:
+        raise error
+
+
 ROOT = CONTAINER.root
 DATA_ROOT = CONTAINER.data_root
 OUTPUTS = CONTAINER.outputs
@@ -204,12 +235,7 @@ RESEARCH_RENDERS = CONTAINER.research_renders
 _LOCAL_FOUNDRY_LOCK = threading.Lock()
 _LOCAL_FOUNDRY_CAMPAIGNS: set[str] = set()
 _LOCAL_ANALYSIS_WORKER_ACTIVE = False
-ACTIVE_BUNDLE = profile_bundle_from_resolved(
-    CONTAINER.configuration.resolve(
-        revision_id=FOUNDRY_PROFILE["runtimeBundleRevisionId"]
-    ),
-    root=ROOT,
-)
+ACTIVE_BUNDLE = CONTAINER.runtime_bundle
 LAFFA_LIBRARY = LaffaLibraryServiceV1(
     learning_store=LEARNING_STORE,
     research=RESEARCH,
@@ -247,7 +273,14 @@ def _project_decision_for_request(
     request: Request,
 ) -> dict[str, Any]:
     access, subject_id = _shared_decision_access(decision, request)
-    return project_shared_decision(decision, access, subject_id=subject_id)
+    value = project_shared_decision(decision, access, subject_id=subject_id)
+    scopes = AUTHORIZATION_POLICY.effective_scopes(
+        role=getattr(request.state, "role", "anonymous"),
+        claims=getattr(request.state, "access_claims", None),
+    )
+    if Scope.CONFIG_ADMIN not in scopes:
+        value.pop("videoRecords", None)
+    return value
 
 
 def _require_private_decision_access(
@@ -263,20 +296,34 @@ def _require_private_decision_access(
     return decision
 
 
-def _require_completed_shared_game_access(game_id: str) -> None:
+def _archive_reader(request: Request) -> str | None:
+    if request.state.auth.has_scope(AUTHORIZATION_POLICY, Scope.CONFIG_ADMIN):
+        return None
+    identity, _ = require_identity(request, IDENTITY)
+    return identity.subject_id
+
+
+def _require_completed_shared_game_access(
+    game_id: str,
+    subject_id: str | None = None,
+    *,
+    not_found_detail: str = "archived game not found",
+) -> None:
     try:
-        access = resolve_shared_game_access(SAKKA.store, game_id)
+        access = resolve_shared_game_access(SAKKA.store, game_id, subject_id=subject_id)
+    except SharedGameNotFound as exc:
+        raise HTTPException(404, not_found_detail) from exc
     except SharedDecisionAccessError as exc:
         raise HTTPException(403, str(exc)) from exc
     if access is not None and not access.completed:
         raise HTTPException(403, "aggregate game analysis is unavailable during an active shared run")
 
 
-def _require_private_history_game(identifier: str) -> dict[str, Any]:
+def _require_private_history_game(identifier: str, subject_id: str | None = None) -> dict[str, Any]:
     game = LEARNING_STORE.get_game(identifier)
     if game is None:
         raise HTTPException(404, "archived game not found")
-    _require_completed_shared_game_access(str(game.get("gameId") or ""))
+    _require_completed_shared_game_access(str(game.get("gameId") or ""), subject_id)
     _require_completed_shared_analysis_decisions(game)
     return game
 
@@ -384,8 +431,11 @@ class RequestLoggingMiddleware:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    initialize_service_subject_ownership()
     try:
+        if CONTAINER.configuration_error is not None:
+            yield
+            return
+        initialize_service_subject_ownership()
         with http_oidc_runtime(CONFIGURATION, SECURITY_STATE) as oidc:
             _app.state.oidc = oidc
             # Distributed deployments recover work through separately leased workers.
@@ -411,6 +461,8 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
 )
+app.add_exception_handler(ConfigurationIntegrityError, configuration_integrity_response)
+app.add_exception_handler(ConfigurationScheduleConflict, configuration_schedule_conflict_response)
 
 
 @app.exception_handler(SearchTimeBudgetExceeded)
@@ -451,8 +503,41 @@ _PLAYER_STATIC = Path(__file__).resolve().parent / "static" / "player"
 if _PLAYER_STATIC.exists():
     app.mount("/play-assets", StaticFiles(directory=_PLAYER_STATIC), name="play-assets")
 _APP_STATIC = Path(__file__).resolve().parent / "static" / "app"
+_APP_COPY_KEYS = frozenset(
+    key
+    for key in json.loads(
+        (ROOT / "schemas/profiles/video.schema.json").read_text(encoding="utf-8")
+    )["properties"]["challenge_copy"]["properties"]
+    if key.startswith("app_")
+)
 if _APP_STATIC.exists():
     app.mount("/app-assets", StaticFiles(directory=_APP_STATIC), name="app-assets")
+_SHARED_STATIC = Path(__file__).resolve().parent / "static" / "shared"
+
+
+def _mount_shared_assets(application: FastAPI, directory: Path) -> None:
+    """Mount the browser request helper, or stop the service from starting.
+
+    Every served page calls the API through these two files, so an installation
+    that lacks them must fail at start-up instead of serving pages that cannot work.
+    """
+    missing = [
+        name
+        for name in ("request.js", "request-loader.js")
+        if not (directory / name).is_file()
+    ]
+    if missing:
+        raise RuntimeError(
+            "shared browser assets are missing: "
+            + ", ".join(missing)
+            + ". Reinstall the package so static/shared is included."
+        )
+    application.mount(
+        "/shared-assets", StaticFiles(directory=directory), name="shared-assets"
+    )
+
+
+_mount_shared_assets(app, _SHARED_STATIC)
 _CHALLENGE_STATIC = Path(__file__).resolve().parent / "static" / "challenge"
 if _CHALLENGE_STATIC.exists():
     app.mount(
@@ -514,14 +599,51 @@ def configuration_studio():
     return RedirectResponse("/foundry?section=settings", status_code=307)
 
 
+def _render_copy_page(
+    template: str,
+    governed_copy: Mapping[str, str],
+    *,
+    json_key: str,
+    surface: str,
+    asset_version: str | None = None,
+) -> HTMLResponse:
+    def render_copy(match: re.Match[str]) -> str:
+        key = match[1]
+        if key == json_key:
+            return (
+                json.dumps(
+                    dict(governed_copy),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                .replace("<", "\\u003c")
+                .replace("&", "\\u0026")
+            )
+        if key == "player_asset_version" and asset_version is not None:
+            return asset_version
+        if key is not None and key in governed_copy:
+            return html.escape(governed_copy[key], quote=True)
+        raise HTTPException(503, f"{surface} copy profile is incomplete")
+
+    rendered = re.sub(r"\{\{([a-zA-Z0-9_]+)\}\}|\{\{|\}\}", render_copy, template)
+    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/app", include_in_schema=False)
 def unified_app():
     if not _APP_STATIC.exists():
         raise HTTPException(404, "application assets are unavailable")
-    return FileResponse(_APP_STATIC / "index.html")
+    template = (_APP_STATIC / "index.html").read_text(encoding="utf-8")
+    governed_copy = ACTIVE_BUNDLE.video["challenge_copy"]
+    if any(not governed_copy.get(key, "").strip() for key in _APP_COPY_KEYS):
+        raise HTTPException(503, "application copy profile is incomplete")
+    return _render_copy_page(
+        template, governed_copy, json_key="app_copy_json", surface="application"
+    )
 
 
-app.include_router(build_auth_router(IDENTITY))
+app.include_router(build_auth_router(IDENTITY, pagination=CONTAINER.identity_pagination, policy=AUTHORIZATION_POLICY))
 app.include_router(build_sakka_router(SAKKA, IDENTITY))
 app.include_router(build_shared_router(SAKKA, IDENTITY, EXPLANATIONS, REVIEWS))
 app.include_router(build_live_router(LIVE, IDENTITY, GAMES, WEBSOCKET_TICKETS))
@@ -570,7 +692,6 @@ app.include_router(
         SECURITY_STATE,
     )
 )
-app.include_router(build_canonical_history_router(CANONICAL_HISTORY, IDENTITY, GAMES))
 
 
 def _truthy(name: str, default: str = "false") -> bool:
@@ -583,10 +704,16 @@ def _trusted_authorized(request: Request) -> bool:
     Production deployments are deny-by-default. Local development and tests may
     opt in explicitly or rely on the loopback-only development default.
     """
+    scopes = AUTHORIZATION_POLICY.effective_scopes(
+        role=getattr(request.state, "role", "anonymous"),
+        claims=getattr(request.state, "access_claims", None),
+    )
+    if Scope.HIDDEN_READ not in scopes:
+        return False
     configured = os.environ.get("BALOOT_TRUSTED_API_KEY", "")
     supplied = request.headers.get("x-baloot-trusted-key", "")
     if configured:
-        return bool(supplied) and hmac.compare_digest(configured, supplied)
+        return bool(supplied) and hmac.compare_digest(configured.encode(), supplied.encode())
     if _truthy("BALOOT_ALLOW_TRUSTED_CONTEXT"):
         return True
     environment = os.environ.get("BALOOT_ENV", "development").strip().lower()
@@ -602,6 +729,11 @@ def _trusted_authorized(request: Request) -> bool:
 def _require_trusted(request: Request) -> None:
     if not _trusted_authorized(request):
         raise HTTPException(403, "trusted hidden-information access is not enabled")
+
+
+app.include_router(
+    build_canonical_history_router(CANONICAL_HISTORY, IDENTITY, GAMES, require_trusted=_require_trusted)
+)
 
 
 _RESEARCH_MUTATION_OPENAPI = {
@@ -766,43 +898,45 @@ async def platform_security(request: Request, call_next):
         )
         response.headers["retry-after"] = str(retry_after)
         return response
-    token = request_token(request)
-    identity, identity_session = IDENTITY.resolve(token)
-    access_claims = None
-    if identity is None and token and token.count(".") == 2:
-        try:
-            access_claims = ACCESS_TOKENS.verify(token)
-        except (ValueError, KeyError, TypeError):
-            access_claims = None
+    auth = credentials(request.headers, request_token(request), IDENTITY, ACCESS_TOKENS)
+    request.state.auth = auth
+    identity, identity_session = auth.identity, auth.session
+    access_claims = auth.claims
     request.state.identity = identity
     request.state.identity_session = identity_session
     request.state.access_claims = access_claims
     api_key = os.environ.get("BALOOT_API_KEY")
-    supplied_key = request.headers.get("x-api-key", "")
-    api_key_valid = (
-        bool(api_key)
-        and bool(supplied_key)
-        and hmac.compare_digest(api_key, supplied_key)
-    )
+    api_key_valid = auth.api_key_valid
     request.state.api_key_valid = api_key_valid
+    request.state.tenant_id = auth.tenant_id
+    request.state.role = auth.role
     session_valid = (
         identity is not None and identity_session is not None
     ) or access_claims is not None
-    auth_bootstrap = request.url.path.startswith("/api/v1/auth/")
     oidc_sign_in = request.method == "POST" and request.url.path in OIDC_SIGN_IN_PATHS
     if oidc_sign_in and request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
         return JSONResponse(
             {"detail": "OIDC sign-in requires application/json", "requestId": request_id}, status_code=415,
         )
-    if (
-        api_key
-        and request.method not in {"GET", "HEAD", "OPTIONS"}
-        and not (api_key_valid or session_valid or auth_bootstrap or oidc_sign_in)
-    ):
-        return JSONResponse(
-            {"detail": "authentication required", "requestId": request_id},
-            status_code=401,
+    path = get_route_path(request.scope)
+    required_scope = http_request_scope(request.app.router, request.scope)
+    csrf_exempt = request.method == "POST" and required_scope is None and not oidc_sign_in
+    if required_scope is not None:
+        if not auth.authenticated:
+            return JSONResponse(
+                {"detail": "authentication required", "requestId": request_id},
+                status_code=401,
+            )
+        denial = auth.denial(
+            AUTHORIZATION_POLICY, required_scope,
+            tenant_scoped=tenant_job_http(request.method, path) or tenant_configuration_http(
+                request.method, path, required_scope,
+            ),
         )
+        if denial is not None:
+            return JSONResponse(
+                {"detail": denial, "requestId": request_id}, status_code=403,
+            )
     enforce_csrf = _truthy("BALOOT_ENFORCE_SESSION_CSRF") or (
         os.environ.get("BALOOT_ENV", "development").lower() == "production"
         and bool(IDENTITY_PROFILE.get("csrf", {}).get("enabled_in_production", True))
@@ -812,7 +946,7 @@ async def platform_security(request: Request, call_next):
         and session_valid
         and not api_key_valid
         and access_claims is None
-        and not auth_bootstrap
+        and not csrf_exempt
         and enforce_csrf
     ):
         supplied_csrf = request.headers.get("x-csrf-token", "")
@@ -827,22 +961,18 @@ async def platform_security(request: Request, call_next):
         getattr(access_claims, "subject_id", "")
         or (identity.subject_id if identity else "")
     )
-    tenant = str(
-        getattr(access_claims, "tenant_id", "")
-        or request.headers.get("x-baloot-tenant-id", "")
-    )
-    role = caller_role(
-        request.headers, api_key_valid=api_key_valid,
-        claims_role=getattr(access_claims, "role", None), subject_id=claims_subject,
-    )
-    request.state.caller_role = role
+    if (
+        not claims_subject
+        and api_key_valid
+        and path.startswith(("/api/v1/configuration-registry/", "/api/v2/configuration/"))
+    ):
+        claims_subject = service_client_identity(request.headers, "API Client").subject_id
     context_token = CURRENT_DATABASE_IDENTITY.set(
         DatabaseIdentityContext(
             subject_id=claims_subject,
-            tenant_id=tenant,
-            role=role,
-            configuration_admin=(api_key_valid or access_claims is not None)
-            and Scope.CONFIG_ADMIN.value in AUTHORIZATION_POLICY.effective_scopes(role=role, claims=access_claims),
+            tenant_id=auth.tenant_id if auth.authenticated else "",
+            role=auth.role,
+            configuration_admin=is_configuration_admin(request, AUTHORIZATION_POLICY),
             request_id=request_id,
             session_id=str(
                 getattr(access_claims, "session_id", "")
@@ -855,16 +985,26 @@ async def platform_security(request: Request, call_next):
         if api_key_valid and not session_valid else None
     )
     started = time.monotonic()
+    metric_path = request.url.path
     try:
-        response = await call_next(request)
+        error = CONTAINER.configuration_error
+        if error is not None and metric_path not in {"/healthz", "/api/v1/health", "/readyz", "/metrics"}:
+            # Public metrics must not expose recovery revision IDs.
+            metric_path = "/configuration-unavailable"
+            if is_configuration_recovery_route(request) and is_configuration_admin(request, AUTHORIZATION_POLICY):
+                response = await call_next(request)
+            else:
+                response = await configuration_integrity_response(request, error)
+        else:
+            response = await call_next(request)
     finally:
         SERVICE_SUBJECT_OWNER.reset(ownership_token)
         CURRENT_DATABASE_IDENTITY.reset(context_token)
     elapsed = time.monotonic() - started
     with _METRIC_LOCK:
-        _METRICS[(request.method, request.url.path, response.status_code)] += 1
+        _METRICS[(request.method, metric_path, response.status_code)] += 1
         # Keep a coarse latency sum in integer microseconds without another dependency.
-        _METRICS[("LATENCY_US", request.url.path, 0)] += int(elapsed * 1_000_000)
+        _METRICS[("LATENCY_US", metric_path, 0)] += int(elapsed * 1_000_000)
     response.headers["x-content-type-options"] = "nosniff"
     response.headers["x-frame-options"] = "DENY"
     response.headers["referrer-policy"] = "no-referrer"
@@ -873,6 +1013,19 @@ async def platform_security(request: Request, call_next):
         "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
     )
     return response
+
+
+if CONTAINER.configuration_error is not None:
+    def unavailable_configuration(app):
+        async def guarded(scope, receive, send):
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1013})
+                return
+            await app(scope, receive, send)
+
+        return guarded
+
+    app.add_middleware(unavailable_configuration)
 
 
 app.add_middleware(RequestLoggingMiddleware)
@@ -7438,28 +7591,10 @@ def player_app():
         asset_digest.update(asset_name.encode("utf-8"))
         asset_digest.update((player_root / asset_name).read_bytes())
     asset_version = asset_digest.hexdigest()[:12]
-    governed_copy = dict(ACTIVE_BUNDLE.video["challenge_copy"])
-    serialized = (
-        json.dumps(
-            governed_copy,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        .replace("<", "\\u003c")
-        .replace("&", "\\u0026")
+    return _render_copy_page(
+        template, ACTIVE_BUNDLE.video["challenge_copy"],
+        json_key="player_copy_json", surface="player", asset_version=asset_version,
     )
-    rendered = template.replace("{{player_copy_json}}", serialized).replace(
-        "{{player_asset_version}}", asset_version
-    )
-    for key, value in governed_copy.items():
-        rendered = rendered.replace(
-            "{{" + str(key) + "}}",
-            html.escape(str(value), quote=True),
-        )
-    if "{{" in rendered or "}}" in rendered:
-        raise HTTPException(503, "player copy profile is incomplete")
-    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/v1/challenge-copy")
@@ -7479,25 +7614,10 @@ def public_duplicate_challenge(code: str):
     if not _CHALLENGE_STATIC.exists():
         raise HTTPException(503, "challenge player assets are unavailable")
     template = (_CHALLENGE_STATIC / "index.html").read_text(encoding="utf-8")
-    governed_copy = dict(ACTIVE_BUNDLE.video["challenge_copy"])
-    serialized = (
-        json.dumps(
-            governed_copy,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        .replace("<", "\\u003c")
-        .replace("&", "\\u0026")
+    return _render_copy_page(
+        template, ACTIVE_BUNDLE.video["challenge_copy"],
+        json_key="challenge_copy_json", surface="challenge",
     )
-    rendered = template.replace("{{challenge_copy_json}}", serialized)
-    rendered = rendered.replace(
-        "{{page_title}}",
-        html.escape(str(governed_copy["page_title"]), quote=True),
-    )
-    if "{{" in rendered or "}}" in rendered:
-        raise HTTPException(503, "challenge copy profile is incomplete")
-    return HTMLResponse(rendered, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/healthz")
@@ -7507,7 +7627,17 @@ def health():
 
 
 @app.get("/readyz")
-def ready():
+def ready(request: Request):
+    if CONTAINER.configuration_error is not None:
+        return configuration_unavailable_response(request, str(CONTAINER.configuration_error))
+    if CONTAINER.research_configuration_errors:
+        return configuration_unavailable_response(
+            request,
+            {
+                environment: str(error)
+                for environment, error in CONTAINER.research_configuration_errors.items()
+            },
+        )
     bundle = ACTIVE_BUNDLE
     return {
         "status": "ready",
@@ -7521,6 +7651,8 @@ def metrics():
     lines = [
         "# TYPE baloot_http_requests_total counter",
         "# TYPE baloot_http_latency_microseconds_total counter",
+        "# TYPE baloot_research_configuration_unavailable gauge",
+        f"baloot_research_configuration_unavailable {len(CONTAINER.research_configuration_errors)}",
     ]
     with _METRIC_LOCK:
         items = list(_METRICS.items())
@@ -7637,7 +7769,7 @@ def get_video_job(job_id: str, request: Request):
                 "Link": '</api/v2/research-results>; rel="successor-version"',
             },
         )
-    if not job_id.startswith("RUN-"):
+    if not job_id.startswith("RUN-") or request.state.tenant_id != DEFAULT_TENANT:
         raise HTTPException(404, "job not found")
     _require_trusted(request)
     run = RESEARCH.get_run(job_id)
@@ -7897,7 +8029,7 @@ def video_job_events(job_id: str, request: Request):
             content={"jobId": job_id, "events": STORE.events(job_id)},
             headers={"Deprecation": "true"},
         )
-    if not job_id.startswith("RUN-"):
+    if not job_id.startswith("RUN-") or request.state.tenant_id != DEFAULT_TENANT:
         raise HTTPException(404, "job not found")
     _require_trusted(request)
     try:
@@ -8051,24 +8183,33 @@ def history_games(search: str = "", limit: int = 100):
 
 
 @app.get("/api/v1/history/games/{identifier}")
-def history_game(identifier: str):
-    return _require_private_history_game(identifier)
+def history_game(identifier: str, request: Request):
+    reader = _archive_reader(request)
+    game = _require_private_history_game(identifier, reader)
+    return game if reader is None else history_without_media(game)
 
 
 @app.get("/api/v1/history/games/{identifier}/replay")
-def replay_history_package(identifier: str):
-    game = _require_private_history_game(identifier)
+def replay_history_package(identifier: str, request: Request):
+    reader = _archive_reader(request)
+    game = _require_private_history_game(identifier, reader)
     game_hash = game.get("gameHash")
     game_id = game.get("gameId")
+    decisions = game.get("decisions") or LEARNING_STORE.list_decisions(game_hash or game_id)
+    videos = []
+    if reader is not None:
+        game = history_without_media({**game, "decisions": decisions})
+        decisions = game["decisions"]
+    elif game_hash:
+        videos = LEARNING_STORE.list_video_records(game_hash=game_hash, limit=100)
+    else:
+        videos = LEARNING_STORE.list_video_records("game", str(game_id), limit=100)
     return {
         "game": game,
         "verification": LEARNING_STORE.verify_game(identifier),
         "audits": LEARNING_STORE.list_game_audits(game_hash or game_id, limit=50),
-        "videos": LEARNING_STORE.list_video_records(game_hash=game_hash, limit=100)
-        if game_hash
-        else LEARNING_STORE.list_video_records("game", str(game_id), limit=100),
-        "decisions": game.get("decisions")
-        or LEARNING_STORE.list_decisions(game_hash or game_id),
+        "videos": videos,
+        "decisions": decisions,
         "bundle": {
             "hash": game.get("bundleHash"),
             "engineVersion": game.get("engineVersion"),
@@ -8091,15 +8232,15 @@ def history_game_video_records(identifier: str):
 
 
 @app.get("/api/v1/history/games/{identifier}/verification")
-def verify_history_game(identifier: str):
-    _require_private_history_game(identifier)
+def verify_history_game(identifier: str, request: Request):
+    _require_private_history_game(identifier, _archive_reader(request))
     result = LEARNING_STORE.verify_game(identifier)
     if result.get("error") == "not found":
         raise HTTPException(404, "archived game not found")
     return result
 
 
-@app.post("/api/v1/history/games/{identifier}:reopen", status_code=201)
+@app.post(HISTORY_GAME_REOPEN_PATH, status_code=201)
 def reopen_history_game(identifier: str, branch: bool = False):
     _require_private_history_game(identifier)
     try:
@@ -8275,7 +8416,7 @@ def render_history_decision(
     return {"jobId": job_id, "challengeId": challenge_id, "status": "queued"}
 
 
-@app.post("/api/v1/history/games/{identifier}:audit")
+@app.post(HISTORY_GAME_AUDIT_PATH)
 def audit_history_game(identifier: str, request: ReplayAuditRequest):
     _require_private_history_game(identifier)
     try:
@@ -8300,8 +8441,8 @@ def audit_history_game(identifier: str, request: ReplayAuditRequest):
 
 
 @app.get("/api/v1/history/games/{identifier}/audits")
-def list_history_game_audits(identifier: str, limit: int = 50):
-    _require_private_history_game(identifier)
+def list_history_game_audits(identifier: str, request: Request, limit: int = 50):
+    _require_private_history_game(identifier, _archive_reader(request))
     return {"audits": LEARNING_STORE.list_game_audits(identifier, limit=limit)}
 
 
@@ -8314,7 +8455,9 @@ def get_replay_audit(audit_id: str, request: Request):
     if decision_id:
         _require_private_decision_access(decision_id, request)
     else:
-        _require_completed_shared_game_access(str(value.get("gameId") or ""))
+        _require_completed_shared_game_access(
+            str(value.get("gameId") or ""), _archive_reader(request), not_found_detail="audit not found"
+        )
         _require_completed_shared_analysis_decisions(value)
     return value
 

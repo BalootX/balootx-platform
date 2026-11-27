@@ -8,6 +8,7 @@ from baloot_platform.storage.codec_v7 import (
     decode as decode_payload,
     encode as encode_payload,
 )
+from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY
 
 
 class _PostgresBase:
@@ -183,12 +184,15 @@ class PostgresJobStore(_PostgresBase):
         return bool(row and (row[0] or row[1] == "cancelled"))
 
     def get(self, job_id: str) -> dict[str, Any] | None:
+        tenant = CURRENT_DATABASE_IDENTITY.get().tenant_id
+        tenant_filter = " AND tenant_id=%s" if tenant else ""
+        values = (job_id, tenant) if tenant else (job_id,)
         with self.pool.connection() as conn:
             row = conn.execute(
                 """SELECT job_id,tenant_id,kind,status,priority,progress,request_json,result_json,error,
                    attempts,max_attempts,lease_owner,lease_until,cancel_requested,created_at,updated_at
-                   FROM jobs WHERE job_id=%s""",
-                (job_id,),
+                   FROM jobs WHERE job_id=%s""" + tenant_filter,
+                values,
             ).fetchone()
         if not row:
             return None
@@ -221,6 +225,10 @@ class PostgresJobStore(_PostgresBase):
         size = max(1, min(500, int(limit)))
         clauses: list[str] = []
         values: list[Any] = []
+        tenant = CURRENT_DATABASE_IDENTITY.get().tenant_id
+        if tenant:
+            clauses.append("tenant_id=%s")
+            values.append(tenant)
         if kinds:
             clauses.append("kind = ANY(%s)")
             values.append(list(kinds))

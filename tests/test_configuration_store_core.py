@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import inspect
 import json
+import sqlite3
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -12,8 +13,15 @@ from types import SimpleNamespace
 from typing import Any, Callable
 
 import pytest
+from hypothesis import example, given, strategies as st
+from tzdata import IANA_VERSION
 
 from baloot_platform.configuration.models import canonical, digest
+from baloot_platform.configuration.schedule import (
+    ConfigurationScheduleConflict,
+    _zone,
+    normalize_schedule,
+)
 from baloot_platform.configuration.store import (
     PostgresConfigurationStore,
     SQLiteConfigurationStore,
@@ -153,6 +161,131 @@ def test_postgres_uses_migration_columns_named_rows_and_utc_timestamps() -> None
     assert "SELECT *" not in source
     assert "RETURNING *" not in source
     assert "configuration.events" in source and "payload," in source
+
+
+@pytest.mark.parametrize(
+    ("instant", "local", "message"),
+    [
+        ("2026-07-01T12:00", None, "effectiveFrom requires an explicit UTC offset"),
+        ("2026-07-01 12:00Z", None, "effectiveFrom must be a valid ISO date-time"),
+        (None, {"timeZone": "America/New_York", "effectiveFrom": "2026-07-01 12:00"}, r"localSchedule\.effectiveFrom must be a valid local ISO date-time"),
+        (None, {"effectiveFrom": "2026-07-01T12:00"}, r"localSchedule\.timeZone"),
+        (None, {"timeZone": "Mars/Olympus", "effectiveFrom": "2026-07-01T12:00"}, r"localSchedule\.timeZone"),
+        (None, {"timeZone": "localtime", "effectiveFrom": "2026-07-01T12:00"}, r"localSchedule\.timeZone"),
+        (None, {"timeZone": "America/New_York", "effectiveFrom": "2026-03-08T02:30"}, r"localSchedule\.effectiveFrom does not exist"),
+        (None, {"timeZone": "America/New_York", "effectiveUntil": "2026-11-01T01:30"}, r"localSchedule\.effectiveUntil is ambiguous"),
+        (None, {"timeZone": "Australia/Lord_Howe", "effectiveUntil": "2026-10-04T02:15"}, r"localSchedule\.effectiveUntil does not exist"),
+        ("2026-07-01T12:00Z", {"timeZone": "UTC", "effectiveFrom": "2026-07-01T12:00"}, "cannot both be specified"),
+    ],
+)
+def test_schedule_rejects_invalid_bounds(instant, local, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        normalize_schedule(instant, None, local)
+
+
+@given(
+    wall_time=st.datetimes(min_value=datetime(2025, 1, 1), max_value=datetime(2027, 12, 31)),
+    offset_minutes=st.integers(min_value=-14 * 60, max_value=14 * 60),
+)
+def test_explicit_offset_schedule_normalizes_to_utc(wall_time, offset_minutes) -> None:
+    offset = timedelta(minutes=offset_minutes)
+    explicit = wall_time.replace(tzinfo=timezone(offset)).isoformat()
+    utc = (wall_time - offset).replace(tzinfo=timezone.utc).isoformat()
+    assert normalize_schedule(explicit, None, None) == (utc, None, None)
+
+
+@given(
+    wall=st.datetimes(min_value=datetime(2026, 1, 2), max_value=datetime(2026, 12, 30)),
+    name=st.sampled_from(["America/New_York", "Europe/Berlin", "Australia/Lord_Howe"]),
+)
+@example(wall=datetime(2026, 3, 8, 2, 30), name="America/New_York")
+@example(wall=datetime(2026, 4, 5, 1, 45), name="Australia/Lord_Howe")
+def test_local_schedule_matches_pinned_zone_round_trip(wall: datetime, name: str) -> None:
+    zone = _zone(name)
+    adjacent_offsets = {
+        (wall + timedelta(days=days)).replace(tzinfo=zone).utcoffset()
+        for days in (-1, 1)
+    }
+    candidates = {
+        (wall - offset).replace(tzinfo=timezone.utc)
+        for offset in adjacent_offsets if offset is not None
+    }
+    valid = {instant for instant in candidates if instant.astimezone(zone).replace(tzinfo=None) == wall}
+    local = {"timeZone": name, "effectiveFrom": wall.isoformat()}
+    if len(valid) != 1:
+        with pytest.raises(ValueError, match="does not exist|is ambiguous"):
+            normalize_schedule(None, None, local)
+    else:
+        instant, _, saved = normalize_schedule(None, None, local)
+        assert instant == valid.pop().isoformat()
+        assert saved == {**local, "zoneDataVersion": IANA_VERSION}
+
+
+def test_sqlite_round_trips_local_schedule_and_preserves_older_rows(tmp_path: Path) -> None:
+    path = tmp_path / "configuration.sqlite3"
+    store = SQLiteConfigurationStore(path)
+    profile_args = {
+        "family": "rules", "profile_id": "example", "version": "1.0.0",
+        "scope": "global", "tenant_id": None, "payload": {"example": True},
+        "created_by": "TEST", "status": "published",
+    }
+    old = store.create_profile(**profile_args, effective_from="2026-07-01T12:00Z")
+    with store._connect() as connection:
+        connection.execute("DROP TRIGGER trg_configuration_profile_local_schedule_immutable")
+        connection.execute("DROP TRIGGER trg_configuration_bundle_local_schedule_immutable")
+        connection.execute("ALTER TABLE configuration_profile_revisions DROP COLUMN local_schedule")
+        connection.execute("ALTER TABLE configuration_bundle_revisions DROP COLUMN local_schedule")
+        connection.execute(
+            "UPDATE configuration_profile_revisions SET effective_from=?, effective_until='' WHERE revision_id=?",
+            ("2026-07-01T12:00", old.revision_id),
+        )
+
+    reopened = SQLiteConfigurationStore(path)
+    assert reopened.get_profile(old.revision_id).to_dict() == old.to_dict()
+    assert "localSchedule" not in old.to_dict()
+    local = {"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00"}
+    profile_args.update(profile_id="scheduled", payload={"scheduled": True})
+    profile = reopened.create_profile(**profile_args, local_schedule=local)
+    assert reopened.create_profile(**profile_args, local_schedule=local) == profile
+    alternate_args = {**profile_args, "status": "draft", "effective_from": "2026-07-01T16:00Z"}
+    with pytest.raises(ConfigurationScheduleConflict, match=profile.revision_id):
+        reopened.create_profile(**alternate_args)
+    assert reopened.create_profile(**profile_args, local_schedule=local) == profile
+    bundle_args = dict(
+        bundle_id="scheduled", version="1.0.0", mode="full", scope="global",
+        tenant_id=None, component_revisions={"rules": profile.revision_id},
+        status="draft", created_by="TEST", local_schedule=local,
+    )
+    bundle = reopened.create_bundle(
+        **bundle_args,
+        effective_until="2026-07-01T13:00-04:00",
+    )
+    with pytest.raises(ConfigurationScheduleConflict, match=bundle.revision_id):
+        reopened.create_bundle(**bundle_args)
+    assert reopened.create_bundle(**bundle_args, effective_until="2026-07-01T17:00Z") == bundle
+    cold = SQLiteConfigurationStore(path)
+    assert cold.get_profile(profile.revision_id) == profile
+    assert cold.get_bundle(bundle.revision_id) == bundle
+    assert profile.effective_from == bundle.effective_from == "2026-07-01T16:00:00+00:00"
+    assert bundle.effective_until == "2026-07-01T17:00:00+00:00"
+    assert profile.local_schedule == bundle.local_schedule == {
+        "timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00:00",
+        "zoneDataVersion": IANA_VERSION,
+    }
+    with cold._connect() as connection:
+        assert connection.execute(
+            "SELECT effective_until FROM configuration_profile_revisions WHERE revision_id=?",
+            (old.revision_id,),
+        ).fetchone()[0] is None
+        for kind, revision in (("profile", profile), ("bundle", bundle)):
+            with pytest.raises(sqlite3.IntegrityError, match="local_schedule is immutable"):
+                connection.execute(
+                    f"UPDATE configuration_{kind}_revisions SET local_schedule=NULL WHERE revision_id=?",
+                    (revision.revision_id,),
+                )
+    audit = cold.events_with_verification("bundle", bundle.revision_id)
+    assert audit["verification"]["valid"] is True
+    assert audit["items"][0]["payload"]["localSchedule"] == bundle.local_schedule
 
 
 def test_postgres_pool_installs_dict_row_factory(monkeypatch: pytest.MonkeyPatch) -> None:

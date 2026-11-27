@@ -86,6 +86,18 @@ REQUIRED_MIGRATION_HASHES = {
     "033_oidc_database_roles.sql": (
         "b495a2ac2c8c37cdbc736904e474e6c5d1f76adc95a1af105e20fb55cadd222a"
     ),
+    "031_identity_list_pagination.sql": (
+        "0ab020769e7933fe9e2ef0d0c68846b499cef02300cb37960240650a5b4e0bfa"
+    ),
+    "032_identity_pending_requests_index.sql": (
+        "03ba3451c7010c52db713b096fb64009c37e0efb608f9413a71883b22a76684b"
+    ),
+    "033_configuration_local_schedule.sql": (
+        "314fde4a8203348f10791f2494933b7cba7b0b57e36f0914c57d7a0177b3acf6"
+    ),
+    "034_configuration_schedule_handoff.sql": (
+        "b7e43662710ba7a56c5c7f23734c9343067ab5fbc37032f769f1956534e2bc36"
+    ),
 }
 CONFIGURATION_V25_CONSTRAINTS = frozenset(
     {
@@ -113,14 +125,25 @@ CONFIGURATION_V25_TRIGGERS = frozenset(
         ),
     }
 )
-CONFIGURATION_V25_POLICIES = frozenset(
+CONFIGURATION_SCHEDULE_TRIGGERS = frozenset(
+    (
+        f"{kind}_revisions",
+        f"trg_configuration_{kind}_local_schedule_immutable",
+        "guard_local_schedule",
+        "O",
+    )
+    for kind in ("bundle", "profile")
+) | {("bundle_revisions", "trg_configuration_scheduled_predecessor_immutable", "guard_scheduled_predecessor", "O")}
+CONFIGURATION_POLICIES = frozenset(
     {
-        ("bundle_revisions", "configuration_bundle_context_read_v25", "SELECT"),
-        ("bundle_revisions", "configuration_bundle_write_v25", "ALL"),
-        ("events", "configuration_events_read_v25", "SELECT"),
-        ("events", "configuration_events_write_v25", "INSERT"),
-        ("profile_revisions", "configuration_profile_context_read_v25", "SELECT"),
-        ("profile_revisions", "configuration_profile_write_v25", "ALL"),
+        ("bundle_revisions", "configuration_bundle_context_read_v25", "SELECT", "PERMISSIVE"),
+        ("bundle_revisions", "configuration_bundle_write_v25", "ALL", "PERMISSIVE"),
+        ("events", "configuration_events_read_v25", "SELECT", "PERMISSIVE"),
+        ("events", "configuration_events_write_v25", "INSERT", "PERMISSIVE"),
+        ("events", "oidc_registry_audit_v31", "SELECT", "RESTRICTIVE"),
+        ("profile_revisions", "configuration_profile_context_read_v25", "SELECT", "PERMISSIVE"),
+        ("profile_revisions", "configuration_profile_write_v25", "ALL", "PERMISSIVE"),
+        ("profile_revisions", "oidc_registry_access_v31", "ALL", "RESTRICTIVE"),
     }
 )
 CONFIGURATION_V25_RLS_RELATIONS = frozenset(
@@ -1917,6 +1940,7 @@ def _migration_schema_contract(snapshot_root: Path) -> dict[str, Any]:
     }
     if not tables or not constraints or not rls_enabled:
         raise ProofError("PostgreSQL migration schema contract is incomplete")
+    tables.add("baloot_migrations.applied")
     contract = {
         "tables": sorted(tables),
         "constraints": [list(item) for item in sorted(constraints)],
@@ -1945,19 +1969,21 @@ def _run_migration_once(
         secrets_to_remove=secrets_to_remove,
     )
     lines = _command_text(completed).splitlines()
-    applied = [
-        line.removeprefix("applied ") for line in lines if line.startswith("applied ")
-    ]
-    if applied != list(expected_names):
-        raise ProofError(
-            "PostgreSQL migration output does not match the source inventory"
-        )
     if not lines or lines[-1] != "Baloot PostgreSQL schema is current":
         raise ProofError("PostgreSQL migration completion marker is missing")
     inventory = _migration_inventory(snapshot_root)
+    expected = set(expected_names)
+    applied = [item for item in inventory if item["name"] in expected]
+    actions = [
+        f"{'applied' if item['name'] in expected else 'verified'} {item['name']}"
+        for item in inventory
+    ]
+    if [item["name"] for item in applied] != list(expected_names) or lines[:-1] != actions:
+        raise ProofError("PostgreSQL migration output does not match the source inventory")
     return {
         "applied": len(applied),
-        "executedInventorySha256": _sha256_text(_canonical_json(inventory)),
+        "verified": len(inventory) - len(applied),
+        "executedInventorySha256": _sha256_text(_canonical_json(applied)),
     }
 
 
@@ -2323,25 +2349,24 @@ def _prove_migrations(
 ) -> dict[str, Any]:
     snapshot_root, inventory = _stage_migrations(proof_root)
     source_inventory = list(inventory)
-    names = [item["name"] for item in inventory]
     executed_inventory_sha256 = _sha256_text(_canonical_json(inventory))
-    expected_pass = {
-        "applied": len(inventory),
-        "executedInventorySha256": executed_inventory_sha256,
-    }
     schema_contract = _migration_schema_contract(snapshot_root)
     passes = []
     fingerprints = []
-    for _ in range(2):
+    for expected in (inventory, []):
         if _migration_inventory(snapshot_root) != inventory:
             raise ProofError("PostgreSQL migration snapshot changed before execution")
         migration_pass = _run_migration_once(
             database_url,
             snapshot_root,
-            names,
+            [item["name"] for item in expected],
             secrets_to_remove,
         )
-        if migration_pass != expected_pass:
+        if migration_pass != {
+            "applied": len(expected),
+            "verified": len(inventory) - len(expected),
+            "executedInventorySha256": _sha256_text(_canonical_json(expected)),
+        }:
             raise ProofError("PostgreSQL executed migration inventory evidence drifted")
         passes.append(migration_pass)
         if _migration_inventory(snapshot_root) != inventory:
@@ -3684,15 +3709,12 @@ def _prove_configuration_v25_schema(database_url: str) -> dict[str, Any]:
         row[2] is not True for row in constraint_rows
     ):
         raise ProofError("configuration v25 validated constraints drifted")
+    expected_triggers = CONFIGURATION_V25_TRIGGERS | CONFIGURATION_SCHEDULE_TRIGGERS
     if {
         (str(row[0]), str(row[1]), str(row[2]), str(row[3])) for row in trigger_rows
-    } != CONFIGURATION_V25_TRIGGERS:
-        raise ProofError("configuration v25 immutable triggers drifted")
-    if {
-        (str(row[0]), str(row[1]), str(row[2])) for row in policy_rows
-    } != CONFIGURATION_V25_POLICIES or any(
-        str(row[3]).upper() != "PERMISSIVE" for row in policy_rows
-    ):
+    } != expected_triggers:
+        raise ProofError("configuration immutable triggers drifted")
+    if {tuple(map(str, row)) for row in policy_rows} != CONFIGURATION_POLICIES:
         raise ProofError("configuration v25 RLS policies drifted")
     if {
         str(row[0]) for row in rls_rows if row[1] is True and row[2] is True
@@ -3704,16 +3726,16 @@ def _prove_configuration_v25_schema(database_url: str) -> dict[str, Any]:
         raise ProofError("configuration v25 invalidation epoch is missing")
     contract = {
         "constraints": [list(value) for value in sorted(CONFIGURATION_V25_CONSTRAINTS)],
-        "policies": [list(value) for value in sorted(CONFIGURATION_V25_POLICIES)],
+        "policies": [list(value) for value in sorted(CONFIGURATION_POLICIES)],
         "rlsRelations": sorted(CONFIGURATION_V25_RLS_RELATIONS),
-        "triggers": [list(value) for value in sorted(CONFIGURATION_V25_TRIGGERS)],
+        "triggers": [list(value) for value in sorted(expected_triggers)],
     }
     return {
         "contractSha256": _sha256_text(_canonical_json(contract)),
         "rolloutPercentageNumeric": True,
         "validatedConstraintCount": len(CONFIGURATION_V25_CONSTRAINTS),
-        "immutabilityTriggerCount": len(CONFIGURATION_V25_TRIGGERS),
-        "policyCount": len(CONFIGURATION_V25_POLICIES),
+        "immutabilityTriggerCount": len(expected_triggers),
+        "policyCount": len(CONFIGURATION_POLICIES),
         "forcedRlsRelationCount": len(CONFIGURATION_V25_RLS_RELATIONS),
         "invalidationEpochPresent": True,
     }
@@ -3750,7 +3772,8 @@ def _configuration_event_chain_evidence(
 
 
 def _assert_configuration_immutability(
-    pool: Any, *, relation: str, revision_id: str, expected_message: str
+    pool: Any, *, relation: str, revision_id: str, expected_message: str,
+    assignment: str = "rollout_seed=rollout_seed || '-proof'",
 ) -> None:
     from baloot_platform.storage.request_context import contextual_connection
 
@@ -3760,7 +3783,7 @@ def _assert_configuration_immutability(
             with connection.transaction():
                 cursor = connection.execute(
                     f"UPDATE configuration.{relation} "
-                    "SET rollout_seed=rollout_seed || '-proof' "
+                    f"SET {assignment} "
                     "WHERE revision_id=%s",
                     (revision_id,),
                 )
@@ -3777,6 +3800,59 @@ def _assert_configuration_immutability(
             ) from exc
     if succeeded:
         raise ProofError("configuration immutable mutation unexpectedly succeeded")
+
+
+def _prove_configuration_schedule(store: Any, components: dict[str, str]) -> tuple[str, str]:
+    from baloot_platform.configuration.schedule import ConfigurationScheduleConflict
+
+    local = {"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00:00"}
+    kwargs = {
+        "version": "1.0.0", "scope": "global", "tenant_id": None,
+        "status": "draft", "created_by": "LIVE-POSTGRES-CONFIGURATION-PROOF",
+        "local_schedule": local,
+    }
+    profile_args = {
+        **kwargs, "family": "rules", "profile_id": "schedule_proof",
+        "payload": {"profile": {"id": "schedule_proof", "version": "1.0.0"}},
+    }
+    bundle_args = {
+        **kwargs, "bundle_id": "schedule_proof", "mode": "full", "component_revisions": components,
+    }
+    profile = store.create_profile(**profile_args)
+    bundle = store.create_bundle(**bundle_args)
+    reschedule = {**local, "effectiveFrom": "2026-07-02T12:00:00"}
+    for create, args, original in (
+        (store.create_profile, profile_args, profile),
+        (store.create_bundle, bundle_args, bundle),
+    ):
+        revised_args = {**args, "local_schedule": reschedule}
+        try:
+            create(**revised_args)
+        except ConfigurationScheduleConflict:
+            pass
+        else:
+            raise ProofError("PostgreSQL accepted a different schedule for existing configuration content")
+        if create(**args) != original:
+            raise ProofError("PostgreSQL schedule retry did not reuse its revision")
+    for relation, revision, saved in (
+        ("profile_revisions", profile, store.get_profile(profile.revision_id)),
+        ("bundle_revisions", bundle, store.get_bundle(bundle.revision_id)),
+    ):
+        if (
+            saved is None
+            or saved != revision
+            or saved.local_schedule is None
+            or {key: saved.local_schedule[key] for key in local} != local
+            or not saved.local_schedule.get("zoneDataVersion")
+            or saved.effective_from != "2026-07-01T16:00:00+00:00"
+        ):
+            raise ProofError("PostgreSQL local schedule did not round-trip")
+        _assert_configuration_immutability(
+            store.pool, relation=relation, revision_id=revision.revision_id,
+            expected_message="local_schedule is immutable",
+            assignment="local_schedule=NULL",
+        )
+    return profile.revision_id, bundle.revision_id
 
 
 def _prove_research_scenario_v4_wiring(
@@ -4165,6 +4241,18 @@ def _publish_live_ortools_bundle(
     return resolved
 
 
+def _synthetic_runtime_environment(root: Path, runtime: Path, outputs: Path) -> dict[str, str]:
+    return {
+        "BALOOT_ROOT": str(root),
+        "BALOOT_DATA_DIR": str(runtime),
+        "BALOOT_RUNTIME": str(runtime),
+        "BALOOT_OUTPUTS": str(outputs),
+        "BALOOT_ENV": "development",
+        "BALOOT_CHALLENGE_LOCATOR_KEY": secrets.token_urlsafe(48),
+        "BALOOT_CURATED_SAKKA_SIGNING_KEY": secrets.token_urlsafe(48),
+    }
+
+
 def _prove_full_wiring(
     database_url: str,
     proof_root: Path,
@@ -4185,15 +4273,7 @@ def _prove_full_wiring(
     )
 
     runtime = proof_root / "runtime"
-    values = {
-        "BALOOT_ROOT": str(ROOT),
-        "BALOOT_DATA_DIR": str(runtime),
-        "BALOOT_RUNTIME": str(runtime),
-        "BALOOT_OUTPUTS": str(proof_root / "outputs"),
-        "BALOOT_ENV": "development",
-        "BALOOT_CHALLENGE_LOCATOR_KEY": secrets.token_urlsafe(48),
-        "BALOOT_CURATED_SAKKA_SIGNING_KEY": secrets.token_urlsafe(48),
-    }
+    values = _synthetic_runtime_environment(ROOT, runtime, proof_root / "outputs")
     schema = _prove_configuration_v25_schema(database_url)
     with _temporary_environment(values):
         container = build_container(
@@ -4395,6 +4475,7 @@ def _prove_full_wiring(
                         "published configuration bundle revisions are immutable"
                     ),
                 )
+                _prove_configuration_schedule(container.configuration_store, component_revisions)
                 ortools_packaged = build_bundle(
                     ROOT,
                     bundle_path="configs/bundle_ortools_research_v4.yaml",
@@ -4473,6 +4554,7 @@ def _prove_full_wiring(
         "postgresResearchStore": True,
         "postgresConfigurationStore": True,
         "configurationServiceRlsContext": True,
+        "configurationLocalScheduleRoundTrip": True,
         "packagedBundleResolved": True,
         "activeBundleRevisionId": str(bundle["revisionId"]),
         "packagedBundleSha256": str(packaged.sha256),

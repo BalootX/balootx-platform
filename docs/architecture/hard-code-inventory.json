@@ -101,6 +101,15 @@
       "rationale": "None preserves the renderer descriptor default for standalone use; the composition root injects the exact governed runtime ceiling."
     },
     {
+      "key": "src/baloot_platform/video/remotion_renderer.py:RemotionProfessionalRenderer.use_worker_renderer",
+      "default": "False",
+      "classification": "hashed_content_asset",
+      "behaviorApplied": false,
+      "status": "compliant",
+      "owner": "scripts.render_research_notice.main",
+      "rationale": "False keeps the standard Remotion package lookup. The public producer selects the installed worker package and verifies it against the image receipt and pinned lockfile."
+    },
+    {
       "key": "src/baloot_platform/plugins/host.py:SubprocessPluginHost.environment",
       "default": "None",
       "classification": "safety_bound",

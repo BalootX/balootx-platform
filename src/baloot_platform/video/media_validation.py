@@ -26,12 +26,32 @@ from baloot_platform.video.media_probe import (
 
 REMOTION_RENDERER_VERSION = "21.10.7"
 APPROVED_LAYOUT_TABLE = "scripts/approved-layout-adjacencies.json"
-APPROVED_LAYOUT_TABLE_SHA256 = "7c1aeee912e4b032d8fb35b50cacde5f464ebf279cbb34464e4054e322ae6a1c"
+APPROVED_LAYOUT_PIN = "scripts/approved-layout-pin.json"
+_APPROVED_LAYOUT_PIN_PATH = Path(__file__).with_name("remotion") / APPROVED_LAYOUT_PIN
 RELEASE_TARGET_LUFS = -19.4
 MAXIMUM_LOUDNESS_DEVIATION_LUFS = 1.5
 MAXIMUM_TRUE_PEAK_DBTP = -1.5
 MINIMUM_SOURCE_COMPARISON_PSNR_DB = 28.0
 MAXIMUM_SOURCE_COMPARISON_MAE = 6.0
+
+
+def approved_layout_table_sha256() -> str:
+    path = _APPROVED_LAYOUT_PIN_PATH
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            f"{path}: restore UTF-8 JSON with schemaVersion 1 and the approved tableSha256"
+        ) from exc
+    version = config.get("schemaVersion") if isinstance(config, dict) else None
+    if type(version) not in (int, float) or version != 1:
+        raise ValueError(f"{path}: schemaVersion must be 1")
+    pin = config.get("tableSha256")
+    if not isinstance(pin, str) or not re.fullmatch(r"[0-9a-f]{64}", pin):
+        raise ValueError(
+            f"{path}: tableSha256 must be the approved 64-character lowercase SHA-256"
+        )
+    return pin
 
 
 def renderer_source_files(root: Path) -> tuple[Path, ...]:
@@ -46,9 +66,11 @@ def renderer_source_files(root: Path) -> tuple[Path, ...]:
         package / "package-lock.json",
         package / "tsconfig.json",
         package / APPROVED_LAYOUT_TABLE,
+        package / APPROVED_LAYOUT_PIN,
         package / FFMPEG_RUNTIME_PROFILE,
     ]
     values.extend(sorted((package / "scripts").glob("*.mjs")))
+    values.extend(sorted((package / "src").glob("*.mjs")))
     values.extend(sorted((package / "src").glob("*.ts")))
     values.extend(sorted((package / "src").glob("*.tsx")))
     values.extend(sorted((package / "src").glob("*.css")))

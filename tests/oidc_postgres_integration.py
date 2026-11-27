@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import ast
 import gc
+import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -41,6 +43,222 @@ def _previous_middleware(root, ref, api, identities):
     namespace = {**vars(api), "IDENTITY": identities}
     exec(compile(ast.Module(body=[middleware], type_ignores=[]), path, "exec"), namespace)
     return namespace["platform_security"]
+
+
+@pytest.mark.parametrize("history", ["current-main", "pre-receipt"])
+def test_oidc_migration_replay_is_atomic_and_preserves_data(root, tmp_path, history):
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+
+    from baloot_platform.configuration import PostgresConfigurationStore
+    from baloot_platform.storage.request_context import DatabaseIdentityContext, apply_postgres_identity_context
+
+    dsn = os.environ["BALOOT_TEST_OIDC_POSTGRES_DSN"]
+    previous_ref = os.environ["BALOOT_TEST_OIDC_PRE_REGISTRY_REF"]
+    assert re.fullmatch(r"[0-9a-f]{40}", previous_ref)
+
+    def previous_blob(path):
+        return subprocess.check_output(["git", "show", f"{previous_ref}:{path}"], cwd=root)
+
+    previous = tmp_path / "previous"
+    previous_migrations = previous / "migrations"
+    previous_migrations.mkdir(parents=True)
+    paths = subprocess.check_output(
+        ["git", "ls-tree", "-r", "--name-only", previous_ref, "--", "migrations"], cwd=root, text=True,
+    ).splitlines()
+    migrations = {path.name: path for path in sorted((root / "migrations").glob("*.sql"))}
+    for path in paths:
+        name = path.rsplit("/", 1)[-1]
+        source = previous_blob(path)
+        assert migrations[name].read_bytes() == source
+        (previous_migrations / name).write_bytes(source)
+    oidc_files = sorted(migrations.keys() - {path.name for path in previous_migrations.iterdir()})
+    assert oidc_files == [
+        "030_oidc_issuer_transition.sql",
+        "031_oidc_registry_access.sql",
+        "032_oidc_identity_authority.sql",
+        "033_oidc_database_roles.sql",
+    ]
+    expected_receipts = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in migrations.items()}
+
+    database = f"oidc_{history.replace('-', '_')}"
+    app_role, migration_role = f"{database}_app", f"{database}_migrator"
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+        for role in (app_role, migration_role):
+            conn.execute(sql.SQL("CREATE ROLE {} LOGIN NOSUPERUSER NOBYPASSRLS").format(sql.Identifier(role)))
+    database_dsn = make_conninfo(dsn, dbname=database)
+    pre_receipt = history == "pre-receipt"
+    if pre_receipt:
+        # Run the original SQL without the receipt-aware runner, as in a pre-ledger deployment.
+        with psycopg.connect(database_dsn, autocommit=True) as conn:
+            for path in [*sorted(previous_migrations.iterdir()), *(migrations[name] for name in oidc_files)]:
+                conn.execute(path.read_text(encoding="utf-8"))
+            assert conn.execute("SELECT to_regclass('baloot_migrations.applied')").fetchone() == (None,)
+    else:
+        previous_runner = previous / "migrate_postgres.py"
+        previous_runner.write_bytes(previous_blob("scripts/migrate_postgres.py"))
+        subprocess.run(
+            [sys.executable, str(previous_runner)],
+            env={**os.environ, "BALOOT_ROOT": str(previous), "BALOOT_DATABASE_URL": database_dsn},
+            check=True,
+        )
+
+    family = "oidc_providers" if pre_receipt else "rules"
+    payload = {"profile": {"id": "receipt-fixture", "version": "1.0.0"}}
+    if pre_receipt:
+        payload.update(schema_version=1, change_reason="Verify the retained registry", providers={})
+    store = PostgresConfigurationStore(database_dsn)
+    try:
+        # Seed through the store to retain real profile and audit records in both histories.
+        profile = store.create_profile(
+            family=family, profile_id="receipt-fixture", version="1.0.0", scope="global",
+            tenant_id=None, status="published", payload=payload, created_by="OIDC-FIXTURE",
+        )
+    finally:
+        store.close()
+    with psycopg.connect(database_dsn) as conn:
+        conn.execute(
+            "INSERT INTO identity.subjects(subject_id,kind,display_name) VALUES ('OIDC-FIXTURE','oidc','Fixture')"
+        )
+        conn.execute(
+            """INSERT INTO identity.sessions(session_id,subject_id,token_hash,csrf_token,expires_at)
+               VALUES ('SES-FIXTURE','OIDC-FIXTURE','fixture-hash','fixture-csrf','2026-10-01T00:00Z')"""
+        )
+        conn.execute(
+            """INSERT INTO security.oidc_transactions(state,payload_json,expires_at,consumed_at)
+               VALUES ('fixture-state','{"fixture":true}','2026-10-01T00:00Z','2026-09-30T00:00Z')"""
+        )
+        if pre_receipt:
+            conn.execute(
+                """INSERT INTO security.oidc_issuer_transitions(revision_id,profile_id,provider_id,legacy_issuer,issuer)
+                   VALUES (%s,'receipt-fixture','fixture','https://signin.example/','https://signin.example')""",
+                (profile.revision_id,),
+            )
+        conn.execute(
+            """INSERT INTO security.external_identities
+                 (provider_id,issuer,external_subject,local_subject_id,claims_json,linked_at)
+               VALUES ('fixture','https://signin.example','fixture-subject','OIDC-FIXTURE','{}','2026-09-30T00:00Z')"""
+        )
+        for role in (app_role, migration_role):
+            identifier = sql.Identifier(role)
+            conn.execute(sql.SQL("GRANT USAGE ON SCHEMA security, configuration TO {}").format(identifier))
+            conn.execute(sql.SQL("GRANT SELECT ON security.external_identities, configuration.profile_revisions,"
+                                 " configuration.events TO {}").format(identifier))
+        if pre_receipt:
+            conn.execute(
+                sql.SQL("GRANT UPDATE ON security.oidc_issuer_transitions TO {}").format(sql.Identifier(migration_role))
+            )
+            conn.execute("CREATE SCHEMA baloot_migrations")
+            conn.execute("CREATE TABLE baloot_migrations.applied (name text PRIMARY KEY, sha256 text NOT NULL)")
+            conn.execute(
+                """CREATE FUNCTION baloot_migrations.interrupt_group() RETURNS trigger LANGUAGE plpgsql AS $$
+                   BEGIN
+                     IF NEW.name = '031_oidc_registry_access.sql' THEN
+                       RAISE EXCEPTION 'fixture migration interruption';
+                     END IF;
+                     RETURN NEW;
+                   END $$"""
+            )
+            conn.execute(
+                """CREATE TRIGGER fixture_interruption BEFORE INSERT ON baloot_migrations.applied
+                   FOR EACH ROW EXECUTE FUNCTION baloot_migrations.interrupt_group()"""
+            )
+
+    tables = [
+        "identity.subjects", "identity.sessions", "security.oidc_transactions",
+        "security.external_identities", "configuration.profile_revisions", "configuration.events",
+    ]
+    if pre_receipt:
+        tables.append("security.oidc_issuer_transitions")
+
+    def snapshot():
+        with psycopg.connect(database_dsn) as conn:
+            return {
+                table: conn.execute(
+                    sql.SQL("SELECT to_jsonb(t) {} FROM {} AS t ORDER BY to_jsonb(t)").format(
+                        sql.SQL("- 'issuer_alias'") if not pre_receipt and table == "security.external_identities" else sql.SQL(""),
+                        sql.Identifier(*table.split(".")),
+                    )
+                ).fetchall()
+                for table in tables
+            }
+
+    def receipts():
+        with psycopg.connect(database_dsn) as conn:
+            return {
+                name: (digest, transaction)
+                for name, digest, transaction in conn.execute(
+                    "SELECT name, sha256, xmin::text FROM baloot_migrations.applied"
+                )
+            }
+
+    def assert_access():
+        for role, access_role, authority, visible in (
+            (app_role, "service", "", False),
+            (app_role, "oidc_link", "callback", True),
+            (app_role, "service", "migration", False),
+            (migration_role, "oidc_link", "callback", False),
+            (migration_role, "service", "migration", True),
+        ):
+            with psycopg.connect(make_conninfo(database_dsn, user=role)) as conn:
+                assert conn.execute("SELECT row_security_active('security.external_identities')").fetchone() == (True,)
+                apply_postgres_identity_context(conn, DatabaseIdentityContext(
+                    role=access_role, oidc_identity_authority=authority,
+                ))
+                count, = conn.execute("SELECT count(*) FROM security.external_identities").fetchone()
+                assert count == ((2 if pre_receipt else 1) if visible else 0)
+                if pre_receipt and role == app_role:
+                    assert conn.execute("SELECT count(*) FROM configuration.profile_revisions").fetchone() == (0,)
+                    assert conn.execute("SELECT count(*) FROM configuration.events").fetchone() == (0,)
+        if pre_receipt:
+            with psycopg.connect(make_conninfo(database_dsn, user=app_role)) as conn:
+                apply_postgres_identity_context(conn, DatabaseIdentityContext(role="admin", configuration_admin=True))
+                assert conn.execute("SELECT count(*) FROM configuration.profile_revisions").fetchone() == (1,)
+                assert conn.execute("SELECT count(*) FROM configuration.events").fetchone() == (2,)
+
+    original_data, original_receipts = snapshot(), receipts()
+    assert all(original_data.values())
+    if pre_receipt:
+        assert original_receipts == {}
+        assert_access()
+        with pytest.raises(psycopg.errors.RaiseException, match="fixture migration interruption"):
+            migrate_postgres.apply_migrations(database_dsn, root / "migrations")
+        assert set(oidc_files).isdisjoint(receipts())
+        assert snapshot() == original_data
+        assert_access()
+        with psycopg.connect(database_dsn) as conn:
+            conn.execute("DROP TRIGGER fixture_interruption ON baloot_migrations.applied")
+            conn.execute("DROP FUNCTION baloot_migrations.interrupt_group()")
+    else:
+        assert set(original_receipts) == {path.name for path in previous_migrations.iterdir()}
+
+    migrate_postgres.apply_migrations(database_dsn, root / "migrations")
+    if not pre_receipt:
+        with psycopg.connect(database_dsn) as conn:
+            conn.execute(
+                sql.SQL("GRANT UPDATE ON security.oidc_issuer_transitions TO {}").format(sql.Identifier(migration_role))
+            )
+    installed = receipts()
+    assert {name: digest for name, (digest, _) in installed.items()} == expected_receipts
+    assert original_receipts.items() <= installed.items()
+    assert len({installed[name][1] for name in oidc_files}) == 1
+    assert_access()
+
+    migrate_postgres.apply_migrations(database_dsn, root / "migrations")
+    assert receipts() == installed
+    assert snapshot() == original_data
+    assert_access()
+
+    changed = shutil.copytree(root / "migrations", tmp_path / "changed")
+    path = changed / oidc_files[-1]
+    path.write_bytes(path.read_bytes() + b"\n")
+    with pytest.raises(ValueError, match=f"Applied migration has changed: {path.name}"):
+        migrate_postgres.apply_migrations(database_dsn, changed)
+    assert receipts() == installed
+    assert snapshot() == original_data
+    assert_access()
 
 
 def test_sqlite_oidc_storage_survives_release_roundtrip(root, tmp_path, monkeypatch):
@@ -640,7 +858,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
             ordinary = {**session_headers, "x-baloot-role": "admin", "x-api-key": "incorrect"}
             narrowed = api.ACCESS_TOKENS.issue(subject_id="fixture-operator", scopes=(Scope.READ,), role="admin")
             signed_admin = api.ACCESS_TOKENS.issue(
-                subject_id="fixture-operator", scopes=(Scope.CONFIG_ADMIN,), role="admin",
+                subject_id="fixture-operator", scopes=(Scope.READ, Scope.CONFIG_ADMIN), role="admin",
             )
             for path in paths:
                 assert current_client.get(path, headers=admin).status_code == 200

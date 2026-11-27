@@ -215,6 +215,8 @@ def test_sqlite_profile_visibility_includes_only_published_rows_for_oidc_runtime
 
     assert content_lookup().revision_id == published_id
     assert store.get_profile(draft_id).revision_id == draft_id
+    assert store.published_profile_hash(published_id, OIDC_PROVIDER_FAMILY) == published["payloadSha256"]
+    assert store.visible_revision_ids("profile", {published_id, draft_id}, "default") == {published_id, draft_id}
     assert store.events("profile", published_id)
     resolution = {"family": OIDC_PROVIDER_FAMILY, "profile_id": "signin", "at_time": "2026-01-01T00:00:00Z"}
     assert oidc_configuration.resolve_profile(**resolution)["revisionId"] == published_id
@@ -225,6 +227,12 @@ def test_sqlite_profile_visibility_includes_only_published_rows_for_oidc_runtime
             assert [row.revision_id for row in rows] == ([published_id] if internal else [])
             assert (store.get_profile(published_id) is not None) is internal
             assert (content_lookup() is not None) is internal
+            assert store.published_profile_hash(published_id, OIDC_PROVIDER_FAMILY) == (
+                published["payloadSha256"] if internal else None
+            )
+            assert store.visible_revision_ids("profile", {published_id, draft_id}, "default") == (
+                {published_id} if internal else set()
+            )
             assert store.get_profile(draft_id) is None
             assert store.events("profile", published_id) == []
             if internal:
