@@ -5,6 +5,7 @@ import {setTimeout as delay} from "node:timers/promises";
 import {bundle} from "@remotion/bundler";
 import {openBrowser, renderMedia, renderStill, selectComposition} from "@remotion/renderer";
 import {bt709FfmpegOverride} from "./ffmpeg-profile.mjs";
+import {trickCollectionSampleFrameRange} from "../src/playback-timing.mjs";
 import {cgroupCpuLimit, governedH264Options, hostSafeConcurrency, readValidatedRenderBundle} from "./render-options.mjs";
 import {createRenderOutput, writeRenderEvidence} from "./render-output.mjs";
 
@@ -21,6 +22,7 @@ const batchRender = process.env.BALOOTX_BATCH_RENDER === "1";
 const playbackEvidence = process.env.BALOOTX_PLAYBACK_EVIDENCE === "1";
 const chromiumOptions = process.platform === "linux" ? {enableMultiProcessOnLinux: true} : undefined;
 const bundleData = readValidatedRenderBundle(inputPath);
+const collectionFrameRange = collectionOnly ? trickCollectionSampleFrameRange(bundleData) : undefined;
 const mediaRenderOptions = governedH264Options(bundleData.render);
 const sampleHostCpu = async () => {
   let previous = cpus();
@@ -80,6 +82,7 @@ await writeRenderEvidence(
 const serveUrl = await bundle({
   entryPoint: path.join(rendererRoot, "src/index.ts"),
   publicDir: assetsRoot,
+  enableCaching: process.env.BALOOTX_DISABLE_BUNDLE_CACHE !== "1",
   onProgress: () => undefined,
 });
 const browser = await openBrowser("chrome", {chromiumOptions});
@@ -203,10 +206,7 @@ if (!stillsOnly) {
   process.stderr.write(`Remotion concurrency ${mediaRenderOptions.concurrency}/${bundleData.render.concurrency} on ${logicalCpus} CPUs (sustained busy ${Math.round(sustainedBusy * 100)}%)\n`);
 }
 if (collectionOnly) {
-  if (!replaySegment) throw new Error("trick collection sample requires a play-decision replay segment");
   const samplePath = path.join(outputDir, "trick-collection-sample.mp4");
-  // In the synthetic CI replay, frame 398 precedes the first collection and frame 423 starts the next play.
-  const sampleOffsets = process.env.BALOOTX_CI_SHORT_COLLECTION_SAMPLE === "true" ? [398, 423] : [362, 432];
   await renderMedia({
     composition,
     serveUrl,
@@ -216,7 +216,7 @@ if (collectionOnly) {
     colorSpace: "bt709",
     ffmpegOverride: bt709FfmpegOverride,
     disallowParallelEncoding: true,
-    frameRange: sampleOffsets.map(offset => replaySegment.startFrame + offset),
+    frameRange: collectionFrameRange,
     overwrite: true,
     chromiumOptions,
     puppeteerInstance: browser,

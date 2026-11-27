@@ -46,3 +46,18 @@ that history. The family and mechanism gates compare against the latest confirme
 post. A family match anywhere in the last 14 posts gives zero variety points.
 The score floor and ranking use the full-precision sum of the score parts. The
 one-decimal score is for display.
+
+### Nightly synthetic pool
+
+The seal considers qualified shard candidates by descending full-precision
+ENGINE-INTEREST score, with ties resolved by ascending candidate ID. It excludes
+any candidate that shares an `exactStateId`, `dealHash`, `scenarioFamily` or
+`visibleOpenerSha256` with an admitted candidate. The seal reports the first
+matching key in that order.
+
+The `NEVER_POST` pool requires at least 14 admitted candidates across at least
+three mechanisms. The seal logs the counts and repeat exclusions even if a
+minimum fails. On success, `candidate-index.json` lists only admitted candidates
+under `candidates` and `qualified`. Its `exclusions` entries record the excluded
+`id`, a `repeat_<key>` reason and the admitted `repeatsId`. Only admitted media is
+copied into the sealed pool.

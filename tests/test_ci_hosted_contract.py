@@ -2,18 +2,28 @@
 import ast
 from importlib.machinery import BYTECODE_SUFFIXES, EXTENSION_SUFFIXES
 import json
+import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
+import sys
 from types import SimpleNamespace
+from xml.etree import ElementTree
 
 import pytest
 import yaml
+from jsonschema import Draft202012Validator, ValidationError
 
 from ci import critical_review
+from ci import review_verdict_poster
 from scripts import ci_scope
 from scripts import run_required_pytest
+from scripts import verify_qa_journey
 import test_v20_asan_verifier_portability as asan_portability
+
+
+NO_QA_JOURNEY = "(!inputs.qa-journey || inputs.qa-journey == 'none')"
 
 
 @pytest.fixture
@@ -50,6 +60,7 @@ def test_codeowners_covers_hosted_ci_and_release_controls(root, codeowners_rules
         "/src/baloot_platform/service/foundry_dashboard/scripts/check-generated-api.mjs",
         "/src/baloot_platform/video/remotion/scripts/", "/scripts/render_remotion_plugin_parity.py",
         "/scripts/render_research_notice.py", "/scripts/render_research_scenario_v4_goldens.py",
+        "/scripts/render_kickoff.py", "/scripts/render-kickoff.json", "/scripts/render-kickoff.schema.json",
         "/scripts/verify_professional_flagship.py", "/scripts/verify_professional_decision_clip.py",
         "/scripts/verify_professional_video_prototypes.py",
         "/scripts/build_reproducible_wheel.py", "/scripts/package_release*.py", "/scripts/verify_release*.py",
@@ -101,6 +112,46 @@ def test_ci_shard_verifiers_use_python_safe_path(root):
     assert all(len(command) >= 3 and ast.unparse(command[1]) == "'-P'" for command in commands)
 
 
+@pytest.fixture
+def commit_identity_policy(root):
+    return json.loads((root / "ci/commit-identities.json").read_bytes())
+
+
+def test_commit_identity_policy_schema(root, commit_identity_policy):
+    policy = commit_identity_policy
+    schema = json.loads((root / "schemas/contracts/commit-identities-v1.schema.json").read_bytes())
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema)
+    validator.validate(policy)
+    rows = policy["identities"]
+    assert len({(row["name"], row["email"]) for row in rows}) == len(rows)
+    _, domain = rows[0]["email"].split("@", 1)
+    test_domain = "example.test"
+    for field, invalid in (
+        ("name", "Fixture *"), ("name", "Fixture Bot\n"),
+        ("email", f"fixture@{test_domain}"), ("email", f"noreply@{test_domain}\n"),
+        ("email", f"fixture@{domain}.{test_domain}"), ("reason", " "),
+    ):
+        with pytest.raises(ValidationError):
+            validator.validate({**policy, "identities": [{**rows[0], field: invalid}]})
+
+
+def test_commit_identity_schema_limits_dependabot_signoff(root, commit_identity_policy):
+    policy = commit_identity_policy
+    schema = json.loads((root / "schemas/contracts/commit-identities-v1.schema.json").read_bytes())
+    validator = Draft202012Validator(schema)
+    scoped, = (row for row in policy["identities"] if row["use"] == "Signed-off-by")
+    assert scoped["name"] == "dependabot[bot]"
+    validator.validate({**policy, "identities": [scoped]})
+    local, domain = scoped["email"].split("@", 1)
+    for field, invalid in (
+        ("use", "all"), ("use", "Co-authored-by"), ("use", "author"), ("use", "committer"),
+        ("name", "Dependabot Fixture"), ("email", f"{local}+fixture@{domain}"),
+    ):
+        with pytest.raises(ValidationError):
+            validator.validate({**policy, "identities": [{**scoped, field: invalid}]})
+
+
 def test_hosted_ci_contract(root):
     workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
     triggers = workflow[True]  # PyYAML's YAML 1.1 spelling of on.
@@ -127,8 +178,9 @@ def test_hosted_ci_contract(root):
                     assert condition.startswith(main_push) and "||" not in condition, name
             assert not step.get("continue-on-error")
     assert jobs["ci-gate"]["name"] == "${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}"
-    assert jobs["plan"]["if"] == (
-        "${{ !inputs.viewer-seat-proof && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}"
+    assert " ".join(jobs["plan"]["if"].split()) == (
+        "${{ !inputs.viewer-seat-proof && " + NO_QA_JOURNEY +
+        " && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}"
     )
     assert jobs["plan"]["steps"][0]["with"]["fetch-depth"] == 2
     assert jobs["plan"]["steps"][-1]["env"] == {
@@ -155,18 +207,23 @@ def test_hosted_ci_contract(root):
         "plan", "preflight", "dependency-review", "python-version-smoke", "python-affected",
     }
     assert set(jobs["ci-gate"]["needs"]) == expected_producers == jobs.keys() - {
-        "ci-gate", "viewer-seat-proof",
+        "ci-gate", "viewer-seat-proof", "qa-journey",
     }
-    assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof }}"
+    assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof && " + NO_QA_JOURNEY + " }}"
     assert jobs["ci-gate"]["permissions"] == {"contents": "read", "pull-requests": "read"}
     review_step = next(step for step in jobs["ci-gate"]["steps"] if "GH_TOKEN" in step.get("env", {}))
     assert review_step["if"] == (
         "(github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'merge_group'"
     )
     assert review_step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert review_step["env"]["REVIEW_BASE"] == "${{ github.event.merge_group.base_sha }}"
+    resolve_base, _ = review_step["run"].split("base_files=", 1)
+    assert 'if [[ "$GITHUB_EVENT_NAME" == pull_request ]]' in resolve_base
+    assert "git rev-parse --verify 'HEAD^1^{commit}'" in resolve_base
     assert 'git show "$REVIEW_BASE:ci/critical_review.py"' in review_step["run"]
     assert 'python3 -I "$RUNNER_TEMP/critical-review.py"' in review_step["run"]
     assert "python3 -I ci/critical_review.py" not in review_step["run"]
+    assert not re.search(r"^\s*exit\s+0\s*$", review_step["run"], re.MULTILINE)
     for name in (
         "plan", "ci-gate", "python-coverage", "python-fast-run", "python-backend-run", "python-heavy",
         "media-inputs", "media-render", "media-release-smoke", "remotion-image-parity",
@@ -174,6 +231,38 @@ def test_hosted_ci_contract(root):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         flags = re.findall(r"\bpython3? ([^;\n]*?)scripts/[\w.]+\.py\b", commands)
         assert flags and all("-P" in options.split() for options in flags), name
+
+
+def test_preflight_requires_an_approved_pull_request_opener(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    step = jobs["preflight"]["steps"][0]
+    assert step["name"] == "Check pull request opener"
+    assert step["if"] == "github.event_name == 'pull_request'"
+    assert step["env"]["PR_OPENER_ID"] == "${{ github.event.pull_request.user.id }}"
+    assert step["env"]["PR_OPENER_TYPE"] == "${{ github.event.pull_request.user.type }}"
+    allowed = step["env"]["ALLOWED_PR_OPENER_IDS"]
+    approved_ids = allowed.split()
+    assert approved_ids and all(account_id.isascii() and account_id.isdecimal() for account_id in approved_ids)
+    command = shlex.split(step["run"])
+    assert command[:3] == ["python3", "-I", "-c"]
+    cases = [(account_id, "Bot", 0) for account_id in approved_ids] + [
+        (approved_ids[0], "User", 1),
+        (approved_ids[0], "", 1),
+        (approved_ids[0][:-1], "Bot", 1),
+        ("", "Bot", 1),
+    ]
+    for opener_id, opener_type, expected in cases:
+        result = subprocess.run(
+            [sys.executable, *command[1:]],
+            env={
+                **os.environ, "ALLOWED_PR_OPENER_IDS": allowed,
+                "PR_OPENER_ID": opener_id, "PR_OPENER_TYPE": opener_type,
+            },
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == expected, result.stderr
+        if expected:
+            assert result.stderr.strip() == "::error::Open this pull request through an approved GitHub App."
 
 
 @pytest.fixture
@@ -188,7 +277,10 @@ def review_history(tmp_path, monkeypatch, root):
     git("remote", "add", "origin", ".")
     policy = tmp_path / critical_review.POLICY_PATH
     policy.parent.mkdir()
-    policy.write_bytes((root / critical_review.POLICY_PATH).read_bytes())
+    config = json.loads((root / critical_review.POLICY_PATH).read_bytes())
+    config["reviewerAccountIds"] = [1001]
+    policy.write_text(json.dumps(config), encoding="utf-8")
+    (policy.parent / "critical_review.py").write_bytes((root / "ci/critical_review.py").read_bytes())
     kickoff = tmp_path / "scripts/render_kickoff.py"
     kickoff.parent.mkdir()
     kickoff.write_text("base content\n", encoding="utf-8")
@@ -196,6 +288,15 @@ def review_history(tmp_path, monkeypatch, root):
     git("commit", "-qm", "base")
     base = git("rev-parse", "HEAD").decode().strip()
     monkeypatch.setattr(critical_review, "git", git)
+    monkeypatch.setattr(review_verdict_poster, "git", git)
+    load_review = review_verdict_poster.load_review
+
+    def load_fixture_review(base):
+        evaluate = load_review(base)
+        evaluate.__globals__.update(git=git, github=critical_review.github)
+        return evaluate
+
+    monkeypatch.setattr(review_verdict_poster, "load_review", load_fixture_review)
 
     def commit(path, followup=None, remove=False, squash=False):
         git("switch", "-qc", "topic")
@@ -219,7 +320,10 @@ def review_history(tmp_path, monkeypatch, root):
             git("commit", "-qm", "queued change")
         else:
             git("merge", "--no-ff", "topic", "-m", "PR merge")
-        return base, reviewed, head, git("rev-parse", "HEAD").decode().strip()
+        candidate = git("rev-parse", "HEAD").decode().strip()
+        ref = f"refs/heads/gh-readonly-queue/main/pr-104-{base}" if squash else "refs/pull/104/merge"
+        git("update-ref", ref, candidate)
+        return base, reviewed, head, candidate
 
     return commit
 
@@ -236,7 +340,9 @@ def review_history(tmp_path, monkeypatch, root):
     ("scripts/render-kickoff.json", None, False, ("VERDICT: NO_GO {head}", "VERDICT: GO {head}"), False, None),
     ("scripts/render-kickoff.json", None, False, ("VERDICT: GO {head}", "VERDICT: GO ffffffff"), False, "malformed VERDICT"),
     ("scripts/render-kickoff.json", None, False, ("PR #104 verdict GO on {head}",), False, "needs a VERDICT"),
+    ("scripts/render-kickoff.schema.json", None, False, (), False, "needs a VERDICT"),
     ("ci/critical-paths.json", None, False, (), False, "needs a VERDICT"),
+    ("ci/critical_review.py", None, False, (), False, "needs a VERDICT"),
     ("README.md", None, False, (), False, None),
 ])
 def test_critical_review_on_pull_request(review_history, monkeypatch, path, followup, remove, records, other_verdict, error):
@@ -272,6 +378,42 @@ def test_critical_review_on_pull_request(review_history, monkeypatch, path, foll
             critical_review.check(*args)
     else:
         critical_review.check(*args)
+    state, reason = review_verdict_poster.decision(
+        repo, "main", {"number": 104, "headRefOid": head, "baseRefOid": base}, "refs/heads/main", args[3], candidate,
+    )
+    if error:
+        assert state == "failure" and error in reason
+    else:
+        assert state == "success"
+
+
+def test_pull_request_review_uses_merge_base_and_binds_head(review_history, monkeypatch):
+    path = "scripts/render_kickoff.py"
+    base, _, head, candidate = review_history(path)
+    pr = {"number": 104, "base": {"sha": "f" * 40}, "head": {"sha": head}}
+    endpoint = "repos/test/example/pulls/104"
+
+    def github(*args):
+        if args == (endpoint,):
+            return {**pr, "state": "open", "changed_files": 1}
+        if args == ("--paginate", "--slurp", f"{endpoint}/files?per_page=100"):
+            return [[{"filename": path, "status": "modified"}]]
+        assert args == ("--paginate", "--slurp", "repos/test/example/issues/104/comments?per_page=100")
+        return []
+
+    monkeypatch.setattr(critical_review, "github", github)
+    args = ("pull_request", {"pull_request": pr}, "test/example", "refs/pull/104/merge", candidate)
+    with pytest.raises(ValueError, match="needs a VERDICT"):
+        critical_review.check(*args)
+    state, reason = review_verdict_poster.decision(
+        args[2], "main", {"number": 104, "headRefOid": head, "baseRefOid": pr["base"]["sha"]},
+        "refs/heads/main", args[3], candidate,
+    )
+    assert state == "failure" and "needs a VERDICT" in reason
+
+    pr["head"]["sha"] = base
+    with pytest.raises(ValueError, match="second parent.*Update the PR branch"):
+        critical_review.check(*args)
 
 
 def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatch):
@@ -280,7 +422,7 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
     ref = f"refs/heads/gh-readonly-queue/main/pr-104-{base}"
     event = {"merge_group": {"base_ref": "refs/heads/main", "base_sha": base, "head_ref": ref, "head_sha": candidate}}
     entry = {"baseCommit": {"oid": base}, "headCommit": {"oid": candidate}}
-    pr = {"mergeQueueEntry": entry, "headRefOid": head}
+    pr = {"mergeQueueEntry": entry, "headRefOid": head, "baseRefOid": base}
     comment = {"user": {"id": next(iter(reviewer_ids))}, "body": f"VERDICT: GO {base}"}
     snapshot = {"number": 104, "state": "open", "head": {"sha": head}, "base": {"sha": base}, "changed_files": 1}
     files = [{"filename": "scripts/render-kickoff.json", "status": "added"}]
@@ -303,6 +445,17 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
         critical_review.check(*args)
     comment["body"] = f"VERDICT: GO {head}"
     critical_review.check(*args)
+    assert review_verdict_poster.decision(
+        "test/example", "main", {"number": 104, **pr}, "refs/heads/main", ref, candidate, queue=True,
+    )[0] == "success"
+    state, reason = review_verdict_poster.decision(
+        "test/example", "main", {"number": 104, **pr, "headRefOid": "f" * 40},
+        "refs/heads/main", ref, candidate, queue=True,
+    )
+    assert state == "failure" and "discovered queue head" in reason
+    files[0]["filename"] = "ci/fixture.json"
+    with pytest.raises(ValueError, match="absent from both the PR base and head"):
+        critical_review.check(*args)
     files[0]["filename"] = "README.md"
     critical_review.check(*args)
     snapshot["changed_files"] = 2
@@ -313,6 +466,325 @@ def test_critical_review_binds_queue_entry_to_pr_head(review_history, monkeypatc
         critical_review.check(*args)
     with pytest.raises(ValueError, match="Merge-group ref"):
         critical_review.check("merge_group", event, "test/example", "refs/heads/main", candidate)
+
+
+def test_critical_review_rejects_wrong_queue_parent(review_history):
+    base, _, head, candidate = review_history("scripts/render-kickoff.json")
+    ref = f"refs/heads/gh-readonly-queue/main/pr-104-{base}"
+    wrong = critical_review.git("commit-tree", f"{candidate}^{{tree}}", "-p", head, "-m", "wrong parent").decode().strip()
+    critical_review.git("update-ref", ref, wrong)
+    critical_review.git("update-ref", "--no-deref", "HEAD", wrong)
+    event = {"merge_group": {"base_ref": "refs/heads/main", "base_sha": base, "head_ref": ref, "head_sha": wrong}}
+    with pytest.raises(ValueError, match="base parent"):
+        critical_review.evaluate("merge_group", event, "test/example", ref, wrong)
+    pr = {"number": 104, "headRefOid": head, "baseRefOid": base, "mergeQueueEntry": {"baseCommit": {"oid": base}}}
+    state, reason = review_verdict_poster.decision(
+        "test/example", "main", pr, "refs/heads/main", ref, wrong, queue=True,
+    )
+    assert state == "failure" and "base parent" in reason
+
+
+def test_poster_waits_for_current_pr_merge_parents(review_history):
+    _, _, _, candidate = review_history("README.md")
+    state, reason = review_verdict_poster.decision(
+        "test/example", "main", {"number": 104, "headRefOid": "f" * 40},
+        "refs/heads/main", "refs/pull/104/merge", candidate,
+    )
+    assert state == "pending" and "test merge" in reason
+
+
+def test_poster_does_not_load_a_base_outside_main(review_history, monkeypatch):
+    base, _, head, candidate = review_history("README.md")
+    git = critical_review.git
+    git("update-ref", "refs/heads/main", base)
+    merge = git("commit-tree", f"{candidate}^{{tree}}", "-p", head, "-p", base, "-m", "retargeted").decode().strip()
+    ref = "refs/pull/104/merge"
+    git("update-ref", ref, merge)
+
+    def load_review(_):
+        pytest.fail("Loaded a review evaluator from an untrusted base")
+
+    monkeypatch.setattr(review_verdict_poster, "load_review", load_review)
+    assert review_verdict_poster.decision(
+        "test/example", "main", {"number": 104, "headRefOid": base, "baseRefOid": base},
+        "refs/heads/main", ref, merge,
+    )[0] == "pending"
+
+
+@pytest.mark.parametrize(("error", "state"), [
+    (subprocess.CalledProcessError(1, "gh api"), "pending"),
+    (subprocess.TimeoutExpired("gh api", 30), "pending"),
+    (json.JSONDecodeError("invalid response", "", 0), "pending"),
+    (None, "failure"),
+])
+def test_poster_fails_closed_on_api_error_or_moved_snapshot(review_history, monkeypatch, error, state):
+    base, _, head, candidate = review_history("scripts/render-kickoff.json")
+    ref = "refs/pull/104/merge"
+    snapshot = {"number": 104, "state": "open", "head": {"sha": head}, "base": {"sha": base}, "changed_files": 1}
+
+    def github(*args):
+        if error:
+            raise error
+        if args == ("repos/test/example/pulls/104",):
+            return snapshot
+        assert args == ("--paginate", "--slurp", "repos/test/example/pulls/104/files?per_page=100")
+        snapshot["head"] = {"sha": "f" * 40}
+        return [[{"filename": "scripts/render-kickoff.json", "status": "added"}]]
+
+    monkeypatch.setattr(critical_review, "github", github)
+    result = review_verdict_poster.decision(
+        "test/example", "main", {"number": 104, "headRefOid": head, "baseRefOid": base},
+        "refs/heads/main", ref, candidate,
+    )
+    assert result[0] == state
+    if error:
+        assert result[1] == f"Verdict not re-checked: {type(error).__name__}"
+    else:
+        assert "snapshot is incomplete or has moved" in result[1]
+
+
+@pytest.mark.parametrize(("change", "replacement"), [
+    ("edit", "failure"),
+    ("delete", "failure"),
+    ("body disagreement", "pending"),
+    ("offset shift", "pending"),
+    ("cursor drift", "pending"),
+    ("missing receipt", "pending"),
+    ("identity drift", "pending"),
+    ("retarget during files", "pending"),
+    ("dequeue during files", "pending"),
+    ("dequeue during history", "pending"),
+    ("retarget during failed history", "pending"),
+    ("retarget cached", "pending"),
+    ("dequeue cached", "pending"),
+    ("requeue cached", "pending"),
+    ("identity read error", "pending"),
+])
+def test_poster_replaces_both_successes_when_review_inputs_change(review_history, monkeypatch, change, replacement):
+    path = "scripts/render-kickoff.json"
+    base, _, head, queued = review_history(path, squash=True)
+    git = critical_review.git
+    merge = git("commit-tree", f"{queued}^{{tree}}", "-p", base, "-p", head, "-m", "test merge").decode().strip()
+    git("update-ref", "refs/pull/104/merge", merge)
+    bot_id = 1001
+    pr = {"number": 104, "headRefOid": head, "baseRefOid": base, "mergeQueueEntry": {
+        "id": "fixture-queue", "baseCommit": {"oid": base}, "headCommit": {"oid": queued},
+    }}
+    endpoint = "repos/test/example"
+    clock = SimpleNamespace(now=0)
+    writes = []
+    file_reads = []
+    moved = False
+    reevaluate = change.endswith(("during files", "during history", "during failed history"))
+    cached_drift = change.endswith("cached")
+    verdict_id = 101 if change == "body disagreement" else 100
+    unrelated = {"id": 1002, "node_id": "fixture-user"}
+    reviewer = {"id": bot_id, "node_id": "fixture-reviewer"}
+
+    def comments(rest=False):
+        rows = [{"id": index, "user": unrelated, "body": "Unrelated comment"} for index in range(1, 103)]
+        rows[verdict_id - 1] = {"id": verdict_id, "user": reviewer, "body": f"VERDICT: GO {head}"}
+        if clock.now >= 30:
+            if change == "edit" or (rest and change == "body disagreement"):
+                rows[verdict_id - 1]["body"] = f"VERDICT: NO_GO {head}"
+            if change == "delete" or (rest and change == "offset shift"):
+                rows.pop(verdict_id - 1)
+            if reevaluate:
+                rows[-1]["body"] = "Changed unrelated comment"
+        return rows
+
+    def graph_page(after=0):
+        rows = comments()
+        return {
+            "totalCount": len(rows) - (clock.now >= 30 and change == "cursor drift" and after != 0),
+            "pageInfo": {"hasNextPage": after == 0, "endCursor": "fixture-page-2"},
+            "nodes": [
+                {"fullDatabaseId": str(row["id"]), "body": row["body"], "author": {"id": row["user"]["node_id"]}}
+                for row in rows[after:after + 100]
+            ],
+        }
+
+    def github(*args):
+        nonlocal moved
+        if args[:3] == ("--paginate", "--slurp", "graphql"):
+            assert args[4] == f"query={review_verdict_poster.QUERY}"
+            return [{"data": {"repository": {"pullRequests": {"nodes": [pr]}}}}]
+        if args[0] == "graphql":
+            if args[2] == f"query={review_verdict_poster.COMMENTS}":
+                assert args[-1] in ("number=104", "cursor=fixture-page-2")
+                after = 100 if args[-1].startswith("cursor=") else 0
+                snapshot = {**pr, "state": "OPEN", "baseRefName": "main"}
+                if clock.now < 30 or change != "missing receipt":
+                    snapshot["comments"] = graph_page(after)
+                if clock.now >= 30 and change == "identity drift" and after:
+                    snapshot["headRefOid"] = "f" * 40
+                return {"data": {"repository": {"pullRequest": snapshot}}}
+            if args[2] == f"query={review_verdict_poster.IDENTITY}":
+                snapshot = {**pr, "state": "OPEN", "baseRefName": "main"}
+                if 30 <= clock.now < 60:
+                    if change == "identity read error":
+                        raise subprocess.TimeoutExpired("gh api graphql", 30)
+                    if moved or cached_drift:
+                        if change.startswith("retarget"):
+                            snapshot["baseRefName"] = "another-branch"
+                        elif change == "requeue cached":
+                            snapshot["mergeQueueEntry"] = {**pr["mergeQueueEntry"], "id": "fixture-requeue"}
+                        else:
+                            snapshot["mergeQueueEntry"] = None
+                return {"data": {"repository": {"pullRequest": snapshot}}}
+            return {"data": {"repository": {"pullRequest": pr}}}
+        if args == (f"{endpoint}/pulls/104",):
+            return {"number": 104, "state": "open", "head": {"sha": head}, "base": {"sha": base}, "changed_files": 1}
+        if args[-1] == f"{endpoint}/pulls/104/files?per_page=100":
+            file_reads.append(clock.now // 30)
+            if change.endswith("during files") and file_reads.count(1) == 2:
+                moved = True
+            return [[{"filename": path, "status": "added"}]]
+        if args[-1] == f"{endpoint}/issues/104/comments?per_page=100":
+            rows = comments(rest=True)
+            return [rows[:100], rows[100:]]
+        if args[:2] == ("--method", "POST"):
+            writes.append((args[2].rsplit("/", 1)[1], args[6].removeprefix("state="), args[8]))
+            return {}
+        target = args[-1].split("/")[-2]
+        assert args[-1] == f"{endpoint}/commits/{target}/statuses?per_page=100"
+        if 30 <= clock.now < 60 and change.endswith(("during history", "during failed history")):
+            moved = True
+            if change == "retarget during failed history":
+                raise subprocess.CalledProcessError(1, "status history")
+        return [[{"creator": {"id": bot_id}, "context": "review-verdict", "state": state}
+                 for sha, state, _ in reversed(writes) if sha == target]]
+
+    monkeypatch.setattr(critical_review, "github", github)
+    monkeypatch.setattr(review_verdict_poster, "github", github)
+    monkeypatch.setattr(review_verdict_poster, "time", SimpleNamespace(
+        monotonic=lambda: clock.now, sleep=lambda delay: setattr(clock, "now", clock.now + delay),
+    ))
+    review_verdict_poster.poll("test/example", "main", "https://github.example", bot_id, seconds=61 if cached_drift else 31)
+    expected = [
+        (head, "success"), (queued, "success"), (head, replacement), (queued, replacement),
+    ]
+    if cached_drift:
+        expected.extend([(head, "success"), (queued, "success")])
+        assert file_reads == [0, 0, 2, 2]
+    if change.endswith("during files"):
+        assert file_reads == [0, 0, 1, 1]
+    assert [(sha, state) for sha, state, _ in writes] == expected, writes
+
+
+@pytest.mark.parametrize("fault", ["first comments page", "merge refs", "missing queue base"])
+def test_poster_blocks_discovered_targets_on_cold_start_read_error(monkeypatch, fault):
+    head, queued, base = "a" * 40, "b" * 40, "c" * 40
+    bot_id = 1001
+    pr = {"number": 104, "headRefOid": head, "baseRefOid": base, "mergeQueueEntry": {
+        "headCommit": {"oid": queued}, "baseCommit": None if fault == "missing queue base" else {"oid": base},
+    }}
+    clock = SimpleNamespace(now=0)
+    reads, writes = [], []
+
+    def git(*args):
+        if args[0] == "ls-remote":
+            if fault == "merge refs":
+                raise subprocess.TimeoutExpired("git ls-remote", 10)
+            return f"{base}\trefs/heads/main\n".encode()
+        assert args == ("rev-parse", "refs/heads/main")
+        return base.encode()
+
+    def github(*args):
+        if args[:3] == ("--paginate", "--slurp", "graphql"):
+            assert args[4] == f"query={review_verdict_poster.QUERY}"
+            assert "comments(" not in args[4]
+            reads.append("targets")
+            return [{"data": {"repository": {"pullRequests": {"nodes": [pr]}}}}]
+        if args[0] == "graphql":
+            assert args[2] == f"query={review_verdict_poster.COMMENTS}"
+            assert args[-2:] == ("-F", "number=104")
+            reads.append("first comments page")
+            raise subprocess.CalledProcessError(1, "gh api graphql")
+        if args[:2] == ("--paginate", "--slurp"):
+            assert args[-1] in {f"repos/test/example/commits/{sha}/statuses?per_page=100" for sha in (head, queued)}
+            return [[{"creator": {"id": bot_id}, "context": "review-verdict", "state": "success"}]]
+        assert args[:2] == ("--method", "POST")
+        writes.append((args[2], args[6], args[-1]))
+        return {}
+
+    monkeypatch.setattr(review_verdict_poster, "git", git)
+    monkeypatch.setattr(review_verdict_poster, "github", github)
+    monkeypatch.setattr(review_verdict_poster, "decision", lambda *args, **kwargs: pytest.fail("Evaluated an incomplete snapshot"))
+    monkeypatch.setattr(review_verdict_poster, "time", SimpleNamespace(
+        monotonic=lambda: clock.now, sleep=lambda delay: setattr(clock, "now", clock.now + delay),
+    ))
+    review_verdict_poster.poll("test/example", "main", "https://github.example", bot_id, seconds=1)
+    assert reads == (["targets"] if fault == "merge refs" else ["targets", "first comments page"])
+    assert writes == [
+        (f"repos/test/example/statuses/{sha}", "state=pending", "target_url=https://github.example/test/example/pull/104")
+        for sha in (head, queued)
+    ]
+
+
+@pytest.mark.parametrize(("state", "retire_queue"), [
+    ("pending", False), ("failure", False), ("success", False), ("pending", True),
+])
+def test_status_history_error_only_allows_blocking_writes_and_retries_failed_post(monkeypatch, state, retire_queue):
+    head, queued = "a" * 40, "b" * 40
+    pr = {"number": 104}
+    found = {head: [(pr, False)], queued: [(pr, True)]}
+    clock = SimpleNamespace(now=0)
+    writes = []
+
+    def github(*args):
+        if args[:2] == ("--paginate", "--slurp"):
+            raise subprocess.CalledProcessError(1, "status history")
+        assert args[:2] == ("--method", "POST")
+        sha = args[2].rsplit("/", 1)[1]
+        assert args[6] == f"state={state}"
+        writes.append(sha)
+        if writes.count(sha) == 1:
+            raise subprocess.CalledProcessError(1, "status post")
+        return {}
+
+    monkeypatch.setattr(
+        review_verdict_poster, "targets", lambda *args: {head: found[head]} if retire_queue and clock.now >= 30 else found,
+    )
+    monkeypatch.setattr(review_verdict_poster, "merge_refs", lambda *args: {})
+    monkeypatch.setattr(review_verdict_poster, "comment_snapshot", lambda *args: [])
+    monkeypatch.setattr(review_verdict_poster, "read_pr", lambda *args: pr)
+    monkeypatch.setattr(review_verdict_poster, "decision", lambda *args, **kwargs: (state, "fixture result"))
+    monkeypatch.setattr(review_verdict_poster, "github", github)
+    monkeypatch.setattr(review_verdict_poster, "time", SimpleNamespace(
+        monotonic=lambda: clock.now, sleep=lambda delay: setattr(clock, "now", clock.now + delay),
+    ))
+    review_verdict_poster.poll("test/example", "main", "https://github.example", 1001, seconds=31)
+    assert writes == ([] if state == "success" else [head, queued, head, queued])
+
+
+@pytest.mark.parametrize(("previous", "state", "posts"), [
+    (None, "success", True),
+    (None, "failure", True),
+    ("success", "pending", True),
+    ("failure", "pending", False),
+    ("failure", "failure", False),
+])
+def test_poster_uses_only_its_own_previous_status(monkeypatch, previous, state, posts):
+    repo, target, bot_id = "test/example", "a" * 40, 1001
+    endpoint = f"repos/{repo}"
+    sent = []
+
+    def github(*args):
+        if args == ("--paginate", "--slurp", f"{endpoint}/commits/{target}/statuses?per_page=100"):
+            workflow_status = {"context": "review-verdict", "state": "success", "creator": {"id": 1002}}
+            app_status = {**workflow_status, "state": previous, "creator": {"id": bot_id}}
+            return [[workflow_status], [app_status] if previous else []]
+        sent.append(args)
+
+    monkeypatch.setattr(review_verdict_poster, "github", github)
+    monkeypatch.setattr(review_verdict_poster, "time", SimpleNamespace(sleep=lambda seconds: None))
+    review_verdict_poster.publish(repo, "https://github.example", bot_id, 104, target, state, "reason")
+    assert sent == ([(
+        "--method", "POST", f"{endpoint}/statuses/{target}",
+        "-f", "context=review-verdict", "-f", f"state={state}", "-f", "description=reason",
+        "-f", f"target_url=https://github.example/{repo}/pull/104",
+    )] if posts else [])
 
 
 def _assert_single_ci_check_producers(workflows):
@@ -329,6 +801,132 @@ def _assert_single_ci_check_producers(workflows):
     for check, producers in expected.items():
         actual = [source for source, name in names.items() if check in name]
         assert actual == producers, f"{check} producers: expected {producers}, found {actual}"
+
+
+def test_qa_journey_dispatch_rejects_unknown_and_conflicting_choices(root, monkeypatch):
+    workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
+    option = workflow[True]["workflow_dispatch"]["inputs"]["qa-journey"]
+    journeys = ["foundry", "api-sdk", "replay-adjudication", "clip-render-bundle"]
+    assert option["type"] == "choice" and option["default"] == "none"
+    assert option["options"] == ["none", *journeys]
+    job = workflow["jobs"]["qa-journey"]
+    assert job["if"] == (
+        "${{ github.event_name == 'workflow_dispatch' && inputs.qa-journey && inputs.qa-journey != 'none' }}"
+    )
+    steps = {step.get("name"): step for step in job["steps"]}
+    assert "go test -count=1 -json ./..." in steps["Exercise Go SDK"]["run"]
+    assert 'verify_qa_journey.py go "$RUNNER_TEMP/qa-journey/go.jsonl"' in steps["Exercise Go SDK"]["run"]
+    assert all("runner." not in value for value in job["env"].values())
+    source = steps["Bind evidence to the dispatched source"]
+    browser = steps["Exercise Foundry authoring and research on desktop and mobile"]
+    output_step = steps["Set the Foundry Playwright output directory"]
+    foundry_steps = workflow["jobs"]["foundry"]["steps"]
+    assert any(step is output_step for step in foundry_steps)
+    output_dir = f"${{{{ steps.{output_step['id']}.outputs.path }}}}"
+    suite = next(step for step in foundry_steps if step.get("name") == "Run Foundry Playwright suite")
+    assert (
+        source["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+        == browser["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+        == suite["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+        == output_dir
+    )
+    assert (
+        "printf 'foundry-screenshots=%s/*/alternate-first-result-*.png\\n' "
+        '"$BALOOT_OPERATOR_E2E_OUTPUT_DIR" >> "$GITHUB_OUTPUT"'
+    ) in source["run"]
+    assert "--output" not in browser["run"]
+    foundry = steps["Verify Foundry journey evidence"]
+    assert '"$FOUNDRY_JOURNEY_SCREENSHOTS"' in foundry["run"]
+    screenshots = steps["Upload Foundry journey screenshots"]["with"]
+    assert screenshots["path"] == foundry["env"]["FOUNDRY_JOURNEY_SCREENSHOTS"] == "${{ steps.source.outputs.foundry-screenshots }}"
+    assert screenshots["if-no-files-found"] == "error"
+    validation = job["steps"][0]
+    assert validation["shell"] == "python"
+    validate = compile(validation["run"], "QA journey dispatch validation", "exec")
+    monkeypatch.setenv("VIEWER_SEAT_PROOF", "false")
+    for journey in journeys:
+        monkeypatch.setenv("QA_JOURNEY", journey)
+        exec(validate, {})
+    for journey in ("", "none", "unknown", "foundry; exit 0"):
+        monkeypatch.setenv("QA_JOURNEY", journey)
+        with pytest.raises(SystemExit, match="Select a declared QA journey"):
+            exec(validate, {})
+    monkeypatch.setenv("QA_JOURNEY", "foundry")
+    monkeypatch.setenv("VIEWER_SEAT_PROOF", "true")
+    with pytest.raises(SystemExit, match="Turn off viewer-seat-proof"):
+        exec(validate, {})
+
+
+@pytest.mark.parametrize("defect", [None, "skipped", "failed", "missing", "repeated", "no-package-pass", "cached"])
+def test_go_qa_journey_requires_complete_uncached_test_and_package_results(tmp_path, defect):
+    verifier = verify_qa_journey
+    rows = [{"Action": "start"}]
+    for name in verifier.GO_TESTS[1:]:
+        rows.extend({"Action": action, "Test": name} for action in ("run", "pass"))
+    phases = {
+        "skipped": ("run", "skip"), "failed": ("run", "fail"), "missing": (),
+        "repeated": ("run", "pass", "run", "pass"),
+    }.get(defect, ("run", "pass"))
+    rows.extend({"Action": action, "Test": verifier.GO_TESTS[0]} for action in phases)
+    if defect == "cached":
+        rows.append({"Action": "output", "Output": f"ok  \t{verifier.GO_PACKAGE}\t(cached)\n"})
+    if defect != "no-package-pass":
+        rows.append({"Action": "pass"})
+    receipt = tmp_path / "go.jsonl"
+    receipt.write_text("\n".join(json.dumps({"Package": verifier.GO_PACKAGE, **row}) for row in rows))
+    if defect is None:
+        verifier.verify_go(receipt)
+    else:
+        with pytest.raises(ValueError, match="Go SDK"):
+            verifier.verify_go(receipt)
+
+
+@pytest.mark.parametrize("defect,message", [
+    (None, ""),
+    ("skipped", "complete passing browser results"),
+    ("failure", "incomplete browser result"),
+    ("error", "incomplete browser result"),
+    ("missing-project", "one suite for each journey project"),
+    ("wrong-test", "requires the named journey"),
+    ("missing-screenshot", "three screenshots per browser project"),
+    ("wrong-view", "screenshot set differs"),
+    ("wrong-project", "screenshot set differs"),
+])
+def test_foundry_qa_journey_requires_the_named_test_and_screenshot_set(tmp_path, defect, message):
+    verifier = verify_qa_journey
+    counts = {"errors": "0", "failures": "0", "skipped": "0"}
+    report = ElementTree.Element("testsuites", tests="2", **counts)
+    for project in sorted(verifier.FOUNDRY_PROJECTS):
+        suite = ElementTree.SubElement(report, "testsuite", hostname=project, tests="1", **counts)
+        case = ElementTree.SubElement(suite, "testcase", name=verifier.FOUNDRY_TEST, classname=verifier.FOUNDRY_SPEC)
+        directory = tmp_path / f"operator-journey-{project}"
+        directory.mkdir()
+        for name in sorted(verifier.FOUNDRY_SCREENSHOTS):
+            screenshot = directory / name
+            screenshot.write_bytes(verifier.PNG_SIGNATURE + b"synthetic")
+    if defect == "skipped":
+        suite.set("skipped", "1")
+        ElementTree.SubElement(case, "skipped")
+    elif defect in {"failure", "error"}:
+        ElementTree.SubElement(case, defect)
+    elif defect == "missing-project":
+        report.remove(suite)
+    elif defect == "wrong-test":
+        case.set("name", "different browser case")
+    elif defect == "missing-screenshot":
+        screenshot.unlink()
+    elif defect == "wrong-view":
+        screenshot.rename(directory / "alternate-first-result-other.png")
+    elif defect == "wrong-project":
+        directory.rename(tmp_path / "operator-journey-wrong-chrome")
+    receipt = tmp_path / "foundry.xml"
+    ElementTree.ElementTree(report).write(receipt, encoding="utf-8")
+    screenshot_glob = str(tmp_path / "*" / "alternate-first-result-*.png")
+    if defect is None:
+        verifier.verify_foundry(receipt, screenshot_glob)
+    else:
+        with pytest.raises(ValueError, match=message):
+            verifier.verify_foundry(receipt, screenshot_glob)
 
 
 def test_ci_check_names_have_single_producers(root):
@@ -359,6 +957,85 @@ def test_workflow_only_cancels_superseded_runs_of_the_same_pr(root):
     assert all("concurrency" not in job for job in workflow["jobs"].values())
 
 
+def test_foundry_reuses_the_locked_browser_and_system_packages(root):
+    job = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]["foundry"]
+    assert job["timeout-minutes"] == 10
+    steps = job["steps"]
+    identity = next(step for step in steps if step.get("id") == "playwright-runtime")
+    restore = next(step for step in steps if step.get("id") == "playwright-cache")
+    install = next(step for step in steps if step.get("id") == "playwright-install")
+    save = steps[steps.index(install) + 1]
+    assert "require('./package-lock.json').packages['node_modules/playwright'].version" in identity["run"]
+    assert "$RUNNER_ARCH-${ImageVersion:?}-playwright-chromium-v2-$version" in identity["run"]
+    assert restore["with"] == save["with"] == {
+        "key": "${{ steps.playwright-runtime.outputs.key }}",
+        "path": (
+            "${{ runner.temp }}/playwright-browsers\n"
+            "${{ runner.temp }}/playwright-debs/*.deb\n"
+            "${{ runner.temp }}/playwright-debs/inventory.json\n"
+        ),
+    }
+    assert restore["uses"].startswith("actions/cache/restore@")
+    assert save["uses"].startswith("actions/cache/save@")
+    assert save["if"] == (
+        "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
+        "steps.playwright-cache.outputs.cache-hit != 'true'"
+    )
+    offline, cold = install["run"].split("\nelse\n", 1)
+    assert install["env"]["CACHE_HIT"] == "${{ steps.playwright-cache.outputs.cache-hit }}"
+    assert 'inventory="$GITHUB_WORKSPACE/ci/playwright_archive_inventory.py"' in offline
+    assert offline.index('python -I "$inventory" verify "$RUNNER_TEMP/playwright-debs"') < offline.index("apt-get ")
+    assert 'packages=("$RUNNER_TEMP"/playwright-debs/*.deb)' in offline
+    assert offline.count("apt-get ") == 1
+    assert "sudo env DEBIAN_FRONTEND=noninteractive apt-get" in offline
+    assert "--yes --no-download --no-remove --no-install-recommends" in offline
+    assert '-o Dir::Cache::archives="$RUNNER_TEMP/playwright-debs" install "${packages[@]}"' in offline
+    assert not any(option in offline for option in ("dpkg ", "--ignore-missing", "--fix-missing"))
+    assert "playwright install" not in offline
+    assert cold.index("playwright install --with-deps chromium") < cold.index(
+        'python -I "$inventory" seal "$RUNNER_TEMP/playwright-debs"'
+    ) < cold.index("\nfi\n")
+    assert cold.index("\nfi\n") < cold.index(".chromium.launch()")
+
+
+@pytest.mark.parametrize("case", ["absent", "truncated", "missing", "changed", "extra", "empty", "valid"])
+def test_foundry_archive_inventory_requires_exact_names_and_bytes(root, tmp_path, case):
+    script = root / "ci/playwright_archive_inventory.py"
+
+    def run(action):
+        return subprocess.run(
+            [sys.executable, "-I", str(script), action, str(tmp_path)],
+            capture_output=True, text=True, timeout=10,
+        )
+
+    standalone = tmp_path / "fonts-standalone_1_all.deb"
+    if case not in {"absent", "empty"}:
+        (tmp_path / "libasound2-data_1_all.deb").write_bytes(b"data archive")
+        (tmp_path / "libasound2t64_1_amd64.deb").write_bytes(b"library archive")
+        standalone.write_bytes(b"font archive")
+    manifest = tmp_path / "inventory.json"
+    if case != "absent":
+        sealed = run("seal")
+        assert sealed.returncode == 0, sealed.stderr
+    if case == "truncated":
+        manifest.write_bytes(b"{")
+    elif case == "missing":
+        standalone.unlink()
+    elif case == "changed":
+        standalone.write_bytes(b"FONT ARCHIVE")
+    elif case == "extra":
+        (tmp_path / "extra_1_all.deb").write_bytes(b"extra archive")
+    elif case == "empty":
+        assert manifest.read_bytes() == b"{}\n"
+
+    verified = run("verify")
+    if case in {"empty", "valid"}:
+        assert verified.returncode == 0, verified.stderr
+    else:
+        assert verified.returncode == 1, verified.stderr
+        assert "Playwright package cache inventory" in verified.stderr
+
+
 def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
     parity = jobs["remotion-image-parity"]
@@ -366,7 +1043,7 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert parity["if"] == "needs.plan.outputs.video_worker == 'true'"
     assert jobs["plan"]["outputs"]["video_worker"] == "${{ steps.plan.outputs.video_worker }}"
     assert "remotion-image-parity" in jobs["media-render"]["needs"]
-    checkout, restore, build, check, save = parity["steps"]
+    checkout, restore, build, check, check_checkout, save = parity["steps"]
     assert checkout["with"]["persist-credentials"] is False
     assert restore["with"] == save["with"]
     assert all(path in restore["with"]["key"] for path in (
@@ -381,6 +1058,24 @@ def test_remotion_image_parity_builds_and_checks_the_video_worker(root):
     assert "python -P scripts/remotion_image_parity.py /opt/baloot-remotion/node_modules package-lock.json" in check["run"]
     assert "target=/check/package-lock.json,readonly" in check["run"]
     assert "target=/check/scripts/remotion_image_parity.py,readonly" in check["run"]
+    assert "sudo chown -R 10001" in check_checkout["run"]
+    assert "docker run --rm --network none --read-only --workdir /checkout" in check_checkout["run"]
+    assert "target=/checkout,readonly" in check_checkout["run"]
+    assert "target=/receipts,readonly" in check_checkout["run"]
+    assert 'test "$(id -u)" -eq 10001' in check_checkout["run"]
+    assert "notice.main(source_head=head, source_tree=tree)" in check_checkout["run"]
+    assert 'run_producer("wrong", source_tree, source_tree)' in check_checkout["run"]
+    checkout_run = check_checkout["run"]
+    assert "checkout_renderer = notice.STYLE.parents[1]" in checkout_run
+    assert 'assert not (checkout_renderer / "node_modules").exists()' in checkout_run
+    assert (
+        'for asset in ("scripts/ffmpeg-runtime.json", "src/style.css", "src/playback-timing.mjs"):\n'
+        "    assert (WORKER_RENDERER_ROOT / asset).read_bytes()"
+        " == (checkout_renderer / asset).read_bytes(), asset"
+    ) in checkout_run
+    assert "import './scripts/ffmpeg-profile.mjs'; import './src/playback-timing.mjs';" in checkout_run
+    assert "cwd=WORKER_RENDERER_ROOT, check=True" in checkout_run
+    assert "safe.directory" not in checkout_run
     dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
     assert re.fullmatch(r"FROM python:3\.13-slim@sha256:[0-9a-f]{64} AS python-base", dockerfile.splitlines()[0])
     assert jobs["python-wheelhouse"]["strategy"]["matrix"]["python"] == jobs["python-fast-run"]["strategy"]["matrix"]["python"]
@@ -502,14 +1197,14 @@ def test_viewer_seat_proof_dispatch_and_nightly_use_the_same_pinned_cohort(root)
     option = workflow[True]["workflow_dispatch"]["inputs"]["viewer-seat-proof"]
     assert option["type"] == "boolean" and option["default"] is False
     jobs = workflow["jobs"]
-    assert jobs["preflight"]["if"] == "${{ !inputs.viewer-seat-proof }}"
+    assert jobs["preflight"]["if"] == "${{ !inputs.viewer-seat-proof && " + NO_QA_JOURNEY + " }}"
     workflow_call = {"uses": "./.github/workflows/viewer-seat-proof.yml"}
     assert jobs["viewer-seat-proof"] == {
         **workflow_call,
-        "if": "${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof }}",
+        "if": "${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof && " + NO_QA_JOURNEY + " }}",
     }
     assert {name for name, job in jobs.items() if "needs" not in job} == {
-        "plan", "preflight", "dependency-review", "viewer-seat-proof",
+        "plan", "preflight", "dependency-review", "viewer-seat-proof", "qa-journey",
     }
     nightly = yaml.safe_load((root / ".github/workflows/nightly-candidates.yml").read_bytes())
     assert nightly["jobs"]["viewer-seat-proof"] == workflow_call
@@ -601,6 +1296,32 @@ def test_full_ci_installs_pinned_ffmpeg_once_per_consumer(root):
     assert jobs["media-render"]["timeout-minutes"] == 25
 
 
+def test_main_ci_retains_synthetic_visual_evidence(root):
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
+    main_push = "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    foundry_steps = jobs["foundry"]["steps"]
+    playwright = next(step for step in foundry_steps if step.get("id") == "foundry-playwright")
+    output_dir = playwright["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+    output_ref = output_dir.removeprefix("${{ ").removesuffix(" }}")
+    foundry = next(step for step in foundry_steps if step.get("name") == "Upload Foundry test receipts")
+    assert foundry["if"] == "${{ !cancelled() }}"
+    assert foundry["with"]["path"].splitlines()[-1] == (
+        "${{ " + main_push + " && job.status == 'success' && "
+        f"format('{{0}}/**/*.png', {output_ref}) || '' " + "}}"
+    )
+    media_steps = jobs["media-render"]["steps"]
+    hook = next(step for step in media_steps if step.get("name") == "Check synthetic hook layouts")
+    assert hook["if"] == "matrix.shard == 'decision'"
+    assert hook["env"]["HOOK_FRAMES_DIR"] == "${{ runner.temp }}/notice-on-hook-frames"
+    assert hook["run"].endswith(' "$HOOK_FRAMES_DIR"')
+    shard = next(step for step in media_steps if step.get("name") == "Upload shard media")
+    assert shard["with"]["path"].splitlines() == [
+        "${{ runner.temp }}/media-shard.tar",
+        "${{ matrix.shard == 'decision' && " + main_push + " && "
+        "format('{0}/notice-on-hook-frames/*.png', runner.temp) || '' }}",
+    ]
+
+
 @pytest.mark.parametrize("event", ["pull_request", "push", "workflow_dispatch", "merge_group"])
 def test_gate_rejects_unproven_full_producers(event):
     plan = {key: json.dumps(value) for key, value in ci_scope.current_plan().items()}
@@ -679,7 +1400,7 @@ def test_gate_requires_exact_scoped_producers(root, paths, producers):
     "tests/conftest.py", "tests/test_ci_hosted_contract.py", "tests/test_core.py",
     "tests/test_research_ortools_unified_executor.py", "tests/test_unmeasured.py",
     "docs/architecture/authority-map.json", "src/baloot_platform/core/rules.py",
-    "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py",
+    "scripts/remotion_image_parity.py", "tests/test_remotion_image_parity.py", "tests/test_v8_identity_sakka.py",
     "src/baloot_platform/video/remotion/package.json", "src/baloot_platform/video/remotion/package-lock.json",
     "LICENSE", "THIRD-PARTY-NOTICES", "native/CMakeLists.txt", "configs/runtime/docker_v1.yaml",
     "schemas/version.schema.json", "generated/openapi.json", "proto/baloot.proto", "migrations/001_initial.sql",
@@ -917,7 +1638,7 @@ def test_one_run_never_holds_more_than_twenty_hosted_jobs(root):
         if all(name not in before[other] and other not in before[name] for other in chosen):
             best = max(best, width(jobs[name], is_pr) + peak(index + 1, chosen | {name}, names, is_pr))
         return best
-    full = jobs.keys() - {"python-affected", "viewer-seat-proof"}
+    full = jobs.keys() - {"python-affected", "viewer-seat-proof", "qa-journey"}
     assert peak(0, frozenset(), sorted(full), True) <= 20
     assert peak(0, frozenset(), sorted(full - {"dependency-review", "python-version-smoke"}), False) <= 20
 

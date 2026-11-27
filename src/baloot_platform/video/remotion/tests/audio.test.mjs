@@ -43,6 +43,8 @@ function loadComponent(relative) {
   const componentRequire = specifier => {
     if (specifier === "remotion") return remotion;
     if (specifier.endsWith(".css")) return {};
+    // Plain ES modules beside the components are not TypeScript; Node loads them as-is.
+    if (specifier.endsWith(".mjs")) return require(path.join(rendererRoot, "src", specifier));
     if (specifier.startsWith("./")) return loadComponent(specifier.slice(2));
     return require(specifier);
   };

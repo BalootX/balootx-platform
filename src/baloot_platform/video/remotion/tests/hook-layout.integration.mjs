@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
-import {mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from "node:fs";
+import {copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import path from "node:path";
 import {canonical, layoutFrames, loadLayoutTable, sha256} from "../scripts/layout-gate.mjs";
@@ -8,6 +8,7 @@ import {canonical, layoutFrames, loadLayoutTable, sha256} from "../scripts/layou
 // The hosted media job supplies the generated public prototype. The cases are
 // synthetic display states using its assets, Arabic copy and house typography.
 const prototype = JSON.parse(readFileSync(process.argv[2], "utf8"));
+const framesDir = process.argv[3];
 const table = await loadLayoutTable();
 const work = mkdtempSync(path.join(tmpdir(), "baloot-hook-layout-"));
 const seats = ["north", "west", "south", "east"];
@@ -26,6 +27,7 @@ const cases = [
 ];
 
 try {
+  if (framesDir) mkdirSync(framesDir);
   for (const {name, observer, buyer, dealer, contract, pause, reject} of cases) {
     const {bundleSha256: _, ...fixture} = structuredClone(prototype);
     fixture.observerSeat = observer;
@@ -64,10 +66,12 @@ try {
     const [item] = report.items;
     assert.equal(item.phase, "hook");
     assert.equal(item.frame, layoutFrames(fixture)[0].frame);
-    assert.equal(item.pngSha256, sha256(readFileSync(path.join(output, "layout-hook.png"))));
+    const frame = path.join(output, "layout-hook.png");
+    assert.equal(item.pngSha256, sha256(readFileSync(frame)));
     assert.equal(item.validation.status, reject ? "failed" : "passed");
     const pairs = item.validation.disallowedIntersections.map(({first, second}) => [first, second]);
     assert.deepEqual(pairs, reject ? [["namePills:1", "buyerBadge:0"]] : []);
+    if (framesDir && !reject) copyFileSync(frame, path.join(framesDir, `${name}.png`));
     process.stdout.write(`${name}: ${item.validation.status}\n`);
   }
 } finally {

@@ -1470,10 +1470,13 @@ def _semantic_validate(family: str, data: dict[str, Any]) -> None:
         if int(future_rounds.get("maximum_cache_states", 0)) <= 0:
             raise ValueError("match value cache limit must be positive")
     elif family == "identity":
+        from baloot_platform.identity.pagination import IdentityPaginationConfig
+
         if data.get("mode") not in {"optional", "required", "disabled"}:
             raise ValueError("identity mode must be optional, required or disabled")
         if int(data.get("local_accounts", {}).get("password_minimum", 0)) < 8:
             raise ValueError("identity password minimum must be at least 8")
+        IdentityPaginationConfig.model_validate(data["pagination"])
     elif family == "shared":
         schedule = data.get("schedule", {})
         if int(schedule.get("minimum_deal_attempts", 0)) <= 0:

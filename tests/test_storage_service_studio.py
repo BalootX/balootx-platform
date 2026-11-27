@@ -1,5 +1,5 @@
 import subprocess
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.service import api
 from baloot_platform.service.api import app

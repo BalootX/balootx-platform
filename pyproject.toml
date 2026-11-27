@@ -65,7 +65,10 @@ markers = ["real_clock: test intentionally exercises wall-clock, timeout, CPU, o
   "remotion/tsconfig.json",
   "remotion/scripts/*.mjs",
   "remotion/scripts/approved-layout-adjacencies.json",
+  "remotion/scripts/approved-layout-pin.json",
   "remotion/scripts/ffmpeg-runtime.json",
+  "remotion/src/*.css",
+  "remotion/src/*.mjs",
   "remotion/src/*.ts",
   "remotion/src/*.tsx",
 ]

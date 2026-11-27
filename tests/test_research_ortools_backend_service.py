@@ -14,7 +14,7 @@ import pytest
 
 from deterministic_work import HANG_GUARD
 import yaml
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 from ortools.sat.python import cp_model
 from pydantic import ValidationError
 

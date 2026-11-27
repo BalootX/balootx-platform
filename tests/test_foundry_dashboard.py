@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import re
 
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 import pytest
 import yaml
 

@@ -11,7 +11,7 @@ import time
 import zipfile
 
 import pytest
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.config import build_bundle
 from baloot_platform.core.enums import Contract, Seat, Suit

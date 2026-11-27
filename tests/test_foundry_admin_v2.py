@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from fastapi import FastAPI, Request
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.service.routes.foundry_admin_v2 import (
     build_foundry_admin_v2_router,

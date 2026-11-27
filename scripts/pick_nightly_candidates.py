@@ -2,6 +2,7 @@
 
 import argparse
 from datetime import UTC, datetime, timedelta
+from errno import EEXIST, ENOTEMPTY
 from hashlib import sha256
 import json
 import os
@@ -16,10 +17,12 @@ from baloot_platform.research.slot_sequencer import (
     PlanError,
     SLOT_COUNT,
     load_gate,
+    pinned_bytes,
     require,
     write_handoff,
 )
 
+from scripts import render_kickoff
 from scripts.nightly_candidates import CANDIDATE_ID, MINIMUM_POOL_SIZE, notice
 
 
@@ -157,6 +160,50 @@ def verified_pool(directory, run=None):
     return index, sha256(seal).hexdigest()
 
 
+def verify_handoff(
+    path, pick, ledger_digest, caption_pool_digest, *, day_indices, expected=None
+):
+    require(
+        pick["schemaVersion"] == 1
+        and pick["status"] == "NEVER_POST"
+        and pick["postingAuthorized"] is False
+        and pick["ledgerSha256"] == ledger_digest
+        and pick["captionPoolSha256"] == caption_pool_digest,
+        "SHADOW_PICK_BINDING_MISMATCH",
+    )
+    pool = path.parent / pick["pool"]
+    index, seal = verified_pool(pool)
+    require(
+        (pick["poolSealSha256"], pick["runId"], pick["sourceCommit"])
+        == (seal, index["runId"], index["sourceCommit"]),
+        "SHADOW_POOL_BINDING_MISMATCH",
+    )
+    candidates = {row["id"]: row for row in index["candidates"]}
+    for day_index in day_indices:
+        primaries, reserves = pick["days"][day_index], pick["fallbacks"]
+        choices = primaries + reserves
+        require(
+            len(primaries) == SLOT_COUNT
+            and len(reserves) >= 2
+            and len({row["id"] for row in choices}) == len(choices)
+            and all(
+                row["mechanism"] == candidates[row["id"]]["scoreInputs"]["mechanism"]
+                for row in choices
+            )
+            and all(
+                re.fullmatch(r"[0-9a-f]{64}", row["captionSha256"]) for row in primaries
+            ),
+            "INVALID_SHADOW_PICK",
+        )
+    if expected is not None:
+        # The verified seal identifies the pool even if it came from a different path.
+        require(
+            all(pick[key] == value for key, value in expected.items() if key != "pool"),
+            "PRIVATE_PICK_DIFFERS_FROM_CURRENT_SELECTION",
+        )
+    return pool, index, candidates
+
+
 def caption_options(gate, pool, private, recent_captions):
     available = []
     for row in pool["captions"]:
@@ -280,6 +327,7 @@ def prepare(args, gate):
     now = datetime.now(UTC)
     inputs = gate.Inputs()
     ledger_raw = args.ledger.read_bytes()
+    ledger_digest = sha256(ledger_raw).hexdigest()
     live = history(gate, gate.parse(ledger_raw), now, inputs)
     pool = gate.parse(inputs.read(args.caption_pool, gate.CAPTION_POOL_SHA))
     private = gate.parse(inputs.read(gate.PRIVATE, gate.PRIVATE_SHA))
@@ -291,37 +339,64 @@ def prepare(args, gate):
         else:
             run, artifact = None, args.artifact.resolve()
         index, seal = verified_pool(artifact, run)
+        if run is None:
+            try:
+                render_kickoff.verify_source_freshness(
+                    render_kickoff.TRUSTED_ROOT, index.get("sourceCommit"),
+                    index.get("sourceTree"), render_kickoff.load_policy(), {},
+                )
+            except render_kickoff.RenderSourceTreeMismatch as exc:
+                raise PlanError(
+                    "MANUAL_POOL_SOURCE_TREE_MISMATCH: generate and seal a pool from current main"
+                ) from exc
+            except render_kickoff.RenderContentMismatch as exc:
+                raise PlanError(
+                    "MANUAL_POOL_STALE: generate and seal a pool from current main"
+                ) from exc
+            except ValueError as exc:
+                raise PlanError(
+                    "MANUAL_POOL_FRESHNESS_UNVERIFIED: update the checkout and restore access to public main before retrying"
+                ) from exc
         days, fallbacks = select(gate, index["candidates"], captions, live)
-        require(args.ledger.read_bytes() == ledger_raw, "LEDGER_CHANGED_DURING_PICK")
+        expected = {
+            "schemaVersion": 1,
+            "status": "NEVER_POST",
+            "postingAuthorized": False,
+            "runId": index["runId"],
+            "sourceCommit": index["sourceCommit"],
+            "pool": "pool" if run is not None else str(artifact),
+            "poolSealSha256": seal,
+            "ledgerSha256": ledger_digest,
+            "captionPoolSha256": gate.CAPTION_POOL_SHA,
+            "days": days,
+            "fallbacks": fallbacks,
+        }
         result = output / f"pick-{index['runId']}"
-        if result.exists():
-            require(
-                (result / "candidate-pick.json").is_file(),
-                "PRIVATE_PICK_ALREADY_EXISTS",
-            )
-            return
-        complete = Path(temporary) / "complete"
-        complete.mkdir()
-        if run is not None:
-            artifact.rename(complete / "pool")
-        write_handoff(
-            complete / "candidate-pick.json",
-            {
-                "schemaVersion": 1,
-                "status": "NEVER_POST",
-                "postingAuthorized": False,
-                "runId": index["runId"],
-                "sourceCommit": index["sourceCommit"],
-                "pool": "pool" if run is not None else str(artifact),
-                "poolSealSha256": seal,
-                "ledgerSha256": sha256(ledger_raw).hexdigest(),
-                "captionPoolSha256": gate.CAPTION_POOL_SHA,
-                "days": days,
-                "fallbacks": fallbacks,
-            },
+        pick_path = result / "candidate-pick.json"
+        if not result.exists():
+            complete = Path(temporary) / "complete"
+            complete.mkdir()
+            if run is not None:
+                artifact.rename(complete / "pool")
+            write_handoff(complete / pick_path.name, expected)
+            pinned_bytes(args.ledger, ledger_digest, "LEDGER_CHANGED_DURING_PICK")
+            try:
+                complete.rename(result)
+            except OSError as error:
+                if error.errno not in (EEXIST, ENOTEMPTY):
+                    raise
+            else:
+                return
+        require(pick_path.is_file(), "PRIVATE_PICK_ALREADY_EXISTS")
+        verify_handoff(
+            pick_path,
+            json.loads(pick_path.read_bytes()),
+            ledger_digest,
+            gate.CAPTION_POOL_SHA,
+            day_indices=range(len(days)),
+            expected=expected,
         )
-        # Windows rename refuses to replace a concurrently published pick.
-        complete.rename(result)
+        pinned_bytes(args.ledger, ledger_digest, "LEDGER_CHANGED_DURING_PICK")
 
 
 def main():

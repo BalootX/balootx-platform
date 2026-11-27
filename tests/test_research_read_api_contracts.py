@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 from pydantic import ValidationError
 
 from baloot_platform.service import api
