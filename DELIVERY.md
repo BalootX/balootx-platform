@@ -75,6 +75,10 @@ The Python shards share a deadline derived from each job's timeout. The full mat
 - Use free GitHub-hosted runners for public repo checks. Use zero-cost server runners for private repos, deploys and jobs that use secrets.
 - If a check has no CI job, add one in the same PR.
 
+### Commit identity policy
+
+[Commit identities](ci/commit-identities.json) lists exact name and address pairs for public project, bot and AI-tool attribution. A row's `use` applies to all checked fields or only the `Signed-off-by` trailer. The no-reply rule and the approved Dependabot deviation are recorded below. Preflight validates the rows against the [commit identity schema](schemas/contracts/commit-identities-v1.schema.json). Policy changes follow the [critical path review procedure](#merge).
+
 ## Work scheduling
 
 A Due is the latest finish. Start Ready work at once and ship as soon as its checks pass. Every hold names its blocker and what clears it.
@@ -178,5 +182,6 @@ The producer runs the image's installed Remotion package and verifies its locked
 | PR size targets | BalootX Delivery needs the [generated-file markers](https://github.com/BalootX/balootx-platform/issues/252) before measuring PR size p50 and p95. | 2026-12-04 |
 | Protection of network identifiers in source code | The push guard screens private values. General URL and IP literals in source await the [hosted source-literal check](https://github.com/BalootX/balootx-platform/issues/252) owned by BalootX Delivery. | 2026-12-04 |
 | Privacy of author, committer and trailer identities | The push guard checks commit metadata under a fixed address policy. BalootX Delivery tracks [validated identity configuration](https://github.com/BalootX/balootx-platform/issues/159) ahead of [hosted enforcement](https://github.com/BalootX/balootx-platform/issues/158). | 2026-12-03 |
+| No-reply-only commit identities, which protect against committing a human-reachable address | Dependabot adds a GitHub role mailbox in its `Signed-off-by` trailer. GitHub provides no option to remove it, and the sign-off appears on both the [branch commit](https://github.com/BalootX/balootx-platform/commit/e27cc970f3cb8553fe19184e72101e7cec38447b) and the [squash on main](https://github.com/BalootX/balootx-platform/commit/79e25fa4cfef3c4dc934c26435428538db02c18e). The exact pair is approved for `Signed-off-by` only. Decided by BalootX Master, 26 Nov, after one independent review. [#159](https://github.com/BalootX/balootx-platform/issues/159#issuecomment-7192485136) | 2026-12-03 |
 | Affected CI on draft PRs | The affected checks start when a PR is ready. | 2026-12-04 |
 | PR feedback (`ci-gate`) p50 under 1 min and p95 under 2 min | Measured on 2026-11-26 over 149 of the last 150 first attempts: p50 20.0 min, p95 28.7 min. `ci-gate` reports only after every affected job finishes, including the Python shards, the Foundry Playwright suite and the media renders. The delivery board item "Meet the PR and merge-queue CI feedback targets" (due 2026-12-03) brings it down. | 2026-12-03 |
