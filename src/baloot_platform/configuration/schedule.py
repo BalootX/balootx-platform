@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from functools import cache
 from importlib.resources import files
-from typing import Mapping
+from typing import Mapping, TypeGuard
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from tzdata import IANA_VERSION
@@ -21,6 +21,10 @@ class ConfigurationIntegrityError(Exception):
 
 class ConfigurationScheduleConflict(Exception):
     """An existing revision owns this content under a different schedule."""
+
+
+def valid_schedule_link(value: object) -> TypeGuard[str]:
+    return isinstance(value, str) and bool(value) and not any(char.isspace() for char in value)
 
 
 def _parse_datetime(value: str) -> datetime:

@@ -1486,7 +1486,9 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 profile_id=request.profile_id or None, status=request.status or None,
                 scope=request.scope or None, limit=request.limit or 200,
             )
-            return self._result({"items": [item.to_dict(include_payload=False) for item in values]})
+            return self._result({"items": CONFIGURATION.project_revision_links(
+                "profile", [item.to_dict(include_payload=False) for item in values], visible,
+            )})
 
         async def CreateProfile(self, request, context):
             identity = await _identity(context)
@@ -1550,14 +1552,18 @@ async def serve() -> None:  # pragma: no cover - optional runtime
 
         async def CompareProfiles(self, request, context):
             visible, _ = await self._read_tenants(context)
-            left = CONFIGURATION.store.get_profile(request.left); right = CONFIGURATION.store.get_profile(request.right)
+            left = CONFIGURATION.store.get_profile(request.left)
+            right = CONFIGURATION.store.get_profile(request.right)
             if any(
                 value is None or not configuration_tenant_visible(value.scope, value.tenant_id, visible)
                 for value in (left, right)
             ):
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
+            left_info, right_info = CONFIGURATION.project_revision_links(
+                "profile", [left.to_dict(include_payload=False), right.to_dict(include_payload=False)], visible,
+            )
             return self._result({
-                "left": left.to_dict(include_payload=False), "right": right.to_dict(include_payload=False),
+                "left": left_info, "right": right_info,
                 "changes": CONFIGURATION.compare_payloads(dict(left.payload), dict(right.payload)),
             })
 
@@ -1568,7 +1574,9 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 status=request.status or None, scope=request.scope or None, limit=request.limit or 200,
                 include_scheduled=True,
             )
-            return self._result({"items": [item.to_dict() for item in values]})
+            return self._result({"items": CONFIGURATION.project_revision_links(
+                "bundle", [item.to_dict() for item in values], visible,
+            )})
 
         async def CreateBundle(self, request, context):
             identity = await _identity(context)

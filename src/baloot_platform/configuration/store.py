@@ -11,7 +11,7 @@ from typing import Any, Callable, Iterable, Mapping, TypeVar
 from baloot_platform.storage.request_context import apply_postgres_identity_context, contextual_connection
 
 from .models import BundleRevision, ProfileRevision, bundle_payload_fingerprint, canonical, digest, utc_now
-from .schedule import ConfigurationScheduleConflict, normalize_schedule, verify_revision_schedule
+from .schedule import ConfigurationIntegrityError, ConfigurationScheduleConflict, normalize_schedule, valid_schedule_link, verify_revision_schedule
 
 
 _UNSET = object()
@@ -234,6 +234,65 @@ _POSTGRES_VISIBLE_BUNDLE = _VISIBLE_BUNDLE.format(
 )
 
 
+def _scoped_bundle_rows(table: str, visibility: str, nullable_equal: str) -> str:
+    same_scope = f"""candidate.bundle_id=anchor.bundle_id AND candidate.scope=anchor.scope
+        AND candidate.scope_key=anchor.scope_key
+        AND candidate.tenant_id {nullable_equal} anchor.tenant_id
+        AND candidate.environment {nullable_equal} anchor.environment"""
+    return f"""
+        WITH RECURSIVE visible_bundle_ids AS (
+            SELECT revision_id FROM {table} WHERE {visibility}
+        ), head_candidates(anchor_id, revision_id) AS (
+            SELECT revision_id, scheduled_successor_id FROM {table}
+            WHERE status='published' AND scheduled_successor_id IS NOT NULL
+            UNION
+            SELECT head_candidates.anchor_id, candidate.scheduled_predecessor_id
+            FROM head_candidates
+            JOIN {table} AS anchor ON anchor.revision_id=head_candidates.anchor_id
+            JOIN {table} AS candidate ON candidate.revision_id=head_candidates.revision_id
+            WHERE candidate.status='superseded' AND {same_scope}
+              AND candidate.scheduled_predecessor_id IS NOT NULL
+              AND candidate.scheduled_predecessor_id<>anchor.revision_id
+              AND NOT EXISTS (SELECT 1 FROM visible_bundle_ids WHERE revision_id=candidate.revision_id)
+        ), visible_heads AS (
+            SELECT head_candidates.anchor_id, head_candidates.revision_id
+            FROM head_candidates
+            JOIN {table} AS anchor ON anchor.revision_id=head_candidates.anchor_id
+            JOIN {table} AS candidate ON candidate.revision_id=head_candidates.revision_id
+            JOIN visible_bundle_ids ON visible_bundle_ids.revision_id=candidate.revision_id
+            WHERE candidate.status='superseded' AND {same_scope}
+        ), scoped_bundle_rows AS (
+            SELECT revision.*,
+                CASE WHEN revision.status='published' AND EXISTS (
+                    SELECT 1 FROM visible_heads WHERE anchor_id=revision.revision_id
+                ) THEN 'superseded'
+                WHEN revision.status='superseded' AND EXISTS (
+                    SELECT 1 FROM visible_heads WHERE revision_id=revision.revision_id
+                ) THEN 'published' ELSE revision.status END AS visible_registry_status
+            FROM {table} AS revision
+            JOIN visible_bundle_ids ON visible_bundle_ids.revision_id=revision.revision_id
+        )
+    """
+
+
+def _read_visible_revision_ids(
+    conn: Any, revision_ids: set[str], *, table: str, predicate: str,
+    parameter: str, visibility_args: tuple[str, ...],
+) -> set[str]:
+    ids = sorted(revision_ids)
+    visible = set()
+    # Keep below SQLite's parameter limit even for an installation-wide list.
+    for offset in range(0, len(ids), 500):
+        page = ids[offset:offset + 500]
+        parameters = ",".join(parameter for _ in page)
+        rows = conn.execute(
+            f"SELECT revision_id FROM {table} WHERE revision_id IN ({parameters}) AND ({predicate})",
+            (*page, *visibility_args),
+        )
+        visible.update(row["revision_id"] for row in rows)
+    return visible
+
+
 def _read_bundle_histories(
     conn: Any,
     dimensions: BundleDimensions,
@@ -441,8 +500,23 @@ def _publication_predecessor(anchor: BundleRevision | None, *, timed: bool, pres
     if anchor is None:
         return None
     if timed:
-        return anchor.scheduled_successor_id or anchor.revision_id
+        successor = anchor.scheduled_successor_id
+        if successor is None:
+            return anchor.revision_id
+        if not valid_schedule_link(successor):
+            raise ConfigurationIntegrityError(
+                anchor.revision_id,
+                "The scheduled publication could not be verified. Publish a current replacement or roll back.",
+            )
+        return successor
     return anchor.revision_id if preserve_research else None
+
+
+def _replaced_publication_id(anchor: BundleRevision | None) -> str | None:
+    if anchor is None:
+        return None
+    successor = anchor.scheduled_successor_id
+    return successor if valid_schedule_link(successor) else anchor.revision_id
 
 
 class SQLiteConfigurationStore:
@@ -1487,7 +1561,7 @@ class SQLiteConfigurationStore:
                     "SELECT * FROM configuration_bundle_revisions WHERE revision_id=?", (rollback_target_revision_id,),
                 ).fetchone())
                 _require_rollback_target(target, dimensions, component_revisions)
-                supersedes_revision_id = (anchor.scheduled_successor_id or anchor.revision_id) if anchor else None
+                supersedes_revision_id = _replaced_publication_id(anchor)
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) FROM configuration_bundle_revisions "
                 "WHERE bundle_id=? AND scope=? AND scope_key=? "
@@ -1571,10 +1645,20 @@ class SQLiteConfigurationStore:
         )
         args = (revision_id,)
         if visible_to_tenant is not None:
-            sql += f" AND {_SQLITE_VISIBLE_BUNDLE}"
-            args += (visible_to_tenant, visible_to_tenant)
+            projection = _scoped_bundle_rows("configuration_bundle_revisions", _SQLITE_VISIBLE_BUNDLE, "IS")
+            sql = projection + "SELECT *, visible_registry_status AS registry_status FROM scoped_bundle_rows WHERE revision_id=?"
+            args = (visible_to_tenant, visible_to_tenant, revision_id)
         with self._connect() as conn:
             return self._bundle(conn.execute(sql, args).fetchone())
+
+    def visible_revision_ids(self, kind: str, revision_ids: set[str], tenant: str) -> set[str]:
+        with self._connect() as conn:
+            return _read_visible_revision_ids(
+                conn, revision_ids, parameter="?",
+                table="configuration_profile_revisions" if kind == "profile" else "configuration_bundle_revisions",
+                predicate="scope='global' OR tenant_id=?" if kind == "profile" else _SQLITE_VISIBLE_BUNDLE,
+                visibility_args=(tenant,) if kind == "profile" else (tenant, tenant),
+            )
 
     def list_bundle_histories(
         self, dimensions: BundleDimensions, *,
@@ -1627,10 +1711,14 @@ class SQLiteConfigurationStore:
                      visible_to_tenant: str | None = None) -> list[BundleRevision]:
         clauses: list[str] = []
         args: list[Any] = []
-        if visible_to_tenant is not None:
-            clauses.append(_SQLITE_VISIBLE_BUNDLE)
-            args.extend((visible_to_tenant, visible_to_tenant))
+        prefix = ""
+        table = "configuration_bundle_revisions"
         status_expression = _SQLITE_BUNDLE_REGISTRY_STATUS if include_scheduled else "status"
+        if visible_to_tenant is not None:
+            prefix = _scoped_bundle_rows(table, _SQLITE_VISIBLE_BUNDLE, "IS")
+            table = "scoped_bundle_rows"
+            args.extend((visible_to_tenant, visible_to_tenant))
+            status_expression = "visible_registry_status" if include_scheduled else "status"
         for column, value in (("bundle_id", bundle_id), ("scope", scope), ("scope_key", scope_key), (status_expression, status)):
             if value is not None:
                 clauses.append(f"{column}=?")
@@ -1645,7 +1733,7 @@ class SQLiteConfigurationStore:
             if environment is not None:
                 clauses.append("environment=?")
                 args.append(environment)
-        sql = f"SELECT *, {status_expression} AS registry_status FROM configuration_bundle_revisions"
+        sql = prefix + f"SELECT *, {status_expression} AS registry_status FROM {table}"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY sequence DESC,created_at DESC LIMIT ?"
@@ -2838,7 +2926,7 @@ class PostgresConfigurationStore:
                     (rollback_target,),
                 ).fetchone())
                 _require_rollback_target(target, dimensions, kwargs["component_revisions"])
-                supersedes_revision_id = (anchor.scheduled_successor_id or anchor.revision_id) if anchor else None
+                supersedes_revision_id = _replaced_publication_id(anchor)
             maximum_row = conn.execute(
                 "SELECT COALESCE(MAX(sequence),0) AS max_sequence "
                 "FROM configuration.bundle_revisions "
@@ -2952,11 +3040,23 @@ class PostgresConfigurationStore:
         )
         args = (revision_id,)
         if visible_to_tenant is not None:
-            sql += f" AND {_POSTGRES_VISIBLE_BUNDLE}"
-            args += (visible_to_tenant, visible_to_tenant)
+            projection = _scoped_bundle_rows(
+                "configuration.bundle_revisions", _POSTGRES_VISIBLE_BUNDLE, "IS NOT DISTINCT FROM",
+            )
+            sql = projection + "SELECT *, visible_registry_status AS registry_status FROM scoped_bundle_rows WHERE revision_id=%s"
+            args = (visible_to_tenant, visible_to_tenant, revision_id)
         with contextual_connection(self.pool) as conn:
             row = conn.execute(sql, args).fetchone()
         return self._bundle(row)
+
+    def visible_revision_ids(self, kind: str, revision_ids: set[str], tenant: str) -> set[str]:
+        with contextual_connection(self.pool) as conn:
+            return _read_visible_revision_ids(
+                conn, revision_ids, parameter="%s",
+                table="configuration.profile_revisions" if kind == "profile" else "configuration.bundle_revisions",
+                predicate="scope='global' OR tenant_id=%s" if kind == "profile" else _POSTGRES_VISIBLE_BUNDLE,
+                visibility_args=(tenant,) if kind == "profile" else (tenant, tenant),
+            )
 
     def list_bundle_histories(
         self, dimensions: BundleDimensions, *,
@@ -3036,10 +3136,14 @@ class PostgresConfigurationStore:
     ) -> list[BundleRevision]:
         clauses: list[str] = []
         args: list[Any] = []
-        if visible_to_tenant is not None:
-            clauses.append(_POSTGRES_VISIBLE_BUNDLE)
-            args.extend((visible_to_tenant, visible_to_tenant))
+        prefix = ""
+        table = "configuration.bundle_revisions"
         status_expression = _POSTGRES_BUNDLE_REGISTRY_STATUS if include_scheduled else "status"
+        if visible_to_tenant is not None:
+            prefix = _scoped_bundle_rows(table, _POSTGRES_VISIBLE_BUNDLE, "IS NOT DISTINCT FROM")
+            table = "scoped_bundle_rows"
+            args.extend((visible_to_tenant, visible_to_tenant))
+            status_expression = "visible_registry_status" if include_scheduled else "status"
         for column, value in (
             ("bundle_id", bundle_id),
             ("scope", scope),
@@ -3064,7 +3168,7 @@ class PostgresConfigurationStore:
             if environment is not None:
                 clauses.append("environment=%s")
                 args.append(environment)
-        sql = f"SELECT {_POSTGRES_BUNDLE_COLUMNS}, {status_expression} AS registry_status FROM configuration.bundle_revisions"
+        sql = prefix + f"SELECT {_POSTGRES_BUNDLE_COLUMNS}, {status_expression} AS registry_status FROM {table}"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY sequence DESC,created_at DESC,revision_id LIMIT %s"

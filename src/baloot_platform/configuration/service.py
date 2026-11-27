@@ -31,7 +31,7 @@ from .models import (
     configuration_tenant_visible,
     digest,
 )
-from .schedule import ConfigurationIntegrityError, parse_instant, verify_revision_schedule
+from .schedule import ConfigurationIntegrityError, parse_instant, valid_schedule_link, verify_revision_schedule
 from .store import BundleHistory
 
 _SEMVER = re.compile(
@@ -48,6 +48,11 @@ _PRECEDENCE_KEYS = {
     "global_published",
     "file_bundle_fallback",
 }
+_PROFILE_LINK_FIELDS = ("supersedesRevisionId",)
+_BUNDLE_LINK_FIELDS = (
+    "supersedesRevisionId", "scheduledPredecessorId", "targetRevisionId", "replacedRevisionId",
+    "previousPublishedRevisionId",
+)
 
 
 class VersionedConfigurationService:
@@ -446,12 +451,10 @@ class VersionedConfigurationService:
             return
         seen = {anchor.revision_id}
         while True:
-            revision = revisions.get(revision_id)
+            revision = revisions.get(revision_id) if valid_schedule_link(revision_id) else None
             if (
-                not revision_id
-                or any(char.isspace() for char in revision_id)
+                revision is None
                 or revision_id in seen
-                or revision is None
                 or revision.status not in {RevisionStatus.PUBLISHED.value, RevisionStatus.SUPERSEDED.value}
                 or revision.scheduled_predecessor_id is None
                 or (revision.bundle_id, revision.scope, revision.scope_key,
@@ -560,6 +563,39 @@ class VersionedConfigurationService:
         identity = CURRENT_DATABASE_IDENTITY.get()
         return visible_to_tenant, identity.role, identity.tenant_id, bool(identity.subject_id)
 
+    def project_revision_links(
+        self, kind: str, documents: list[dict[str, Any]], visible_to_tenant: str | None,
+    ) -> list[dict[str, Any]]:
+        if visible_to_tenant is None:
+            return documents
+        fields = _PROFILE_LINK_FIELDS if kind == "profile" else _BUNDLE_LINK_FIELDS
+        references = {
+            value for document in documents for field in fields
+            if isinstance(value := document.get(field), str)
+        }
+        if not references:
+            return documents
+        visible = self.store.visible_revision_ids(kind, references, visible_to_tenant)
+        hidden = references - visible
+        return [
+            {
+                **document,
+                **{field: None for field in fields if isinstance(document.get(field), str) and document[field] in hidden},
+            }
+            for document in documents
+        ]
+
+    def revision_events(
+        self, kind: str, revision_id: str, visible_to_tenant: str | None,
+    ) -> dict[str, Any]:
+        history = self.store.events_with_verification(kind, revision_id)
+        if visible_to_tenant is None:
+            return history
+        events = history["items"]
+        # Verification covers the original stored events, including any protected links.
+        payloads = self.project_revision_links(kind, [event["payload"] for event in events], visible_to_tenant)
+        return {**history, "items": [{**event, "payload": payload} for event, payload in zip(events, payloads, strict=True)]}
+
     def resolve_profile(
         self,
         *,
@@ -613,7 +649,7 @@ class VersionedConfigurationService:
                     "runtime resolution requires a published revision"
                 )
             verify_revision_schedule(revision)
-            result = revision.to_dict()
+            result, = self.project_revision_links("profile", [revision.to_dict()], visible_to_tenant)
             result["resolutionTrace"] = [
                 {"scope": "exact_revision", "revisionId": revision_id}
             ]
@@ -653,7 +689,7 @@ class VersionedConfigurationService:
                     }
                 )
                 if eligible:
-                    result = revision.to_dict()
+                    result, = self.project_revision_links("profile", [revision.to_dict()], visible_to_tenant)
                     result["resolutionTrace"] = trace
                     result["invalidationEpoch"] = epoch
                     if cacheable:
@@ -1088,7 +1124,9 @@ class VersionedConfigurationService:
                 )
             profiles[family] = copy.deepcopy(dict(revision.payload))
             identities[family] = revision.to_dict(include_payload=False)
-        bundle_document = bundle.to_dict()
+        bundle_document, = self.project_revision_links("bundle", [bundle.to_dict()], visible_to_tenant)
+        profile_documents = self.project_revision_links("profile", list(identities.values()), visible_to_tenant)
+        identities = dict(zip(identities, profile_documents, strict=True))
         if effective:
             bundle_document["status"] = RevisionStatus.PUBLISHED.value
         effective_hash = digest(

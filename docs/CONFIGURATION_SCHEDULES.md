@@ -101,6 +101,8 @@ has already displaced it, even if the revision's ETag is unchanged.
 Bundle retirement commits the schedule change and both audit events together.
 If the reason cannot be recorded, the current schedule stays in effect and the
 same request can be retried.
+Registry responses show only links the caller is authorized to read. Audit
+verification covers the original stored events.
 To restore known-good content, use the v1 registry's
 `POST /bundles/{revisionId}:rollback`
 with a new version. It publishes a fresh, unscheduled revision and records the

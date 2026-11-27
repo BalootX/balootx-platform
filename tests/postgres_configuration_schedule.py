@@ -515,6 +515,10 @@ def check_configuration_access(client):
     isolated_profile, isolated_bundle = access_rows['environment']
     _, linked_bundle = access_rows['edge']
     handoff_anchor, handoff_successor = access_rows['handoff']
+    chain_anchor, chain_predecessor = access_rows['chain-base']
+    chain_visible, chain_head = access_rows['chain-window']
+    rollback_anchor, rollback_head = access_rows['rollback-links']
+    linked_profile, private_profile = access_rows['profile-links']
     visible_draft, hidden_draft = access_rows['drafts']
 
     def signed(tenant, role, scopes=('baloot.read',)):
@@ -621,6 +625,71 @@ def check_configuration_access(client):
             assert visible.status_code == 403, visible.text
     preview = client.get(f'{registry}/bundles/{hidden_draft}:resolve', params={'allowDraft': 'true'}, headers=admin)
     assert preview.status_code == 200 and preview.json()['bundle']['status'] == 'draft', preview.text
+
+    def check_event_links(resource, revision, event_type, field, hidden_id):
+        path = f'{registry}/{resource}/{revision}/events'
+        raw = client.get(path, headers=admin)
+        assert raw.status_code == 200, raw.text
+        raw_history = raw.json()
+        assert raw_history['verification']['valid']
+        for cred in (allowed, elevated):
+            scoped = client.get(path, headers=cred)
+            assert scoped.status_code == 200, scoped.text
+            history = scoped.json()
+            assert history['verification'] == raw_history['verification']
+            raw_event, = (event for event in raw_history['items'] if event['eventType'] == event_type)
+            event, = (event for event in history['items'] if event['eventType'] == event_type)
+            assert raw_event['payload'][field] == hidden_id and event['payload'][field] is None
+        assert client.get(path, headers=admin).json() == raw_history
+
+    status_cases = (
+        ('scoped-handoff', 'published', handoff_anchor),
+        ('scoped-handoff', 'superseded', None),
+        ('scoped-chain', 'published', chain_visible),
+        ('scoped-chain', 'superseded', chain_anchor),
+    )
+    for name, status, scoped_id in status_cases:
+        query = {'bundleId': name, 'status': status, 'limit': 1}
+        result = client.get(f'{registry}/bundles', params=query, headers=allowed)
+        assert result.status_code == 200, result.text
+        assert [item['revisionId'] for item in result.json()['items']] == ([scoped_id] if scoped_id else [])
+    assert client.get(
+        f'{registry}/bundles', params={'bundleId': 'scoped-chain', 'status': 'published', 'limit': 1}, headers=admin,
+    ).json()['items'][0]['revisionId'] == chain_head
+    for revision in (handoff_anchor, chain_visible):
+        path = f'{registry}/bundles/{revision}'
+        assert client.get(path, headers=allowed).json()['status'] == 'published'
+        assert client.get(f'{path}:resolve', headers=allowed).json()['bundle']['status'] == 'published'
+    assert client.get(f'{registry}/bundles/{handoff_anchor}', headers=admin).json()['status'] == 'superseded'
+    check_event_links('bundles', chain_visible, 'published', 'scheduledPredecessorId', chain_predecessor)
+    check_event_links('profiles', linked_profile, 'created', 'supersedesRevisionId', private_profile)
+
+    rolled = client.post(f'{registry}/bundles/{rollback_anchor}:rollback', json={'newVersion': '1.0.2'}, headers=admin)
+    assert rolled.status_code == 201 and rolled.json()['supersedesRevisionId'] == rollback_head, rolled.text
+    rollback_id = rolled.json()['revisionId']
+    check_event_links('bundles', rollback_id, 'rollback_created', 'replacedRevisionId', rollback_head)
+    check_event_links('bundles', rollback_id, 'created', 'supersedesRevisionId', rollback_head)
+    linked_query = {'family': 'performance', 'profileId': 'scoped_linked_profile'}
+    for cred in (allowed, elevated):
+        for route, params in (
+            (f'profiles/{linked_profile}', {}), ('profiles', linked_query),
+            ('profiles:resolve', linked_query), ('profiles:compare', {'left': linked_profile, 'right': shared_profile}),
+        ):
+            response = client.get(f'{registry}/{route}', params=params, headers=cred)
+            assert response.status_code == 200 and private_profile not in response.text, response.text
+        selected = client.get(
+            f'{registry}/resolve', params={'bundleId': 'scoped-chain', 'atTime': '2026-07-01T19:00Z'}, headers=cred,
+        )
+        assert selected.status_code == 200 and selected.json()['bundle']['revisionId'] == chain_visible, selected.text
+        assert selected.json()['profileRevisions']['performance']['supersedesRevisionId'] is None
+        assert chain_head not in selected.text and chain_predecessor not in selected.text
+        for route, params in (
+            (f'bundles/{rollback_id}', {}), (f'bundles/{rollback_id}:resolve', {}),
+            (f'bundles/{rollback_id}:resolve-v2', {}), ('resolve', {'bundleId': 'scoped-rollback-link'}),
+            ('resolve-v2', {'bundleId': 'scoped-rollback-link'}), ('bundles', {'bundleId': 'scoped-rollback-link'}),
+        ):
+            response = client.get(f'{registry}/{route}', params=params, headers=cred)
+            assert response.status_code == 200 and rollback_head not in response.text, response.text
     assert client.get(f'{registry}/bundles', headers=no_read).status_code == 403
     assert client.get(f'{registry}/bundles/{access_rows[tenant_a][1]}:resolve', headers=no_read).status_code == 403
     assert client.get('/api/v2/configuration/bundles', headers=headers[tenant_b]).status_code == 403
@@ -704,6 +773,26 @@ def check_configuration_access(client):
                         await method(proto.BundleResolution(revision_id=draft), metadata=metadata, timeout=5)
                     assert failure.value.code() == expected
                     assert hidden_draft not in failure.value.details()
+        for name, status, scoped_id in status_cases:
+            listed = await stub.ListBundles(
+                proto.BundleQuery(bundle_id=name, status=status, limit=1), metadata=cred, timeout=5,
+            )
+            assert [item['revisionId'] for item in json.loads(listed.canonical_json)['items']] == ([scoped_id] if scoped_id else [])
+        for method, request, protected_id in (
+            (stub.ListProfiles, proto.ProfileQuery(family='performance', profile_id='scoped_linked_profile'), private_profile),
+            (stub.ResolveProfile, proto.ProfileResolution(family='performance', profile_id='scoped_linked_profile'), private_profile),
+            (stub.CompareProfiles, proto.ProfileCompare(left=linked_profile, right=shared_profile), private_profile),
+            (stub.ListBundles, proto.BundleQuery(bundle_id='scoped-rollback-link'), rollback_head),
+            (stub.ResolveBundle, proto.BundleResolution(revision_id=rollback_id), rollback_head),
+            (stub.ResolveBundle, proto.BundleResolution(bundle_id='scoped-rollback-link'), rollback_head),
+            (stub.ResolveEffectiveRuntimeConfigV2, proto.BundleResolution(revision_id=rollback_id), rollback_head),
+        ):
+            result = await method(request, metadata=cred, timeout=5)
+            assert protected_id.encode() not in result.canonical_json
+        exact = await stub.ResolveBundle(proto.BundleResolution(revision_id=chain_visible), metadata=cred, timeout=5)
+        assert json.loads(exact.canonical_json)['bundle']['status'] == 'published'
+        raw = await stub.ResolveBundle(proto.BundleResolution(revision_id=rollback_id), metadata=admin_metadata, timeout=5)
+        assert json.loads(raw.canonical_json)['bundle']['supersedesRevisionId'] == rollback_head
     with MonkeyPatch.context() as grpc_patch:
         grpc_probe(Path(environ['BALOOT_RUNTIME']), grpc_patch, rpc, stub_type=ConfigurationControlStub)
 
@@ -776,6 +865,12 @@ with TestClient(app) as client:
             print('researchRecoveryRefusedUnsafeWrites: true')
         restored = client.post(rollback, headers=admin, json=body)
         assert restored.status_code == 201, restored.text
+        if diagnostic == 'scheduled publication could not be verified':
+            restored_id = restored.json()['revisionId']
+            assert restored.json()['supersedesRevisionId'] == expected
+            events = client.get(f'/api/v1/configuration-registry/bundles/{restored_id}/events', headers=admin)
+            assert events.status_code == 200 and events.json()['verification']['valid'], events.text
+            assert events.json()['items'][-1]['payload']['replacedRevisionId'] == expected
         assert CONFIGURATION.resolve(bundle_id=restored.json()['bundleId'])['bundle']['revisionId'] == restored.json()['revisionId']
 """, instant, expected, recovery_target, diagnostic, str(source), *research, json.dumps(recovery_research_scopes),
              json.dumps(access_rows)],
@@ -894,6 +989,42 @@ finally:
             component_revisions=hidden_components, publish=True, effective_from="2026-07-01T18:00Z",
         )
         access_rows["handoff"] = (handoff_anchor["revisionId"], handoff_successor["revisionId"])
+        linked_payload = copy.deepcopy(baseline["profiles"]["performance"])
+        linked_payload["profile"].update(id="scoped_linked_profile", version="99.0.0")
+        linked_profile = service.create_profile(
+            family="performance", payload=linked_payload, created_by="TEST", publish=True,
+            supersedes_revision_id=isolated_profile,
+        )
+        linked_payload["profile"]["id"] = "scoped_isolated_later"
+        late_profile = service.create_profile(
+            family="performance", payload=linked_payload, created_by="TEST", publish=True,
+            scope="environment", environment="fixture-isolated",
+        )
+        access_rows["profile-links"] = (linked_profile["revisionId"], isolated_profile)
+        for name, versions in (
+            ("scoped-chain", (
+                ("1.0.0", shared_components, None),
+                ("1.0.1", hidden_components, "2026-07-01T18:00Z"),
+                ("1.0.2", {**shared_components, "performance": linked_profile["revisionId"]}, "2026-07-01T19:00Z"),
+                ("1.0.3", {**shared_components, "performance": late_profile["revisionId"]}, "2026-07-01T20:00Z"),
+            )),
+            ("scoped-rollback-link", (
+                ("1.0.0", shared_components, None),
+                ("1.0.1", hidden_components, "2026-07-01T18:00Z"),
+            )),
+        ):
+            revisions = tuple(
+                service.create_bundle(
+                    **access_bundle, bundle_id=name, version=version, component_revisions=components,
+                    effective_from=start, publish=True,
+                )["revisionId"]
+                for version, components, start in versions
+            )
+            if name == "scoped-chain":
+                access_rows["chain-base"] = revisions[:2]
+                access_rows["chain-window"] = revisions[2:]
+            else:
+                access_rows["rollback-links"] = revisions
         access_rows["drafts"] = tuple(
             service.create_bundle(
                 **access_bundle, bundle_id=bundle_name, version="1.0.0", component_revisions=components,
@@ -997,7 +1128,10 @@ finally:
         assert service.resolve(**selection)["bundle"]["revisionId"] == competing_id
         instant = selection["at_time"]
         decode_bundle = store._bundle
-        for broken_predecessor in ("CBR-MISSING", scheduled["revisionId"]):
+        broken_predecessors = ["CBR-MISSING", scheduled["revisionId"]]
+        if backend == "sqlite":
+            broken_predecessors.append(b"non-text predecessor")
+        for broken_predecessor in broken_predecessors:
             def decode_broken_history(row):
                 revision = decode_bundle(row)
                 if revision is not None and revision.revision_id == scheduled["revisionId"]:
@@ -1079,7 +1213,10 @@ finally:
             with (contextual_connection(store.pool) if app_dsn is not None else store._connect()) as conn:
                 store._set_scheduled_successor_tx(conn, anchor.revision_id, successor)
 
-        for invalid_successor in ("", " ", competing_id, anchor.revision_id):
+        invalid_successors = ["", " ", competing_id, anchor.revision_id]
+        if backend == "sqlite":
+            invalid_successors.append(b"non-text successor")
+        for invalid_successor in invalid_successors:
             write_successor(invalid_successor)
             service._invalidate_cache()
             try:
@@ -1132,7 +1269,6 @@ finally:
             service.create_bundle(**bounded_request)
         assert store.list_bundles(bundle_id=original["bundleId"]) == before
         assert [store.events("bundle", row.revision_id) for row in before] == audit_before
-
         draft = service.create_bundle(**{**bounded_request, "publish": False})
         draft_before = store.get_bundle(draft["revisionId"])
         draft_audit = store.events("bundle", draft["revisionId"])
@@ -1162,6 +1298,13 @@ finally:
             )
         assert store.list_bundles(bundle_id=original["bundleId"]) == before
         assert [store.events("bundle", row.revision_id) for row in before] == audit_before
+        if backend == "sqlite":
+            with store._connect() as connection:
+                store._set_scheduled_successor_tx(connection, partial["revisionId"], b"non-text successor")
+            probe(
+                partial["revisionId"], recovery_target=original["revisionId"],
+                diagnostic="scheduled publication could not be verified",
+            )
     finally:
         CURRENT_DATABASE_IDENTITY.reset(token)
         store.close()

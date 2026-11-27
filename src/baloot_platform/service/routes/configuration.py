@@ -283,7 +283,9 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
             tenant_id=tenant_filter(tenant, tenantId), environment=environment, status=status, limit=limit,
             visible_to_tenant=tenant,
         )
-        return {"items": [item.to_dict(include_payload=False) for item in values]}
+        return {"items": service.project_revision_links(
+            "profile", [item.to_dict(include_payload=False) for item in values], tenant,
+        )}
 
     @router.get("/profile-schemas/{family}")
     def get_profile_schema(family: str, request: Request):
@@ -317,9 +319,13 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         require_identity(request, identities)
         left_value = require_visible(request, service.store.get_profile(left))
         right_value = require_visible(request, service.store.get_profile(right))
+        left_info, right_info = service.project_revision_links(
+            "profile", [left_value.to_dict(include_payload=False), right_value.to_dict(include_payload=False)],
+            read_tenant(request),
+        )
         return {
-            "left": left_value.to_dict(include_payload=False),
-            "right": right_value.to_dict(include_payload=False),
+            "left": left_info,
+            "right": right_info,
             "changes": service.compare_payloads(dict(left_value.payload), dict(right_value.payload)),
         }
 
@@ -345,7 +351,10 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
     def get_profile(revision_id: str, request: Request, includePayload: bool = True):
         require_identity(request, identities)
         value = require_visible(request, service.store.get_profile(revision_id))
-        return value.to_dict(include_payload=includePayload)
+        result, = service.project_revision_links(
+            "profile", [value.to_dict(include_payload=includePayload)], read_tenant(request),
+        )
+        return result
 
     @router.patch("/profiles/{revision_id}")
     def update_profile(
@@ -421,7 +430,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
     def profile_events(revision_id: str, request: Request):
         require_identity(request, identities)
         require_visible(request, service.store.get_profile(revision_id))
-        return service.store.events_with_verification("profile", revision_id)
+        return service.revision_events("profile", revision_id, read_tenant(request))
 
     @router.get("/bundles", response_model=ConfigurationBundleListResponse)
     def list_bundles(request: Request, bundleId: str | None = None, scope: str | None = None,
@@ -433,7 +442,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
             bundle_id=bundleId, scope=scope, scope_key=scopeKey, tenant_id=tenant_filter(tenant, tenantId),
             environment=environment, status=status, limit=limit, include_scheduled=True, visible_to_tenant=tenant,
         )
-        return {"items": [item.to_dict() for item in values]}
+        return {"items": service.project_revision_links("bundle", [item.to_dict() for item in values], tenant)}
 
     @router.post("/bundles", status_code=201)
     def create_bundle(body: BundleCreateRequest, request: Request):
@@ -556,12 +565,15 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
     def bundle_events(revision_id: str, request: Request):
         require_identity(request, identities)
         read_bundle(request, revision_id)
-        return service.store.events_with_verification("bundle", revision_id)
+        return service.revision_events("bundle", revision_id, read_tenant(request))
 
     @router.get("/bundles/{revision_id}")
     def get_bundle(revision_id: str, request: Request):
         require_identity(request, identities)
-        return read_bundle(request, revision_id).to_dict()
+        result, = service.project_revision_links(
+            "bundle", [read_bundle(request, revision_id).to_dict()], read_tenant(request),
+        )
+        return result
 
     @router.get("/resolve")
     def resolve_current(request: Request, bundleId: str | None = None, tenantId: str | None = None,
