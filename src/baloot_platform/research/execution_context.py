@@ -51,8 +51,10 @@ from baloot_platform.challenge.tactical_evidence import (
     CausalTacticalDetectorV1,
     TacticalDetectorProfileV1,
 )
-from baloot_platform.config import ProfileBundle, profile_bundle_from_resolved
+from baloot_platform.config import ProfileBundle, profile_bundle_from_resolved, resolved_bundle_identity
 from baloot_platform.configuration import EffectiveRuntimeConfigV2
+from baloot_platform.configuration.models import BundleRevision
+from baloot_platform.configuration.schedule import ConfigurationIntegrityError
 from baloot_platform.native.accelerator import NativeAccelerator, NativeUnavailable
 
 from .contracts import (
@@ -74,6 +76,9 @@ from .recipe_v4 import ResearchRecipeV4
 
 
 _EFFECTIVE_MEDIA_TYPE = "application/vnd.balootx.effective-runtime-config-v2+json"
+_LEGACY_CONFIGURATION_ERRORS = (
+    ConfigurationIntegrityError, KeyError, PermissionError, RuntimeError, TypeError, ValueError,
+)
 
 
 def _freeze_profile_value(value: Any) -> Any:
@@ -958,9 +963,17 @@ class ResearchExecutionContextFactoryV1:
         resolved = self.configuration_service.resolve(
             revision_id=str(bundle_revision_id), allow_draft=False,
             allow_retired=not require_published,
+            allow_scheduled_predecessor=require_published,
         )
         if str(resolved["bundle"]["revisionId"]) != str(bundle_revision_id):
             raise KeyError("exact Research configuration bundle revision not found")
+        return self.context_from_resolved(resolved, require_published=require_published)
+
+    def context_from_resolved(
+        self, resolved: Mapping[str, Any], *, require_published: bool = True
+    ) -> tuple[EffectiveRuntimeConfigV2, ResearchExecutionContextV1]:
+        """Build a context from a bundle already verified by configuration resolution."""
+        bundle_revision_id = str(resolved["bundle"]["revisionId"])
         if require_published and str(resolved["bundle"].get("status")) != "published":
             raise ValueError("new Research recipes require a published bundle revision")
         with self._lock:
@@ -1080,6 +1093,38 @@ class ResearchExecutionContextFactoryV1:
             raise ValueError("Research model availability or identity mismatch")
         return context
 
+    @staticmethod
+    def _legacy_publication(row: Mapping[str, Any]) -> dict[str, Any]:
+        return {**row, "status": "published"} if row.get("publishedAt") else dict(row)
+
+    def _unverifiable_bundle_might_match(self, candidate: BundleRevision, bundle_hash: str) -> bool:
+        store = self.configuration_service.store
+        hashes = {}
+        for family, revision_id in candidate.component_revisions.items():
+            # Published digests survive payload decoding and schedule failures.
+            digest = store.published_profile_hash(revision_id, family)
+            if digest is None or len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+                return True
+            hashes[family] = digest
+        row = candidate.to_dict()
+        return any(
+            canonical_sha256(resolved_bundle_identity(identity, hashes)) == bundle_hash
+            for identity in (row, self._legacy_publication(row))
+        )
+
+    def _legacy_bundle_candidates(self):
+        after = ""
+        store = self.configuration_service.store
+        while True:
+            try:
+                rows = store.legacy_bundle_page(after, limit=100)
+            except _LEGACY_CONFIGURATION_ERRORS as exc:
+                raise ValueError("historical_record_requires_readjudication") from exc
+            if not rows:
+                return
+            yield from rows
+            after = rows[-1].revision_id
+
     def resolve_recipe(
         self,
         recipe: ResearchRecipeV1 | ResearchRecipeV2 | ResearchRecipeV3 | ResearchRecipeV4,
@@ -1093,16 +1138,33 @@ class ResearchExecutionContextFactoryV1:
                 analysis_mode=analysis_mode,
             )
         expected = dict(recipe.profiles)
-        matches: list[ResearchExecutionContextV1] = []
-        rows = self.configuration_service.store.list_bundles(status=None, limit=10_000)
-        for row in rows:
-            if str(row.status) not in {"published", "superseded"}:
-                continue
+        match: ResearchExecutionContextV1 | None = None
+        store = self.configuration_service.store
+        epoch = store.get_invalidation_epoch()
+        for row in self._legacy_bundle_candidates():
             try:
-                effective, context = self.resolve_bundle_revision(
-                    str(row.revision_id), require_published=False
+                resolved = self.configuration_service.resolve(
+                    revision_id=row.revision_id, allow_retired=True,
                 )
-            except (KeyError, PermissionError, RuntimeError, ValueError):
+                bundle = resolved["bundle"]
+                hashes = {
+                    family: profile["payloadSha256"] for family, profile in resolved["profileRevisions"].items()
+                }
+                if hashes != {family: canonical_sha256(value) for family, value in resolved["profiles"].items()}:
+                    raise ConfigurationIntegrityError(row.revision_id, "Configuration component digest mismatch")
+                historical = self._legacy_publication(bundle)
+                if canonical_sha256(resolved_bundle_identity(historical, hashes)) == expected["bundleHash"]:
+                    resolved = {**resolved, "bundle": historical}
+                elif canonical_sha256(resolved_bundle_identity(bundle, hashes)) != expected["bundleHash"]:
+                    continue
+                _, context = self.context_from_resolved(resolved, require_published=False)
+            except _LEGACY_CONFIGURATION_ERRORS as exc:
+                try:
+                    might_match = self._unverifiable_bundle_might_match(row, expected["bundleHash"])
+                except _LEGACY_CONFIGURATION_ERRORS:
+                    might_match = True
+                if might_match:
+                    raise ValueError("historical_record_requires_readjudication") from exc
                 continue
             projection = {
                 "domainHash": context.legacy_domain_v2.sha256,
@@ -1114,11 +1176,12 @@ class ResearchExecutionContextFactoryV1:
                 "scoreProfileHash": context.score_profile.sha256,
             }
             if projection == expected:
-                matches.append(context)
-        unique = {item.effective_runtime_config_hash: item for item in matches}
-        if len(unique) != 1:
+                if match is not None:
+                    raise ValueError("historical_record_requires_readjudication")
+                match = context
+        if match is None or store.get_invalidation_epoch() != epoch:
             raise ValueError("historical_record_requires_readjudication")
-        return next(iter(unique.values()))
+        return match
 
     @property
     def cached_context_count(self) -> int:

@@ -50,7 +50,11 @@ from pydantic.json_schema import SkipJsonSchema
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from baloot_platform.config import build_bundle, profile_bundle_from_resolved
+from baloot_platform.config import build_bundle
+from baloot_platform.configuration.schedule import (
+    ConfigurationIntegrityError,
+    ConfigurationScheduleConflict,
+)
 from baloot_platform.guide import build_engine_guide
 from baloot_platform.analysis.belief_v7 import (
     BeliefPolicy,
@@ -126,12 +130,21 @@ from baloot_platform.service.authorization import (
     history_without_media,
     http_request_scope,
     tenant_job_http,
+    tenant_configuration_http,
 )
 from baloot_platform.service.client_identity import (
     initialize_service_subject_ownership,
+    service_client_identity,
     service_subject_ownership,
 )
 from baloot_platform.service.routes.auth import request_token, require_identity
+from baloot_platform.service.routes.configuration import (
+    configuration_integrity_response,
+    configuration_schedule_conflict_response,
+    configuration_unavailable_response,
+    is_configuration_admin,
+    is_configuration_recovery_route,
+)
 from baloot_platform.shared import (
     SharedDecisionAccessError,
     SharedGameNotFound,
@@ -174,7 +187,15 @@ from baloot_platform.research.result_authority import (
     RuntimeCompatibilityV1 as RuntimeCompatibilityContractV1,
 )
 
-CONTAINER: PlatformContainer = build_container()
+CONTAINER: PlatformContainer = build_container(allow_unavailable_configuration=True)
+
+
+def require_verified_configuration() -> None:
+    error = CONTAINER.configuration_error or next(iter(CONTAINER.research_configuration_errors.values()), None)
+    if error is not None:
+        raise error
+
+
 ROOT = CONTAINER.root
 DATA_ROOT = CONTAINER.data_root
 OUTPUTS = CONTAINER.outputs
@@ -212,12 +233,7 @@ RESEARCH_RENDERS = CONTAINER.research_renders
 _LOCAL_FOUNDRY_LOCK = threading.Lock()
 _LOCAL_FOUNDRY_CAMPAIGNS: set[str] = set()
 _LOCAL_ANALYSIS_WORKER_ACTIVE = False
-ACTIVE_BUNDLE = profile_bundle_from_resolved(
-    CONTAINER.configuration.resolve(
-        revision_id=FOUNDRY_PROFILE["runtimeBundleRevisionId"]
-    ),
-    root=ROOT,
-)
+ACTIVE_BUNDLE = CONTAINER.runtime_bundle
 LAFFA_LIBRARY = LaffaLibraryServiceV1(
     learning_store=LEARNING_STORE,
     research=RESEARCH,
@@ -416,12 +432,11 @@ class RequestLoggingMiddleware:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    initialize_service_subject_ownership()
-    # In-process recovery is deliberately local-only. Distributed deployments
-    # use separately supervised, leased workers so multiple API replicas cannot
-    # execute the same persisted job concurrently.
-    if not DATABASE_URL:
-        _recover_local_foundry_work()
+    if CONTAINER.configuration_error is None:
+        initialize_service_subject_ownership()
+        # Distributed deployments use independently supervised workers.
+        if not DATABASE_URL:
+            _recover_local_foundry_work()
     yield
     # Test clients and short-lived workers must not leak executor threads.
     if os.environ.get("BALOOT_SHUTDOWN_CONTAINER_ON_APP_EXIT", "false").lower() in {
@@ -440,6 +455,8 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
 )
+app.add_exception_handler(ConfigurationIntegrityError, configuration_integrity_response)
+app.add_exception_handler(ConfigurationScheduleConflict, configuration_schedule_conflict_response)
 
 
 @app.exception_handler(SearchTimeBudgetExceeded)
@@ -904,7 +921,9 @@ async def platform_security(request: Request, call_next):
             )
         denial = auth.denial(
             AUTHORIZATION_POLICY, required_scope,
-            tenant_job=tenant_job_http(request.method, path),
+            tenant_scoped=tenant_job_http(request.method, path) or tenant_configuration_http(
+                request.method, path, required_scope,
+            ),
         )
         if denial is not None:
             return JSONResponse(
@@ -934,6 +953,12 @@ async def platform_security(request: Request, call_next):
         getattr(access_claims, "subject_id", "")
         or (identity.subject_id if identity else "")
     )
+    if (
+        not claims_subject
+        and api_key_valid
+        and path.startswith(("/api/v1/configuration-registry/", "/api/v2/configuration/"))
+    ):
+        claims_subject = service_client_identity(request.headers, "API Client").subject_id
     context_token = CURRENT_DATABASE_IDENTITY.set(
         DatabaseIdentityContext(
             subject_id=claims_subject,
@@ -951,16 +976,26 @@ async def platform_security(request: Request, call_next):
         if api_key_valid and not session_valid else None
     )
     started = time.monotonic()
+    metric_path = request.url.path
     try:
-        response = await call_next(request)
+        error = CONTAINER.configuration_error
+        if error is not None and metric_path not in {"/healthz", "/api/v1/health", "/readyz", "/metrics"}:
+            # Public metrics must not expose recovery revision IDs.
+            metric_path = "/configuration-unavailable"
+            if is_configuration_recovery_route(request) and is_configuration_admin(request, AUTHORIZATION_POLICY):
+                response = await call_next(request)
+            else:
+                response = await configuration_integrity_response(request, error)
+        else:
+            response = await call_next(request)
     finally:
         SERVICE_SUBJECT_OWNER.reset(ownership_token)
         CURRENT_DATABASE_IDENTITY.reset(context_token)
     elapsed = time.monotonic() - started
     with _METRIC_LOCK:
-        _METRICS[(request.method, request.url.path, response.status_code)] += 1
+        _METRICS[(request.method, metric_path, response.status_code)] += 1
         # Keep a coarse latency sum in integer microseconds without another dependency.
-        _METRICS[("LATENCY_US", request.url.path, 0)] += int(elapsed * 1_000_000)
+        _METRICS[("LATENCY_US", metric_path, 0)] += int(elapsed * 1_000_000)
     response.headers["x-content-type-options"] = "nosniff"
     response.headers["x-frame-options"] = "DENY"
     response.headers["referrer-policy"] = "no-referrer"
@@ -969,6 +1004,19 @@ async def platform_security(request: Request, call_next):
         "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
     )
     return response
+
+
+if CONTAINER.configuration_error is not None:
+    def unavailable_configuration(app):
+        async def guarded(scope, receive, send):
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1013})
+                return
+            await app(scope, receive, send)
+
+        return guarded
+
+    app.add_middleware(unavailable_configuration)
 
 
 app.add_middleware(RequestLoggingMiddleware)
@@ -7570,7 +7618,17 @@ def health():
 
 
 @app.get("/readyz")
-def ready():
+def ready(request: Request):
+    if CONTAINER.configuration_error is not None:
+        return configuration_unavailable_response(request, str(CONTAINER.configuration_error))
+    if CONTAINER.research_configuration_errors:
+        return configuration_unavailable_response(
+            request,
+            {
+                environment: str(error)
+                for environment, error in CONTAINER.research_configuration_errors.items()
+            },
+        )
     bundle = ACTIVE_BUNDLE
     return {
         "status": "ready",
@@ -7584,6 +7642,8 @@ def metrics():
     lines = [
         "# TYPE baloot_http_requests_total counter",
         "# TYPE baloot_http_latency_microseconds_total counter",
+        "# TYPE baloot_research_configuration_unavailable gauge",
+        f"baloot_research_configuration_unavailable {len(CONTAINER.research_configuration_errors)}",
     ]
     with _METRIC_LOCK:
         items = list(_METRICS.items())

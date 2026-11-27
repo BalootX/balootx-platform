@@ -13,11 +13,13 @@ from baloot_platform.storage.postgres import PostgresJobStore
 
 
 def _run() -> None:
+    from baloot_platform.service.api import _execute_job, require_verified_configuration
+
+    require_verified_configuration()
     runtime = Path(os.environ.get("BALOOT_RUNTIME", data_root() / "runtime")).expanduser().resolve()
     database_url = os.environ.get("BALOOT_DATABASE_URL", "").strip()
     store = PostgresJobStore(database_url) if database_url else JobStore(runtime / "jobs.sqlite3")
     worker_id = os.environ.get("BALOOT_WORKER_ID", f"{socket.gethostname()}-{os.getpid()}")
-    from baloot_platform.service.api import _execute_job
     while True:
         job = store.claim(worker_id, kinds=("video",), lease_seconds=120)
         if job is None:

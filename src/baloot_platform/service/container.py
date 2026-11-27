@@ -8,7 +8,9 @@ construction logic throughout the API module.
 
 from __future__ import annotations
 
+import logging
 import os
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +18,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from baloot_platform.observability import log_event
 from baloot_platform.agents.profiles import AgentProfileRegistry
 from baloot_platform.agents.qualification import (
     FinalistAgentPilotEvidenceV1,
@@ -142,6 +145,7 @@ from baloot_platform.challenge.locator import (
     SQLiteChallengeLocatorStore,
 )
 from baloot_platform.config import (
+    ProfileBundle,
     build_bundle,
     data_root,
     platform_root,
@@ -152,6 +156,7 @@ from baloot_platform.configuration import (
     SQLiteConfigurationStore,
     VersionedConfigurationService,
 )
+from baloot_platform.configuration.schedule import ConfigurationIntegrityError
 from baloot_platform.identity import (
     IdentityService,
     PostgresIdentityStore,
@@ -233,6 +238,10 @@ _NATIVE_RESEARCH_BUNDLE = "configs/bundle_ortools_research_native_v3_1.yaml"
 _INTELLIGENT_RESEARCH_BUNDLE = (
     "configs/bundle_ortools_research_native_v3_intelligent_validation_5s.yaml"
 )
+_PACKAGED_RESEARCH_BUNDLES = (
+    (_NATIVE_RESEARCH_BUNDLE, "research-native-v3"),
+    (_INTELLIGENT_RESEARCH_BUNDLE, "research-native-v3-intelligent"),
+)
 
 
 def _close_owned_resources(values: list[Any], *, wait_for_workers: bool) -> None:
@@ -268,8 +277,21 @@ def _own(values: list[Any], value: Any) -> Any:
     return value
 
 
+def _log_schedule_unavailable(error: ConfigurationIntegrityError, environment: str | None) -> None:
+    log_event(
+        "configuration.schedule_unavailable",
+        level=logging.ERROR,
+        trace_id=uuid.uuid4().hex,
+        revision_id=error.revision_id,
+        environment=environment,
+        error_type=type(error).__name__,
+    )
+
+
 def _bootstrap_packaged_configuration(
     configuration: VersionedConfigurationService,
+    *,
+    research_errors: dict[str, ConfigurationIntegrityError] | None = None,
 ) -> dict[str, Any]:
     """Bootstrap under one service identity and always restore caller context."""
 
@@ -281,21 +303,31 @@ def _bootstrap_packaged_configuration(
         )
     )
     try:
-        active = configuration.bootstrap_packaged_bundle(
-            actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT
-        )
-        configuration.bootstrap_packaged_bundle(
-            actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT,
-            bundle_path=_NATIVE_RESEARCH_BUNDLE,
-            scope="environment",
-            environment="research-native-v3",
-        )
-        configuration.bootstrap_packaged_bundle(
-            actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT,
-            bundle_path=_INTELLIGENT_RESEARCH_BUNDLE,
-            scope="environment",
-            environment="research-native-v3-intelligent",
-        )
+        research_bundles = [
+            (path, environment, configuration.register_packaged_research_bundle(path, environment))
+            for path, environment in _PACKAGED_RESEARCH_BUNDLES
+        ]
+        try:
+            active = configuration.bootstrap_packaged_bundle(
+                actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT
+            )
+        except ConfigurationIntegrityError as exc:
+            _log_schedule_unavailable(exc, None)
+            raise
+        for path, environment, packaged in research_bundles:
+            try:
+                configuration.bootstrap_packaged_bundle(
+                    actor_id=_CONFIGURATION_BOOTSTRAP_SUBJECT,
+                    bundle_path=path,
+                    scope="environment",
+                    environment=environment,
+                    packaged_bundle=packaged,
+                )
+            except ConfigurationIntegrityError as exc:
+                _log_schedule_unavailable(exc, environment)
+                if research_errors is None:
+                    raise
+                research_errors[environment] = exc
         return active
     finally:
         CURRENT_DATABASE_IDENTITY.reset(token)
@@ -370,6 +402,9 @@ class PlatformContainer:
     research_store: Any
     research: ResearchFoundryServiceV1
     research_renders: ResearchRenderPreparationServiceV1
+    runtime_bundle: ProfileBundle
+    configuration_error: ConfigurationIntegrityError | None
+    research_configuration_errors: dict[str, ConfigurationIntegrityError]
 
     def shutdown(self) -> None:
         _close_owned_resources(
@@ -426,6 +461,7 @@ def build_container(
     root: str | Path | None = None,
     writable_root: str | Path | None = None,
     database_url: str | None = None,
+    allow_unavailable_configuration: bool = False,
 ) -> PlatformContainer:
     owned_resources: list[Any] = []
     try:
@@ -433,6 +469,7 @@ def build_container(
             root=root,
             writable_root=writable_root,
             database_url=database_url,
+            allow_unavailable_configuration=allow_unavailable_configuration,
             owned_resources=owned_resources,
         )
     except BaseException:
@@ -445,6 +482,7 @@ def _build_container(
     root: str | Path | None,
     writable_root: str | Path | None,
     database_url: str | None,
+    allow_unavailable_configuration: bool,
     owned_resources: list[Any],
 ) -> PlatformContainer:
     resolved_root = platform_root(root)
@@ -482,11 +520,23 @@ def _build_container(
     configuration = VersionedConfigurationService(
         configuration_store, root=resolved_root, profile=configuration_profile
     )
-    resolved_configuration = _bootstrap_packaged_configuration(configuration)
-    bundle = profile_bundle_from_resolved(
-        resolved_configuration,
-        root=resolved_root,
-    )
+    configuration_error = None
+    research_configuration_errors: dict[str, ConfigurationIntegrityError] = {}
+    try:
+        resolved_configuration = _bootstrap_packaged_configuration(
+            configuration,
+            research_errors=research_configuration_errors if allow_unavailable_configuration else None,
+        )
+        bundle = profile_bundle_from_resolved(resolved_configuration, root=resolved_root)
+        runtime_identity = resolved_configuration["bundle"]
+    except ConfigurationIntegrityError as exc:
+        if not allow_unavailable_configuration:
+            raise
+        configuration_error = exc
+        resolved_configuration = None
+        # The HTTP app uses these defaults to construct routes while traffic is blocked.
+        bundle = packaged_bundle
+        runtime_identity = {"revisionId": "", "version": bundle.bundle_profile["profile"]["version"]}
     belief_policy = BeliefPolicy.from_profile(bundle.component("belief"))
     analysis_policy = AnalysisPolicy.from_profile(
         bundle.component("analysis"),
@@ -1414,8 +1464,8 @@ def _build_container(
     )
     foundry_profile = {
         "schemaVersion": 1,
-        "runtimeBundleRevisionId": resolved_configuration["bundle"]["revisionId"],
-        "runtimeBundleVersion": resolved_configuration["bundle"]["version"],
+        "runtimeBundleRevisionId": runtime_identity["revisionId"],
+        "runtimeBundleVersion": runtime_identity["version"],
         "rulesHash": bundle.rules.sha256,
         "bundleHash": bundle.sha256,
         "engineVersion": foundry_simulator.engine_version,
@@ -1542,14 +1592,15 @@ def _build_container(
         active_bundle=bundle,
         active_exact_search_backend=exact_search_backend,
     )
-    _, active_research_context = research_execution_contexts.resolve_bundle_revision(
-        str(resolved_configuration["bundle"]["revisionId"])
-    )
-    if (
-        active_research_context.compiled_domain.compiled.sha256
-        != compiled_research_domain.compiled.sha256
-    ):
-        raise ValueError("active Research compiled-domain identity mismatch")
+    if resolved_configuration is not None:
+        _, active_research_context = research_execution_contexts.context_from_resolved(
+            resolved_configuration
+        )
+        if (
+            active_research_context.compiled_domain.compiled.sha256
+            != compiled_research_domain.compiled.sha256
+        ):
+            raise ValueError("active Research compiled-domain identity mismatch")
     research = ResearchFoundryServiceV1(
         domain=research_domain,
         compiled_domain=compiled_research_domain,
@@ -1667,4 +1718,7 @@ def _build_container(
         research_store,
         research,
         research_renders,
+        bundle,
+        configuration_error,
+        research_configuration_errors,
     )

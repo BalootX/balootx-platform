@@ -547,7 +547,8 @@ def test_concurrent_selected_bundles_never_cross_contaminate():
     assert resolved == requested
 
 
-def test_research_resolves_the_exact_pre_app_copy_bundle(root, monkeypatch):
+@pytest.mark.parametrize("require_published", [True, False], ids=["published", "replay"])
+def test_research_resolves_the_exact_pre_app_copy_bundle(root, monkeypatch, require_published):
     from baloot_platform.service import api
 
     # Synthetic bootstrap of public main aaca71a1, before app copy was added.
@@ -557,16 +558,18 @@ def test_research_resolves_the_exact_pre_app_copy_bundle(root, monkeypatch):
     original_video = resolved["profiles"]["video"]
     assert not any(key.startswith("app_") for key in original_video["challenge_copy"])
 
-    def resolve(*, revision_id, allow_draft, allow_retired):
+    def resolve(*, revision_id, allow_draft, allow_retired, allow_scheduled_predecessor):
         assert revision_id == resolved["bundle"]["revisionId"]
-        assert not allow_draft and not allow_retired
+        assert allow_draft is False
+        assert allow_retired is (not require_published)
+        assert allow_scheduled_predecessor is require_published
         return copy.deepcopy(resolved)
 
     factory = api.RESEARCH.execution_context_factory
     assert factory is not None
     monkeypatch.setattr(factory.configuration_service, "resolve", resolve)
 
-    effective, context = factory.resolve_bundle_revision(revision_id)
+    effective, context = factory.resolve_bundle_revision(revision_id, require_published=require_published)
 
     assert context.bundle_revision_id == revision_id
     assert context.source_effective_hash == (
@@ -858,3 +861,152 @@ def test_legacy_recipe_without_unique_retained_identity_fails_closed():
     recipe = build_research_recipe(legacy)
     with pytest.raises(ValueError, match="historical_record_requires_readjudication"):
         api.RESEARCH.execution_context_factory.resolve_recipe(recipe)
+
+
+def test_legacy_replay_checks_schedule_integrity_only_for_possible_matches(root, tmp_path, monkeypatch):
+    from baloot_platform.config import build_bundle
+    from baloot_platform.configuration import SQLiteConfigurationStore, VersionedConfigurationService
+    from baloot_platform.configuration.schedule import ConfigurationIntegrityError
+    from baloot_platform.service import api
+
+    base = api.RESEARCH.execution_context_factory
+    store = SQLiteConfigurationStore(tmp_path / "configuration.sqlite3")
+    configuration = VersionedConfigurationService(store, root=root, profile=base.configuration_service.profile)
+    packaged = build_bundle(root)
+    current = configuration.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)["bundle"]
+    factory = ResearchExecutionContextFactoryV1(
+        configuration_service=configuration,
+        artifact_store=base.artifact_store,
+        root=root,
+        plugin_capabilities=base.plugin_capabilities,
+        shared_plugin_descriptors=base.shared_plugin_descriptors,
+        active_bundle=packaged,
+        active_exact_search_backend=base.active_exact_search_backend,
+    )
+    _, saved = factory.resolve_bundle_revision(current["revisionId"])
+    raw = _selector_recipe(current["revisionId"])
+    del raw["configuration"]
+    raw["profiles"] = {
+        "domainHash": saved.legacy_domain_v2.sha256,
+        "bundleHash": saved.bundle.sha256,
+        "rulesHash": saved.legacy_domain_v2.rules_hash,
+        "conventionHash": saved.legacy_domain_v2.convention_hash,
+        "agentRelease": saved.simulator.agent_release,
+        "analysisProfileHash": saved.analyzers["screening"].profile.sha256,
+        "scoreProfileHash": saved.score_profile.sha256,
+    }
+    v1 = {key: value for key, value in raw.items() if key not in {"diversity", "renderPolicy"}}
+    recipes = [build_research_recipe({**v1, "schemaVersion": 1}), build_research_recipe({**raw, "schemaVersion": 2})]
+    common = {"mode": current["mode"], "component_revisions": current["componentRevisions"],
+              "created_by": "TEST", "publish": True}
+    window = {"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00"}
+    payload = copy.deepcopy(saved.bundle.component("performance"))
+    payload["profile"].update(id="legacy_handoff", version="99.0.0")
+    alternative = configuration.create_profile(
+        family="performance", payload=payload, created_by="TEST", publish=True,
+    )
+    successor = configuration.create_bundle(**{
+        **common, "bundle_id": current["bundleId"], "version": "99.0.0",
+        "component_revisions": {**common["component_revisions"], "performance": alternative["revisionId"]},
+        "local_schedule": {**window, "effectiveUntil": "2026-07-01T13:00"},
+    })
+    assert store.get_bundle(current["revisionId"]).status == "superseded"
+    for at_time, effective_revision in (
+        ("2026-07-01T15:59:59Z", current),
+        ("2026-07-01T16:00:00Z", successor),
+        ("2026-07-01T17:00:00Z", current),
+    ):
+        assert configuration.resolve(bundle_id=current["bundleId"], at_time=at_time)["bundle"]["revisionId"] == effective_revision["revisionId"]
+        for recipe in recipes:
+            replay = factory.resolve_recipe(recipe)
+            assert replay.bundle_revision_id == saved.bundle_revision_id
+            assert replay.bundle.sha256 == saved.bundle.sha256
+
+    def corrupt(revision_id):
+        with store._connect() as connection:
+            connection.execute(
+                "UPDATE configuration_bundle_revisions SET effective_from=? WHERE revision_id=?",
+                ("2026-07-01T15:00:00+00:00", revision_id),
+            )
+
+    published = configuration.create_bundle(
+        **common, bundle_id="replay-unrelated-published", version="1.0.0", local_schedule=window,
+    )
+    archived = configuration.create_bundle(
+        **common, bundle_id="replay-unrelated-archived", version="1.0.0", local_schedule=window,
+    )
+    configuration.create_bundle(
+        **common, bundle_id=archived["bundleId"], version="1.0.1", force_new_revision=True,
+    )
+    assert store.get_bundle(archived["revisionId"]).status == "superseded"
+    for bundle in (published, archived):
+        corrupt(bundle["revisionId"])
+        with pytest.raises(ConfigurationIntegrityError):
+            factory.resolve_bundle_revision(bundle["revisionId"], require_published=False)
+    for recipe in recipes:
+        replay = factory.resolve_recipe(recipe)
+        assert replay.bundle_revision_id == saved.bundle_revision_id
+        assert replay.source_effective_hash == saved.source_effective_hash
+        _, exact = factory.resolve_bundle_revision(current["revisionId"], require_published=False)
+        assert replay.effective_runtime_config_hash == exact.effective_runtime_config_hash
+
+    get_profile = store.get_profile
+
+    def unreadable_unrelated(revision_id):
+        if revision_id == alternative["revisionId"]:
+            raise ValueError("unreadable component payload")
+        return get_profile(revision_id)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "get_profile", unreadable_unrelated)
+        configuration._invalidate_cache()
+        with pytest.raises(ValueError, match="unreadable component payload"):
+            factory.resolve_bundle_revision(successor["revisionId"], require_published=False)
+        for recipe in recipes:
+            assert factory.resolve_recipe(recipe).bundle_revision_id == saved.bundle_revision_id
+
+    matching_tenant = "TEST-REPLAY-MATCH"
+    matching_profile = configuration.create_profile(
+        family="performance", payload=copy.deepcopy(saved.bundle.component("performance")),
+        created_by="TEST", publish=True, scope="tenant", tenant_id=matching_tenant,
+    )
+    matching = configuration.create_bundle(
+        **{**common, "component_revisions": {**common["component_revisions"],
+                                            "performance": matching_profile["revisionId"]}},
+        bundle_id=current["bundleId"], version=current["version"], local_schedule=window,
+        scope="tenant", tenant_id=matching_tenant,
+    )
+    legacy_page = store.legacy_bundle_page
+    pages = []
+
+    def single_row_page(after, *, limit):
+        result = legacy_page(after, limit=1)
+        pages.append(tuple(row.revision_id for row in result))
+        return result
+
+    monkeypatch.setattr(store, "legacy_bundle_page", single_row_page)
+    for recipe in recipes:
+        pages.clear()
+        with pytest.raises(ValueError, match="historical_record_requires_readjudication"):
+            factory.resolve_recipe(recipe)
+        assert (matching["revisionId"],) in pages
+        assert (current["revisionId"],) in pages
+        assert len(pages) >= 2
+
+    def missing_match(revision_id):
+        return None if revision_id == matching_profile["revisionId"] else get_profile(revision_id)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "get_profile", missing_match)
+        configuration._invalidate_cache()
+        with pytest.raises(RuntimeError, match="references missing revision"):
+            factory.resolve_bundle_revision(matching["revisionId"], require_published=False)
+        for recipe in recipes:
+            with pytest.raises(ValueError, match="historical_record_requires_readjudication"):
+                factory.resolve_recipe(recipe)
+
+    corrupt(matching["revisionId"])
+    configuration._invalidate_cache()
+    for recipe in recipes:
+        with pytest.raises(ValueError, match="historical_record_requires_readjudication"):
+            factory.resolve_recipe(recipe)

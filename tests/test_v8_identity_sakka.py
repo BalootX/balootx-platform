@@ -258,7 +258,7 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
     started = "2026-01-01T00:00:00+00:00"
     newer = "2026-01-02T00:00:00+00:00"
     request_keys = [(newer if index % 2 else started, f"REQ-{index:04}") for index in range(len(candidates))]
-    migrations = {"031_identity_list_pagination.sql", "032_identity_pending_requests_index.sql"}
+    first_pagination_migration = "031_identity_list_pagination.sql"
 
     def migrate(source_root):
         from scripts.migrate_postgres import main
@@ -301,7 +301,7 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
             baseline_migrations = baseline_root / "migrations"
             baseline_migrations.mkdir(parents=True)
             for path in (root / "migrations").glob("*.sql"):
-                if path.name not in migrations:
+                if path.name < first_pagination_migration:
                     shutil.copyfile(path, baseline_migrations / path.name)
             migrate(baseline_root)
 

@@ -650,6 +650,18 @@ def tenant_job_rpc(path: str) -> bool:
     return path == _JOB_RPC
 
 
+def tenant_configuration_http(method: str, path: str, scope: Scope) -> bool:
+    return method in {"GET", "HEAD"} and scope == Scope.READ and path.startswith("/api/v1/configuration-registry/")
+
+
+def tenant_configuration_rpc(path: str) -> bool:
+    service, _, method = path.rpartition("/")
+    return service == "/baloot.v19.ConfigurationControl" and method in {
+        "ListProfiles", "ResolveProfile", "CompareProfiles", "ListBundles",
+        "ResolveBundle", "ResolveEffectiveRuntimeConfigV2",
+    }
+
+
 def history_without_media(game: dict[str, Any]) -> dict[str, Any]:
     return {
         **game,
@@ -677,12 +689,25 @@ class Credentials:
     def has_scope(self, policy: AuthorizationPolicy, scope: Scope) -> bool:
         return scope in policy.effective_scopes(role=self.role, claims=self.claims)
 
-    def denial(self, policy: AuthorizationPolicy, scope: Scope, *, tenant_job: bool) -> str | None:
+    def denial(self, policy: AuthorizationPolicy, scope: Scope, *, tenant_scoped: bool) -> str | None:
         if not self.has_scope(policy, scope):
             return f"missing required scope: {scope.value}"
-        if self.tenant_id != DEFAULT_TENANT and not tenant_job:
+        if self.tenant_id != DEFAULT_TENANT and not tenant_scoped:
             return "the request is outside the tenant scope"
         return None
+
+
+def configuration_read_tenant(auth: Credentials, policy: AuthorizationPolicy) -> str | None:
+    if auth.role in {"admin", "service"} and auth.denial(policy, Scope.CONFIG_ADMIN, tenant_scoped=False) is None:
+        return None
+    return auth.tenant_id
+
+
+def configuration_tenant_filter(authorized_tenant: str | None, requested_tenant: str | None) -> str | None:
+    requested = (requested_tenant or "").strip() or None
+    if authorized_tenant is not None and requested not in (None, authorized_tenant):
+        raise PermissionError("the request is outside the tenant scope")
+    return requested
 
 
 def claims_identity(claims: AccessClaims, display_name: str) -> Identity:

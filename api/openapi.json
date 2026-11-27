@@ -396,6 +396,9 @@
             ],
             "title": "Environment"
           },
+          "localSchedule": {
+            "$ref": "#/components/schemas/LocalSchedule"
+          },
           "mode": {
             "default": "full",
             "title": "Mode",
@@ -1479,6 +1482,10 @@
             "minimum": 1.0,
             "title": "Etag",
             "type": "integer"
+          },
+          "localSchedule": {
+            "$ref": "#/components/schemas/StoredLocalSchedule",
+            "title": "Localschedule"
           },
           "mode": {
             "title": "Mode",
@@ -7177,6 +7184,42 @@
         "title": "LiveActionRequest",
         "type": "object"
       },
+      "LocalSchedule": {
+        "additionalProperties": false,
+        "properties": {
+          "effectiveFrom": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effectivefrom"
+          },
+          "effectiveUntil": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effectiveuntil"
+          },
+          "timeZone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timeZone"
+        ],
+        "title": "LocalSchedule",
+        "type": "object"
+      },
       "LoginRequest": {
         "properties": {
           "password": {
@@ -8510,6 +8553,9 @@
           "family": {
             "title": "Family",
             "type": "string"
+          },
+          "localSchedule": {
+            "$ref": "#/components/schemas/LocalSchedule"
           },
           "payload": {
             "additionalProperties": true,
@@ -26450,6 +26496,47 @@
           "displayName"
         ],
         "title": "SpectatorRequest",
+        "type": "object"
+      },
+      "StoredLocalSchedule": {
+        "additionalProperties": false,
+        "properties": {
+          "effectiveFrom": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effectivefrom"
+          },
+          "effectiveUntil": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effectiveuntil"
+          },
+          "timeZone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "zoneDataVersion": {
+            "title": "Zonedataversion",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timeZone",
+          "zoneDataVersion"
+        ],
+        "title": "StoredLocalSchedule",
         "type": "object"
       },
       "StoredResearchRecipeResponse": {

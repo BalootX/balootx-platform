@@ -8,6 +8,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tomllib
 from types import SimpleNamespace
 from xml.etree import ElementTree
 
@@ -1446,6 +1447,13 @@ def test_render_image_inputs_are_pinned(root):
     pins = (root / "requirements-docker.txt").read_text(encoding="utf-8").splitlines()
     requirements = [line for line in pins if line and not line.startswith("#")]
     assert requirements and all(re.fullmatch(r"[\w.-]+==[\w.+!-]+", line) for line in requirements)
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    pinned_project_dependencies = {
+        requirement.casefold()
+        for requirement in project["dependencies"]
+        if re.fullmatch(r"[\w.-]+==[\w.+!-]+", requirement)
+    }
+    assert pinned_project_dependencies <= {requirement.casefold() for requirement in requirements}
 
 
 def test_docker_constraint_job_resolves_the_shared_target(root):

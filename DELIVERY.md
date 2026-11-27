@@ -22,6 +22,10 @@ The [FFmpeg runtime profile](src/baloot_platform/video/remotion/scripts/ffmpeg-r
 
 The `docker-constraints` job dry-runs pip with the Python base image, exact constraints and extras shared by the Docker test and verifier stages. It runs when its Docker, dependency or CI inputs change on a PR, when CI cannot resolve the diff, and on main and merge groups.
 
+The full profile includes `postgres-configuration`. It applies the configuration schedule migration to populated synthetic data in a disposable PostgreSQL service and verifies the store's UTC and local-time round trip and immutability. It then runs the previous revision's PostgreSQL migrator and reads the new rows with both previous stores. The job starts after `identity-postgres`, and the backend shards start after both PostgreSQL checks to stay within shared runner capacity.
+
+The same job tests the governed rollback endpoint on SQLite and PostgreSQL. Rolling back to a time-windowed bundle publishes a new revision with the target's content and no effective bounds or local schedule. The target retains its original schedule in revision history.
+
 The full profile includes `identity-postgres`, which applies and replays the migrations using the [PostgreSQL proof's pinned image](scripts/verify_live_postgres_research.py) and the driver versions in [the Docker constraints](requirements-docker.txt). It verifies paging and query plans with an ICU collation. The [identity migration notes](docs/IDENTITY_PAGINATION.md#migration-notes) cover deployment and reversal.
 
 An active identity profile must declare its pagination policy. Before activating a custom bundle, validate its identity revision against the [identity profile schema](schemas/profiles/identity.schema.json). The [identity pagination release note](docs/IDENTITY_PAGINATION.md#release-note) defines the v1 compatibility contract and the v2 read scope.

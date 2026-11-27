@@ -254,6 +254,7 @@ export type BundleCreateRequest = {
      * Environment
      */
     environment?: string | null;
+    localSchedule?: LocalSchedule;
     /**
      * Mode
      */
@@ -864,6 +865,10 @@ export type ConfigurationBundleRevisionResponse = {
      * Etag
      */
     etag: number;
+    /**
+     * Localschedule
+     */
+    localSchedule?: StoredLocalSchedule;
     /**
      * Mode
      */
@@ -4014,6 +4019,24 @@ export type LiveActionRequest = {
 };
 
 /**
+ * LocalSchedule
+ */
+export type LocalSchedule = {
+    /**
+     * Effectivefrom
+     */
+    effectiveFrom?: string | null;
+    /**
+     * Effectiveuntil
+     */
+    effectiveUntil?: string | null;
+    /**
+     * Timezone
+     */
+    timeZone: string;
+};
+
+/**
  * LoginRequest
  */
 export type LoginRequest = {
@@ -4769,6 +4792,7 @@ export type ProfileCreateRequest = {
      * Family
      */
     family: string;
+    localSchedule?: LocalSchedule;
     /**
      * Payload
      */
@@ -13701,6 +13725,28 @@ export type SpectatorRequest = {
      * Displayname
      */
     displayName: string;
+};
+
+/**
+ * StoredLocalSchedule
+ */
+export type StoredLocalSchedule = {
+    /**
+     * Effectivefrom
+     */
+    effectiveFrom?: string | null;
+    /**
+     * Effectiveuntil
+     */
+    effectiveUntil?: string | null;
+    /**
+     * Timezone
+     */
+    timeZone: string;
+    /**
+     * Zonedataversion
+     */
+    zoneDataVersion: string;
 };
 
 /**
