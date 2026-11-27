@@ -859,10 +859,13 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
     monkeypatch.setenv(rotated_binding["client_secret_env"], "synthetic-rotated-fixture")
 
     keys_uri = canonical + "/keys"
+    discovery_url = canonical + "/.well-known/openid-configuration"
+    discovered_issuer = canonical
     signing_key = Ed25519PrivateKey.from_private_bytes(b"a" * 32)
     jwk = {**json.loads(jwt.algorithms.OKPAlgorithm.to_jwk(signing_key.public_key())), "kid": "fixture"}
     now = 1_767_225_600
     outstanding_codes = {}
+    outbound_requests = []
     token_requests = []
     race = Barrier(2)
 
@@ -882,9 +885,10 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
     monkeypatch.setattr(OpenerDirector, "open", fetch_keys)
 
     def provider_http(request):
+        outbound_requests.append((request.method, str(request.url)))
         if request.method == "GET":
-            assert str(request.url) == canonical + "/.well-known/openid-configuration"
-            return httpx.Response(200, json={"issuer": canonical, "jwks_uri": keys_uri})
+            assert str(request.url) == discovery_url
+            return httpx.Response(200, json={"issuer": discovered_issuer, "jwks_uri": keys_uri})
         form = parse_qs(request.content.decode())
         token_requests.append((str(request.url), form.get("client_secret")))
         expected_secret = {
@@ -1080,17 +1084,31 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
                 )
         with psycopg.connect(dsn) as conn:
             conn.execute("DELETE FROM security.external_identities WHERE external_subject='collision'")
-        before_exchange = list(token_requests)
+        before_onboarding = list(outbound_requests)
         with monkeypatch.context() as unapproved:
             unapproved.setenv(oidc.OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps([rotated_binding]))
             with pytest.raises(SystemExit, match="approve its confidential registration"):
                 command("--version", "1.0.0", "--algorithm", "EdDSA")
-        assert token_requests == before_exchange
+        assert outbound_requests == before_onboarding
+        with monkeypatch.context() as missing_secret:
+            missing_secret.setenv(oidc.LEGACY_OIDC_CLIENT_SECRET_ENV, "")
+            with pytest.raises(SystemExit, match="missing deployment secret"):
+                command("--version", "1.0.0", "--algorithm", "EdDSA")
+        assert outbound_requests == before_onboarding
+
+        # Compatibility is only for finding Discovery, which must return the exact approved issuer.
+        discovered_issuer = legacy
+        with pytest.raises(SystemExit, match="approve its confidential registration"):
+            command("--version", "1.0.0", "--algorithm", "EdDSA")
+        assert outbound_requests == [*before_onboarding, ("GET", discovery_url)]
         with migration_connection() as conn:
             assert lookup(conn, legacy, "existing")["issuer_alias"] is False
             assert lookup(conn, canonical, "existing") is None
+            assert conn.execute("SELECT count(*) FROM security.oidc_issuer_transitions").fetchone()["count"] == 0
+        discovered_issuer = canonical
         migration = command("--version", "1.0.0", "--algorithm", "EdDSA")
         assert migration["status"] == "applied" and migration["links"] == 1
+        assert outbound_requests == [*before_onboarding, ("GET", discovery_url), ("GET", discovery_url)]
         revision_id = migration["revisionId"]
         for refused_dsn in (app_dsn, dsn):
             with pytest.raises(SystemExit, match="requires a dedicated login"):

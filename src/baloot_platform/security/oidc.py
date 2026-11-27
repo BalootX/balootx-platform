@@ -286,9 +286,19 @@ def _resolve_revision(configuration: VersionedConfigurationService, profile_id: 
     return revision
 
 
-def resolve_oidc_client_secrets(profile: OidcProviderProfile) -> dict[str, str]:
+def resolve_oidc_client_secrets(
+    profile: OidcProviderProfile, *, allow_legacy_issuer_spelling: bool = False,
+) -> dict[str, str]:
+    def binding_key(binding: _OidcCredentialBinding) -> _OidcCredentialBinding:
+        if allow_legacy_issuer_spelling:
+            return binding.model_copy(update={"issuer": binding.issuer.rstrip("/")})
+        return binding
+
     try:
-        approved = set(_CredentialBindings.validate_json(os.environ.get(OIDC_CREDENTIAL_BINDINGS_ENV, "[]")))
+        approved = {
+            binding_key(binding)
+            for binding in _CredentialBindings.validate_json(os.environ.get(OIDC_CREDENTIAL_BINDINGS_ENV, "[]"))
+        }
     except ValidationError:
         raise ValueError(f"{OIDC_CREDENTIAL_BINDINGS_ENV} requires a valid JSON array of provider bindings") from None
 
@@ -300,7 +310,7 @@ def resolve_oidc_client_secrets(profile: OidcProviderProfile) -> dict[str, str]:
         for key, row in profile.providers.items() if row.client_secret_env is not None
     }
     for key, binding in requested.items():
-        if binding not in approved:
+        if binding_key(binding) not in approved:
             raise ValueError(f"OIDC provider {key!r}: approve its confidential registration in {OIDC_CREDENTIAL_BINDINGS_ENV}")
 
     resolved: dict[str, str] = {}

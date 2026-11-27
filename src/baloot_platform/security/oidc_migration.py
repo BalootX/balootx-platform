@@ -38,24 +38,25 @@ def legacy_oidc_profile(
         raise ValueError("complete legacy OIDC provider metadata is required")
     legacy_issuer = provider["issuer"]
     assert legacy_issuer is not None
+    if LEGACY_OIDC_CLIENT_SECRET_ENV in set(os.environ):
+        provider["client_secret_env"] = LEGACY_OIDC_CLIENT_SECRET_ENV
+    provider_id = os.environ.get("BALOOT_OIDC_PROVIDER_ID", LEGACY_DEFAULT_PROVIDER_ID)
+    payload = {
+        "schema_version": 1,
+        "profile": {"id": profile_id, "version": version},
+        "change_reason": reason,
+        "providers": {provider_id: {**provider, "allowed_algorithms": algorithms}},
+    }
+    # The legacy spelling can differ by a trailing slash before Discovery establishes the exact issuer.
+    resolve_oidc_client_secrets(validate_oidc_provider_profile(payload), allow_legacy_issuer_spelling=True)
     if "BALOOT_OIDC_JWKS_URI" in os.environ:
         logging.getLogger(__name__).warning("The legacy JWKS override is ignored; OIDC Discovery is required")
     issuer, _ = discover_oidc_issuer(client, legacy_issuer, timeout=DEFAULT_OIDC_HTTP_TIMEOUT)
     if issuer.rstrip("/") != legacy_issuer.rstrip("/"):
         raise ValueError("discovered issuer differs from legacy issuer beyond a trailing slash")
-    provider["issuer"] = issuer
-    if LEGACY_OIDC_CLIENT_SECRET_ENV in set(os.environ):
-        provider["client_secret_env"] = LEGACY_OIDC_CLIENT_SECRET_ENV
-    return legacy_issuer, {
-        "schema_version": 1,
-        "profile": {"id": profile_id, "version": version},
-        "change_reason": reason,
-        "providers": {
-            os.environ.get("BALOOT_OIDC_PROVIDER_ID", LEGACY_DEFAULT_PROVIDER_ID): {
-                **provider, "allowed_algorithms": algorithms,
-            },
-        },
-    }
+    payload["providers"][provider_id]["issuer"] = issuer
+    resolve_oidc_client_secrets(validate_oidc_provider_profile(payload))
+    return legacy_issuer, payload
 
 
 def _lock_migration(conn: Any) -> None:
