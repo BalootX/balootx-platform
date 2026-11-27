@@ -271,7 +271,7 @@ def test_http_configuration_revision_readers_share_sqlite_visibility(monkeypatch
         })
         assert created.status_code == 201, created.text
         revision = created.json()["revisionId"]
-        public = api.CONFIGURATION.store.list_profiles(limit=1)[0].revision_id
+        public = api.CONFIGURATION.store.list_profiles(scope="global", limit=1)[0].revision_id
         operator_listings = (v2, f"{v2}?family=oidc_providers", "/api/v2/config-revisions?kind=profile")
         details = (
             f"{v1}/{revision}", f"{v1}/{revision}/events",
@@ -378,6 +378,11 @@ def _grpc_probe(tmp_path, monkeypatch, probe, *, stub_type=None):
 
 
 def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch):
+    import asyncio
+
+    import grpc
+    from service_test_client import grpc_probe
+
     from baloot_platform.generated import configuration_pb2, configuration_pb2_grpc
     from baloot_platform.security import Scope
     from baloot_platform.service import grpc_service
@@ -389,6 +394,24 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
     database_identity = request_context.CURRENT_DATABASE_IDENTITY
     contexts, resets = [], []
     audit_expectations = []
+    completions = asyncio.Queue()
+
+    class ObserveServerCompletion(grpc.aio.ServerInterceptor):
+        async def intercept_service(self, continuation, details):
+            handler = await continuation(details)
+
+            async def invoke(request, context):
+                finished = asyncio.Event()
+                completions.put_nowait(finished)
+                try:
+                    return await handler.unary_unary(request, context)
+                finally:
+                    finished.set()
+
+            return grpc.unary_unary_rpc_method_handler(
+                invoke, request_deserializer=handler.request_deserializer,
+                response_serializer=handler.response_serializer,
+            )
 
     class TrackingContext:
         def get(self):
@@ -406,9 +429,16 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
     monkeypatch.setattr(grpc_service, "CURRENT_DATABASE_IDENTITY", TrackingContext())
 
     async def probe(grpc, stub):
+        async def call(rpc, request, metadata=()):
+            try:
+                return await rpc(request, metadata=metadata)
+            finally:
+                # Error status can arrive before the server unwinds the handler.
+                await completions.get_nowait().wait()
+
         request = configuration_pb2.ProfileDraft(family="oidc_providers", canonical_json=b"{}")
         with pytest.raises(grpc.aio.AioRpcError) as error:
-            await stub.CreateProfile(request)
+            await call(stub.CreateProfile, request)
         assert error.value.code() == grpc.StatusCode.UNAUTHENTICATED
         assert contexts == []
         monkeypatch.setenv("BALOOT_API_KEY", _SERVICE_KEY)
@@ -417,7 +447,7 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
             for denied in _CONFIG_READ_ROLES:
                 start = len(contexts)
                 with pytest.raises(grpc.aio.AioRpcError) as error:
-                    await rpc(request, metadata=(("x-api-key", _SERVICE_KEY), ("x-baloot-role", denied)))
+                    await call(rpc, request, metadata=(("x-api-key", _SERVICE_KEY), ("x-baloot-role", denied)))
                 expected = grpc.StatusCode.PERMISSION_DENIED if write else grpc.StatusCode.NOT_FOUND
                 assert error.value.code() == expected
                 if write:
@@ -427,14 +457,14 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
             start = len(contexts)
             for invalid in ((), (("x-api-key", "wrong-fixture-key"),)):
                 with pytest.raises(grpc.aio.AioRpcError) as error:
-                    await rpc(request, metadata=(*invalid, ("x-baloot-role", role)))
+                    await call(rpc, request, metadata=(*invalid, ("x-baloot-role", role)))
                 assert error.value.code() == grpc.StatusCode.UNAUTHENTICATED
             assert len(contexts) == start
             headers = [
                 ("x-api-key", _SERVICE_KEY), ("x-baloot-role", role),
                 ("x-baloot-subject-id", "fixture-operator"),
             ]
-            result = await rpc(request, metadata=headers)
+            result = await call(rpc, request, metadata=headers)
             assert_context(start, role, "fixture-operator")
             return json.loads(result.canonical_json)
 
@@ -472,7 +502,8 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
             for read_role in (role, *_CONFIG_READ_ROLES):
                 for family in ("", "oidc_providers"):
                     start = len(contexts)
-                    result = await stub.ListProfiles(
+                    result = await call(
+                        stub.ListProfiles,
                         configuration_pb2.ProfileQuery(family=family),
                         metadata=(("x-api-key", _SERVICE_KEY), ("x-baloot-role", read_role)),
                     )
@@ -490,13 +521,13 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
                 metadata = (("authorization", f"Bearer {token}"),)
                 start = len(contexts)
                 with pytest.raises(grpc.aio.AioRpcError) as error:
-                    await stub.CompareProfiles(configuration_pb2.ProfileCompare(
+                    await call(stub.CompareProfiles, configuration_pb2.ProfileCompare(
                         left=published["revisionId"], right=published["revisionId"],
                     ), metadata=metadata)
                 assert error.value.code() == grpc.StatusCode.NOT_FOUND
                 assert_context(start, "admin", "fixture-reader", tenant=tenant, admin=False)
                 with pytest.raises(grpc.aio.AioRpcError) as error:
-                    await stub.CreateProfile(request, metadata=metadata)
+                    await call(stub.CreateProfile, request, metadata=metadata)
                 assert error.value.code() == grpc.StatusCode.PERMISSION_DENIED
                 assert len(contexts) == start + 1
             await check(stub.RetireProfile, configuration_pb2.TransitionRequest(
@@ -506,12 +537,14 @@ def test_grpc_oidc_profile_lifecycle_requires_config_admin(tmp_path, monkeypatch
                 published["revisionId"], ("created", "published", "retired", "retirement_reason"), "Retire revision",
             ))
 
-    _grpc_probe(
+    grpc_probe(
         tmp_path,
         monkeypatch,
         probe,
         stub_type=configuration_pb2_grpc.ConfigurationControlStub,
+        interceptors=(ObserveServerCompletion(),),
     )
+    assert completions.empty()
     assert resets == [token for _, token in contexts]
     token = database_identity.set(request_context.DatabaseIdentityContext(configuration_admin=True))
     try:

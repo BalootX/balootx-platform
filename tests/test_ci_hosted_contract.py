@@ -1477,7 +1477,10 @@ def test_oidc_postgres_proof_uses_hosted_database_before_the_shard(root):
     assert re.fullmatch(r"[0-9a-f]{40}", proof["env"]["BALOOT_TEST_OIDC_PRE_REGISTRY_REF"])
     assert "python -m scripts.run_required_pytest" in proof["run"]
     assert "tests/oidc_postgres_integration.py::test_oidc_issuer_transition_on_postgres" in proof["run"]
-    assert "tests/oidc_postgres_integration.py::test_oidc_migration_replay_is_atomic_and_preserves_data" in proof["run"]
+    replay = "tests/oidc_postgres_integration.py::test_oidc_migration_replay_is_atomic_and_preserves_data"
+    selections = shlex.split(proof["run"])
+    assert replay not in selections
+    assert all(f"{replay}[{history}]" in selections for history in ("current-main", "pre-receipt"))
     assert "tests/oidc_postgres_integration.py::test_sqlite_oidc_storage_survives_release_roundtrip" in proof["run"]
     assert "tests/oidc_postgres_integration.py::test_sqlite_oidc_recovers_across_super_journal_commit" in proof["run"]
     assert "!cancelled()" in proof["if"]

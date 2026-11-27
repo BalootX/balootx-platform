@@ -297,12 +297,17 @@ def test_identity_pagination_large_lists_and_plans(tmp_path, root, monkeypatch):
 
     try:
         if postgres:
+            from scripts.migrate_postgres import migration_batches
+
             baseline_root = tmp_path / "previous"
             baseline_migrations = baseline_root / "migrations"
             baseline_migrations.mkdir(parents=True)
-            for path in (root / "migrations").glob("*.sql"):
-                if path.name < first_pagination_migration:
-                    shutil.copyfile(path, baseline_migrations / path.name)
+            migrations = {path.name: path for path in (root / "migrations").glob("*.sql")}
+            for batch in migration_batches(migrations):
+                if first_pagination_migration in batch:
+                    break
+                for name in batch:
+                    shutil.copyfile(migrations[name], baseline_migrations / name)
             migrate(baseline_root)
 
         p = store.placeholder

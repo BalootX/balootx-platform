@@ -913,12 +913,12 @@ async def platform_security(request: Request, call_next):
     session_valid = (
         identity is not None and identity_session is not None
     ) or access_claims is not None
-    oidc_sign_in = request.method == "POST" and request.url.path in OIDC_SIGN_IN_PATHS
+    path = get_route_path(request.scope)
+    oidc_sign_in = request.method == "POST" and path in OIDC_SIGN_IN_PATHS
     if oidc_sign_in and request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
         return JSONResponse(
             {"detail": "OIDC sign-in requires application/json", "requestId": request_id}, status_code=415,
         )
-    path = get_route_path(request.scope)
     required_scope = http_request_scope(request.app.router, request.scope)
     csrf_exempt = request.method == "POST" and required_scope is None and not oidc_sign_in
     if required_scope is not None:

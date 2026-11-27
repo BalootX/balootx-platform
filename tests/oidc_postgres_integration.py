@@ -123,8 +123,10 @@ def test_oidc_migration_replay_is_atomic_and_preserves_data(root, tmp_path, hist
             "INSERT INTO identity.subjects(subject_id,kind,display_name) VALUES ('OIDC-FIXTURE','oidc','Fixture')"
         )
         conn.execute(
-            """INSERT INTO identity.sessions(session_id,subject_id,token_hash,csrf_token,expires_at)
-               VALUES ('SES-FIXTURE','OIDC-FIXTURE','fixture-hash','fixture-csrf','2026-10-01T00:00Z')"""
+            """INSERT INTO identity.sessions(session_id,subject_id,token_hash,csrf_token,
+                                              created_at,expires_at,last_seen_at)
+               VALUES ('SES-FIXTURE','OIDC-FIXTURE','fixture-hash','fixture-csrf',
+                       '2026-09-29T00:00Z','2026-10-01T00:00Z','2026-09-30T00:00Z')"""
         )
         conn.execute(
             """INSERT INTO security.oidc_transactions(state,payload_json,expires_at,consumed_at)
@@ -525,6 +527,10 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
             " configuration.invalidation_epochs, security.oidc_issuer_transitions TO oidc_ci_migrator"
         )
         conn.execute("GRANT SELECT, INSERT ON configuration.events TO oidc_ci_migrator")
+        conn.execute(
+            "GRANT SELECT (revision_id, components, scheduled_predecessor_id, scheduled_successor_id, status)"
+            " ON configuration.bundle_revisions TO oidc_ci_migrator"
+        )
         conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON security.external_identities TO oidc_ci_migrator")
         # The assembled application also bootstraps its unrelated Research store.
         database, = conn.execute("SELECT current_database()").fetchone()
@@ -552,6 +558,11 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         assert not conn.execute(
             "SELECT has_schema_privilege('identity', 'USAGE')"
         ).fetchone()[0]
+        assert conn.execute(
+            "SELECT row_security_active('configuration.bundle_revisions'),"
+            " has_table_privilege('configuration.bundle_revisions', 'UPDATE'),"
+            " has_column_privilege('configuration.bundle_revisions', 'created_by', 'SELECT')"
+        ).fetchone() == (True, False, False)
     legacy = "https://signin.example/"
     canonical = "https://signin.example"
     service_key = "synthetic-oidc-api-key"

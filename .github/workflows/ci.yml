@@ -690,7 +690,8 @@ jobs:
           python -m scripts.run_required_pytest \
             tests/oidc_postgres_integration.py::test_sqlite_oidc_storage_survives_release_roundtrip \
             tests/oidc_postgres_integration.py::test_sqlite_oidc_recovers_across_super_journal_commit \
-            tests/oidc_postgres_integration.py::test_oidc_migration_replay_is_atomic_and_preserves_data \
+            'tests/oidc_postgres_integration.py::test_oidc_migration_replay_is_atomic_and_preserves_data[current-main]' \
+            'tests/oidc_postgres_integration.py::test_oidc_migration_replay_is_atomic_and_preserves_data[pre-receipt]' \
             tests/oidc_postgres_integration.py::test_oidc_issuer_transition_on_postgres
       - name: Run isolated Python shard
         if: '!cancelled()'

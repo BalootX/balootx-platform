@@ -13,7 +13,7 @@ class OperatorClient(TestClient):
         super().__init__(app, headers=headers, **kwargs)
 
 
-def grpc_probe(tmp_path, monkeypatch, probe, *, stub_type):
+def grpc_probe(tmp_path, monkeypatch, probe, *, stub_type, interceptors=()):
     import grpc
 
     from baloot_platform.service.grpc_service import serve
@@ -28,6 +28,8 @@ def grpc_probe(tmp_path, monkeypatch, probe, *, stub_type):
 
         def create_server(**options):
             nonlocal server
+            if interceptors:
+                options["interceptors"] = [*interceptors, *options.get("interceptors", ())]
             server = make_server(**options)
             port = server.add_insecure_port("127.0.0.1:0")
 

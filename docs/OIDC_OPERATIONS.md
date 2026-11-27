@@ -62,6 +62,9 @@ The issuer migration login needs usage on the `configuration` and `security` sch
 | `configuration.profile_revisions`, `configuration.aggregate_heads`, `configuration.invalidation_epochs`, `security.oidc_issuer_transitions` | `SELECT`, `INSERT`, `UPDATE` |
 | `configuration.events` | `SELECT`, `INSERT` |
 | `security.external_identities` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` |
+| `configuration.bundle_revisions` | `SELECT` on `revision_id`, `components`, `scheduled_predecessor_id`, `scheduled_successor_id` and `status` |
+
+Rollback uses these bundle columns to check published and scheduled references before retiring a registry revision.
 
 Reserve `UPDATE` on `security.oidc_issuer_transitions` for the issuer migration login. The identity policy uses this grant to distinguish it from the HTTP application login. Leave the `identity` schema and its session tables accessible only to the application and other roles that serve identity operations. The issuer migration command does its work in `configuration` and `security`.
 

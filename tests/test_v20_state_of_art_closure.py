@@ -367,6 +367,43 @@ def test_v20_oidc_registry_drives_api_and_preserves_audit(
         container.shutdown()
 
 
+def test_v20_oidc_request_validation_respects_the_application_root(monkeypatch):
+    from baloot_platform.service import api
+    from baloot_platform.service.routes.auth import COOKIE_NAME
+    from baloot_platform.service.routes.security import OIDC_BEGIN, OIDC_CALLBACK, SECURITY_PREFIX
+
+    monkeypatch.setenv("BALOOT_ENFORCE_SESSION_CSRF", "true")
+    monkeypatch.delenv("BALOOT_API_KEY", raising=False)
+    probe = security_probe_app()
+    probe.include_router(build_security_router(
+        api.IDENTITY, api.ACCESS_TOKENS, api.AUTHORIZATION_POLICY,
+        api.PASSKEYS, api.WEBSOCKET_TICKETS, api.SECURITY_STATE,
+    ))
+    session = api.IDENTITY.create_guest("Request validation fixture")["session"]
+    mount = "/fixture-prefix"
+    with TestClient(probe, root_path=mount) as client:
+        for route, body, handler_status in (
+            (OIDC_BEGIN, {"providerId": "fixture"}, 404),
+            (OIDC_CALLBACK, {"providerId": "fixture", "state": "fixture", "code": "fixture"}, 400),
+        ):
+            path = mount + SECURITY_PREFIX + route
+            response = client.post(path, content=json.dumps(body), headers={"content-type": "text/plain"})
+            assert response.status_code == 415, response.text
+            response = client.post(path, json=body)
+            assert response.status_code == handler_status, response.text
+            assert response.json()["detail"] == "OIDC provider is not configured"
+
+            client.cookies.set(COOKIE_NAME, session["token"])
+            for headers in ({}, {"x-csrf-token": "incorrect"}):
+                response = client.post(path, json=body, headers=headers)
+                assert response.status_code == 403, response.text
+                assert response.json()["detail"] == "csrf token required"
+            response = client.post(path, json=body, headers={"x-csrf-token": session["csrfToken"]})
+            assert response.status_code == handler_status, response.text
+            assert response.json()["detail"] == "OIDC provider is not configured"
+            client.cookies.clear()
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
