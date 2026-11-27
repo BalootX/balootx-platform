@@ -928,7 +928,7 @@ export const ProfessionalPrototypeFrame: React.FC<PrototypeProps & {compositionF
       data-winning-root-action-count={String(analysis.winningRootActionCount ?? "")}
     >
       <div className={showJustification ? "reason" : "reason is-answer-only"} role="status">
-        <svg className="reason-band" width="780" height="14" aria-hidden="true"><rect width="780" height="14" fill="url(#mj-tris)" /></svg>
+        <svg className="reason-band" height="14" aria-hidden="true"><rect width="100%" height="14" fill="url(#mj-tris)" /></svg>
         <div className="reason-body">
           {selectedActionCode ? <div className="pick">
             <small>{localized("video.decision.best_move")}</small>

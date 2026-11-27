@@ -102,6 +102,27 @@ try {
     if (screenshotDir) copyFileSync(frame, path.join(screenshotDir, `${name}.png`));
     process.stdout.write(`${name}: ${item.validation.status}\n`);
   }
+
+  const {bundleSha256: _, ...fixture} = structuredClone(prototype);
+  fixture.presentation.majlis.research_notice = true;
+  assert.equal(fixture.presentation.presentation.show_justification_text, false);
+  // The prototype names no selected action, and the gate requires the answer box on a reveal.
+  const answer = layer(fixture, "reveal", "analysis");
+  answer.selectedAction = answer.recommendedAction.card.code;
+  const input = path.join(work, "answer-only-reveal.json");
+  const output = path.join(work, "answer-only-reveal");
+  writeFileSync(input, JSON.stringify({...fixture, bundleSha256: sha256(JSON.stringify(canonical(fixture)))}));
+  const result = spawnSync(process.execPath, ["scripts/render-decision-clip.mjs", input, output], {
+    encoding: "utf8", timeout: 120_000, env: {...process.env, BALOOTX_STILLS_ONLY: "1"},
+  });
+  assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+  const report = JSON.parse(readFileSync(path.join(output, "layout-evidence.json"), "utf8"));
+  assert.equal(report.status, "stills_passed");
+  assert.equal(report.binding.tableSha256, table.tableSha256);
+  const reveal = report.items.find(item => item.phase === "reveal");
+  assert.equal(reveal?.validation.status, "passed");
+  if (screenshotDir) copyFileSync(path.join(output, reveal.source), path.join(screenshotDir, "answer-only-reveal.png"));
+  process.stdout.write(`answer-only-reveal: ${report.status}\n`);
 } finally {
   rmSync(work, {recursive: true, force: true});
 }

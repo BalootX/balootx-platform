@@ -1206,18 +1206,15 @@
 
 .reason-band {
   display: block;
+  width: 100%;
   height: 14px;
+  /* The answer content determines the shrink-to-fit panel width. */
+  contain: inline-size;
 }
 
 /* No justification text: the panel shrinks to the answer box alone. */
 .reason.is-answer-only {
   width: auto;
-}
-
-/* The band's width attribute must not size the panel; it spans whatever the box needs. */
-.reason.is-answer-only .reason-band {
-  width: 0;
-  min-width: 100%;
 }
 
 .reason-body {

@@ -334,6 +334,7 @@ test("answer-only reveal keeps the choice box and viewer pill clear of the raise
     value.scenes = [value.scenes[0], question, {...question, stage: "reveal", layers: [...question.layers, {id: "analysis", content: {selectedAction: code}}]}];
     const html = render(value, "reveal");
     assert.match(html, /class="south-stack" style="bottom:320px"><div class="seat-lane lane-south"[^>]*>.*?<div class="viewer-identity"[^>]*>.*?<div class="lane-side lane-end"><section class="reveal-reason" data-selected-action/, code);
+    assert.doesNotMatch(html, /<svg class="reason-band"[^>]*\bwidth=/);
     assert.equal((html.match(/class="reveal-reason"/g) ?? []).length, 1);
     const style = html.match(/<img class="card [^"]*is-recommended[^"]*"[^>]*style="([^"]*)"/)?.[1];
     assert.ok(style, `raised card for ${code}`);
