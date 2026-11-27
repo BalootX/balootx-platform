@@ -450,7 +450,12 @@ def test_foundry_reuses_the_locked_browser_and_system_packages(root):
     )
     offline, cold = install["run"].split("\nelse\n", 1)
     assert install["env"]["CACHE_HIT"] == "${{ steps.playwright-cache.outputs.cache-hit }}"
-    assert 'dpkg --skip-same-version --install "${packages[@]}"' in offline
+    assert 'packages=("$RUNNER_TEMP"/playwright-debs/*.deb)' in offline
+    assert offline.count("apt-get ") == 1
+    assert "sudo env DEBIAN_FRONTEND=noninteractive apt-get" in offline
+    assert "--yes --no-download --no-remove --no-install-recommends" in offline
+    assert '-o Dir::Cache::archives="$RUNNER_TEMP/playwright-debs" install "${packages[@]}"' in offline
+    assert not any(option in offline for option in ("dpkg ", "--ignore-missing", "--fix-missing"))
     assert "playwright install" not in offline
     assert "playwright install --with-deps chromium" in cold
     assert cold.index("\nfi\n") < cold.index(".chromium.launch()")

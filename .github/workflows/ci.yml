@@ -247,7 +247,10 @@ jobs:
             shopt -s nullglob
             packages=("$RUNNER_TEMP"/playwright-debs/*.deb)
             if (( ${#packages[@]} )); then
-              sudo env DEBIAN_FRONTEND=noninteractive dpkg --skip-same-version --install "${packages[@]}"
+              # Resolve coupled upgrades before unpacking the restored archives.
+              sudo env DEBIAN_FRONTEND=noninteractive apt-get \
+                --yes --no-download --no-remove --no-install-recommends \
+                -o Dir::Cache::archives="$RUNNER_TEMP/playwright-debs" install "${packages[@]}"
             fi
           else
             mkdir -p "$RUNNER_TEMP/playwright-debs"
