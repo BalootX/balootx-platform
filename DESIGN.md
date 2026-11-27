@@ -16,3 +16,8 @@
 - Keep scenario authoring, proof, execution and results easy to find. Keep status understandable in text and controls operable by keyboard. Preserve responsive layouts and reduced-motion support.
 - On the overview, keep readiness details disabled while their data loads and the layout is still settling. Once enabled, each detail opens by touch, mouse or keyboard.
 - The page budgets are p75 Largest Contentful Paint under 2.5 seconds and p75 Interaction to Next Paint under 200 ms.
+
+## Browser requests
+
+- The served pages and the Foundry dashboard sources call the API through the [shared request deadlines](src/baloot_platform/service/static/shared/request.js). `/foundry` serves a committed bundle that is not yet built from those sources, so the served dashboard keeps its older request handling until [#244](https://github.com/BalootX/balootx-platform/issues/244) is fixed. Interactive calls use the request deadline. Synchronous Research calls that run a solver or prepare a candidate use the long-call deadline, which exceeds the longest covered server budget by a stated margin. A request that reaches its deadline ends once, with no retry. It shows the profile's `request_timeout` message, which asks the person to refresh and check the result before trying again.
+- The served pages load the request module through the [request loader](src/baloot_platform/service/static/shared/request-loader.js). A failed load shows the profile's `request_unavailable` message, which asks the person to try again and to refresh if it persists. The next request loads the module again.

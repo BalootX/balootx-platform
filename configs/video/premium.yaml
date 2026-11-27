@@ -296,6 +296,8 @@ challenge_copy:
   missing_code: رمز التحدّي غير موجود
   unsupported_prompt: نوع هذا التحدّي غير متاح في مشغل الاختيار بعد
   request_error: تعذر تنفيذ الطلب ({status})
+  request_timeout: انتهت مهلة الطلب. حدّث الصفحة وتحقّق من النتيجة قبل إعادة المحاولة.
+  request_unavailable: تعذّر الوصول إلى الخدمة. أعد المحاولة، وإذا استمر الخلل حدّث الصفحة.
   brand_name: BalootX
   brand_mark: ب
   player_brand_aria: صكّة البلوت

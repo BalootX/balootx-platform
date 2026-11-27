@@ -79,6 +79,8 @@ HTTP_POLICY: dict[tuple[str, str], Scope | None] = {
     ("GET", "/readyz"): None,
     ("GET", "/redoc"): None,
     ("GET", "/replay"): None,
+    ("GET", "/shared-assets"): None,
+    ("HEAD", "/shared-assets"): None,
     ("GET", "/studio"): None,
 
     ("GET", "/api/v1/adaptive/challenges/next"): Scope.READ,
