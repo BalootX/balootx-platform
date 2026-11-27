@@ -501,6 +501,87 @@ def test_commit_screen_requires_a_valid_base_policy(screen_history):
 
 
 
+def test_commit_screen_workflow_contract(root):
+    caller = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
+    shared = yaml.safe_load((root / ".github/workflows/commit-screen.yml").read_bytes())
+    assert "pull_request_target" not in caller[True]
+    assert shared[True] == {"push": {"branches": ["**", "!main"]}, "workflow_call": None}
+    assert shared["concurrency"] == {
+        "group": "${{ github.workflow }}-${{ github.run_id }}", "cancel-in-progress": False,
+    }
+    jobs = caller["jobs"]
+    assert jobs["commit-screen"] == {
+        "if": "github.event_name != 'workflow_dispatch'",
+        "uses": "./.github/workflows/commit-screen.yml",
+    }
+    assert "commit-screen" in jobs["ci-gate"]["needs"]
+    assert "secrets" not in json.dumps(shared).lower()
+    assert "github.token" not in json.dumps(shared).lower()
+    assert shared["permissions"] == {"contents": "read"}
+    assert set(shared["jobs"]) == {"screen"}
+    job = shared["jobs"]["screen"]
+    assert "permissions" not in job and job["timeout-minutes"] > 0
+    assert not job.get("continue-on-error")
+    assert job["steps"][0]["with"] == {"fetch-depth": 0, "persist-credentials": False}
+    assert job["steps"][-2]["run"] == "python -I -m pip install 'jsonschema>=4.23'"
+    assert job["steps"][-1]["shell"] == "bash"
+    assert job["steps"][-1]["env"] == {
+        "GROUP_BASE": "${{ github.event.merge_group.base_sha }}",
+        "PUSH_BEFORE": "${{ github.event.before }}",
+        "PUSH_REF": "${{ github.event.ref }}",
+        "DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
+    }
+    for step in job["steps"]:
+        assert not step.get("continue-on-error")
+        if "uses" in step:
+            assert re.fullmatch(r"[0-9a-f]{40}", step["uses"].rsplit("@", 1)[-1])
+    config = json.loads((root / critical_review.POLICY_PATH).read_bytes())
+    assert {commit_screen.POLICY_PATH, commit_screen.SCHEMA_PATH, "ci/commit_screen.py"} <= set(
+        config["classes"]["repo-settings-branch-protection-and-release-gates"]
+    )
+
+
+@pytest.mark.parametrize(("event_name", "ref", "present"), [
+    ("pull_request", "", True),
+    ("merge_group", "", True),
+    ("push", "refs/heads/main", True),
+    ("push", "refs/heads/topic", True),
+    ("push", "refs/heads/topic", False),
+])
+def test_commit_screen_workflow_loads_only_trusted_evaluator(root, tmp_path, screen_history, event_name, ref, present):
+    shared = yaml.safe_load((root / ".github/workflows/commit-screen.yml").read_bytes())
+    script = shared["jobs"]["screen"]["steps"][-1]["run"]
+    history = screen_history
+    history.git("switch", "-qc", "review-base")
+    evaluator = tmp_path / "ci/commit_screen.py"
+    if present:
+        evaluator.write_text("print('trusted evaluator')\n", encoding="utf-8")
+        history.git("add", "ci/commit_screen.py")
+    base = history.commit("Trusted base")
+    history.git("update-ref", "refs/remotes/origin/main", base)
+    history.git("switch", "-qc", "candidate")
+    evaluator.write_text("print('candidate evaluator')\n", encoding="utf-8")
+    history.git("add", "ci/commit_screen.py")
+    history.commit("Candidate evaluator fixture")
+    if event_name == "pull_request":
+        history.git("switch", "-q", "review-base")
+        history.git("merge", "--no-ff", "-m", "Synthetic PR merge", "candidate")
+    runner_temp = tmp_path / "runner"
+    runner_temp.mkdir()
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script],
+        cwd=tmp_path, capture_output=True, text=True, timeout=10,
+        env={**os.environ, "RUNNER_TEMP": str(runner_temp), "GITHUB_EVENT_NAME": event_name,
+             "GROUP_BASE": base, "PUSH_BEFORE": base, "PUSH_REF": ref, "DEFAULT_BRANCH": "main"},
+    )
+    if present:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "trusted evaluator"
+    else:
+        assert result.returncode != 0
+        assert not result.stdout
+
+
 def test_hosted_ci_contract(root):
     workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
     triggers = workflow[True]  # PyYAML's YAML 1.1 spelling of on.
@@ -512,8 +593,8 @@ def test_hosted_ci_contract(root):
     jobs = workflow["jobs"]
     main_push = "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
     for name, job in jobs.items():
-        if name == "viewer-seat-proof":
-            continue  # Checked with the nightly caller and shared workflow below.
+        if name in {"viewer-seat-proof", "commit-screen"}:
+            continue  # Reusable workflow jobs have their own contract tests.
         assert job["runs-on"] == ("windows-latest" if name == "python-windows" else "ubuntu-24.04"), name
         assert job["timeout-minutes"] > 0
         for step in job["steps"]:
@@ -553,7 +634,7 @@ def test_hosted_ci_contract(root):
     draft_guard, gate_command = gate_step["run"].split("python3 -P scripts/ci_scope.py gate")
     assert "exit 1" in draft_guard and not gate_command.strip()
     expected_producers = ci_scope.FULL | ci_scope.SCOPED.keys() | {
-        "plan", "preflight", "dependency-review", "python-version-smoke", "python-affected",
+        "plan", "preflight", "commit-screen", "dependency-review", "python-version-smoke", "python-affected",
     }
     assert set(jobs["ci-gate"]["needs"]) == expected_producers == jobs.keys() - {
         "ci-gate", "viewer-seat-proof", "qa-journey",
@@ -1459,8 +1540,10 @@ def test_render_image_inputs_are_pinned(root):
 def test_docker_constraint_job_resolves_the_shared_target(root):
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
     check = jobs["docker-constraints"]
-    assert check["needs"] == "plan"
-    assert check["if"] == "needs.plan.outputs.docker_constraints == 'true'"
+    assert check["needs"] == ["plan", "commit-screen"]
+    assert check["if"] == (
+        "${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.docker_constraints == 'true' }}"
+    )
     assert jobs["plan"]["outputs"]["docker_constraints"] == "${{ steps.plan.outputs.docker_constraints }}"
     assert check["steps"][-1]["run"] == "docker build --progress=plain --target docker-constraints ."
     assert "docker-constraints" not in jobs["media-inputs"]["needs"]
@@ -1587,7 +1670,7 @@ def test_viewer_seat_proof_dispatch_and_nightly_use_the_same_pinned_cohort(root)
         "if": "${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof && " + NO_QA_JOURNEY + " }}",
     }
     assert {name for name, job in jobs.items() if "needs" not in job} == {
-        "plan", "preflight", "dependency-review", "viewer-seat-proof", "qa-journey",
+        "plan", "preflight", "commit-screen", "dependency-review", "viewer-seat-proof", "qa-journey",
     }
     nightly = yaml.safe_load((root / ".github/workflows/nightly-candidates.yml").read_bytes())
     assert nightly["jobs"]["viewer-seat-proof"] == workflow_call
@@ -1709,11 +1792,12 @@ def test_main_ci_retains_synthetic_visual_evidence(root):
 def test_gate_rejects_unproven_full_producers(event):
     plan = {key: json.dumps(value) for key, value in ci_scope.current_plan().items()}
     results = {job: {"result": "success"} for job in ci_scope.FULL | ci_scope.SCOPED.keys()
-               | {"plan", "preflight", "dependency-review", "python-affected", "python-version-smoke"}}
+               | {"plan", "preflight", "commit-screen", "dependency-review", "python-affected", "python-version-smoke"}}
     results["plan"]["outputs"] = plan
     results["dependency-review"]["result"] = ("success" if event == "pull_request" else "skipped")
     results["python-affected"]["result"] = "skipped"
     results["python-version-smoke"]["result"] = results["dependency-review"]["result"]
+    results["commit-screen"]["result"] = "skipped" if event == "workflow_dispatch" else "success"
     ci_scope.validate_results(event, results)
     with pytest.raises(ValueError, match="its outputs are unavailable"):
         ci_scope.validate_results(event, {**results, "plan": {"result": "success"}})
@@ -1759,7 +1843,7 @@ def test_gate_rejects_unproven_full_producers(event):
 def test_gate_requires_exact_scoped_producers(root, paths, producers):
     selection = ci_scope.scoped_plan(paths)
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
-    required = producers | {"plan", "preflight", "dependency-review", "python-version-smoke"}
+    required = producers | {"plan", "preflight", "commit-screen", "dependency-review", "python-version-smoke"}
     results = {job: {"result": "success" if job in required else "skipped"} for job in jobs["ci-gate"]["needs"]}
     results["plan"]["outputs"] = {key: json.dumps(value) for key, value in selection.items()}
     ci_scope.validate_results("pull_request", results)

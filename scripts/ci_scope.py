@@ -161,6 +161,7 @@ def validate_results(event: str, results: dict) -> None:
     expected = {
         "plan": "success",
         "preflight": "success",
+        "commit-screen": "skipped" if event == "workflow_dispatch" else "success",
         "dependency-review": "success" if event == "pull_request" else "skipped",
         "python-version-smoke": "success" if event == "pull_request" else "skipped",
         "python-affected": "success" if tests else "skipped",

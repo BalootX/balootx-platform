@@ -1,0 +1,50 @@
+name: Commit privacy screening
+
+on:
+  push:
+    branches: ['**', '!main']
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  screen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - run: python -I -m pip install 'jsonschema>=4.23'
+      - name: Run the evaluator from the trusted base
+        shell: bash
+        env:
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_REF: ${{ github.event.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) base=$(git --no-replace-objects rev-parse --verify 'HEAD^1^{commit}') ;;
+            merge_group) base="$GROUP_BASE" ;;
+            push)
+              if [[ "$PUSH_REF" == "refs/heads/$DEFAULT_BRANCH" ]]; then
+                base="$PUSH_BEFORE"
+              else
+                base=$(git --no-replace-objects rev-parse --verify "refs/remotes/origin/$DEFAULT_BRANCH^{commit}")
+              fi
+              ;;
+            *) exit 1 ;;
+          esac
+          [[ "$base" =~ ^[0-9a-f]{40}$ ]]
+          git --no-replace-objects show "$base:ci/commit_screen.py" > "$RUNNER_TEMP/commit-screen.py"
+          python -I "$RUNNER_TEMP/commit-screen.py"
