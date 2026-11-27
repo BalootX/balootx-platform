@@ -20,6 +20,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    TypeAdapter,
     ValidationError,
     ValidationInfo,
     field_validator,
@@ -34,6 +35,8 @@ if TYPE_CHECKING:
 
 OIDC_PROVIDER_FAMILY = "oidc_providers"
 OIDC_PROFILE_ENV = "BALOOT_OIDC_PROVIDERS_PROFILE"
+OIDC_CREDENTIAL_BINDINGS_ENV = "BALOOT_OIDC_CREDENTIAL_BINDINGS"
+LEGACY_OIDC_CLIENT_SECRET_ENV = "BALOOT_OIDC_CLIENT_SECRET"
 LEGACY_DEFAULT_PROVIDER_ID = "default"
 DEFAULT_OIDC_HTTP_TIMEOUT = 15
 _DEFAULT_SCOPES = ("openid", "profile", "email")
@@ -79,23 +82,18 @@ class OidcProviderConfig:
         })}"
 
 
-class _OidcProviderRow(BaseModel):
+_ProviderId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")]
+_ClientSecretRef = Annotated[
+    str, StringConstraints(pattern=rf"^{LEGACY_OIDC_CLIENT_SECRET_ENV}(?:_[A-Z0-9_]+)?$")
+]
+
+
+class _OidcClientRegistration(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
     issuer: str
-    authorization_endpoint: str
     token_endpoint: str
     client_id: str
-    redirect_uri: str
-    allowed_algorithms: list[Literal["RS256", "ES256", "EdDSA"]] = Field(min_length=1)
-    scopes: list[Annotated[str, StringConstraints(pattern=r"^[\x21\x23-\x5b\x5d-\x7e]+$")]] = Field(default=list(_DEFAULT_SCOPES))
-    clock_skew_seconds: int = Field(default=_DEFAULT_CLOCK_SKEW, ge=0, le=300)
-    http_timeout_seconds: int = Field(default=DEFAULT_OIDC_HTTP_TIMEOUT, gt=0, le=60)
-    discovery_cache_seconds: int = Field(default=_DEFAULT_DISCOVERY_TTL, gt=0, le=3600)
-    trusted_additional_audiences: list[str] = Field(default_factory=list)
-    client_secret_env: str | None = Field(
-        default=None, pattern=r"^BALOOT_OIDC_CLIENT_SECRET(?:_[A-Z0-9_]+)?$"
-    )
 
     @field_validator("client_id")
     @classmethod
@@ -103,6 +101,36 @@ class _OidcProviderRow(BaseModel):
         if not value.strip() or not value.isprintable():
             raise ValueError("must be a non-blank, printable client ID")
         return value
+
+    @field_validator("issuer", "token_endpoint")
+    @classmethod
+    def validate_registration_url(cls, value: str, info: ValidationInfo) -> str:
+        _validate_oidc_url(value)
+        if info.field_name == "issuer" and "?" in value:
+            raise ValueError("issuer must not contain a query")
+        return value
+
+
+class _OidcCredentialBinding(_OidcClientRegistration):
+    model_config = ConfigDict(frozen=True)
+
+    provider_id: _ProviderId
+    client_secret_env: _ClientSecretRef
+
+
+_CredentialBindings = TypeAdapter(list[_OidcCredentialBinding])
+
+
+class _OidcProviderRow(_OidcClientRegistration):
+    authorization_endpoint: str
+    redirect_uri: str
+    allowed_algorithms: list[Literal["RS256", "ES256", "EdDSA"]] = Field(min_length=1)
+    scopes: list[Annotated[str, StringConstraints(pattern=r"^[\x21\x23-\x5b\x5d-\x7e]+$")]] = Field(default=list(_DEFAULT_SCOPES))
+    clock_skew_seconds: int = Field(default=_DEFAULT_CLOCK_SKEW, ge=0, le=300)
+    http_timeout_seconds: int = Field(default=DEFAULT_OIDC_HTTP_TIMEOUT, gt=0, le=60)
+    discovery_cache_seconds: int = Field(default=_DEFAULT_DISCOVERY_TTL, gt=0, le=3600)
+    trusted_additional_audiences: list[str] = Field(default_factory=list)
+    client_secret_env: _ClientSecretRef | None = None
 
     @field_validator("allowed_algorithms")
     @classmethod
@@ -127,12 +155,10 @@ class _OidcProviderRow(BaseModel):
             raise ValueError("scopes must be unique and include openid")
         return values
 
-    @field_validator("issuer", "authorization_endpoint", "token_endpoint", "redirect_uri")
+    @field_validator("authorization_endpoint", "redirect_uri")
     @classmethod
     def validate_url(cls, value: str, info: ValidationInfo) -> str:
         _validate_oidc_url(value, allow_loopback=info.field_name == "redirect_uri")
-        if info.field_name == "issuer" and "?" in value:
-            raise ValueError("issuer must not contain a query")
         return value
 
 
@@ -193,10 +219,7 @@ class OidcProviderProfile(BaseModel):
     change_reason: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
     ]
-    providers: dict[
-        Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")],
-        _OidcProviderRow,
-    ]
+    providers: dict[_ProviderId, _OidcProviderRow]
 
 
 def validate_oidc_provider_profile(payload: dict[str, Any]) -> OidcProviderProfile:
@@ -263,20 +286,40 @@ def _resolve_revision(configuration: VersionedConfigurationService, profile_id: 
     return revision
 
 
+def resolve_oidc_client_secrets(profile: OidcProviderProfile) -> dict[str, str]:
+    try:
+        approved = set(_CredentialBindings.validate_json(os.environ.get(OIDC_CREDENTIAL_BINDINGS_ENV, "[]")))
+    except ValidationError:
+        raise ValueError(f"{OIDC_CREDENTIAL_BINDINGS_ENV} requires a valid JSON array of provider bindings") from None
+
+    requested = {
+        key: _OidcCredentialBinding(
+            provider_id=key, issuer=row.issuer, client_id=row.client_id,
+            token_endpoint=row.token_endpoint, client_secret_env=row.client_secret_env,
+        )
+        for key, row in profile.providers.items() if row.client_secret_env is not None
+    }
+    for key, binding in requested.items():
+        if binding not in approved:
+            raise ValueError(f"OIDC provider {key!r}: approve its confidential registration in {OIDC_CREDENTIAL_BINDINGS_ENV}")
+
+    resolved: dict[str, str] = {}
+    for key, binding in requested.items():
+        secret = os.environ.get(binding.client_secret_env)
+        if not secret or not secret.strip():
+            raise ValueError(f"OIDC provider {key!r}: missing deployment secret {binding.client_secret_env}")
+        resolved[key] = secret
+    return resolved
+
+
 def _resolved_providers(revision: dict[str, Any]) -> dict[str, OidcProviderConfig]:
     profile = validate_oidc_provider_profile(revision["payload"])
+    secrets_by_provider = resolve_oidc_client_secrets(profile)
     providers: dict[str, OidcProviderConfig] = {}
     for key, row in profile.providers.items():
-        secret = None
-        if row.client_secret_env is not None:
-            secret = os.environ.get(row.client_secret_env)
-            if not secret or not secret.strip():
-                raise ValueError(
-                    f"OIDC provider {key!r}: missing deployment secret {row.client_secret_env}"
-                )
         providers[key] = OidcProviderConfig(
             provider_id=key,
-            client_secret=secret,
+            client_secret=secrets_by_provider.get(key),
             allowed_algorithms=tuple(row.allowed_algorithms),
             scopes=tuple(row.scopes),
             trusted_additional_audiences=tuple(row.trusted_additional_audiences),

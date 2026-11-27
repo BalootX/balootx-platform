@@ -33,6 +33,7 @@ from baloot_platform.security import (
     SQLiteSecurityStateStore, WebSocketTicketService,
 )
 from baloot_platform.security.oidc import (
+    OIDC_CREDENTIAL_BINDINGS_ENV,
     OIDC_PROVIDER_FAMILY,
     http_oidc_runtime,
     load_oidc_providers,
@@ -173,6 +174,12 @@ def _oidc_profile(providers: dict) -> dict:
     }
 
 
+def _oidc_credential_binding(key: str, row: dict) -> dict:
+    return {"provider_id": key, **{
+        field: row[field] for field in ("issuer", "client_id", "token_endpoint", "client_secret_env")
+    }}
+
+
 @pytest.fixture
 def oidc_configuration(tmp_path):
     from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
@@ -277,6 +284,7 @@ def test_v20_oidc_registry_drives_api_and_preserves_audit(
 
     monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
     monkeypatch.setenv("BALOOT_OIDC_CLIENT_SECRET_BETA", "synthetic-fixture")
+    monkeypatch.setenv(OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps([_oidc_credential_binding("beta", beta)]))
     providers = load_oidc_providers(oidc_configuration)
     assert providers["alpha"].trusted_additional_audiences == ()
     assert providers["beta"].trusted_additional_audiences == ("trusted-client",)
@@ -453,6 +461,10 @@ def test_v20_oidc_schema_and_writes_agree_on_profile_version(oidc_configuration)
 
 
 def test_v20_oidc_registry_fails_closed_at_startup(tmp_path, monkeypatch, oidc_configuration):
+    from types import SimpleNamespace
+
+    from baloot_platform.security import oidc
+
     monkeypatch.delenv("BALOOT_OIDC_PROVIDERS_PROFILE", raising=False)
     monkeypatch.delenv("BALOOT_OIDC_ISSUER", raising=False)
     assert load_oidc_providers(oidc_configuration) == {}
@@ -470,7 +482,26 @@ def test_v20_oidc_registry_fails_closed_at_startup(tmp_path, monkeypatch, oidc_c
     oidc_configuration.publish_profile(
         draft["revisionId"], expected_etag=draft["etag"], actor_id="operator-1"
     )
+    class UnapprovedEnvironment(dict):
+        def get(self, name, default=None):
+            assert name != alpha["client_secret_env"], "read a credential before approving its provider binding"
+            return super().get(name, default)
+
+    with monkeypatch.context() as unapproved:
+        settings = UnapprovedEnvironment({
+            "BALOOT_OIDC_PROVIDERS_PROFILE": "signin",
+            alpha["client_secret_env"]: "synthetic-fixture",
+        })
+        unapproved.setattr(oidc, "os", SimpleNamespace(environ=settings))
+        with pytest.raises(ValueError, match="approve its confidential registration"):
+            load_oidc_providers(oidc_configuration)
+        settings[OIDC_CREDENTIAL_BINDINGS_ENV] = '{"client_secret":"synthetic-fixture"}'
+        with pytest.raises(ValueError, match="requires a valid JSON array") as error:
+            load_oidc_providers(oidc_configuration)
+        assert "synthetic-fixture" not in str(error.value)
+
     monkeypatch.delenv("BALOOT_OIDC_CLIENT_SECRET_ALPHA", raising=False)
+    monkeypatch.setenv(OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps([_oidc_credential_binding("alpha", alpha)]))
     worker = build_container(writable_root=tmp_path / "data", database_url="")
     worker.shutdown()
     with pytest.raises(ValueError, match="OIDC provider 'alpha': missing deployment secret"):

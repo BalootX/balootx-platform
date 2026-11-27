@@ -749,7 +749,9 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         migrate_legacy_oidc,
         rollback_legacy_oidc,
     )
-    from baloot_platform.security.state_v20 import OidcIdentityConflict, PostgresSecurityStateStore
+    from baloot_platform.security.state_v20 import (
+        OidcIdentityConflict, PostgresSecurityStateStore, oidc_identity_rls_active,
+    )
     from baloot_platform.storage.request_context import (
         CURRENT_DATABASE_IDENTITY,
         DatabaseIdentityContext,
@@ -790,6 +792,13 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
             " ON configuration.bundle_revisions TO oidc_ci_migrator"
         )
         conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON security.external_identities TO oidc_ci_migrator")
+        conn.execute("CREATE ROLE oidc_ci_restricted NOLOGIN NOSUPERUSER NOBYPASSRLS")
+        conn.execute("GRANT oidc_ci_restricted TO oidc_ci_app, oidc_ci_migrator")
+        conn.execute("GRANT USAGE ON SCHEMA configuration, security TO oidc_ci_restricted")
+        conn.execute("REVOKE EXECUTE ON FUNCTION security.oidc_identity_authorized() FROM PUBLIC")
+        conn.execute(
+            "GRANT EXECUTE ON FUNCTION security.oidc_identity_authorized() TO oidc_ci_app, oidc_ci_migrator"
+        )
         # The assembled application also bootstraps its unrelated Research store.
         database, = conn.execute("SELECT current_database()").fetchone()
         conn.execute(sql.SQL("GRANT CREATE ON DATABASE {} TO oidc_ci_app").format(sql.Identifier(database)))
@@ -837,12 +846,24 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         monkeypatch.setenv(f"BALOOT_OIDC_{field}", value)
     monkeypatch.delenv("BALOOT_OIDC_PROVIDER_ID", raising=False)
     monkeypatch.setenv("BALOOT_OIDC_JWKS_URI", canonical + "/legacy-keys")
+    original_binding = {
+        "provider_id": "default", "issuer": canonical, "client_id": legacy_metadata["CLIENT_ID"],
+        "token_endpoint": legacy_metadata["TOKEN_ENDPOINT"], "client_secret_env": oidc.LEGACY_OIDC_CLIENT_SECRET_ENV,
+    }
+    rotated_binding = {
+        **original_binding, "token_endpoint": canonical + "/rotated-token",
+        "client_secret_env": "BALOOT_OIDC_CLIENT_SECRET_ROTATED",
+    }
+    bindings = [original_binding, rotated_binding]
+    monkeypatch.setenv(oidc.OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps(bindings))
+    monkeypatch.setenv(rotated_binding["client_secret_env"], "synthetic-rotated-fixture")
 
     keys_uri = canonical + "/keys"
     signing_key = Ed25519PrivateKey.from_private_bytes(b"a" * 32)
     jwk = {**json.loads(jwt.algorithms.OKPAlgorithm.to_jwk(signing_key.public_key())), "kid": "fixture"}
     now = 1_767_225_600
     outstanding_codes = {}
+    token_requests = []
     race = Barrier(2)
 
     class FixedDateTime(datetime):
@@ -864,8 +885,12 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         if request.method == "GET":
             assert str(request.url) == canonical + "/.well-known/openid-configuration"
             return httpx.Response(200, json={"issuer": canonical, "jwks_uri": keys_uri})
-        assert str(request.url) == legacy_metadata["TOKEN_ENDPOINT"]
         form = parse_qs(request.content.decode())
+        token_requests.append((str(request.url), form.get("client_secret")))
+        expected_secret = {
+            original_binding["token_endpoint"]: legacy_metadata["CLIENT_SECRET"],
+            rotated_binding["token_endpoint"]: "synthetic-rotated-fixture",
+        }[str(request.url)]
         nonce, challenge, subject, issuer = outstanding_codes.pop(form["code"][0])
         identity_context = CURRENT_DATABASE_IDENTITY.get()
         assert identity_context.role == ("service" if issuer == legacy else "anonymous")
@@ -873,7 +898,7 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         assert oidc.PkceTransactionStore._challenge(form["code_verifier"][0]) == challenge
         assert form["client_id"] == [legacy_metadata["CLIENT_ID"]]
         assert form["redirect_uri"] == [legacy_metadata["REDIRECT_URI"]]
-        assert form["client_secret"] == [legacy_metadata["CLIENT_SECRET"]]
+        assert form["client_secret"] == [expected_secret]
         if form["code"][0] in {"race-first", "race-second"}:
             race.wait(timeout=15)
         claims = {"iss": issuer, "aud": form["client_id"][0], "sub": subject,
@@ -1055,6 +1080,15 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
                 )
         with psycopg.connect(dsn) as conn:
             conn.execute("DELETE FROM security.external_identities WHERE external_subject='collision'")
+        before_exchange = list(token_requests)
+        with monkeypatch.context() as unapproved:
+            unapproved.setenv(oidc.OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps([rotated_binding]))
+            with pytest.raises(SystemExit, match="approve its confidential registration"):
+                command("--version", "1.0.0", "--algorithm", "EdDSA")
+        assert token_requests == before_exchange
+        with migration_connection() as conn:
+            assert lookup(conn, legacy, "existing")["issuer_alias"] is False
+            assert lookup(conn, canonical, "existing") is None
         migration = command("--version", "1.0.0", "--algorithm", "EdDSA")
         assert migration["status"] == "applied" and migration["links"] == 1
         revision_id = migration["revisionId"]
@@ -1069,10 +1103,13 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
             assert configuration.store.get_profile(revision_id).payload["change_reason"] == payload["change_reason"]
             changed = deepcopy(payload)
             changed["providers"]["default"]["client_id"] = "different-fixture-client"
-            with pytest.raises(ValueError, match="different binding"):
-                migrate_legacy_oidc(
-                    conn, configuration, payload=changed, legacy_issuer=legacy, actor="operator-1",
-                )
+            with monkeypatch.context() as reapproved:
+                alternate = {**original_binding, "client_id": "different-fixture-client"}
+                reapproved.setenv(oidc.OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps([*bindings, alternate]))
+                with pytest.raises(ValueError, match="different binding"):
+                    migrate_legacy_oidc(
+                        conn, configuration, payload=changed, legacy_issuer=legacy, actor="operator-1",
+                    )
             assert lookup(conn, legacy, "existing") == {
                 "local_subject_id": "local-existing", "issuer_alias": True,
             }
@@ -1089,6 +1126,44 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         for invalid_store in (bypassing_store, migration_store):
             with pytest.raises(RuntimeError, match="subject to row-level security"):
                 invalid_store.require_oidc_rls()
+
+        def refuse_policy_drift(application, *, login_dsn=migration_dsn):
+            with pytest.raises(RuntimeError, match="requires the identity policies"):
+                application.require_oidc_rls()
+            with pytest.raises(SystemExit, match="and the current identity policies"):
+                command("--rollback", revision_id, login_dsn=login_dsn)
+
+        correction = (root / "migrations/035_oidc_identity_read_scope.sql").read_text(encoding="utf-8")
+        for drift in (
+            "ALTER POLICY external_identity_read_scope_v35 ON security.external_identities USING (true)",
+            "ALTER POLICY external_identity_read_scope_v35 ON security.external_identities TO oidc_ci_restricted",
+            "ALTER POLICY external_identity_authority_v33 ON security.external_identities USING (true)",
+            "ALTER POLICY external_identity_authority_v33 ON security.external_identities WITH CHECK (true)",
+            "CREATE OR REPLACE FUNCTION security.oidc_identity_authorized() RETURNS boolean "
+            "LANGUAGE sql STABLE SECURITY INVOKER SET search_path = pg_catalog AS $$ SELECT true $$",
+        ):
+            with psycopg.connect(dsn, autocommit=True) as admin:
+                admin.execute(drift)
+                try:
+                    refuse_policy_drift(store)
+                finally:
+                    admin.execute(correction)
+            store.require_oidc_rls()
+
+        restricted_app_dsn = make_conninfo(app_dsn, options="-c role=oidc_ci_restricted")
+        restricted_migration_dsn = make_conninfo(migration_dsn, options="-c role=oidc_ci_restricted")
+        for login, effective_dsn in (("oidc_ci_app", restricted_app_dsn), ("oidc_ci_migrator", restricted_migration_dsn)):
+            with psycopg.connect(effective_dsn) as conn:
+                assert conn.execute(
+                    "SELECT current_user, session_user, row_security_active('security.external_identities'), "
+                    "has_function_privilege(current_user, 'security.oidc_identity_authorized()', 'EXECUTE'), "
+                    "has_function_privilege(session_user, 'security.oidc_identity_authorized()', 'EXECUTE')"
+                ).fetchone() == ("oidc_ci_restricted", login, True, False, True)
+                assert not oidc_identity_rls_active(conn)
+        restricted_store = PostgresSecurityStateStore(restricted_app_dsn)
+        stack.callback(restricted_store.close)
+        refuse_policy_drift(restricted_store, login_dsn=restricted_migration_dsn)
+
         with psycopg.connect(app_dsn) as conn:
             assert conn.execute("SELECT count(*) FROM security.external_identities").fetchone() == (0,)
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -1096,6 +1171,13 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
                 link(conn, canonical, "unverified")
 
         monkeypatch.setenv("BALOOT_OIDC_PROVIDERS_PROFILE", "signin")
+        before_exchange = list(token_requests)
+        with monkeypatch.context() as unapproved:
+            unapproved.setenv(oidc.OIDC_CREDENTIAL_BINDINGS_ENV, json.dumps([rotated_binding]))
+            with pytest.raises(ValueError, match="approve its confidential registration"):
+                with TestClient(api.app, base_url="https://app.example"):
+                    pytest.fail("unapproved confidential registration reached HTTP startup")
+        assert token_requests == before_exchange
         current_client = stack.enter_context(TestClient(api.app, base_url="https://app.example"))
         runtime = api.app.state.oidc
         assert current_client.get("/readyz").status_code == 200
@@ -1285,3 +1367,43 @@ def test_oidc_issuer_transition_on_postgres(root, tmp_path, monkeypatch, caplog,
         account = complete(current_client, begin(current_client, code="link-retry", subject="retry-account"))
         assert linked_owner(canonical, "retry-account") == account
         assert counts() == {name: value + 1 for name, value in previous_counts.items()}
+
+        def publish_credentials(version, provider_id, row):
+            update = deepcopy(payload)
+            update["profile"]["version"] = f"1.0.{version}"
+            update["providers"] = {provider_id: row}
+            response = current_client.post(
+                "/api/v1/configuration-registry/profiles", headers=legacy_headers,
+                json={"family": "oidc_providers", "payload": update, "publish": True},
+            )
+            assert response.status_code == 201, response.text
+            assert response.json()["status"] == "published"
+
+        original_row = payload["providers"]["default"]
+        pending = begin(current_client, code="before-rotation", subject="existing")
+        before_exchange = list(token_requests)
+        for version, (provider_id, patch) in enumerate((
+            ("default", {"issuer": "https://other.example"}),
+            ("default", {"client_id": "other-fixture-client"}),
+            ("default", {"token_endpoint": canonical + "/token?recipient=other"}),
+            ("default", {"client_secret_env": rotated_binding["client_secret_env"]}),
+            ("unapproved", {}),
+        ), start=3):
+            publish_credentials(version, provider_id, {**original_row, **patch})
+            refused = callback(current_client, pending)
+            assert refused.status_code == 503
+            assert refused.json() == {"detail": "OIDC provider configuration is unavailable. Contact support to continue."}
+            assert current_client.post(
+                "/api/v1/security/oidc:begin", json={"providerId": provider_id},
+            ).status_code == 503
+            assert token_requests == before_exchange
+
+        publish_credentials(version + 1, "default", {
+            **original_row, "token_endpoint": rotated_binding["token_endpoint"],
+            "client_secret_env": rotated_binding["client_secret_env"],
+        })
+        stale = callback(current_client, pending)
+        assert stale.status_code == 400 and "provider changed" in stale.json()["detail"]
+        assert token_requests == before_exchange
+        assert complete(current_client, begin(current_client, code="approved-rotation", subject="existing")) == "local-existing"
+        assert token_requests == [*before_exchange, (rotated_binding["token_endpoint"], ["synthetic-rotated-fixture"])]

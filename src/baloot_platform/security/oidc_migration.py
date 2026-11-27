@@ -19,9 +19,12 @@ from baloot_platform.storage.request_context import (
 from .oidc import (
     DEFAULT_OIDC_HTTP_TIMEOUT,
     LEGACY_DEFAULT_PROVIDER_ID,
+    LEGACY_OIDC_CLIENT_SECRET_ENV,
     OIDC_PROFILE_ENV,
     OIDC_PROVIDER_FAMILY,
     discover_oidc_issuer,
+    resolve_oidc_client_secrets,
+    validate_oidc_provider_profile,
 )
 from .state_v20 import oidc_identity_rls_active
 
@@ -41,11 +44,8 @@ def legacy_oidc_profile(
     if issuer.rstrip("/") != legacy_issuer.rstrip("/"):
         raise ValueError("discovered issuer differs from legacy issuer beyond a trailing slash")
     provider["issuer"] = issuer
-    client_secret = os.environ.get("BALOOT_OIDC_CLIENT_SECRET")
-    if client_secret and not client_secret.strip():
-        raise ValueError("configured legacy OIDC client secret is blank")
-    if client_secret:
-        provider["client_secret_env"] = "BALOOT_OIDC_CLIENT_SECRET"
+    if LEGACY_OIDC_CLIENT_SECRET_ENV in set(os.environ):
+        provider["client_secret_env"] = LEGACY_OIDC_CLIENT_SECRET_ENV
     return legacy_issuer, {
         "schema_version": 1,
         "profile": {"id": profile_id, "version": version},
@@ -75,6 +75,7 @@ def migrate_legacy_oidc(
     issuer = provider["issuer"]
     if issuer.rstrip("/") != legacy_issuer.rstrip("/"):
         raise ValueError("issuer migration must preserve the legacy issuer identity")
+    resolve_oidc_client_secrets(validate_oidc_provider_profile(payload))
     _lock_migration(conn)
     prior = conn.execute(
         "SELECT * FROM security.oidc_issuer_transitions WHERE rolled_back_at IS NULL "

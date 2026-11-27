@@ -192,31 +192,92 @@ class SQLiteSecurityStateStore:
     def close(self) -> None: return None
 
 
+def _oidc_policy_expression(expression: str) -> tuple[str, ...]:
+    def ungroup(tokens: tuple[str, ...]) -> tuple[str, ...]:
+        while tokens and tokens[0] == "(":
+            depth = 0
+            for index, token in enumerate(tokens):
+                depth += (token == "(") - (token == ")")
+                if depth == 0:
+                    break
+            if index != len(tokens) - 1:
+                break
+            tokens = tokens[1:-1]
+        return tokens
+
+    tokens = ungroup(tuple(
+        token.removesuffix("::text") if token.startswith("'") else token
+        for token in re.findall(r"'(?:''|[^'])*'(?:::text\b)?|[A-Za-z_][\w.]*|[^\s]", expression)
+    ))
+    # PostgreSQL adds grouping around the boolean terms. Keep parentheses inside those terms.
+    depth = 0
+    for index, token in enumerate(tokens):
+        depth += (token == "(") - (token == ")")
+        if depth == 0 and token == "OR":
+            return (*ungroup(tokens[:index]), token, *ungroup(tokens[index + 1:]))
+    return tokens
+
+
 def oidc_identity_rls_active(connection: Any) -> bool:
     from psycopg.rows import tuple_row
 
     migrations = files("baloot_platform.resources").joinpath("migrations")
-    authority, read_scope = (
-        re.findall(
-            r"(?m)^CREATE POLICY ([a-z][a-z0-9_]*) ON security\.external_identities\b",
-            migrations.joinpath(name).read_text(encoding="utf-8"),
-        )
-        for name in ("033_oidc_database_roles.sql", "035_oidc_identity_read_scope.sql")
+    legacy = migrations.joinpath("012_v20_security_configuration_live.sql").read_text(encoding="utf-8")
+    installed = migrations.joinpath("035_oidc_identity_read_scope.sql").read_text(encoding="utf-8")
+    owner = re.search(
+        r"^CREATE POLICY (\w+) ON security\.external_identities FOR SELECT\s+USING \((.*?)\);",
+        legacy, re.MULTILINE | re.DOTALL,
     )
-    if len(authority) != 1 or len(read_scope) != 1:
-        raise RuntimeError("OIDC identity migrations must define the authority and read scope policies")
-    with connection.cursor(row_factory=tuple_row) as cursor:
-        active, = cursor.execute(
-            """SELECT row_security_active('security.external_identities')
-                      AND has_function_privilege(session_user,
-                            to_regprocedure('security.oidc_identity_authorized()'), 'EXECUTE')
-                      AND (SELECT count(*) FROM pg_policies
-                           WHERE schemaname='security' AND tablename='external_identities'
-                             AND ((policyname=%s AND cmd='ALL' AND permissive='PERMISSIVE')
-                               OR (policyname=%s AND cmd='SELECT' AND permissive='RESTRICTIVE'))) = 2""",
-            (authority[0], read_scope[0]),
+    authority = re.search(
+        r"^ALTER POLICY (\w+) ON security\.external_identities\s+USING \((.*?)\)\s+WITH CHECK \((.*?)\);",
+        installed, re.MULTILINE | re.DOTALL,
+    )
+    read_scope = re.search(
+        r"^CREATE POLICY (\w+) ON security\.external_identities AS RESTRICTIVE FOR SELECT\s+USING \((.*?)\);",
+        installed, re.MULTILINE | re.DOTALL,
+    )
+    function = re.search(
+        r"^CREATE OR REPLACE FUNCTION (security\.\w+\(\)) RETURNS boolean\s+"
+        r"LANGUAGE sql STABLE SECURITY INVOKER SET search_path = pg_catalog AS \$\$(.*?)\$\$;",
+        installed, re.MULTILINE | re.DOTALL,
+    )
+    if owner is None or authority is None or read_scope is None or function is None:
+        raise RuntimeError("OIDC identity migrations must define the owner, authority and read scope")
+    # PostgreSQL represents an IN list as a scalar-array comparison.
+    owner_qual = re.sub(r"\bIN\s*\(([^()]*)\)", r"= ANY (ARRAY[\1])", owner[2])
+    expected = {
+        owner[1]: ("SELECT", "PERMISSIVE", True, _oidc_policy_expression(owner_qual), None),
+        authority[1]: ("ALL", "PERMISSIVE", True, _oidc_policy_expression(authority[2]),
+                       _oidc_policy_expression(authority[3])),
+        read_scope[1]: ("SELECT", "RESTRICTIVE", True, _oidc_policy_expression(read_scope[2]), None),
+    }
+    with connection.transaction(force_rollback=True), connection.cursor(row_factory=tuple_row) as cursor:
+        # Deparse qualified function names without changing the caller's search path.
+        cursor.execute("SET LOCAL search_path TO pg_catalog")
+        actual_function = cursor.execute(
+            """SELECT p.prosrc FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang
+               WHERE p.oid=to_regprocedure(%s) AND p.prokind='f'
+                 AND l.lanname='sql' AND p.prorettype='boolean'::regtype
+                 AND p.provolatile='s' AND NOT p.prosecdef AND NOT p.proretset
+                 AND NOT p.proisstrict AND NOT p.proleakproof
+                 AND p.proconfig=ARRAY['search_path=pg_catalog']
+                 AND row_security_active('security.external_identities')
+                 AND has_schema_privilege('security', 'USAGE')
+                 AND has_function_privilege(p.oid, 'EXECUTE')""",
+            (function[1],),
         ).fetchone()
-    return bool(active)
+        if actual_function != (function[2],):
+            return False
+        policies = cursor.execute(
+            """SELECT policyname, cmd, permissive, roles=ARRAY['public'::name], qual, with_check
+               FROM pg_policies WHERE schemaname='security' AND tablename='external_identities'"""
+        ).fetchall()
+    return {
+        name: (command, mode, public,
+               _oidc_policy_expression(qual) if qual is not None else None,
+               _oidc_policy_expression(check) if check is not None else None)
+        for name, command, mode, public, qual, check in policies
+    } == expected
 
 
 class PostgresSecurityStateStore:
