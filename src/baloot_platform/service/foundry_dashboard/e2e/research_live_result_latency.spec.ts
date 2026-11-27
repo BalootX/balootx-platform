@@ -1,4 +1,4 @@
-import {expect, test, type Page} from '@playwright/test';
+import {expect, test, type Locator, type Page, type Request} from '@playwright/test';
 import {mkdir, writeFile} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {performance} from 'node:perf_hooks';
@@ -429,3 +429,290 @@ test('keeps the selected run drawer when an earlier run answers last', async ({p
     held.release();
   }
 });
+
+// The other drawer loaders. Each case names the one request that stays unanswered until the test releases it.
+type DrawerLoad = {
+  name: string;
+  stalePath: string;
+  staleAnswer: unknown;
+  showsLoadingDrawer: boolean;
+  arrange(page: Page): Promise<unknown>;
+  startStale(page: Page): Promise<unknown>;
+  openCurrent(page: Page): Promise<unknown>;
+  expectCurrent(drawers: Locator): Promise<unknown>;
+};
+
+const answer = (page: Page, path: string, json: unknown) =>
+  page.route((url) => url.pathname === path, (route) => route.fulfill({json}));
+
+const sakka = (catalogHash: string, finalScore: number[]) => ({
+  catalogHash,
+  kind: 'sakka',
+  createdAt: '2026-01-01T00:00:00Z',
+  metadata: {provenance: 'natural_sakka', roundCount: 0, winner: 'north_south', finalScore},
+});
+type Sakka = ReturnType<typeof sakka>;
+const sakkaScore = (record: Sakka) => record.metadata.finalScore.join(' — ');
+const sakkaDetail = (record: Sakka) => ({
+  record,
+  document: {sakka: {target: 152, finalScore: record.metadata.finalScore, rounds: []}},
+});
+const sakkaRow = (page: Page, record: Sakka) =>
+  page.locator('table.sakka-table tbody tr').filter({hasText: sakkaScore(record)}).locator('td').first();
+const staleSakka = sakka('a'.repeat(64), [152, 96]);
+const currentSakka = sakka('b'.repeat(64), [160, 88]);
+
+const sakkaDrawerLoad: DrawerLoad = {
+  name: 'sakka',
+  stalePath: `/api/v2/sakkas/${staleSakka.catalogHash}`,
+  staleAnswer: sakkaDetail(staleSakka),
+  showsLoadingDrawer: true,
+  async arrange(page) {
+    await answer(page, '/api/v2/sakkas', {items: [staleSakka, currentSakka]});
+    await answer(page, `/api/v2/sakkas/${currentSakka.catalogHash}`, sakkaDetail(currentSakka));
+  },
+  async startStale(page) {
+    await page.goto('/foundry?section=sakkas');
+    await sakkaRow(page, staleSakka).click();
+  },
+  openCurrent: (page) => sakkaRow(page, currentSakka).click(),
+  expectCurrent: (drawers) => expect(drawers.locator('.drawer-stats')).toContainText(sakkaScore(currentSakka)),
+};
+
+const laffa = (humanCode: string, gameHash: string) => {
+  const source = {
+    kind: 'archived_game',
+    code: humanCode,
+    identity: gameHash,
+    uri: `/api/v1/history/games/${gameHash}`,
+  };
+  return {
+    humanCode,
+    sourceKind: 'archived_game',
+    sourceKinds: ['archived_game'],
+    sourceLocator: source,
+    sourceReferences: [source],
+    replayValid: false,
+    auditOnly: true,
+    publicationEligible: false,
+    qualificationStatus: 'unqualified',
+    qualificationFailures: [],
+    truthLabel: null,
+    confidence: null,
+    challengeScore: null,
+    tacticalTags: [],
+    contract: 'sun',
+    projects: [],
+    buyer: 'north',
+    dealer: 'east',
+    interestingSeats: [],
+    relatedSakkas: [],
+    renderCount: 0,
+    renderStatus: 'not_prepared',
+    createdAt: '2026-01-01T00:00:00Z',
+    traceHash: null,
+    gameHash,
+  };
+};
+const laffaRow = (page: Page, item: ReturnType<typeof laffa>) =>
+  page.locator('table.unified-laffa-table tbody tr').filter({hasText: item.humanCode}).locator('td').first();
+const staleLaffa = laffa('LAF-STALE-DRAWER-A', 'c'.repeat(64));
+const currentLaffa = laffa('LAF-STALE-DRAWER-B', 'd'.repeat(64));
+
+// The laffa list, with every answer except the stale laffa's exact source.
+async function arrangeLaffat(page: Page) {
+  const items = [staleLaffa, currentLaffa];
+  await answer(page, '/api/v2/laffat', {
+    schemaVersion: 1,
+    resourceKind: 'unified_laffa_library_v1',
+    items,
+    total: items.length,
+    offset: 0,
+    limit: 50,
+    nextOffset: null,
+    sourceFacets: [{sourceKind: 'archived_game', count: items.length}],
+  });
+  for (const item of items) await answer(page, `/api/v2/laffat/${item.humanCode}/renders`, {items: []});
+  await answer(page, currentLaffa.sourceLocator.uri, {gameHash: currentLaffa.gameHash});
+}
+
+const laffaDrawerLoad: DrawerLoad = {
+  name: 'laffa',
+  stalePath: staleLaffa.sourceLocator.uri,
+  staleAnswer: {gameHash: staleLaffa.gameHash},
+  showsLoadingDrawer: true,
+  arrange: arrangeLaffat,
+  async startStale(page) {
+    await page.goto('/foundry?section=laffat');
+    await laffaRow(page, staleLaffa).click();
+  },
+  openCurrent: (page) => laffaRow(page, currentLaffa).click(),
+  async expectCurrent(drawers) {
+    await expect(drawers.locator('.drawer > header')).toContainText(currentLaffa.humanCode);
+    await expect(drawers.locator('.drawer-stats')).toBeVisible();
+  },
+};
+
+const staleResultCode = 'LAF-STALE-RESULT';
+const staleResultPath = `/api/v2/research-results/${staleResultCode}`;
+const staleResultRecipeCode = 'RCP-STALE-RESULT';
+
+// The result link starts its load with the page, and the laffa opened meanwhile is the drawer to keep.
+const researchResultDrawerLoad: DrawerLoad = {
+  name: 'research result',
+  stalePath: `${staleResultPath}/decisions`,
+  staleAnswer: {items: []},
+  showsLoadingDrawer: false,
+  async arrange(page) {
+    await arrangeLaffat(page);
+    await answer(page, staleResultPath, {
+      resultCode: staleResultCode,
+      recipeCode: staleResultRecipeCode,
+      schemaVersion: 2,
+      classification: 'scenario_v4',
+      disposition: 'qualified',
+      qualification: {failures: []},
+      scenarioProjection: {
+        schemaVersion: 1, status: 'satisfied', origin: 'search',
+        decisionKind: 'play', predicateEvidenceCount: 11, exactStateAvailable: true,
+      },
+      proofOutcome: {
+        requestedMode: 'exact', achievedMode: 'exact', achievedVisibility: 'complete_state',
+        claim: 'winning_root_action_count', completionStatus: 'exact_complete',
+        winningRootActionCount: 1, claimSatisfied: true,
+      },
+    });
+    await answer(page, `${staleResultPath}/renders`, {items: []});
+    await answer(page, `/api/v2/research-recipes/${staleResultRecipeCode}`, {
+      schemaVersion: 4,
+      code: staleResultRecipeCode,
+      sha256: 'a'.repeat(64),
+      lifecycleStatus: 'published',
+      status: 'published',
+      configuration: {bundleVersion: '24.0.0'},
+    });
+  },
+  startStale: (page) => page.goto(`/foundry?section=laffat&result=${staleResultCode}`),
+  openCurrent: laffaDrawerLoad.openCurrent,
+  expectCurrent: laffaDrawerLoad.expectCurrent,
+};
+
+const campaign = (campaignHash: string, createdAt: string, shardCount: number) => ({
+  campaignHash,
+  spec: {},
+  status: 'completed',
+  cancelRequested: false,
+  shardCounts: {completed: shardCount},
+  createdAt,
+  updatedAt: createdAt,
+});
+type Campaign = ReturnType<typeof campaign>;
+const campaignShards = ({campaignHash, shardCounts}: Campaign) => ({
+  shards: Array.from({length: shardCounts.completed}, (_, shardIndex) => ({
+    specHash: `${campaignHash}-${shardIndex}`,
+    shardIndex,
+    status: 'completed',
+    attempts: 1,
+  })),
+});
+const staleCampaign = campaign('e'.repeat(64), '2026-01-01T00:00:00Z', 2);
+const currentCampaign = campaign('f'.repeat(64), '2026-01-02T00:00:00Z', 1);
+// The list shows the newest campaign first.
+const campaignButton = (page: Page, item: Campaign) =>
+  page.locator('details.advanced-workflow .activity-panel button.list-item').nth(item === currentCampaign ? 0 : 1);
+
+const campaignDrawerLoad: DrawerLoad = {
+  name: 'campaign',
+  stalePath: `/api/v2/campaigns/${staleCampaign.campaignHash}/shards`,
+  staleAnswer: campaignShards(staleCampaign),
+  showsLoadingDrawer: false,
+  async arrange(page) {
+    await answer(page, '/api/v2/campaigns', {items: [staleCampaign, currentCampaign]});
+    await answer(page, `/api/v2/campaigns/${currentCampaign.campaignHash}/shards`, campaignShards(currentCampaign));
+    for (const item of [staleCampaign, currentCampaign]) {
+      await answer(page, `/api/v2/campaigns/${item.campaignHash}/attempts`, {attempts: []});
+    }
+  },
+  async startStale(page) {
+    await page.goto('/foundry?section=generation');
+    await page.locator('details.advanced-workflow > summary').click();
+    await campaignButton(page, staleCampaign).click();
+  },
+  openCurrent: (page) => campaignButton(page, currentCampaign).click(),
+  // A late answer for the two-shard campaign must not reach the one-shard campaign's drawer either.
+  expectCurrent: (drawers) =>
+    expect(drawers.locator('.shard-track i')).toHaveCount(currentCampaign.shardCounts.completed),
+};
+
+async function holdStaleDrawerLoad(page: Page, load: DrawerLoad) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const isStale = (request: Request) => new URL(request.url()).pathname === load.stalePath;
+  const staleRequests: Request[] = [];
+  page.on('request', (request) => { if (isStale(request)) staleRequests.push(request); });
+  await load.arrange(page);
+  await page.route((url) => url.pathname === load.stalePath, async (route) => {
+    await gate;
+    await route.fulfill({json: load.staleAnswer});
+  });
+
+  const drawers = page.locator('dialog.drawer-layer');
+  const openCurrent = async () => {
+    await load.openCurrent(page);
+    await load.expectCurrent(drawers);
+  };
+  return {
+    drawers,
+    openCurrent,
+    expectCurrent: () => load.expectCurrent(drawers),
+    async startStaleAndDismiss() {
+      const requested = page.waitForRequest(isStale);
+      await load.startStale(page);
+      await requested;
+      // A loader that shows nothing while loading can only be dismissed through another drawer.
+      if (!load.showsLoadingDrawer) await openCurrent();
+      await drawers.locator('header button').click();
+      await expect(drawers).toHaveCount(0);
+    },
+    async deliverStale() {
+      const focused = await page.evaluateHandle(() => document.activeElement);
+      release();
+      await Promise.all(staleRequests.map(async (request) => (await request.response())?.finished()));
+      // Give the page a rendered frame to act on the late answer before checking that it changed nothing.
+      await page.evaluate(() => new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }));
+      // A discarded late response must leave keyboard focus where the user put it.
+      expect(await focused.evaluate((element) => element === document.activeElement)).toBe(true);
+    },
+    release,
+  };
+}
+
+for (const load of [sakkaDrawerLoad, laffaDrawerLoad, researchResultDrawerLoad, campaignDrawerLoad]) {
+  test(`keeps the drawer closed when the ${load.name} answers after dismissal`, async ({page}) => {
+    const held = await holdStaleDrawerLoad(page, load);
+    try {
+      await held.startStaleAndDismiss();
+      await held.deliverStale();
+      await expect(held.drawers).toHaveCount(0);
+      await held.openCurrent();
+      await expect(held.drawers).toHaveCount(1);
+    } finally {
+      held.release();
+    }
+  });
+
+  test(`keeps the drawer opened afterwards when the earlier ${load.name} answers last`, async ({page}) => {
+    const held = await holdStaleDrawerLoad(page, load);
+    try {
+      await held.startStaleAndDismiss();
+      await held.openCurrent();
+      await held.deliverStale();
+      await held.expectCurrent();
+      await expect(held.drawers).toHaveCount(1);
+    } finally {
+      held.release();
+    }
+  });
+}

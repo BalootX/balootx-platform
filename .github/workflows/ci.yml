@@ -60,6 +60,23 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
+      - name: Check pull request opener
+        if: github.event_name == 'pull_request'
+        env:
+          # GitHub account IDs for tree-publisher and Dependabot.
+          ALLOWED_PR_OPENER_IDS: '357558349 49699333'
+          PR_OPENER_ID: ${{ github.event.pull_request.user.id }}
+          PR_OPENER_TYPE: ${{ github.event.pull_request.user.type }}
+        run: |
+          python3 -I -c '
+          import os
+
+          if (
+              os.environ["PR_OPENER_TYPE"] != "Bot"
+              or os.environ["PR_OPENER_ID"] not in os.environ["ALLOWED_PR_OPENER_IDS"].split()
+          ):
+              raise SystemExit("::error::Open this pull request through an approved GitHub App.")
+          '
       - &checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -204,10 +221,47 @@ jobs:
         name: Build dashboard for browser tests
         id: foundry-build
         run: npm run build -- --outDir "$RUNNER_TEMP/foundry-dashboard"
-      - name: Install locked Playwright Chromium
+      - name: Identify the locked Playwright runtime
         if: ${{ !cancelled() && steps.foundry-build.outcome == 'success' }}
+        id: playwright-runtime
+        run: |
+          version=$(node -p "require('./package-lock.json').packages['node_modules/playwright'].version")
+          echo "key=$RUNNER_OS-$RUNNER_ARCH-${ImageVersion:?}-playwright-chromium-$version" >> "$GITHUB_OUTPUT"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/playwright-browsers" >> "$GITHUB_ENV"
+      - if: ${{ !cancelled() && steps.playwright-runtime.outcome == 'success' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: playwright-cache
+        with: &playwright-cache
+          path: |
+            ${{ runner.temp }}/playwright-browsers
+            ${{ runner.temp }}/playwright-debs/*.deb
+          key: ${{ steps.playwright-runtime.outputs.key }}
+      - name: Install locked Playwright Chromium
+        if: ${{ !cancelled() && steps.playwright-cache.outcome == 'success' }}
         id: playwright-install
-        run: ./node_modules/.bin/playwright install --with-deps chromium
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
+        run: |
+          if [[ "$CACHE_HIT" == 'true' ]]; then
+            shopt -s nullglob
+            packages=("$RUNNER_TEMP"/playwright-debs/*.deb)
+            if (( ${#packages[@]} )); then
+              sudo env DEBIAN_FRONTEND=noninteractive dpkg --skip-same-version --install "${packages[@]}"
+            fi
+          else
+            mkdir -p "$RUNNER_TEMP/playwright-debs"
+            # Capture the packages that the locked installer resolves for this runner image.
+            apt_config=$(sudo mktemp /etc/apt/apt.conf.d/99-playwright-archives-XXXXXXXX)
+            trap 'sudo rm -- "$apt_config"' EXIT
+            printf 'Dir::Cache::archives "%s/playwright-debs";\nAPT::Keep-Downloaded-Packages "true";\n' "$RUNNER_TEMP" |
+              sudo tee "$apt_config" > /dev/null
+            ./node_modules/.bin/playwright install --with-deps chromium
+          fi
+          node -e "require('playwright').chromium.launch().then(browser => browser.close())"
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: *playwright-cache
       - name: Stage the PR base stylesheet for audit screenshots
         if: ${{ github.event_name == 'pull_request' && steps.playwright-install.outcome == 'success' }}
         run: git show HEAD^1:src/baloot_platform/service/foundry_dashboard/src/styles.css > "$RUNNER_TEMP/foundry-audit-base.css"
@@ -231,6 +285,7 @@ jobs:
             ${{ runner.temp }}/foundry-playwright.xml
             ${{ runner.temp }}/foundry-live-result-latency.json
             ${{ runner.temp }}/foundry-playwright-output/**/audit-*.png
+            ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && job.status == 'success' && format('{0}/foundry-playwright-output/**/*.png', runner.temp) || '' }}
           if-no-files-found: error
       - name: Upload Foundry Playwright failure diagnostics
         if: ${{ !cancelled() && steps.foundry-playwright.outcome == 'failure' }}
@@ -887,7 +942,10 @@ jobs:
           digest-mismatch: error
       - name: Check synthetic hook layouts
         if: matrix.shard == 'decision'
-        run: node tests/hook-layout.integration.mjs ../../../../outputs/professional-video-prototypes/render-bundle-decision.json
+        run: >-
+          node tests/hook-layout.integration.mjs ../../../../outputs/professional-video-prototypes/render-bundle-decision.json "$HOOK_FRAMES_DIR"
+        env:
+          HOOK_FRAMES_DIR: ${{ runner.temp }}/notice-on-hook-frames
       - name: Render the governed media shard
         working-directory: .
         env:
@@ -911,7 +969,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: media-render-${{ matrix.shard }}
-          path: ${{ runner.temp }}/media-shard.tar
+          path: |
+            ${{ runner.temp }}/media-shard.tar
+            ${{ matrix.shard == 'decision' && github.event_name == 'push' && github.ref == 'refs/heads/main' && format('{0}/notice-on-hook-frames/*.png', runner.temp) || '' }}
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
