@@ -9,6 +9,7 @@ import shlex
 import subprocess
 import sys
 from types import SimpleNamespace
+from xml.etree import ElementTree
 
 import pytest
 import yaml
@@ -17,7 +18,11 @@ from ci import critical_review
 from ci import review_verdict_poster
 from scripts import ci_scope
 from scripts import run_required_pytest
+from scripts import verify_qa_journey
 import test_v20_asan_verifier_portability as asan_portability
+
+
+NO_QA_JOURNEY = "(!inputs.qa-journey || inputs.qa-journey == 'none')"
 
 
 @pytest.fixture
@@ -132,8 +137,9 @@ def test_hosted_ci_contract(root):
                     assert condition.startswith(main_push) and "||" not in condition, name
             assert not step.get("continue-on-error")
     assert jobs["ci-gate"]["name"] == "${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}"
-    assert jobs["plan"]["if"] == (
-        "${{ !inputs.viewer-seat-proof && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}"
+    assert " ".join(jobs["plan"]["if"].split()) == (
+        "${{ !inputs.viewer-seat-proof && " + NO_QA_JOURNEY +
+        " && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}"
     )
     assert jobs["plan"]["steps"][0]["with"]["fetch-depth"] == 2
     assert jobs["plan"]["steps"][-1]["env"] == {
@@ -160,9 +166,9 @@ def test_hosted_ci_contract(root):
         "plan", "preflight", "dependency-review", "python-version-smoke", "python-affected",
     }
     assert set(jobs["ci-gate"]["needs"]) == expected_producers == jobs.keys() - {
-        "ci-gate", "viewer-seat-proof",
+        "ci-gate", "viewer-seat-proof", "qa-journey",
     }
-    assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof }}"
+    assert jobs["ci-gate"]["if"] == "${{ always() && !inputs.viewer-seat-proof && " + NO_QA_JOURNEY + " }}"
     assert jobs["ci-gate"]["permissions"] == {"contents": "read", "pull-requests": "read"}
     review_step = next(step for step in jobs["ci-gate"]["steps"] if "GH_TOKEN" in step.get("env", {}))
     assert review_step["if"] == (
@@ -756,6 +762,132 @@ def _assert_single_ci_check_producers(workflows):
         assert actual == producers, f"{check} producers: expected {producers}, found {actual}"
 
 
+def test_qa_journey_dispatch_rejects_unknown_and_conflicting_choices(root, monkeypatch):
+    workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())
+    option = workflow[True]["workflow_dispatch"]["inputs"]["qa-journey"]
+    journeys = ["foundry", "api-sdk", "replay-adjudication", "clip-render-bundle"]
+    assert option["type"] == "choice" and option["default"] == "none"
+    assert option["options"] == ["none", *journeys]
+    job = workflow["jobs"]["qa-journey"]
+    assert job["if"] == (
+        "${{ github.event_name == 'workflow_dispatch' && inputs.qa-journey && inputs.qa-journey != 'none' }}"
+    )
+    steps = {step.get("name"): step for step in job["steps"]}
+    assert "go test -count=1 -json ./..." in steps["Exercise Go SDK"]["run"]
+    assert 'verify_qa_journey.py go "$RUNNER_TEMP/qa-journey/go.jsonl"' in steps["Exercise Go SDK"]["run"]
+    assert all("runner." not in value for value in job["env"].values())
+    source = steps["Bind evidence to the dispatched source"]
+    browser = steps["Exercise Foundry authoring and research on desktop and mobile"]
+    output_step = steps["Set the Foundry Playwright output directory"]
+    foundry_steps = workflow["jobs"]["foundry"]["steps"]
+    assert any(step is output_step for step in foundry_steps)
+    output_dir = f"${{{{ steps.{output_step['id']}.outputs.path }}}}"
+    suite = next(step for step in foundry_steps if step.get("name") == "Run Foundry Playwright suite")
+    assert (
+        source["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+        == browser["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+        == suite["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+        == output_dir
+    )
+    assert (
+        "printf 'foundry-screenshots=%s/*/alternate-first-result-*.png\\n' "
+        '"$BALOOT_OPERATOR_E2E_OUTPUT_DIR" >> "$GITHUB_OUTPUT"'
+    ) in source["run"]
+    assert "--output" not in browser["run"]
+    foundry = steps["Verify Foundry journey evidence"]
+    assert '"$FOUNDRY_JOURNEY_SCREENSHOTS"' in foundry["run"]
+    screenshots = steps["Upload Foundry journey screenshots"]["with"]
+    assert screenshots["path"] == foundry["env"]["FOUNDRY_JOURNEY_SCREENSHOTS"] == "${{ steps.source.outputs.foundry-screenshots }}"
+    assert screenshots["if-no-files-found"] == "error"
+    validation = job["steps"][0]
+    assert validation["shell"] == "python"
+    validate = compile(validation["run"], "QA journey dispatch validation", "exec")
+    monkeypatch.setenv("VIEWER_SEAT_PROOF", "false")
+    for journey in journeys:
+        monkeypatch.setenv("QA_JOURNEY", journey)
+        exec(validate, {})
+    for journey in ("", "none", "unknown", "foundry; exit 0"):
+        monkeypatch.setenv("QA_JOURNEY", journey)
+        with pytest.raises(SystemExit, match="Select a declared QA journey"):
+            exec(validate, {})
+    monkeypatch.setenv("QA_JOURNEY", "foundry")
+    monkeypatch.setenv("VIEWER_SEAT_PROOF", "true")
+    with pytest.raises(SystemExit, match="Turn off viewer-seat-proof"):
+        exec(validate, {})
+
+
+@pytest.mark.parametrize("defect", [None, "skipped", "failed", "missing", "repeated", "no-package-pass", "cached"])
+def test_go_qa_journey_requires_complete_uncached_test_and_package_results(tmp_path, defect):
+    verifier = verify_qa_journey
+    rows = [{"Action": "start"}]
+    for name in verifier.GO_TESTS[1:]:
+        rows.extend({"Action": action, "Test": name} for action in ("run", "pass"))
+    phases = {
+        "skipped": ("run", "skip"), "failed": ("run", "fail"), "missing": (),
+        "repeated": ("run", "pass", "run", "pass"),
+    }.get(defect, ("run", "pass"))
+    rows.extend({"Action": action, "Test": verifier.GO_TESTS[0]} for action in phases)
+    if defect == "cached":
+        rows.append({"Action": "output", "Output": f"ok  \t{verifier.GO_PACKAGE}\t(cached)\n"})
+    if defect != "no-package-pass":
+        rows.append({"Action": "pass"})
+    receipt = tmp_path / "go.jsonl"
+    receipt.write_text("\n".join(json.dumps({"Package": verifier.GO_PACKAGE, **row}) for row in rows))
+    if defect is None:
+        verifier.verify_go(receipt)
+    else:
+        with pytest.raises(ValueError, match="Go SDK"):
+            verifier.verify_go(receipt)
+
+
+@pytest.mark.parametrize("defect,message", [
+    (None, ""),
+    ("skipped", "complete passing browser results"),
+    ("failure", "incomplete browser result"),
+    ("error", "incomplete browser result"),
+    ("missing-project", "one suite for each journey project"),
+    ("wrong-test", "requires the named journey"),
+    ("missing-screenshot", "three screenshots per browser project"),
+    ("wrong-view", "screenshot set differs"),
+    ("wrong-project", "screenshot set differs"),
+])
+def test_foundry_qa_journey_requires_the_named_test_and_screenshot_set(tmp_path, defect, message):
+    verifier = verify_qa_journey
+    counts = {"errors": "0", "failures": "0", "skipped": "0"}
+    report = ElementTree.Element("testsuites", tests="2", **counts)
+    for project in sorted(verifier.FOUNDRY_PROJECTS):
+        suite = ElementTree.SubElement(report, "testsuite", hostname=project, tests="1", **counts)
+        case = ElementTree.SubElement(suite, "testcase", name=verifier.FOUNDRY_TEST, classname=verifier.FOUNDRY_SPEC)
+        directory = tmp_path / f"operator-journey-{project}"
+        directory.mkdir()
+        for name in sorted(verifier.FOUNDRY_SCREENSHOTS):
+            screenshot = directory / name
+            screenshot.write_bytes(verifier.PNG_SIGNATURE + b"synthetic")
+    if defect == "skipped":
+        suite.set("skipped", "1")
+        ElementTree.SubElement(case, "skipped")
+    elif defect in {"failure", "error"}:
+        ElementTree.SubElement(case, defect)
+    elif defect == "missing-project":
+        report.remove(suite)
+    elif defect == "wrong-test":
+        case.set("name", "different browser case")
+    elif defect == "missing-screenshot":
+        screenshot.unlink()
+    elif defect == "wrong-view":
+        screenshot.rename(directory / "alternate-first-result-other.png")
+    elif defect == "wrong-project":
+        directory.rename(tmp_path / "operator-journey-wrong-chrome")
+    receipt = tmp_path / "foundry.xml"
+    ElementTree.ElementTree(report).write(receipt, encoding="utf-8")
+    screenshot_glob = str(tmp_path / "*" / "alternate-first-result-*.png")
+    if defect is None:
+        verifier.verify_foundry(receipt, screenshot_glob)
+    else:
+        with pytest.raises(ValueError, match=message):
+            verifier.verify_foundry(receipt, screenshot_glob)
+
+
 def test_ci_check_names_have_single_producers(root):
     _assert_single_ci_check_producers(root / ".github/workflows")
 
@@ -1024,14 +1156,14 @@ def test_viewer_seat_proof_dispatch_and_nightly_use_the_same_pinned_cohort(root)
     option = workflow[True]["workflow_dispatch"]["inputs"]["viewer-seat-proof"]
     assert option["type"] == "boolean" and option["default"] is False
     jobs = workflow["jobs"]
-    assert jobs["preflight"]["if"] == "${{ !inputs.viewer-seat-proof }}"
+    assert jobs["preflight"]["if"] == "${{ !inputs.viewer-seat-proof && " + NO_QA_JOURNEY + " }}"
     workflow_call = {"uses": "./.github/workflows/viewer-seat-proof.yml"}
     assert jobs["viewer-seat-proof"] == {
         **workflow_call,
-        "if": "${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof }}",
+        "if": "${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof && " + NO_QA_JOURNEY + " }}",
     }
     assert {name for name, job in jobs.items() if "needs" not in job} == {
-        "plan", "preflight", "dependency-review", "viewer-seat-proof",
+        "plan", "preflight", "dependency-review", "viewer-seat-proof", "qa-journey",
     }
     nightly = yaml.safe_load((root / ".github/workflows/nightly-candidates.yml").read_bytes())
     assert nightly["jobs"]["viewer-seat-proof"] == workflow_call
@@ -1129,11 +1261,12 @@ def test_main_ci_retains_synthetic_visual_evidence(root):
     foundry_steps = jobs["foundry"]["steps"]
     playwright = next(step for step in foundry_steps if step.get("id") == "foundry-playwright")
     output_dir = playwright["env"]["BALOOT_OPERATOR_E2E_OUTPUT_DIR"]
+    output_ref = output_dir.removeprefix("${{ ").removesuffix(" }}")
     foundry = next(step for step in foundry_steps if step.get("name") == "Upload Foundry test receipts")
     assert foundry["if"] == "${{ !cancelled() }}"
     assert foundry["with"]["path"].splitlines()[-1] == (
         "${{ " + main_push + " && job.status == 'success' && "
-        "format('" + output_dir.replace("${{ runner.temp }}", "{0}") + "/**/*.png', runner.temp) || '' }}"
+        f"format('{{0}}/**/*.png', {output_ref}) || '' " + "}}"
     )
     media_steps = jobs["media-render"]["steps"]
     hook = next(step for step in media_steps if step.get("name") == "Check synthetic hook layouts")
@@ -1464,7 +1597,7 @@ def test_one_run_never_holds_more_than_twenty_hosted_jobs(root):
         if all(name not in before[other] and other not in before[name] for other in chosen):
             best = max(best, width(jobs[name], is_pr) + peak(index + 1, chosen | {name}, names, is_pr))
         return best
-    full = jobs.keys() - {"python-affected", "viewer-seat-proof"}
+    full = jobs.keys() - {"python-affected", "viewer-seat-proof", "qa-journey"}
     assert peak(0, frozenset(), sorted(full), True) <= 20
     assert peak(0, frozenset(), sorted(full - {"dependency-review", "python-version-smoke"}), False) <= 20
 

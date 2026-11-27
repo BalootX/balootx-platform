@@ -715,6 +715,7 @@ def test_public_notice_identity_and_five_visible_voice_phrases(
     assert audio["voice_callouts"] is audio["spoken_voice_pack"] is False
     assert value["audioCues"] == []
     question = next(scene for scene in value["scenes"] if scene["stage"] == "question")
+    assert (question["locale"], question["direction"]) == ("ar-SA", "rtl")
     prompt = next(layer["content"] for layer in question["layers"] if layer["id"] == "decision-prompt")
     name = value["identity"]["players"][prompt["actingSeat"]]
     value["assets"].append({"id": "unit-voice", "path": "assets/audio/unit-voice.wav"})
