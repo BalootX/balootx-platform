@@ -7,6 +7,16 @@ on:
         description: Run the viewer-seat proof cohort
         type: boolean
         default: false
+      qa-journey:
+        description: Run one synthetic QA journey
+        type: choice
+        default: 'none'
+        options:
+          - 'none'
+          - foundry
+          - api-sdk
+          - replay-adjudication
+          - clip-render-bundle
   push:
     branches: [main]
   pull_request:
@@ -33,7 +43,9 @@ env:
 
 jobs:
   plan:
-    if: ${{ !inputs.viewer-seat-proof && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: >-
+      ${{ !inputs.viewer-seat-proof && (!inputs.qa-journey || inputs.qa-journey == 'none') &&
+          (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -56,7 +68,7 @@ jobs:
         run: python3 -P scripts/ci_scope.py plan
 
   preflight:
-    if: ${{ !inputs.viewer-seat-proof }}
+    if: ${{ !inputs.viewer-seat-proof && (!inputs.qa-journey || inputs.qa-journey == 'none') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
@@ -148,7 +160,7 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
       - *py313
-      - run: python -m pip install '.[dev,postgres]'
+      - run: python -m pip install '.[dev,grpc,postgres]'
       - name: Verify migration, store behavior and previous-release compatibility
         env:
           BALOOT_TEST_POSTGRES_URL: postgresql://baloot_test@127.0.0.1:${{ job.services.postgres.ports[5432] }}/baloot_test
@@ -212,6 +224,10 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
+      - &foundry-playwright-output
+        name: Set the Foundry Playwright output directory
+        id: playwright-output
+        run: printf 'path=%s/foundry-playwright-output\n' "$RUNNER_TEMP" >> "$GITHUB_OUTPUT"
       - *py313
       - &python-runtime-download
         if: needs.plan.outputs.full == 'true'
@@ -323,7 +339,7 @@ jobs:
         run: npm run test:operator-e2e -- --reporter=list,junit
         env:
           BALOOT_OPERATOR_E2E_FOUNDRY_DIR: ${{ runner.temp }}/foundry-dashboard
-          BALOOT_OPERATOR_E2E_OUTPUT_DIR: ${{ runner.temp }}/foundry-playwright-output
+          BALOOT_OPERATOR_E2E_OUTPUT_DIR: ${{ steps.playwright-output.outputs.path }}
           BALOOT_LIVE_RESULT_LATENCY_SAMPLE_OUTPUT: ${{ runner.temp }}/foundry-live-result-latency.json
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/foundry-playwright.xml
           BALOOT_FOUNDRY_AUDIT_BASE_CSS: ${{ github.event_name == 'pull_request' && format('{0}/foundry-audit-base.css', runner.temp) || '' }}
@@ -336,15 +352,17 @@ jobs:
             ${{ runner.temp }}/foundry-vitest.xml
             ${{ runner.temp }}/foundry-playwright.xml
             ${{ runner.temp }}/foundry-live-result-latency.json
-            ${{ runner.temp }}/foundry-playwright-output/**/audit-*.png
-            ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && job.status == 'success' && format('{0}/foundry-playwright-output/**/*.png', runner.temp) || '' }}
+            ${{ steps.playwright-output.outputs.path }}/**/audit-*.png
+            ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && job.status == 'success' && format('{0}/**/*.png', steps.playwright-output.outputs.path) || '' }}
           if-no-files-found: error
       - name: Upload Foundry Playwright failure diagnostics
         if: ${{ !cancelled() && steps.foundry-playwright.outcome == 'failure' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: foundry-playwright-failure-diagnostics
-          path: ${{ runner.temp }}/foundry-playwright-output
+          path: ${{ steps.playwright-output.outputs.path }}
+          if-no-files-found: ignore
+          retention-days: 7
 
   sdks:
     needs: plan
@@ -932,8 +950,10 @@ jobs:
                   notice.main(source_head=head, source_tree=tree)
 
           source_head, source_tree = sys.argv[1:]
-          assert not (notice.STYLE.parents[1] / "node_modules").exists()
-          assert (WORKER_RENDERER_ROOT / "src/style.css").read_bytes() == notice.STYLE.read_bytes()
+          checkout_renderer = notice.STYLE.parents[1]
+          assert not (checkout_renderer / "node_modules").exists()
+          for asset in ("scripts/ffmpeg-runtime.json", "src/style.css", "src/playback-timing.mjs"):
+              assert (WORKER_RENDERER_ROOT / asset).read_bytes() == (checkout_renderer / asset).read_bytes(), asset
           with (
               patch.object(render_kickoff, "utc_now", return_value=datetime(2026, 1, 1, tzinfo=UTC)),
               patch.object(notice, "build_notice_bundle", side_effect=PreflightPassed),
@@ -953,7 +973,8 @@ jobs:
                   raise SystemExit("public producer accepted the wrong source commit")
           subprocess.run(
               ["node", "--input-type=module", "-e",
-               "import '@remotion/bundler'; import '@remotion/renderer'; import './scripts/ffmpeg-profile.mjs';"],
+               "import '@remotion/bundler'; import '@remotion/renderer'; "
+               "import './scripts/ffmpeg-profile.mjs'; import './src/playback-timing.mjs';"],
               cwd=WORKER_RENDERER_ROOT, check=True,
           )
           PY
@@ -1002,7 +1023,6 @@ jobs:
         working-directory: .
         env:
           SHARD: ${{ matrix.shard }}
-          BALOOTX_CI_SHORT_COLLECTION_SAMPLE: ${{ github.event_name == 'pull_request' && matrix.shard == 'companion' }}
           BALOOT_RENDER_EVIDENCE_DIR: ${{ runner.temp }}/media-stage-logs
         run: |
           cpus="$(python -c 'import os; print(",".join(map(str, sorted(os.sched_getaffinity(0))[:4])))')"
@@ -1099,13 +1119,131 @@ jobs:
           python -P scripts/generate_platform_evidence.py
 
   viewer-seat-proof:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.viewer-seat-proof && (!inputs.qa-journey || inputs.qa-journey == 'none') }}
     uses: ./.github/workflows/viewer-seat-proof.yml
+
+  qa-journey:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.qa-journey && inputs.qa-journey != 'none' }}
+    name: QA journey (${{ inputs.qa-journey }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    env:
+      QA_JOURNEY: ${{ inputs.qa-journey }}
+    steps:
+      - name: Validate the dispatch choice
+        shell: python
+        env:
+          VIEWER_SEAT_PROOF: ${{ inputs.viewer-seat-proof }}
+        run: |
+          import os
+
+          if os.environ['QA_JOURNEY'] not in ('foundry', 'api-sdk', 'replay-adjudication', 'clip-render-bundle'):
+              raise SystemExit('Select a declared QA journey.')
+          if os.environ['VIEWER_SEAT_PROOF'] != 'false':
+              raise SystemExit('Turn off viewer-seat-proof when dispatching a QA journey.')
+      - *checkout
+      - *foundry-playwright-output
+      - name: Bind evidence to the dispatched source
+        id: source
+        env:
+          BALOOT_OPERATOR_E2E_OUTPUT_DIR: ${{ steps.playwright-output.outputs.path }}
+        run: |
+          head=$(git rev-parse HEAD)
+          tree=$(git rev-parse 'HEAD^{tree}')
+          test "$head" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/qa-journey"
+          printf 'journey=%s\nhead=%s\ntree=%s\n' "$QA_JOURNEY" "$head" "$tree" > "$RUNNER_TEMP/qa-journey/source.txt"
+          printf 'foundry-screenshots=%s/*/alternate-first-result-*.png\n' "$BALOOT_OPERATOR_E2E_OUTPUT_DIR" >> "$GITHUB_OUTPUT"
+      - *py313
+      - run: python -m pip install -e '.[dev,grpc,security]'
+      - name: Run selected Python checks
+        run: |
+          case "$QA_JOURNEY" in
+            foundry)
+              nodes=(tests/test_research_foundry.py::test_research_auction_is_compiled_and_replayed_without_buyer_assumption) ;;
+            api-sdk)
+              nodes=(
+                tests/test_research_foundry.py::test_research_api_is_connected_to_the_governed_runtime
+                tests/test_v2_research_sdk_contracts.py::test_python_sdk_recipe_mutations_and_pagination_preserve_compatibility
+                tests/test_research_operator_audit_sdk_contracts.py::test_python_sdk_retrieves_the_typed_operator_audit
+              ) ;;
+            replay-adjudication)
+              nodes=(
+                tests/test_v6_replay_audit_difficulty_video.py::test_replay_audit_separates_effect_from_human_intent
+                tests/test_adjudication_research_boundary_v1.py::test_adjudication_event_evidence_is_deterministic_and_observer_safe
+                tests/test_observer_information_projection.py::test_projection_contains_governed_public_state_without_hidden_cards
+              ) ;;
+            clip-render-bundle)
+              nodes=(
+                tests/test_render_bundle.py::test_render_bundle_is_deterministic_observer_safe_and_self_verifying
+                tests/test_render_bundle.py::test_render_bundle_rejects_mixed_private_perspectives
+                'tests/test_render_bundle.py::test_public_notice_identity_and_five_visible_voice_phrases[voice-off-profile]'
+              ) ;;
+            *) exit 1 ;;
+          esac
+          python -m scripts.run_required_pytest "${nodes[@]}" 2>&1 | tee "$RUNNER_TEMP/qa-journey/pytest.log"
+      - *node
+      - name: Check TypeScript SDK
+        if: inputs.qa-journey == 'api-sdk'
+        run: |
+          npx --yes --package typescript@5.8.3 tsc -p sdk/typescript/tsconfig.json --noEmit 2>&1 | tee "$RUNNER_TEMP/qa-journey/typescript.log"
+      - if: inputs.qa-journey == 'api-sdk'
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: '1.23'
+          cache: false
+      - name: Exercise Go SDK
+        if: inputs.qa-journey == 'api-sdk'
+        run: |
+          (cd sdk/go && go test -count=1 -json ./...) | tee "$RUNNER_TEMP/qa-journey/go.jsonl"
+          python -P scripts/verify_qa_journey.py go "$RUNNER_TEMP/qa-journey/go.jsonl"
+      - name: Exercise Foundry authoring and research on desktop and mobile
+        if: inputs.qa-journey == 'foundry'
+        id: foundry-journey
+        working-directory: src/baloot_platform/service/foundry_dashboard
+        env:
+          BALOOT_FOUNDRY_QA_JOURNEY: '1'
+          BALOOT_OPERATOR_E2E_FOUNDRY_DIR: ${{ runner.temp }}/foundry-dashboard
+          BALOOT_OPERATOR_E2E_OUTPUT_DIR: ${{ steps.playwright-output.outputs.path }}
+          BALOOT_REUSE_OPERATOR_E2E_SERVER: '0'
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/qa-journey/foundry.xml
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build -- --outDir "$BALOOT_OPERATOR_E2E_FOUNDRY_DIR"
+          ./node_modules/.bin/playwright install --with-deps chromium
+          npm run test:operator-e2e -- foundry_ortools_operator.spec.ts \
+            --grep 'the disclosed target-wins-trick-6 alternative diagnoses its first result$' \
+            --project=desktop-chrome --project=mobile-touch-chrome --workers=1 \
+            --reporter=list,junit
+      - name: Verify Foundry journey evidence
+        if: inputs.qa-journey == 'foundry'
+        env:
+          FOUNDRY_JOURNEY_SCREENSHOTS: ${{ steps.source.outputs.foundry-screenshots }}
+        run: python -P scripts/verify_qa_journey.py foundry "$RUNNER_TEMP/qa-journey/foundry.xml" "$FOUNDRY_JOURNEY_SCREENSHOTS"
+      - name: Upload QA journey results
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qa-journey-${{ inputs.qa-journey }}-results
+          path: ${{ runner.temp }}/qa-journey/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload Foundry journey screenshots
+        if: ${{ !cancelled() && inputs.qa-journey == 'foundry' && steps.foundry-journey.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qa-journey-foundry-screenshots
+          path: ${{ steps.source.outputs.foundry-screenshots }}
+          if-no-files-found: error
+          retention-days: 7
 
   ci-gate:
     name: ${{ github.event_name == 'workflow_dispatch' && 'CI diagnostic result' || 'ci-gate' }}
     needs: [plan, preflight, dependency-review, python-version-smoke, docker-constraints, identity-postgres, postgres-configuration, foundry, sdks, python-affected, python-wheelhouse, ffmpeg-packages, native-build, native-sanitizers, python-windows, python-fast-run, python-backend-run, python-heavy, python-coverage, media-inputs, remotion-checks, remotion-image-parity, media-render, media-release-smoke]
-    if: ${{ always() && !inputs.viewer-seat-proof }}
+    if: ${{ always() && !inputs.viewer-seat-proof && (!inputs.qa-journey || inputs.qa-journey == 'none') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
