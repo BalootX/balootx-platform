@@ -38,7 +38,9 @@ The keys in `providers` are the `providerId` values clients send. Each row decla
 
 Use HTTPS URLs throughout. Redirect URIs may use HTTP on localhost or loopback. A confidential client references a deployment environment variable with the `BALOOT_OIDC_CLIENT_SECRET` prefix. A public client omits `client_secret_env`. A missing secret or a configured profile without a valid published revision stops HTTP startup. Leave the registry unconfigured with no legacy variables, or publish an empty `providers` object, to disable OIDC sign-in.
 
-For PostgreSQL, use an application login subject to row-level security. The API checks the identity policy and the effective role before enabling sign-in. Use a schema owner for the schema migrations and a separate RLS-subject login for the issuer migration command.
+For PostgreSQL, use an application login subject to row-level security. The API checks the identity policies and the effective role before enabling sign-in. Use a schema owner for the schema migrations and a separate RLS-subject login for the issuer migration command.
+
+The identity read policy limits regular reads to a caller's own account. Verified callbacks and the dedicated issuer migration login can look up links across accounts for their authorized operations. Both logins need `EXECUTE` on `security.oidc_identity_authorized()` when installation defaults restrict execution of new functions.
 
 Signed-out clients can send JSON POSTs to the OIDC begin and callback routes without a session or API key. Clients presenting a valid session must follow the API's session CSRF policy. An API key or a verified access token follows the same rules as on other routes. A successful callback returns a session token in its response body. It does not set a browser cookie.
 
@@ -68,7 +70,30 @@ Rollback uses these bundle columns to check published and scheduled references b
 
 Reserve `UPDATE` on `security.oidc_issuer_transitions` for the issuer migration login. The identity policy uses this grant to distinguish it from the HTTP application login. Leave the `identity` schema and its session tables accessible only to the application and other roles that serve identity operations. The issuer migration command does its work in `configuration` and `security`.
 
-For SQLite, stop the previous process before opening the databases with the new release. Keep the identity and security databases and their SQLite journals together on a local filesystem. Preserve the existing provider key and copy its issuer byte for byte, including any trailing slash. Issuer changes for linked providers require the PostgreSQL procedure below. For an unchanged issuer, keep the same databases and the previous release's provider configuration for rollback.
+For SQLite, stop the previous process before opening the databases with the new release. Keep the identity and security databases and their SQLite journals together on a local filesystem. Preserve the existing provider key and copy its issuer byte for byte, including any trailing slash. Issuer changes for linked providers require the PostgreSQL procedure below.
+
+## Prepare a SQLite rollback
+
+The predecessor reads ordinary configuration and its audit on a separate SQLite image. Keep the upgraded configuration database in a directory outside the predecessor's files and mounts for the whole rollback. Identity, sessions and provider links keep using their existing databases.
+
+1. Stop all processes that can open the runtime databases. Move the upgraded configuration database and any remaining SQLite journal companions together into protected custody. Leave the identity and security databases and their journals in the runtime directory. Keep the predecessor's provider configuration for the unchanged issuer.
+2. From the new release, prepare the predecessor image with the protected configuration as input. The output must be a new file without journal companions at the predecessor's normal configuration path.
+
+   ```sh
+   python -m baloot_platform.configuration.sqlite_rollback \
+     --protected custody/configuration.sqlite3 --output runtime/configuration.sqlite3
+   ```
+
+3. Start the predecessor with the prepared runtime. Keep the protected input and its registry revisions and audit in custody. The image retains ordinary configuration and its audit. If preparation refuses the source because of linked configuration references, resolve custody before starting the predecessor.
+4. To return to the new release, stop all predecessor processes and build a new image. This retains ordinary revisions and audit written during rollback and restores the original registry rows and audit from custody.
+
+   ```sh
+   python -m baloot_platform.configuration.sqlite_rollback \
+     --protected custody/configuration.sqlite3 --rollback runtime/configuration.sqlite3 \
+     --output custody/restored-configuration.sqlite3
+   ```
+
+   Move the stopped rollback database and its journal companions aside. Install the restored image as the runtime configuration database and start the new release. Keep both inputs until startup and audit verification pass.
 
 ## Migrate the previous release
 

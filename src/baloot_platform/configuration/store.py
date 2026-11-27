@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import tempfile
 import threading
-from contextlib import nullcontext
+from contextlib import closing, nullcontext
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +26,7 @@ from .schedule import ConfigurationIntegrityError, ConfigurationScheduleConflict
 _UNSET = object()
 Revision = TypeVar("Revision", ProfileRevision, BundleRevision)
 BundleDimensions = tuple[str | None, str, str, str | None, str | None]
+_SQLITE_OIDC_ROLLBACK_TABLE = "configuration_oidc_rollback"
 
 
 @dataclass(frozen=True)
@@ -85,6 +88,96 @@ def _aggregate_identity(identity: tuple[Any, ...]) -> str:
     # JSON preserves tuple boundaries, nulls, empty strings, and embedded
     # punctuation.  A colon-joined identity cannot distinguish those values.
     return canonical(list(identity))
+
+
+def _sqlite_oidc_partition(conn: sqlite3.Connection) -> dict[str, tuple[str, list[tuple]]]:
+    profile_filter = "SELECT revision_id FROM configuration_profile_revisions WHERE family=?"
+    return {
+        "configuration_profile_revisions": ("revision_id", conn.execute(
+            "SELECT * FROM configuration_profile_revisions WHERE family=? ORDER BY revision_id",
+            (OIDC_PROVIDER_FAMILY,),
+        ).fetchall()),
+        "configuration_events": ("event_id", conn.execute(
+            "SELECT * FROM configuration_events WHERE aggregate_type='profile' "
+            f"AND aggregate_id IN ({profile_filter}) ORDER BY event_id",
+            (OIDC_PROVIDER_FAMILY,),
+        ).fetchall()),
+        "configuration_aggregate_heads": ("aggregate_key", conn.execute(
+            "SELECT * FROM configuration_aggregate_heads WHERE instr(aggregate_key,?)=1 ORDER BY aggregate_key",
+            (_aggregate_key("profile", (OIDC_PROVIDER_FAMILY,))[:-1] + ",",),
+        ).fetchall()),
+    }
+
+
+def _verify_sqlite_rollback_references(conn: sqlite3.Connection, registry_ids: list[str]) -> None:
+    conflict = conn.execute(
+        """WITH registry(id) AS (SELECT value FROM json_each(?))
+           SELECT 1 FROM configuration_profile_revisions
+             WHERE family<>? AND supersedes_revision_id IN registry
+           UNION ALL
+           SELECT 1 FROM configuration_bundle_revisions, json_each(components_json)
+             WHERE json_each.key=? OR json_each.value IN registry
+           UNION ALL
+           SELECT 1 FROM configuration_events event
+             WHERE event.aggregate_type='profile' AND NOT EXISTS (
+                 SELECT 1 FROM configuration_profile_revisions profile WHERE profile.revision_id=event.aggregate_id
+             )
+           UNION ALL
+           SELECT 1 FROM configuration_events event, json_tree(event.payload_json) AS member
+             WHERE NOT (event.aggregate_type='profile' AND event.aggregate_id IN registry)
+               AND member.atom IN registry
+           LIMIT 1""",
+        (canonical(registry_ids), OIDC_PROVIDER_FAMILY, OIDC_PROVIDER_FAMILY),
+    ).fetchone()
+    if conflict:
+        raise ValueError("Separate the configuration references before preparing or restoring an OIDC rollback image")
+
+
+def sqlite_oidc_configuration_image(protected: Path, output: Path, *, rollback: Path | None = None) -> None:
+    """Build a detached SQLite image from stopped configuration databases without replacing either input."""
+    protected = protected.resolve(strict=True)
+    output = output.resolve()
+    legacy = rollback.resolve(strict=True) if rollback is not None else output
+    if protected.is_relative_to(legacy.parent) or (rollback is not None and output.is_relative_to(legacy.parent)):
+        raise ValueError("Keep protected configuration and restored images outside the predecessor configuration directory")
+    if any(Path(f"{output}{suffix}").exists() for suffix in ("", "-wal", "-shm", "-journal")):
+        raise ValueError("Choose an unused configuration image path with no existing journal files")
+
+    source = legacy if rollback is not None else protected
+    with tempfile.TemporaryDirectory(dir=protected.parent) as custody, closing(
+        sqlite3.connect(Path(custody) / "configuration.sqlite3")
+    ) as copy, closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as readable:
+        readable.backup(copy)
+        if rollback is None:
+            partition = _sqlite_oidc_partition(copy)
+        else:
+            with closing(sqlite3.connect(protected.as_uri() + "?mode=ro", uri=True)) as retained:
+                partition = _sqlite_oidc_partition(retained)
+        registry_ids = [row[0] for row in partition["configuration_profile_revisions"][1]]
+        _verify_sqlite_rollback_references(copy, registry_ids)
+        registry_hash = digest(partition)
+        with copy:
+            if rollback is None:
+                copy.execute(f"CREATE TABLE {_SQLITE_OIDC_ROLLBACK_TABLE} (registry_sha256 TEXT NOT NULL)")
+                copy.execute(f"INSERT INTO {_SQLITE_OIDC_ROLLBACK_TABLE} VALUES (?)", (registry_hash,))
+                for table, (key, rows) in partition.items():
+                    copy.executemany(f"DELETE FROM {table} WHERE {key}=?", ((row[0],) for row in rows))
+            else:
+                if copy.execute(f"SELECT registry_sha256 FROM {_SQLITE_OIDC_ROLLBACK_TABLE}").fetchall() != [(registry_hash,)]:
+                    raise ValueError("Restore with the protected configuration database used to prepare this rollback image")
+                if any(rows for _key, rows in _sqlite_oidc_partition(copy).values()):
+                    raise ValueError("Restore requires a predecessor image containing only ordinary configuration")
+                for table, (_key, rows) in partition.items():
+                    if rows:
+                        placeholders = ",".join("?" for _ in rows[0])
+                        copy.executemany(f"INSERT INTO {table} VALUES ({placeholders})", rows)
+                copy.execute(f"DROP TABLE {_SQLITE_OIDC_ROLLBACK_TABLE}")
+
+        with tempfile.TemporaryDirectory(dir=output.parent) as publication:
+            image = Path(publication) / "configuration.sqlite3"
+            # Rebuild the image so removed records cannot survive in unused pages.
+            copy.execute("VACUUM INTO ?", (str(image),))
+            os.link(image, output)
 
 
 def _timestamp_text(value: Any) -> str:
@@ -610,7 +703,12 @@ class SQLiteConfigurationStore:
         return conn
 
     def _initialize(self) -> None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
+            rollback = conn.execute(
+                "SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?", (_SQLITE_OIDC_ROLLBACK_TABLE,),
+            ).fetchone()
+            if rollback:
+                raise ValueError("Restore the protected OIDC registry into a new image before opening this rollback configuration")
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS configuration_profile_revisions(

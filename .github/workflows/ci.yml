@@ -679,19 +679,25 @@ jobs:
         env:
           BALOOT_TEST_OIDC_POSTGRES_DSN: postgresql://postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/oidc_ci
           BALOOT_TEST_OIDC_LEGACY_REF: 8424ad4302911f7d3d0a193640cae38368c460f1
-          BALOOT_TEST_OIDC_PRE_REGISTRY_REF: 046eb304148853a73b32dd73570eddce38937023
+          BALOOT_TEST_OIDC_PRE_REGISTRY_REF: 92e44d74a0a4d1e8abd8869d1ebf3915ea4948fc
+          BALOOT_TEST_OIDC_PRE_CORRECTION_REF: d51efd8e1817322f670fa68d56de06b2a622879b
         run: |
-          for ref in "$BALOOT_TEST_OIDC_LEGACY_REF" "$BALOOT_TEST_OIDC_PRE_REGISTRY_REF"; do
+          for ref in "$BALOOT_TEST_OIDC_LEGACY_REF" "$BALOOT_TEST_OIDC_PRE_REGISTRY_REF" "$BALOOT_TEST_OIDC_PRE_CORRECTION_REF"; do
             if ! git cat-file -e "${ref}^{commit}"; then
               git fetch --no-tags --depth=1 origin "$ref"
             fi
           done
+          export BALOOT_PREVIOUS_ROOT="$RUNNER_TEMP/oidc-previous"
+          git worktree add --detach "$BALOOT_PREVIOUS_ROOT" "$BALOOT_TEST_OIDC_PRE_REGISTRY_REF"
           python -m pip install -c requirements-docker.txt 'psycopg[binary,pool]'
           python -m scripts.run_required_pytest \
             tests/oidc_postgres_integration.py::test_sqlite_oidc_storage_survives_release_roundtrip \
             tests/oidc_postgres_integration.py::test_sqlite_oidc_recovers_across_super_journal_commit \
+            tests/oidc_postgres_integration.py::test_sqlite_oidc_rollback_keeps_configuration_and_registry_in_separate_custody \
             'tests/oidc_postgres_integration.py::test_oidc_migration_replay_is_atomic_and_preserves_data[current-main]' \
             'tests/oidc_postgres_integration.py::test_oidc_migration_replay_is_atomic_and_preserves_data[pre-receipt]' \
+            'tests/oidc_postgres_integration.py::test_oidc_migration_replay_is_atomic_and_preserves_data[original-receipts]' \
+            'tests/oidc_postgres_integration.py::test_oidc_migration_replay_is_atomic_and_preserves_data[corrected-pre-receipt]' \
             tests/oidc_postgres_integration.py::test_oidc_issuer_transition_on_postgres
       - name: Run isolated Python shard
         if: '!cancelled()'

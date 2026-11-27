@@ -192,6 +192,33 @@ class SQLiteSecurityStateStore:
     def close(self) -> None: return None
 
 
+def oidc_identity_rls_active(connection: Any) -> bool:
+    from psycopg.rows import tuple_row
+
+    migrations = files("baloot_platform.resources").joinpath("migrations")
+    authority, read_scope = (
+        re.findall(
+            r"(?m)^CREATE POLICY ([a-z][a-z0-9_]*) ON security\.external_identities\b",
+            migrations.joinpath(name).read_text(encoding="utf-8"),
+        )
+        for name in ("033_oidc_database_roles.sql", "035_oidc_identity_read_scope.sql")
+    )
+    if len(authority) != 1 or len(read_scope) != 1:
+        raise RuntimeError("OIDC identity migrations must define the authority and read scope policies")
+    with connection.cursor(row_factory=tuple_row) as cursor:
+        active, = cursor.execute(
+            """SELECT row_security_active('security.external_identities')
+                      AND has_function_privilege(session_user,
+                            to_regprocedure('security.oidc_identity_authorized()'), 'EXECUTE')
+                      AND (SELECT count(*) FROM pg_policies
+                           WHERE schemaname='security' AND tablename='external_identities'
+                             AND ((policyname=%s AND cmd='ALL' AND permissive='PERMISSIVE')
+                               OR (policyname=%s AND cmd='SELECT' AND permissive='RESTRICTIVE'))) = 2""",
+            (authority[0], read_scope[0]),
+        ).fetchone()
+    return bool(active)
+
+
 class PostgresSecurityStateStore:
     def __init__(self, dsn: str):
         try:
@@ -201,24 +228,13 @@ class PostgresSecurityStateStore:
         self.pool=ConnectionPool(dsn,min_size=1,max_size=16,open=True)
 
     def require_oidc_rls(self) -> None:
-        migration = files("baloot_platform.resources").joinpath("migrations", "033_oidc_database_roles.sql")
-        policies = re.findall(
-            r"(?m)^CREATE POLICY ([a-z][a-z0-9_]*) ON security\.external_identities\b",
-            migration.read_text(encoding="utf-8"),
-        )
-        if len(policies) != 1:
-            raise RuntimeError("OIDC identity migration must define one external identity policy")
         with contextual_connection(self.pool) as conn:
-            active = conn.execute(
-                "SELECT row_security_active('security.external_identities') "
-                "AND NOT has_table_privilege(session_user, 'security.oidc_issuer_transitions', 'UPDATE') "
-                "AND EXISTS ("
-                "SELECT 1 FROM pg_policies WHERE schemaname='security' AND tablename='external_identities' "
-                "AND policyname=%s)",
-                (policies[0],),
-            ).fetchone()
-        if not active or not active[0]:
-            raise RuntimeError("OIDC requires the identity policy and an application login subject to row-level security")
+            if not oidc_identity_rls_active(conn) or conn.execute(
+                "SELECT has_table_privilege(session_user, 'security.oidc_issuer_transitions', 'UPDATE')"
+            ).fetchone()[0]:
+                raise RuntimeError(
+                    "OIDC requires the identity policies and an application login subject to row-level security"
+                )
 
     def save_oidc(self,state,payload,expires_at):
         with contextual_connection(self.pool) as conn: conn.execute("INSERT INTO security.oidc_transactions(state,payload_json,expires_at) VALUES(%s,%s::jsonb,to_timestamp(%s)) ON CONFLICT(state) DO UPDATE SET payload_json=excluded.payload_json,expires_at=excluded.expires_at,consumed_at=NULL",(state,json.dumps(payload,ensure_ascii=False),expires_at))

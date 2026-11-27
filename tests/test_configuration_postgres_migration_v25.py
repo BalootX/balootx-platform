@@ -16,7 +16,7 @@ from scripts import migrate_postgres
 MIGRATION_NAME = "025_configuration_store_contract.sql"
 SHARED_RUN_MIGRATION_NAME = "029_shared_run_game_access.sql"
 SCHEDULE_MIGRATION_NAME = "033_configuration_local_schedule.sql"
-LATEST_MIGRATION_NAME = "034_configuration_schedule_handoff.sql"
+LATEST_MIGRATION_NAME = "035_oidc_identity_read_scope.sql"
 FROZEN_PREDECESSOR_HASHES = {
     "011_configuration_registry_v19.sql": (
         "1e79c94b6244244afe0a2fd1f9ef421dcfadca6c32a48bd4c7f4b8fee97b9931"
@@ -134,6 +134,7 @@ def test_runner_applies_history_in_order_and_skips_recorded_migrations(
         "031_oidc_registry_access.sql",
         "032_oidc_identity_authority.sql",
         "033_oidc_database_roles.sql",
+        "035_oidc_identity_read_scope.sql",
     ]
     insertion = oidc_group[-1]
     execution_order = (

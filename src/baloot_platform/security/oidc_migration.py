@@ -23,6 +23,7 @@ from .oidc import (
     OIDC_PROVIDER_FAMILY,
     discover_oidc_issuer,
 )
+from .state_v20 import oidc_identity_rls_active
 
 
 def legacy_oidc_profile(
@@ -259,12 +260,14 @@ def main() -> None:
         try:
             with psycopg.connect(dsn, row_factory=dict_row) as conn:
                 access = conn.execute(
-                    "SELECT row_security_active('security.external_identities') "
-                    "AND row_security_active('configuration.profile_revisions') "
+                    "SELECT row_security_active('configuration.profile_revisions') "
                     "AND has_table_privilege(session_user, 'security.oidc_issuer_transitions', 'UPDATE') AS allowed"
                 ).fetchone()
-                if not access["allowed"]:
-                    raise RuntimeError("OIDC issuer migration requires a dedicated login subject to row-level security")
+                if not access["allowed"] or not oidc_identity_rls_active(conn):
+                    raise RuntimeError(
+                        "OIDC issuer migration requires a dedicated login subject to row-level security "
+                        "and the current identity policies"
+                    )
                 apply_postgres_identity_context(conn, context)
                 store = PostgresConfigurationStore(dsn, transaction_connection=conn)
                 configuration = VersionedConfigurationService(store, root=root, profile=control_plane)

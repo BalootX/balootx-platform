@@ -98,6 +98,9 @@ REQUIRED_MIGRATION_HASHES = {
     "034_configuration_schedule_handoff.sql": (
         "b7e43662710ba7a56c5c7f23734c9343067ab5fbc37032f769f1956534e2bc36"
     ),
+    "035_oidc_identity_read_scope.sql": (
+        "847165c7983b064820050be9161f2eb8cf66b5ffe0e7260a921ce6eee74eee5d"
+    ),
 }
 CONFIGURATION_V25_CONSTRAINTS = frozenset(
     {

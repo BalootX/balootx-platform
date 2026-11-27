@@ -32,6 +32,7 @@ _ATOMIC_MIGRATION_GROUPS = (
         "031_oidc_registry_access.sql",
         "032_oidc_identity_authority.sql",
         "033_oidc_database_roles.sql",
+        "035_oidc_identity_read_scope.sql",
     ),
 )
 
