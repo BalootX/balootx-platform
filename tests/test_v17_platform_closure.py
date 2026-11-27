@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -20,7 +21,7 @@ from baloot_platform.analysis.belief_calibration_v17 import (
 )
 from baloot_platform.analysis.models import InformationState
 from baloot_platform.analysis.team_public_cfr_v17 import analyze_team_public_coordinator
-from baloot_platform.config import build_bundle
+from baloot_platform.config import build_bundle, validate_profile_payload
 from baloot_platform.core.engine import BalootEngine
 from baloot_platform.core.enums import Contract, GamePhase, Seat
 from baloot_platform.core.models import Event
@@ -590,9 +591,11 @@ def test_v17_api_routes_and_unified_arabic_app(monkeypatch):
     app_page = client.get("/app")
     assert app_page.status_code == 200
     text = app_page.text
+    markup = text.partition('<script id="app-copy"')[0]
     for label in ("شارك لفة أو صكّة", "صكّة كاملة", "ليش لعبها؟", "طاولة مباشرة"):
-        assert label in text
+        assert label in markup
     assert '"request_timeout":' in text and "{{" not in text
+    assert '<html lang="ar" dir="rtl">' in text and 'id="shareCode" dir="ltr"' in text
     assert '"request_unavailable":' in text
     assert '<script src="/shared-assets/request-loader.js" defer></script>' in text
     shared = client.get("/shared-assets/request.js")
@@ -609,3 +612,93 @@ def test_v17_api_routes_and_unified_arabic_app(monkeypatch):
     assert "/api/v1/adjudication/cases" in paths
     assert "/api/v1/security/capabilities" in paths
     assert "/api/v1/canonical-history/{identifier}/verification" in paths
+
+
+def test_served_pages_preserve_literal_copy_and_player_asset_version(root, monkeypatch):
+    from baloot_platform.service import api
+
+    translated = 'Example <label> & "{{player_asset_version}}" {{app_open}}'
+    escaped = 'Example &lt;label&gt; &amp; &quot;{{player_asset_version}}&quot; {{app_open}}'
+    video = api.ACTIVE_BUNDLE.video
+    governed_copy = dict(
+        video["challenge_copy"], app_title=translated, player_brand_aria=translated
+    )
+    validated = validate_profile_payload(
+        "video", {**video, "challenge_copy": governed_copy}, root=root
+    )
+    monkeypatch.setitem(video, "challenge_copy", validated["challenge_copy"])
+    client = TestClient(api.app)
+
+    app_page = client.get("/app")
+    player = client.get("/play")
+    challenge = client.get("/c/SYNTHETIC-COPY")
+
+    for response, script_id, language in (
+        (app_page, "app-copy", "ar"),
+        (player, "player-copy", "ar-SA"),
+    ):
+        assert response.status_code == 200
+        assert f'<html lang="{language}" dir="rtl"' in response.text
+        assert f"<title>{escaped}</title>" in response.text
+        payload = response.text.split(f'<script id="{script_id}" type="application/json">', 1)[1]
+        assert json.loads(payload.split("</script>", 1)[0]) == governed_copy
+
+    player_root = root / "src/baloot_platform/service/static/player"
+    digest = hashlib.sha256()
+    for asset_name in ("app.css", "app.js"):
+        digest.update(asset_name.encode("utf-8"))
+        digest.update((player_root / asset_name).read_bytes())
+    asset_version = digest.hexdigest()[:12]
+    assert f'href="/play-assets/app.css?v={asset_version}"' in player.text
+    assert f'src="/play-assets/app.js?v={asset_version}"' in player.text
+
+    assert challenge.status_code == 200
+    assert '<html lang="ar-SA" dir="rtl"' in challenge.text
+    assert 'id="loading-copy"' in challenge.text
+    assert 'id="challenge-copy"' not in challenge.text
+    copy_response = client.get("/api/v1/challenge-copy")
+    assert copy_response.status_code == 200
+    assert copy_response.json()["copy"] == governed_copy
+
+
+def test_app_guest_copy_validates_the_identity_limit_before_serving(root, monkeypatch):
+    from baloot_platform.service import api
+
+    video = api.ACTIVE_BUNDLE.video
+    guest_name = "ض" * 40
+    governed_copy = dict(video["challenge_copy"], app_guest_name=guest_name)
+    validated = validate_profile_payload(
+        "video", {**video, "challenge_copy": governed_copy}, root=root
+    )
+    monkeypatch.setitem(video, "challenge_copy", validated["challenge_copy"])
+    client = TestClient(api.app)
+
+    page = client.get("/app")
+    assert page.status_code == 200
+    payload = page.text.split('<script id="app-copy" type="application/json">', 1)[1]
+    served_name = json.loads(payload.split("</script>", 1)[0])["app_guest_name"]
+    assert served_name == guest_name
+    guest = client.post("/api/v1/auth/guest", json={"displayName": served_name})
+    assert guest.status_code == 201
+    assert guest.json()["identity"]["displayName"] == guest_name
+
+    too_long = dict(governed_copy, app_guest_name=guest_name + "ض")
+    with pytest.raises(
+        ValueError, match=r"challenge_copy\.app_guest_name must be at most 40 characters"
+    ):
+        validate_profile_payload("video", {**video, "challenge_copy": too_long}, root=root)
+
+
+@pytest.mark.parametrize(
+    ("path", "key", "surface"),
+    [("/app", "app_guest_started", "application"), ("/play", "player_brand_aria", "player")],
+)
+def test_served_page_rejects_missing_copy(monkeypatch, path, key, surface):
+    from baloot_platform.service import api
+
+    monkeypatch.delitem(api.ACTIVE_BUNDLE.video["challenge_copy"], key)
+
+    response = TestClient(api.app).get(path)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == f"{surface} copy profile is incomplete"
