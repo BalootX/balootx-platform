@@ -15,7 +15,7 @@ import pytest
 import yaml
 from jsonschema import Draft202012Validator, ValidationError
 
-from ci import critical_review
+from ci import commit_screen, critical_review
 from ci import review_verdict_poster
 from scripts import ci_scope
 from scripts import run_required_pytest
@@ -150,6 +150,354 @@ def test_commit_identity_schema_limits_dependabot_signoff(root, commit_identity_
     ):
         with pytest.raises(ValidationError):
             validator.validate({**policy, "identities": [{**scoped, field: invalid}]})
+
+
+SCREEN_NAME = "Screen Fixture Bot"
+SCREEN_DOMAIN = "example.test"
+SCREEN_ADDRESS = f"noreply@{SCREEN_DOMAIN}"
+SCREEN_IDENTITY = f"{SCREEN_NAME} <{SCREEN_ADDRESS}>"
+OTHER_ADDRESS = f"unlisted@{SCREEN_DOMAIN}"
+DEPENDABOT_NAME = "dependabot[bot]"
+
+
+@pytest.fixture
+def screen_history(tmp_path, monkeypatch, root, commit_identity_policy):
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True, timeout=10).stdout
+
+    def commit(message, *, author=SCREEN_IDENTITY, committer=SCREEN_ADDRESS, committer_name=SCREEN_NAME):
+        git("-c", f"user.name={committer_name}", "-c", f"user.email={committer}", "commit",
+            "--allow-empty", "-qm", message, f"--author={author}")
+        return git("rev-parse", "HEAD").decode("ascii").strip()
+
+    git("init", "-qb", "main")
+    git("config", "user.name", SCREEN_NAME)
+    git("config", "user.email", SCREEN_ADDRESS)
+    git("config", "commit.gpgsign", "false")
+    monkeypatch.setenv("GIT_AUTHOR_DATE", "2025-01-01T00:00:00Z")
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2025-01-01T00:00:00Z")
+    legacy = commit("Existing history", author=f"Unlisted <{OTHER_ADDRESS}>")
+    schema = tmp_path / commit_screen.SCHEMA_PATH
+    schema.parent.mkdir(parents=True)
+    schema.write_bytes((root / commit_screen.SCHEMA_PATH).read_bytes())
+    policy = tmp_path / commit_screen.POLICY_PATH
+    policy.parent.mkdir()
+    row = {"name": SCREEN_NAME, "email": SCREEN_ADDRESS, "use": "all", "reason": "Synthetic test identity"}
+    provider_rows = [
+        entry for entry in commit_identity_policy["identities"] if entry["name"] in {DEPENDABOT_NAME, "GitHub"}
+    ]
+    provider_addresses = {(entry["name"], entry["use"]): entry["email"] for entry in provider_rows}
+    policy.write_text(json.dumps({"schemaVersion": 1, "identities": [row, *provider_rows]}), encoding="utf-8")
+    git("add", ".")
+    base = commit("Install identity policy")
+    git("update-ref", "refs/remotes/origin/main", base)
+    git("switch", "-qc", "topic")
+    monkeypatch.setattr(commit_screen, "git", git)
+    return SimpleNamespace(git=git, commit=commit, base=base, legacy=legacy, policy=policy, schema=schema, row=row,
+                           provider_addresses=provider_addresses)
+
+
+def screen_push(before, head, *, branch="topic", commits=(), forced=False):
+    deleted = head == commit_screen.ZERO
+    return {
+        "ref": f"refs/heads/{branch}", "after": head, "before": before,
+        "created": before == commit_screen.ZERO, "deleted": deleted, "forced": forced,
+        "repository": {"default_branch": "main"}, "commits": [{"id": sha} for sha in commits],
+        "head_commit": None if deleted else {"id": head},
+    }
+
+
+@pytest.mark.parametrize(("message", "overrides", "field"), [
+    ("Change", {"author": f"Other Bot <{SCREEN_ADDRESS}>"}, "author"),
+    ("Change", {"committer": OTHER_ADDRESS}, "committer"),
+    (f"Change\n\nCo-authored-by: Wrong Bot <{SCREEN_ADDRESS}>", {}, "Co-authored-by"),
+    (f"Change\n\nSigned-off-by: Screen Fixture Bot <{OTHER_ADDRESS}>", {}, "Signed-off-by"),
+    (f"Change\n\nReviewed-by: Screen Fixture Bot <{OTHER_ADDRESS}>", {}, "trailer #1"),
+    ("Change\n\nSigned-off-by: Missing address", {}, "Signed-off-by"),
+    ("Change\n\nCo-authored-by: Missing address", {}, "Co-authored-by"),
+    ("Change\n\nReviewed-by: Missing address", {}, "trailer #1"),
+    ("Change\n\nTested-by: Missing address", {}, "trailer #1"),
+    ("Change\n\nAuthor: Missing address", {}, "trailer #1"),
+    ("Change\n\nCc: Missing address", {}, "trailer #1"),
+    (f"Change\n\nContact {OTHER_ADDRESS} for details.", {}, "message"),
+    (f"Change\n\nCo-authored-by: {SCREEN_IDENTITY}\nSigned-off-by: {SCREEN_IDENTITY}\n"
+     f"Reviewed-by: {SCREEN_IDENTITY}\nCc: {SCREEN_IDENTITY}\nRefs: #1", {}, None),
+])
+def test_commit_screen_checks_identity_pairs_and_message(screen_history, message, overrides, field, capsys):
+    history = screen_history
+    head = history.commit(message, **overrides)
+    event = screen_push(history.base, head)
+    if field is None:
+        commit_screen.screen("push", event, head)
+        assert "Screened 1 commits" in capsys.readouterr().out
+    else:
+        with pytest.raises(commit_screen.ScreenError, match=f"Commit {head} {field}") as error:
+            commit_screen.screen("push", event, head)
+        assert OTHER_ADDRESS not in str(error.value)
+
+
+@pytest.mark.parametrize("shape", ["branch", "squash", "folded"])
+def test_commit_screen_accepts_dependabot_signoff_shapes(screen_history, shape, capsys):
+    history = screen_history
+    author_address = history.provider_addresses[(DEPENDABOT_NAME, "all")]
+    signer_address = history.provider_addresses[(DEPENDABOT_NAME, "Signed-off-by")]
+    author = f"{DEPENDABOT_NAME} <{author_address}>"
+    separator = "\n " if shape == "folded" else " "
+    message = f"Update a dependency\n\nSigned-off-by: {DEPENDABOT_NAME}{separator}<{signer_address}>"
+    if shape == "squash":
+        message += f"\nCo-authored-by: {author}"
+    head = history.commit(message, author=author, committer_name="GitHub",
+                          committer=history.provider_addresses[("GitHub", "all")])
+    if shape == "squash":
+        commit_screen.screen("merge_group", {"merge_group": {"base_sha": history.base, "head_sha": head}}, head)
+    else:
+        commit_screen.screen("push", screen_push(history.base, head), head)
+    assert "Screened 1 commits" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("case", [
+    "author", "committer", "co-author", "other-trailer", "cc", "message", "wrong-name", "lookalike",
+    "extra-value",
+])
+def test_commit_screen_restricts_the_dependabot_signoff_use(screen_history, case):
+    history = screen_history
+    mailbox = history.provider_addresses[(DEPENDABOT_NAME, "Signed-off-by")]
+    signer = f"{DEPENDABOT_NAME} <{mailbox}>"
+    local, domain = mailbox.split("@", 1)
+    lookalike = f"{local}+fixture@{domain}"
+    cases = {
+        "author": ("Update", {"author": signer}, "author"),
+        "committer": ("Update", {"committer_name": DEPENDABOT_NAME, "committer": mailbox}, "committer"),
+        "co-author": (f"Update\n\nCo-authored-by: {signer}", {}, "Co-authored-by"),
+        "other-trailer": (f"Update\n\nReviewed-by: {signer}", {}, "trailer #1"),
+        "cc": (f"Update\n\nCc: {signer}", {}, "trailer #1"),
+        "message": (f"Update\n\nContact {mailbox} for details.\n\nSigned-off-by: {signer}", {}, "message"),
+        "wrong-name": (f"Update\n\nSigned-off-by: Dependabot Fixture <{mailbox}>", {}, "Signed-off-by"),
+        "lookalike": (f"Update\n\nSigned-off-by: {DEPENDABOT_NAME} <{lookalike}>", {}, "Signed-off-by"),
+        "extra-value": (f"Update\n\nSigned-off-by: {signer}\u2028Extra text", {}, "Signed-off-by"),
+    }
+    message, overrides, field = cases[case]
+    head = history.commit(message, **overrides)
+    with pytest.raises(commit_screen.ScreenError, match=f"Commit {head} {field}") as error:
+        commit_screen.screen("push", screen_push(history.base, head), head)
+    assert mailbox not in str(error.value)
+    assert lookalike not in str(error.value)
+
+
+def test_commit_screen_checks_the_merge_group_range(screen_history):
+    history = screen_history
+    earlier = history.commit("Earlier group entry", author=f"Wrong Bot <{SCREEN_ADDRESS}>")
+    head = history.commit(f"Queue candidate\n\nCo-authored-by: Wrong Bot <{SCREEN_ADDRESS}>")
+    event = {"merge_group": {"base_sha": history.base, "head_sha": head}}
+    with pytest.raises(commit_screen.ScreenError) as error:
+        commit_screen.screen("merge_group", event, head)
+    assert f"Commit {earlier} author" in str(error.value)
+    assert f"Commit {head} Co-authored-by" in str(error.value)
+    assert history.legacy not in str(error.value)
+
+
+def test_commit_screen_for_a_new_branch_requires_history_after_the_trusted_base(screen_history, capsys):
+    history = screen_history
+    first = history.commit("First pushed commit")
+    head = history.commit("Last pushed commit")
+    event = screen_push(commit_screen.ZERO, head, commits=(first, head))
+    commit_screen.screen("push", event, head)
+    assert "Screened 2 commits" in capsys.readouterr().out
+    broken = history.commit("Later push", author=f"Wrong Bot <{SCREEN_ADDRESS}>")
+    event = screen_push(commit_screen.ZERO, broken, commits=(first, head, broken))
+    with pytest.raises(commit_screen.ScreenError, match=f"Commit {broken} author"):
+        commit_screen.screen("push", event, broken)
+
+
+def test_commit_screen_rejects_an_omitted_commit_outside_the_trusted_base(screen_history):
+    history = screen_history
+    first = history.commit("First topic commit")
+    history.commit("Second topic commit")
+    head = history.commit("Pushed tip")
+    event = screen_push(commit_screen.ZERO, head, commits=(first, head))
+    with pytest.raises(commit_screen.ScreenError, match="must cover all commits outside the trusted base"):
+        commit_screen.screen("push", event, head)
+
+
+@pytest.mark.parametrize(("case", "diagnostic"), [
+    ("missing-list", "needs a commit list"),
+    ("wrong-list-type", "needs a commit list"),
+    ("missing-id", "needs a commit list"),
+    ("invalid-id", "full commit SHA"),
+    ("inconsistent-created", "consistent branch creation and deletion metadata"),
+    ("missing-head-record", "consistent head commit metadata"),
+    ("empty-ahead", "must cover all commits outside the trusted base"),
+    ("missing-head", "must include the pushed head"),
+    ("duplicate", "unique IDs"),
+    ("too-many", "GitHub payload limit"),
+    ("unrelated", "outside the pushed head history"),
+    ("tag", "must identify commit objects"),
+])
+def test_commit_screen_rejects_invalid_new_branch_selection(screen_history, case, diagnostic):
+    history = screen_history
+    head = history.commit("Pushed change")
+    event = screen_push(commit_screen.ZERO, head, commits=(head,))
+    if case == "missing-list":
+        event.pop("commits")
+    elif case == "wrong-list-type":
+        event["commits"] = {"id": head}
+    elif case == "missing-id":
+        event["commits"] = [{}]
+    elif case == "invalid-id":
+        event["commits"] = [{"id": "HEAD"}]
+    elif case == "inconsistent-created":
+        event["created"] = False
+    elif case == "missing-head-record":
+        event["head_commit"] = None
+    elif case == "empty-ahead":
+        event["commits"] = []
+    elif case == "missing-head":
+        event["commits"] = [{"id": history.base}]
+    elif case == "duplicate":
+        event["commits"] *= 2
+    elif case == "too-many":
+        event["commits"] *= 2048
+    elif case == "unrelated":
+        history.git("switch", "-qc", "other", history.base)
+        unrelated = history.commit("Different branch")
+        history.git("switch", "-q", "topic")
+        event["commits"].append({"id": unrelated})
+    elif case == "tag":
+        history.git("tag", "-a", "fixture", "-m", "Fixture tag", head)
+        tag = history.git("rev-parse", "refs/tags/fixture").decode("ascii").strip()
+        event["commits"].append({"id": tag})
+    with pytest.raises(commit_screen.ScreenError, match=diagnostic):
+        commit_screen.screen("push", event, head)
+
+
+def test_commit_screen_accepts_empty_new_branch_at_trusted_tip(screen_history, capsys):
+    history = screen_history
+    event = screen_push(commit_screen.ZERO, history.base)
+    commit_screen.screen("push", event, history.base)
+    assert "Screened 0 commits" in capsys.readouterr().out
+
+
+def test_commit_screen_accepts_consistent_topic_deletion(screen_history, capsys):
+    history = screen_history
+    event = screen_push(history.legacy, commit_screen.ZERO)
+    commit_screen.screen("push", event, history.base)
+    assert "Screened 0 commits. The branch was deleted." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("overrides", "diagnostic"), [
+    ({"ref": "refs/tags/fixture"}, "needs a branch ref"),
+    ({"ref": "refs/heads/topic..invalid"}, "needs valid branch refs"),
+    ({"ref": "refs/heads/main"}, "consistent branch creation and deletion metadata"),
+    ({"repository": {}}, "needs a branch ref"),
+    ({"before": "HEAD"}, "full commit SHA"),
+    ({"before": commit_screen.ZERO}, "consistent branch creation and deletion metadata"),
+    ({"after": "1" * 40}, "consistent branch creation and deletion metadata"),
+    ({"created": True}, "consistent branch creation and deletion metadata"),
+    ({"deleted": "true"}, "consistent branch creation and deletion metadata"),
+    ({"deleted": False}, "consistent branch creation and deletion metadata"),
+    ({"forced": True}, "deletion must have no pushed commits"),
+    ({"commits": [{"id": "1" * 40}]}, "deletion must have no pushed commits"),
+    ({"head_commit": {"id": commit_screen.ZERO}}, "deletion must have no pushed commits"),
+])
+def test_commit_screen_rejects_contradictory_deletion(screen_history, overrides, diagnostic):
+    history = screen_history
+    event = {**screen_push(history.legacy, commit_screen.ZERO), **overrides}
+    with pytest.raises(commit_screen.ScreenError, match=diagnostic):
+        commit_screen.screen("push", event, history.base)
+
+
+@pytest.mark.parametrize("case", ["duplicate", "already-reachable", "unrelated"])
+def test_commit_screen_rejects_invalid_branch_update_records(screen_history, case):
+    history = screen_history
+    head = history.commit("Pushed change")
+    unexpected = head if case == "duplicate" else history.base
+    if case == "unrelated":
+        history.git("switch", "-qc", "other", history.base)
+        unexpected = history.commit("Other branch")
+        history.git("switch", "-q", "topic")
+    event = screen_push(history.base, head, commits=(head, unexpected))
+    with pytest.raises(commit_screen.ScreenError, match="unique IDs within the Git update range"):
+        commit_screen.screen("push", event, head)
+
+
+def test_commit_screen_rejects_non_commit_previous_tip(screen_history):
+    history = screen_history
+    history.git("tag", "-a", "previous", "-m", "Fixture tag", history.base)
+    tag = history.git("rev-parse", "refs/tags/previous").decode("ascii").strip()
+    head = history.commit("Pushed change")
+    with pytest.raises(commit_screen.ScreenError, match="previous tip must be a commit object"):
+        commit_screen.screen("push", screen_push(tag, head, commits=(head,), forced=True), head)
+
+
+@pytest.mark.parametrize("forced", [False, True])
+def test_commit_screen_requires_force_metadata_for_non_fast_forward(screen_history, forced, capsys):
+    history = screen_history
+    before = history.commit("Previous branch tip")
+    history.git("switch", "-qc", "rewrite", history.base)
+    first = history.commit("Rewritten first commit")
+    head = history.commit("Rewritten tip")
+    event = screen_push(before, head, branch="rewrite", commits=(first, head), forced=forced)
+    if forced:
+        commit_screen.screen("push", event, head)
+        assert "Screened 2 commits" in capsys.readouterr().out
+    else:
+        with pytest.raises(commit_screen.ScreenError, match="non-forced branch update must be a fast-forward"):
+            commit_screen.screen("push", event, head)
+
+
+def test_commit_screen_checks_unlisted_commits_in_a_truncated_update(screen_history, capsys):
+    history = screen_history
+    history.commit("Omitted allowed commit")
+    head = history.commit("Reported tip")
+    commit_screen.screen("push", screen_push(history.base, head, commits=(head,)), head)
+    assert "Screened 2 commits" in capsys.readouterr().out
+
+    omitted = history.commit("Omitted unlisted commit", author=f"Wrong Bot <{SCREEN_ADDRESS}>")
+    later = history.commit("Later reported tip")
+    with pytest.raises(commit_screen.ScreenError, match=f"Commit {omitted} author"):
+        commit_screen.screen("push", screen_push(head, later, commits=(later,)), later)
+
+
+def test_commit_screen_accepts_a_forced_rewind_with_no_new_commits(screen_history, capsys):
+    history = screen_history
+    before = history.commit("Previous branch tip")
+    history.git("checkout", "--detach", history.base)
+    event = screen_push(before, history.base, forced=True)
+    commit_screen.screen("push", event, history.base)
+    assert "Screened 0 commits" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("event_name", ["pull_request", "push"])
+def test_commit_screen_does_not_use_candidate_policy(screen_history, event_name):
+    history = screen_history
+    changed_row = {**history.row, "name": "Wrong Bot"}
+    history.policy.write_text(json.dumps({"schemaVersion": 1, "identities": [changed_row]}), encoding="utf-8")
+    history.schema.write_text("{}", encoding="utf-8")
+    history.git("add", ".")
+    head = history.commit("Change the identity policy", author=f"Wrong Bot <{SCREEN_ADDRESS}>")
+    if event_name == "pull_request":
+        history.git("switch", "-q", "main")
+        history.git("merge", "--no-ff", "topic", "-m", "PR merge checkout")
+        candidate = history.git("rev-parse", "HEAD").decode("ascii").strip()
+        event = {"pull_request": {"base": {"sha": history.base}, "head": {"sha": head}}}
+    else:
+        candidate = head
+        history.git("update-ref", "refs/remotes/origin/main", candidate)
+        event = screen_push(history.base, candidate, branch="main")
+    with pytest.raises(commit_screen.ScreenError, match=f"Commit {head} author"):
+        commit_screen.screen(event_name, event, candidate)
+
+
+def test_commit_screen_requires_a_valid_base_policy(screen_history):
+    history = screen_history
+    with pytest.raises(commit_screen.ScreenError, match="needs a valid base"):
+        commit_screen.load_identities(history.legacy)
+    history.policy.write_text('{"schemaVersion": 1, "identities": []}', encoding="utf-8")
+    history.git("add", ".")
+    invalid = history.commit("Invalid policy")
+    with pytest.raises(commit_screen.ScreenError, match="needs a valid base"):
+        commit_screen.load_identities(invalid)
+
 
 
 def test_hosted_ci_contract(root):
