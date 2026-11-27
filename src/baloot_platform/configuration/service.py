@@ -27,6 +27,7 @@ from .models import (
     ResolutionContext,
     RevisionStatus,
     bundle_payload_fingerprint,
+    configuration_tenant_visible,
     digest,
 )
 from .schedule import ConfigurationIntegrityError, parse_instant, verify_revision_schedule
@@ -437,6 +438,11 @@ class VersionedConfigurationService:
         anchor: BundleRevision, revisions: Mapping[str, BundleRevision],
     ) -> Iterator[BundleRevision]:
         dimensions = (anchor.bundle_id, anchor.scope, anchor.scope_key, anchor.tenant_id, anchor.environment)
+        if anchor.scheduled_successor_id == anchor.revision_id:
+            raise ConfigurationIntegrityError(
+                anchor.revision_id,
+                "The scheduled publication could not be verified. Publish a current replacement or roll back.",
+            )
         seen: set[str] = set()
         revision_id = anchor.scheduled_successor_id or anchor.revision_id
         while revision_id != anchor.revision_id:
@@ -909,6 +915,7 @@ class VersionedConfigurationService:
         allow_draft: bool = False,
         allow_retired: bool = False,
         allow_scheduled_predecessor: bool = False,
+        visible_to_tenant: str | None = None,
     ) -> dict[str, Any]:
         if allow_retired and revision_id is None:
             raise ValueError("retired configuration requires an exact bundle revision")
@@ -930,6 +937,7 @@ class VersionedConfigurationService:
             bool(allow_draft),
             bool(allow_retired),
             bool(allow_scheduled_predecessor),
+            visible_to_tenant,
             epoch,
             *context.cache_key(),
         )
@@ -973,7 +981,7 @@ class VersionedConfigurationService:
                         break
                 if bundle is not None:
                     break
-        if bundle is None:
+        if bundle is None or not configuration_tenant_visible(bundle.tenant_id, visible_to_tenant):
             raise KeyError("published configuration bundle not found")
         if (
             allow_scheduled_predecessor and revision_id
@@ -1007,7 +1015,7 @@ class VersionedConfigurationService:
             verify_revision_schedule(bundle)
         result = self._bundle_snapshot(
             bundle, trace=trace, epoch=epoch, allow_draft=allow_draft, allow_retired=allow_retired,
-            runtime=revision_id is None, effective=selected_predecessor,
+            runtime=revision_id is None, effective=selected_predecessor, visible_to_tenant=visible_to_tenant,
         )
         if cacheable:
             self._cache_put(key, result)
@@ -1016,17 +1024,24 @@ class VersionedConfigurationService:
     def _bundle_snapshot(
         self, bundle: BundleRevision, *, trace: list[dict[str, Any]], epoch: int, runtime: bool,
         allow_draft: bool = False, allow_retired: bool = False, effective: bool = False,
+        snapshot_profiles: Mapping[str, ProfileRevision] | None = None,
+        snapshot_audit: dict[str, Any] | None = None,
+        visible_to_tenant: str | None = None,
     ) -> dict[str, Any]:
         profiles = {}
         identities = {}
         for family, rid in bundle.component_revisions.items():
-            revision = self.store.get_profile(rid)
+            revision = self.store.get_profile(rid) if snapshot_profiles is None else snapshot_profiles.get(rid)
             if revision is None:
+                if visible_to_tenant is not None:
+                    raise KeyError("configuration component revision not found")
                 if runtime:
                     raise ConfigurationIntegrityError(rid, "The effective bundle references a missing component. Publish a replacement or roll back.")
                 raise RuntimeError(
                     f"configuration bundle references missing revision {rid}"
                 )
+            if not configuration_tenant_visible(revision.tenant_id, visible_to_tenant):
+                raise KeyError("configuration component revision not found")
             verify_revision_schedule(revision)
             if (
                 revision.status
@@ -1079,7 +1094,7 @@ class VersionedConfigurationService:
             "profiles": profiles,
             "profileRevisions": identities,
             "effectiveHash": effective_hash,
-            "audit": self.store.verify_events("bundle", bundle.revision_id),
+            "audit": self.store.verify_events("bundle", bundle.revision_id) if snapshot_audit is None else snapshot_audit,
             "resolutionTrace": trace
             or [{"scope": "exact_revision", "revisionId": bundle.revision_id}],
             "invalidationEpoch": epoch,
@@ -1231,15 +1246,18 @@ class VersionedConfigurationService:
                     actor_id=actor_id,
                 )
             rid = existing_bundle.revision_id
-        histories = self.store.list_bundle_histories((bundle_id, scope, scope_key, tenant_id, environment), limit=1)
         context = ResolutionContext(tenant_id=tenant_id, environment=environment)
-        selected = None
-        if histories:
-            anchor, revisions = histories[0]
-            selected = self._effective_scheduled_bundle(anchor, revisions, context, datetime.now(timezone.utc), [])
+        now = datetime.now(timezone.utc)
+        anchor, selected, profiles, epoch, audit = self.store.read_bootstrap_bundle(
+            (bundle_id, scope, scope_key, tenant_id, environment),
+            lambda history: self._effective_scheduled_bundle(*history, context, now, []),
+        )
         if selected is None:
             raise ConfigurationIntegrityError(
-                histories[0][0].revision_id if histories else rid,
+                anchor.revision_id if anchor is not None else rid,
                 "No configuration bundle is effective. Publish a current replacement or roll back.",
             )
-        return self._bundle_snapshot(selected, trace=[], epoch=self._epoch(), runtime=True, effective=True)
+        return self._bundle_snapshot(
+            selected, trace=[], epoch=epoch, runtime=True, effective=True,
+            snapshot_profiles=profiles, snapshot_audit=audit,
+        )

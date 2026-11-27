@@ -25,6 +25,10 @@ def bundle_payload_fingerprint(mode: str, profile_hashes: Mapping[str, str]) -> 
     return digest({"mode": mode, "profiles": dict(profile_hashes)})
 
 
+def configuration_tenant_visible(tenant_id: str | None, visible_to_tenant: str | None) -> bool:
+    return visible_to_tenant is None or tenant_id in (None, visible_to_tenant)
+
+
 class RevisionStatus(StrEnum):
     DRAFT = "draft"
     PUBLISHED = "published"

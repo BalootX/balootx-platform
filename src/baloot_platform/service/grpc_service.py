@@ -18,13 +18,15 @@ from typing import Any
 from baloot_platform.audit import build_video_audit_map
 from baloot_platform.analysis.search_errors import SearchTimeBudgetExceeded
 from baloot_platform.config import data_root, platform_root
+from baloot_platform.configuration.models import configuration_tenant_visible
 from baloot_platform.configuration.schedule import ConfigurationIntegrityError, ConfigurationScheduleConflict
 from baloot_platform.identity.ownership import SERVICE_SUBJECT_OWNER, owns_subject
 from baloot_platform.observability import configure_event_logging
 from baloot_platform.security import Scope
 from baloot_platform.service.authorization import (
-    DEFAULT_TENANT, RPC_SERVICE_KEY_METHODS, Credentials, claims_identity, credentials,
-    history_without_media, rpc_scope, tenant_job_rpc,
+    DEFAULT_TENANT, RPC_SERVICE_KEY_METHODS, Credentials, claims_identity, configuration_read_tenant,
+    configuration_tenant_filter, credentials, history_without_media, rpc_scope,
+    tenant_configuration_rpc, tenant_job_rpc,
 )
 from baloot_platform.service.client_identity import (
     initialize_service_subject_ownership,
@@ -1461,6 +1463,14 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             value = _metadata(context).get("x-baloot-tenant-id", "").strip()
             return value or None
 
+        @staticmethod
+        async def _read_tenants(context, requested: str = "") -> tuple[str | None, str | None]:
+            visible = configuration_read_tenant(authenticated_rpc.get(), AUTHORIZATION_POLICY)
+            try:
+                return visible, configuration_tenant_filter(visible, requested)
+            except PermissionError as exc:
+                return await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
+
         async def GetCapabilities(self, request, context):
             await _identity(context)
             return self._result({
@@ -1470,9 +1480,9 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             })
 
         async def ListProfiles(self, request, context):
-            await _identity(context)
+            visible, tenant = await self._read_tenants(context, request.tenant_id)
             values = CONFIGURATION.store.list_profiles(
-                tenant_id=request.tenant_id or self._tenant(context), family=request.family or None,
+                tenant_id=tenant, visible_to_tenant=visible, family=request.family or None,
                 profile_id=request.profile_id or None, status=request.status or None,
                 scope=request.scope or None, limit=request.limit or 200,
             )
@@ -1529,19 +1539,19 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def ResolveProfile(self, request, context):
-            await _identity(context)
+            visible, tenant = await self._read_tenants(context, request.tenant_id)
             try:
                 return self._result(CONFIGURATION.resolve_profile(
                     family=request.family, profile_id=request.profile_id,
-                    tenant_id=request.tenant_id or self._tenant(context),
+                    tenant_id=tenant or visible,
                 ))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile not resolved")
 
         async def CompareProfiles(self, request, context):
-            await _identity(context)
+            visible, _ = await self._read_tenants(context)
             left = CONFIGURATION.store.get_profile(request.left); right = CONFIGURATION.store.get_profile(request.right)
-            if left is None or right is None:
+            if any(value is None or not configuration_tenant_visible(value.tenant_id, visible) for value in (left, right)):
                 await context.abort(grpc.StatusCode.NOT_FOUND, "profile revision not found")
             return self._result({
                 "left": left.to_dict(include_payload=False), "right": right.to_dict(include_payload=False),
@@ -1549,9 +1559,9 @@ async def serve() -> None:  # pragma: no cover - optional runtime
             })
 
         async def ListBundles(self, request, context):
-            await _identity(context)
+            visible, tenant = await self._read_tenants(context, request.tenant_id)
             values = CONFIGURATION.store.list_bundles(
-                tenant_id=request.tenant_id or self._tenant(context), bundle_id=request.bundle_id or None,
+                tenant_id=tenant, visible_to_tenant=visible, bundle_id=request.bundle_id or None,
                 status=request.status or None, scope=request.scope or None, limit=request.limit or 200,
                 include_scheduled=True,
             )
@@ -1609,11 +1619,13 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
         async def ResolveBundle(self, request, context):
-            await _identity(context)
+            visible, tenant = await self._read_tenants(context, request.tenant_id)
+            if request.allow_draft and visible is not None:
+                await context.abort(grpc.StatusCode.PERMISSION_DENIED, "configuration preview requires an administrator")
             try:
                 return self._result(CONFIGURATION.resolve(
                     revision_id=request.revision_id or None, bundle_id=request.bundle_id or None,
-                    tenant_id=request.tenant_id or self._tenant(context), allow_draft=request.allow_draft,
+                    tenant_id=tenant or visible, visible_to_tenant=visible, allow_draft=request.allow_draft,
                 ))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "bundle not resolved")
@@ -1621,12 +1633,12 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                 await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
 
         async def ResolveEffectiveRuntimeConfigV2(self, request, context):
-            await _identity(context)
+            visible, tenant = await self._read_tenants(context, request.tenant_id)
             try:
                 return self._result(CONFIGURATION.freeze_v2(
                     revision_id=request.revision_id or None,
                     bundle_id=request.bundle_id or None,
-                    tenant_id=request.tenant_id or self._tenant(context),
+                    tenant_id=tenant or visible, visible_to_tenant=visible,
                 ))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "bundle not resolved")
@@ -1721,7 +1733,10 @@ async def serve() -> None:  # pragma: no cover - optional runtime
                     method in RPC_SERVICE_KEY_METHODS and not auth.api_key_valid
                 ):
                     await context.abort(grpc.StatusCode.UNAUTHENTICATED, "authentication required")
-                denial = auth.denial(AUTHORIZATION_POLICY, scope, tenant_job=tenant_job_rpc(method))
+                denial = auth.denial(
+                    AUTHORIZATION_POLICY, scope,
+                    tenant_scoped=tenant_job_rpc(method) or tenant_configuration_rpc(method),
+                )
                 if denial is not None:
                     await context.abort(grpc.StatusCode.PERMISSION_DENIED, denial)
                 auth_token = authenticated_rpc.set(auth)

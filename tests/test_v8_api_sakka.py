@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import uuid
@@ -175,40 +174,10 @@ def legacy_service_records(monkeypatch):
 
 
 def _grpc_probe(tmp_path, monkeypatch, probe, *, stub_type=None):
-    import grpc
-
     from baloot_platform.generated import sakka_pb2_grpc
-    from baloot_platform.service.grpc_service import serve
+    from service_test_client import grpc_probe
 
-    monkeypatch.setenv("BALOOT_RUNTIME", str(tmp_path))
-    monkeypatch.delenv("BALOOT_GRPC_TLS_CERT", raising=False)
-    monkeypatch.delenv("BALOOT_GRPC_TLS_KEY", raising=False)
-    make_server = grpc.aio.server
-
-    async def run():
-        server = None
-
-        def create_server(**options):
-            nonlocal server
-            server = make_server(**options)
-            port = server.add_insecure_port("127.0.0.1:0")
-
-            async def after_start():
-                async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
-                    await probe(grpc, (stub_type or sakka_pb2_grpc.SakkaPlatformStub)(channel))
-
-            monkeypatch.setattr(server, "add_insecure_port", lambda _address: port)
-            monkeypatch.setattr(server, "wait_for_termination", after_start)
-            return server
-
-        monkeypatch.setattr(grpc.aio, "server", create_server)
-        try:
-            await serve()
-        finally:
-            if server is not None:
-                await server.stop(0)
-
-    asyncio.run(run())
+    grpc_probe(tmp_path, monkeypatch, probe, stub_type=stub_type or sakka_pb2_grpc.SakkaPlatformStub)
 
 
 def test_grpc_policy_covers_every_descriptor_method():

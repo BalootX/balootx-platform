@@ -439,6 +439,7 @@ def test_runtime_boot_and_recovery_across_scheduled_handoff(
         expected: str, *, source: Path = root, recovery_target: str = "", diagnostic: str = "",
         research: tuple[str, str, str] = ("", "", ""),
         recovery_research_scopes: tuple[tuple[str, str], ...] = (),
+        access_rows: dict[str, tuple[str, str]] | None = None,
     ) -> None:
         subprocess.run(
             [sys.executable, "-c", """
@@ -450,8 +451,9 @@ from pathlib import Path
 import baloot_platform
 from baloot_platform.configuration import service
 
-instant, expected, recovery_target, diagnostic, source_path, bundle_id, environment, research_id, scope_json = sys.argv[1:]
+instant, expected, recovery_target, diagnostic, source_path, bundle_id, environment, research_id, scope_json, access_json = sys.argv[1:]
 recovery_research_scopes = json.loads(scope_json)
+access_rows = json.loads(access_json)
 assert Path(baloot_platform.__file__).resolve().is_relative_to(Path(source_path).resolve() / 'src')
 
 class Clock(datetime):
@@ -461,10 +463,104 @@ class Clock(datetime):
 
 service.datetime = Clock
 from fastapi.testclient import TestClient
-from baloot_platform.service.api import CONFIGURATION, FOUNDRY_PROFILE, RESEARCH, app
+from baloot_platform.service.api import ACCESS_TOKENS, CONFIGURATION, FOUNDRY_PROFILE, RESEARCH, app
 from baloot_platform.storage.request_context import CURRENT_DATABASE_IDENTITY, DatabaseIdentityContext
 
 admin = {'x-api-key': 'test', 'x-baloot-role': 'admin'}
+
+def check_configuration_access(client):
+    from os import environ
+    from pytest import MonkeyPatch, raises
+    from baloot_platform.generated import configuration_pb2 as proto
+    from baloot_platform.generated.configuration_pb2_grpc import ConfigurationControlStub
+
+    sys.path.insert(0, str(Path(source_path) / 'tests'))
+    from service_test_client import grpc_probe
+
+    registry = '/api/v1/configuration-registry'
+    bundle_name = 'scoped-schedule'
+    profile_name = 'scoped_schedule'
+    tenant_a, tenant_b = access_rows
+    headers = {
+        tenant: {'authorization': 'Bearer ' + ACCESS_TOKENS.issue(
+            subject_id='TEST-CONFIG-' + tenant, role='admin' if tenant == tenant_b else 'player',
+            tenant_id=tenant, scopes=['baloot.read', 'baloot.config.admin'],
+        )}
+        for tenant in access_rows
+    }
+    no_read = {'authorization': 'Bearer ' + ACCESS_TOKENS.issue(
+        subject_id='TEST-CONFIG-PLAY', tenant_id=tenant_a, scopes=['baloot.play'],
+    )}
+    profiles = {'family': 'performance', 'profileId': profile_name}
+    bundles = {'bundleId': bundle_name}
+    for tenant, (profile_id, bundle_id) in access_rows.items():
+        cred = headers[tenant]
+        for resource, query, revision in (('profiles', profiles, profile_id), ('bundles', bundles, bundle_id)):
+            listing = client.get(f'{registry}/{resource}', params=query, headers=cred)
+            assert listing.status_code == 200, listing.text
+            assert [item['revisionId'] for item in listing.json()['items']] == [revision]
+            events = client.get(f'{registry}/{resource}/{revision}/events', headers=cred)
+            assert events.status_code == 200 and events.json()['verification']['valid'], events.text
+        profile = client.get(f'{registry}/profiles:resolve', params=profiles, headers=cred)
+        assert profile.status_code == 200 and profile.json()['revisionId'] == profile_id, profile.text
+        resolved = client.get(f'{registry}/resolve', params=bundles, headers=cred)
+        assert resolved.status_code == 200 and resolved.json()['bundle']['revisionId'] == bundle_id, resolved.text
+        exact = client.get(f'{registry}/bundles/{bundle_id}:resolve-v2', headers=cred)
+        assert exact.status_code == 200 and exact.json()['bundle']['revisionId'] == bundle_id, exact.text
+
+    other_profile, other_bundle = access_rows[tenant_b]
+    allowed = headers[tenant_a]
+    for route in ('profiles', 'profiles:resolve', 'bundles', 'resolve', 'resolve-v2'):
+        params = profiles if route.startswith('profiles') else bundles
+        response = client.get(f'{registry}/{route}', params={**params, 'tenantId': tenant_b}, headers=allowed)
+        assert response.status_code == 403, response.text
+    for resource in (
+        f'profiles/{other_profile}', f'profiles/{other_profile}/events',
+        f'bundles/{other_bundle}', f'bundles/{other_bundle}/events',
+        f'bundles/{other_bundle}:resolve', f'bundles/{other_bundle}:resolve-v2',
+    ):
+        response = client.get(f'{registry}/{resource}', headers=allowed)
+        assert response.status_code == 404 and tenant_b not in response.text, response.text
+    assert client.get(f'{registry}/bundles', headers=no_read).status_code == 403
+    assert client.get(f'{registry}/bundles/{access_rows[tenant_a][1]}:resolve', headers=no_read).status_code == 403
+    assert client.get('/api/v2/configuration/bundles', headers=headers[tenant_b]).status_code == 403
+    operator_view = client.get('/api/v2/configuration/bundles', params=bundles, headers=admin)
+    assert operator_view.status_code == 200, operator_view.text
+    assert {item['revisionId'] for item in operator_view.json()['items']} == {item[1] for item in access_rows.values()}
+
+    async def rpc(grpc, stub):
+        for tenant, (profile_id, bundle_id) in access_rows.items():
+            cred = tuple(headers[tenant].items())
+            for method, request, revision in (
+                (stub.ListProfiles, proto.ProfileQuery(family='performance', profile_id=profile_name), profile_id),
+                (stub.ListBundles, proto.BundleQuery(bundle_id=bundle_name), bundle_id),
+                (stub.ResolveProfile, proto.ProfileResolution(family='performance', profile_id=profile_name), profile_id),
+                (stub.ResolveBundle, proto.BundleResolution(bundle_id=bundle_name), bundle_id),
+                (stub.ResolveEffectiveRuntimeConfigV2, proto.BundleResolution(revision_id=bundle_id), bundle_id),
+            ):
+                result = json.loads((await method(request, metadata=cred, timeout=5)).canonical_json)
+                records = result.get('items', [result.get('bundle', result)])
+                assert [row['revisionId'] for row in records] == [revision]
+        denied = grpc.StatusCode.PERMISSION_DENIED
+        missing = grpc.StatusCode.NOT_FOUND
+        cred = tuple(allowed.items())
+        for method, request, metadata, code in (
+            (stub.ListBundles, proto.BundleQuery(tenant_id=tenant_b), cred, denied),
+            (stub.ResolveProfile, proto.ProfileResolution(tenant_id=tenant_b), cred, denied),
+            (stub.ResolveBundle, proto.BundleResolution(revision_id=other_bundle), cred, missing),
+            (stub.ResolveEffectiveRuntimeConfigV2, proto.BundleResolution(revision_id=other_bundle), cred, missing),
+            (stub.CompareProfiles, proto.ProfileCompare(left=other_profile, right=other_profile), cred, missing),
+            (stub.ResolveBundle, proto.BundleResolution(revision_id=access_rows[tenant_a][1], allow_draft=True), cred, denied),
+            (stub.ListBundles, proto.BundleQuery(), tuple(no_read.items()), denied),
+            (stub.ResolveBundle, proto.BundleResolution(revision_id=access_rows[tenant_a][1]), tuple(no_read.items()), denied),
+            (stub.RollbackBundle, proto.BundleRollback(revision_id=other_bundle), tuple(headers[tenant_b].items()), denied),
+        ):
+            with raises(grpc.aio.AioRpcError) as failure:
+                await method(request, metadata=metadata, timeout=5)
+            assert failure.value.code() == code
+    with MonkeyPatch.context() as patch:
+        grpc_probe(Path(environ['BALOOT_RUNTIME']), patch, rpc, stub_type=ConfigurationControlStub)
+
 with TestClient(app) as client:
     assert client.get('/healthz').status_code == 200
     ready = client.get('/readyz')
@@ -474,6 +570,9 @@ with TestClient(app) as client:
         assert client.get('/api/v1/options').status_code == 200
         _, research = RESEARCH.execution_context_factory.resolve_bundle_revision(expected)
         assert research.bundle_revision_id == expected
+        if access_rows:
+            check_configuration_access(client)
+            print('configurationReadScope: HTTP and gRPC')
         if research_id:
             response = client.get('/api/v1/configuration-registry/resolve',
                                   headers=admin, params={'bundleId': bundle_id, 'environment': environment})
@@ -532,7 +631,8 @@ with TestClient(app) as client:
         restored = client.post(rollback, headers=admin, json=body)
         assert restored.status_code == 201, restored.text
         assert CONFIGURATION.resolve(bundle_id=restored.json()['bundleId'])['bundle']['revisionId'] == restored.json()['revisionId']
-""", instant, expected, recovery_target, diagnostic, str(source), *research, json.dumps(recovery_research_scopes)],
+""", instant, expected, recovery_target, diagnostic, str(source), *research, json.dumps(recovery_research_scopes),
+             json.dumps(access_rows)],
             cwd=source,
             env={**startup_environment, "BALOOT_ROOT": str(source), "PYTHONPATH": str(source / "src")},
             check=True,
@@ -602,7 +702,22 @@ finally:
         )
         recovered = service.resolve(bundle_id=original["bundleId"])["bundle"]["revisionId"]
         assert recovered not in {expiring_id, original["revisionId"]}
-        probe(recovered)
+        access_rows = {}
+        for tenant in ("fixture-tenant-a", "fixture-tenant-b"):
+            data = copy.deepcopy(baseline["profiles"]["performance"])
+            data["profile"].update(id="scoped_schedule", version="99.0.0")
+            revision = service.create_profile(
+                family="performance", payload=data, created_by="TEST", publish=True,
+                scope="tenant", tenant_id=tenant, effective_from="2026-07-01T16:00:00Z",
+            )
+            bundle = service.create_bundle(
+                bundle_id="scoped-schedule", version="99.0.0", mode=original["mode"],
+                component_revisions={**original["componentRevisions"], "performance": revision["revisionId"]},
+                created_by="TEST", publish=True, scope="tenant", tenant_id=tenant,
+                effective_from="2026-07-01T16:00:00Z",
+            )
+            access_rows[tenant] = (revision["revisionId"], bundle["revisionId"])
+        probe(recovered, access_rows=access_rows)
         probe(recovered, source=previous)
 
         original = service.resolve(bundle_id=original["bundleId"])["bundle"]
@@ -723,16 +838,28 @@ finally:
         instant = "2026-07-02T00:00:00+00:00"
         choose = service._effective_scheduled_bundle
         retired = {}
+        competing_profile_id = competing["componentRevisions"]["performance"]
+        competing_profile = store.get_profile(competing_profile_id)
+        verified_before = store.verify_events("bundle", competing_id)
 
         def retire_between_snapshot_and_selection(*args, **kwargs):
             retired.update(service.retire_bundle(**retirement))
             assert store.get_bundle(competing_id).status == "retired"
+            assert store.get_invalidation_epoch() == epoch_before + 1
+            service.retire_profile(
+                competing_profile_id, expected_etag=competing_profile.etag, actor_id="TEST",
+                reason="Retire unused scheduled component",
+            )
+            assert store.get_profile(competing_profile_id).status == "retired"
             return choose(*args, **kwargs)
 
         with monkeypatch.context() as patch:
             patch.setattr(service, "_effective_scheduled_bundle", retire_between_snapshot_and_selection)
             startup = service.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)
         assert startup["bundle"]["revisionId"] == competing_id
+        assert startup["profileRevisions"]["performance"]["status"] == "published"
+        assert startup["invalidationEpoch"] == epoch_before
+        assert startup["audit"] == verified_before
         assert service.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)["bundle"]["revisionId"] == original["revisionId"]
         assert retired["status"] == "retired" and retired["etag"] == competing["etag"] + 1
         events = store.events("bundle", competing_id)
@@ -742,7 +869,7 @@ finally:
             ("retirement_reason", {"reason": reason[:2000]}),
         ]
         assert all(event["actorId"] == "TEST" for event in events[-2:])
-        assert store.get_invalidation_epoch() == epoch_before + 1
+        assert store.get_invalidation_epoch() == epoch_before + 2
         assert service.resolve(**selection)["bundle"]["revisionId"] == original["revisionId"]
         print(f"retirementAuditAtomicity: {backend}")
 
@@ -751,12 +878,13 @@ finally:
             with (contextual_connection(store.pool) if app_dsn is not None else store._connect()) as conn:
                 store._set_scheduled_successor_tx(conn, anchor.revision_id, successor)
 
-        write_successor(competing_id)
-        try:
-            with pytest.raises(ConfigurationIntegrityError, match="scheduled publication could not be verified"):
-                service.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)
-        finally:
-            write_successor(anchor.scheduled_successor_id)
+        for invalid_successor in (competing_id, anchor.revision_id):
+            write_successor(invalid_successor)
+            try:
+                with pytest.raises(ConfigurationIntegrityError, match="scheduled publication could not be verified"):
+                    service.bootstrap_packaged_bundle(actor_id="TEST", packaged_bundle=packaged)
+            finally:
+                write_successor(anchor.scheduled_successor_id)
         print(f"startupRetirementSnapshot: {backend}")
 
         scheduled_profile_id = scheduled["componentRevisions"]["performance"]

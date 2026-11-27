@@ -130,6 +130,7 @@ from baloot_platform.service.authorization import (
     history_without_media,
     http_request_scope,
     tenant_job_http,
+    tenant_configuration_http,
 )
 from baloot_platform.service.client_identity import (
     initialize_service_subject_ownership,
@@ -849,7 +850,9 @@ async def platform_security(request: Request, call_next):
             )
         denial = auth.denial(
             AUTHORIZATION_POLICY, required_scope,
-            tenant_job=tenant_job_http(request.method, path),
+            tenant_scoped=tenant_job_http(request.method, path) or tenant_configuration_http(
+                request.method, path, required_scope,
+            ),
         )
         if denial is not None:
             return JSONResponse(

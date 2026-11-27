@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, TypeVar
 
-from baloot_platform.storage.request_context import contextual_connection
+from baloot_platform.storage.request_context import apply_postgres_identity_context, contextual_connection
 
 from .models import BundleRevision, ProfileRevision, bundle_payload_fingerprint, canonical, digest, utc_now
 from .schedule import ConfigurationScheduleConflict, normalize_schedule, verify_revision_schedule
@@ -17,6 +17,7 @@ from .schedule import ConfigurationScheduleConflict, normalize_schedule, verify_
 _UNSET = object()
 Revision = TypeVar("Revision", ProfileRevision, BundleRevision)
 BundleHistory = tuple[BundleRevision, dict[str, BundleRevision]]
+BundleDimensions = tuple[str | None, str, str, str | None, str | None]
 
 _POSTGRES_PROFILE_COLUMNS = """
 revision_id,family,profile_id,version,scope,scope_key,tenant_id,environment,
@@ -208,7 +209,7 @@ _POSTGRES_BUNDLE_REGISTRY_STATUS = _bundle_registry_status("configuration.bundle
 
 def _read_bundle_histories(
     conn: Any,
-    dimensions: tuple[str | None, str, str, str | None, str | None],
+    dimensions: BundleDimensions,
     *,
     table: str,
     parameter: str,
@@ -253,6 +254,42 @@ def _read_bundle_histories(
         assert revision is not None
         histories.setdefault(row["anchor_id"], {})[revision.revision_id] = revision
     return [(history[anchor_id], history) for anchor_id, history in histories.items()]
+
+
+def _read_bootstrap_bundle(
+    conn: Any, histories: list[BundleHistory], select: Callable[[BundleHistory], BundleRevision | None],
+    *, profile_table: str, epoch_table: str, parameter: str,
+    decode: Callable[[Any], ProfileRevision | None],
+    events: Callable[[Any, str, str], list[dict[str, Any]]],
+) -> tuple[BundleRevision | None, BundleRevision | None, dict[str, ProfileRevision], int, dict[str, Any]]:
+    anchor = histories[0][0] if histories else None
+    selected = select(histories[0]) if histories else None
+    if selected is None:
+        return anchor, None, {}, 0, {}
+    revision_ids = sorted(set(selected.component_revisions.values()))
+    profiles = {}
+    if revision_ids:
+        parameters = ",".join(parameter for _ in revision_ids)
+        rows = conn.execute(
+            f"SELECT * FROM {profile_table} WHERE revision_id IN ({parameters})", revision_ids,
+        ).fetchall()
+        profiles = {profile.revision_id: profile for row in rows if (profile := decode(row)) is not None}
+    epoch = conn.execute(f"SELECT epoch FROM {epoch_table} WHERE namespace='configuration'").fetchone()
+    audit = _verify_event_values(events(conn, "bundle", selected.revision_id))
+    return anchor, selected, profiles, int(_row_mapping(epoch)["epoch"]) if epoch is not None else 0, audit
+
+
+def _legacy_bundle_page(
+    conn: Any, *, table: str, parameter: str, after: str, limit: int,
+    decode: Callable[[Any], BundleRevision | None],
+) -> list[BundleRevision]:
+    rows = conn.execute(
+        f"SELECT *, {_bundle_registry_status(table)} AS registry_status FROM {table} "
+        f"WHERE status IN ('published','superseded') AND revision_id>{parameter} "
+        f"ORDER BY revision_id LIMIT {parameter}",
+        (after, limit),
+    ).fetchall()
+    return [bundle for row in rows if (bundle := decode(row)) is not None]
 
 
 _PUBLISHED_BUNDLE_COMPONENT = """
@@ -1192,9 +1229,13 @@ class SQLiteConfigurationStore:
                       scope: str | None = None, scope_key: str | None = None,
                        tenant_id: str | None = None, environment: str | None = None,
                        status: str | None = None, limit: int = 200,
-                       exact_dimensions: bool = False) -> list[ProfileRevision]:
+                      exact_dimensions: bool = False,
+                      visible_to_tenant: str | None = None) -> list[ProfileRevision]:
         clauses: list[str] = []
         args: list[Any] = []
+        if visible_to_tenant is not None:
+            clauses.append("(tenant_id IS NULL OR tenant_id=?)")
+            args.append(visible_to_tenant)
         for column, value in (("family", family), ("profile_id", profile_id), ("scope", scope),
                               ("scope_key", scope_key), ("status", status)):
             if value is not None:
@@ -1479,13 +1520,31 @@ class SQLiteConfigurationStore:
             ).fetchone())
 
     def list_bundle_histories(
-        self, dimensions: tuple[str | None, str, str, str | None, str | None], *,
+        self, dimensions: BundleDimensions, *,
         include_unpublished: bool = False, limit: int = 100,
     ) -> list[BundleHistory]:
         with self._connect() as conn:
-            return _read_bundle_histories(
-                conn, dimensions, table="configuration_bundle_revisions", parameter="?", nullable_equal="IS",
-                decode=self._bundle, include_unpublished=include_unpublished, limit=limit,
+            return self._bundle_histories_tx(conn, dimensions, include_unpublished, limit)
+
+    def _bundle_histories_tx(self, conn, dimensions, include_unpublished, limit) -> list[BundleHistory]:
+        return _read_bundle_histories(
+            conn, dimensions, table="configuration_bundle_revisions", parameter="?", nullable_equal="IS",
+            decode=self._bundle, include_unpublished=include_unpublished, limit=limit,
+        )
+
+    def read_bootstrap_bundle(self, dimensions: BundleDimensions, select: Callable[[BundleHistory], BundleRevision | None]):
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            return _read_bootstrap_bundle(
+                conn, self._bundle_histories_tx(conn, dimensions, False, 1), select,
+                profile_table="configuration_profile_revisions", epoch_table="configuration_invalidation_epochs",
+                parameter="?", decode=self._profile, events=self._events_tx,
+            )
+
+    def legacy_bundle_page(self, after: str, *, limit: int) -> list[BundleRevision]:
+        with self._connect() as conn:
+            return _legacy_bundle_page(
+                conn, table="configuration_bundle_revisions", parameter="?", after=after, limit=limit, decode=self._bundle,
             )
 
     def find_bundle_by_content(self, *, bundle_id: str, scope: str, tenant_id: str | None, content_sha256: str,
@@ -1504,9 +1563,13 @@ class SQLiteConfigurationStore:
                      scope_key: str | None = None, tenant_id: str | None = None,
                      environment: str | None = None, status: str | None = None,
                      limit: int = 200, exact_dimensions: bool = False,
-                     include_scheduled: bool = False) -> list[BundleRevision]:
+                     include_scheduled: bool = False,
+                     visible_to_tenant: str | None = None) -> list[BundleRevision]:
         clauses: list[str] = []
         args: list[Any] = []
+        if visible_to_tenant is not None:
+            clauses.append("(tenant_id IS NULL OR tenant_id=?)")
+            args.append(visible_to_tenant)
         status_expression = _SQLITE_BUNDLE_REGISTRY_STATUS if include_scheduled else "status"
         for column, value in (("bundle_id", bundle_id), ("scope", scope), ("scope_key", scope_key), (status_expression, status)):
             if value is not None:
@@ -2458,9 +2521,13 @@ class PostgresConfigurationStore:
         status: str | None = None,
         limit: int = 200,
         exact_dimensions: bool = False,
+        visible_to_tenant: str | None = None,
     ) -> list[ProfileRevision]:
         clauses: list[str] = []
         args: list[Any] = []
+        if visible_to_tenant is not None:
+            clauses.append("(tenant_id IS NULL OR tenant_id=%s)")
+            args.append(visible_to_tenant)
         for column, value in (
             ("family", family),
             ("profile_id", profile_id),
@@ -2816,14 +2883,33 @@ class PostgresConfigurationStore:
         return self._bundle(row)
 
     def list_bundle_histories(
-        self, dimensions: tuple[str | None, str, str, str | None, str | None], *,
+        self, dimensions: BundleDimensions, *,
         include_unpublished: bool = False, limit: int = 100,
     ) -> list[BundleHistory]:
         with contextual_connection(self.pool) as conn:
-            return _read_bundle_histories(
-                conn, dimensions, table="configuration.bundle_revisions", parameter="%s",
-                nullable_equal="IS NOT DISTINCT FROM", decode=self._bundle,
-                include_unpublished=include_unpublished, limit=limit,
+            return self._bundle_histories_tx(conn, dimensions, include_unpublished, limit)
+
+    def _bundle_histories_tx(self, conn, dimensions, include_unpublished, limit) -> list[BundleHistory]:
+        return _read_bundle_histories(
+            conn, dimensions, table="configuration.bundle_revisions", parameter="%s",
+            nullable_equal="IS NOT DISTINCT FROM", decode=self._bundle,
+            include_unpublished=include_unpublished, limit=limit,
+        )
+
+    def read_bootstrap_bundle(self, dimensions: BundleDimensions, select: Callable[[BundleHistory], BundleRevision | None]):
+        with self.pool.connection() as conn:
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            apply_postgres_identity_context(conn)
+            return _read_bootstrap_bundle(
+                conn, self._bundle_histories_tx(conn, dimensions, False, 1), select,
+                profile_table="configuration.profile_revisions", epoch_table="configuration.invalidation_epochs",
+                parameter="%s", decode=self._profile, events=self._events_tx,
+            )
+
+    def legacy_bundle_page(self, after: str, *, limit: int) -> list[BundleRevision]:
+        with contextual_connection(self.pool) as conn:
+            return _legacy_bundle_page(
+                conn, table="configuration.bundle_revisions", parameter="%s", after=after, limit=limit, decode=self._bundle,
             )
 
     def find_bundle_by_content(
@@ -2867,9 +2953,13 @@ class PostgresConfigurationStore:
         limit: int = 200,
         exact_dimensions: bool = False,
         include_scheduled: bool = False,
+        visible_to_tenant: str | None = None,
     ) -> list[BundleRevision]:
         clauses: list[str] = []
         args: list[Any] = []
+        if visible_to_tenant is not None:
+            clauses.append("(tenant_id IS NULL OR tenant_id=%s)")
+            args.append(visible_to_tenant)
         status_expression = _POSTGRES_BUNDLE_REGISTRY_STATUS if include_scheduled else "status"
         for column, value in (
             ("bundle_id", bundle_id),

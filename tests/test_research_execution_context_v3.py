@@ -823,7 +823,7 @@ def test_legacy_recipe_without_unique_retained_identity_fails_closed():
         api.RESEARCH.execution_context_factory.resolve_recipe(recipe)
 
 
-def test_legacy_replay_checks_schedule_integrity_only_for_possible_matches(root, tmp_path):
+def test_legacy_replay_checks_schedule_integrity_only_for_possible_matches(root, tmp_path, monkeypatch):
     from baloot_platform.config import build_bundle
     from baloot_platform.configuration import SQLiteConfigurationStore, VersionedConfigurationService
     from baloot_platform.configuration.schedule import ConfigurationIntegrityError
@@ -860,6 +860,27 @@ def test_legacy_replay_checks_schedule_integrity_only_for_possible_matches(root,
     common = {"mode": current["mode"], "component_revisions": current["componentRevisions"],
               "created_by": "TEST", "publish": True}
     window = {"timeZone": "America/New_York", "effectiveFrom": "2026-07-01T12:00"}
+    payload = copy.deepcopy(saved.bundle.component("performance"))
+    payload["profile"].update(id="legacy_handoff", version="99.0.0")
+    alternative = configuration.create_profile(
+        family="performance", payload=payload, created_by="TEST", publish=True,
+    )
+    successor = configuration.create_bundle(**{
+        **common, "bundle_id": current["bundleId"], "version": "99.0.0",
+        "component_revisions": {**common["component_revisions"], "performance": alternative["revisionId"]},
+        "local_schedule": {**window, "effectiveUntil": "2026-07-01T13:00"},
+    })
+    assert store.get_bundle(current["revisionId"]).status == "superseded"
+    for at_time, effective_revision in (
+        ("2026-07-01T15:59:59Z", current),
+        ("2026-07-01T16:00:00Z", successor),
+        ("2026-07-01T17:00:00Z", current),
+    ):
+        assert configuration.resolve(bundle_id=current["bundleId"], at_time=at_time)["bundle"]["revisionId"] == effective_revision["revisionId"]
+        for recipe in recipes:
+            replay = factory.resolve_recipe(recipe)
+            assert replay.bundle_revision_id == saved.bundle_revision_id
+            assert replay.bundle.sha256 == saved.bundle.sha256
 
     def corrupt(revision_id):
         with store._connect() as connection:
@@ -893,9 +914,22 @@ def test_legacy_replay_checks_schedule_integrity_only_for_possible_matches(root,
         **common, bundle_id=current["bundleId"], version=current["version"], local_schedule=window,
         scope="tenant", tenant_id="TEST-REPLAY-MATCH",
     )
+    legacy_page = store.legacy_bundle_page
+    pages = []
+
+    def single_row_page(after, *, limit):
+        result = legacy_page(after, limit=1)
+        pages.append(tuple(row.revision_id for row in result))
+        return result
+
+    monkeypatch.setattr(store, "legacy_bundle_page", single_row_page)
     for recipe in recipes:
+        pages.clear()
         with pytest.raises(ValueError, match="historical_record_requires_readjudication"):
             factory.resolve_recipe(recipe)
+        assert (matching["revisionId"],) in pages
+        assert (current["revisionId"],) in pages
+        assert len(pages) >= 2
     corrupt(matching["revisionId"])
     configuration._invalidate_cache()
     for recipe in recipes:

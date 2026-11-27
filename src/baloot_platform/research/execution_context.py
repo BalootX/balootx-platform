@@ -1090,6 +1090,10 @@ class ResearchExecutionContextFactoryV1:
             raise ValueError("Research model availability or identity mismatch")
         return context
 
+    @staticmethod
+    def _legacy_publication(row: Mapping[str, Any]) -> dict[str, Any]:
+        return {**row, "status": "published"} if row.get("publishedAt") else dict(row)
+
     def _unverifiable_bundle_might_match(self, candidate: BundleRevision, bundle_hash: str) -> bool:
         store = self.configuration_service.store
         current = store.get_bundle(candidate.revision_id)
@@ -1103,9 +1107,17 @@ class ResearchExecutionContextFactoryV1:
             hashes[family] = canonical_sha256(dict(profile.payload))
         # Lifecycle status participates in the legacy hash and can change during the scan.
         return any(
-            canonical_sha256(resolved_bundle_identity(row.to_dict(), hashes)) == bundle_hash
-            for row in (candidate, current)
+            canonical_sha256(resolved_bundle_identity(identity, hashes)) == bundle_hash
+            for row in (candidate.to_dict(), current.to_dict())
+            for identity in (row, self._legacy_publication(row))
         )
+
+    def _legacy_bundle_candidates(self):
+        after = ""
+        store = self.configuration_service.store
+        while rows := store.legacy_bundle_page(after, limit=100):
+            yield from rows
+            after = rows[-1].revision_id
 
     def resolve_recipe(
         self,
@@ -1120,15 +1132,24 @@ class ResearchExecutionContextFactoryV1:
                 analysis_mode=analysis_mode,
             )
         expected = dict(recipe.profiles)
-        matches: list[ResearchExecutionContextV1] = []
-        rows = self.configuration_service.store.list_bundles(status=None, limit=10_000, include_scheduled=True)
-        for row in rows:
-            if str(row.status) not in {"published", "superseded"}:
-                continue
+        match: ResearchExecutionContextV1 | None = None
+        store = self.configuration_service.store
+        epoch = store.get_invalidation_epoch()
+        for row in self._legacy_bundle_candidates():
             try:
-                effective, context = self.resolve_bundle_revision(
-                    str(row.revision_id), require_published=False
+                resolved = self.configuration_service.resolve(
+                    revision_id=row.revision_id, allow_retired=True,
                 )
+                bundle = resolved["bundle"]
+                hashes = {
+                    family: canonical_sha256(payload) for family, payload in resolved["profiles"].items()
+                }
+                historical = self._legacy_publication(bundle)
+                if canonical_sha256(resolved_bundle_identity(historical, hashes)) == expected["bundleHash"]:
+                    resolved = {**resolved, "bundle": historical}
+                elif canonical_sha256(resolved_bundle_identity(bundle, hashes)) != expected["bundleHash"]:
+                    continue
+                _, context = self.context_from_resolved(resolved, require_published=False)
             except ConfigurationIntegrityError as exc:
                 if self._unverifiable_bundle_might_match(row, expected["bundleHash"]):
                     raise ValueError("historical_record_requires_readjudication") from exc
@@ -1145,11 +1166,12 @@ class ResearchExecutionContextFactoryV1:
                 "scoreProfileHash": context.score_profile.sha256,
             }
             if projection == expected:
-                matches.append(context)
-        unique = {item.effective_runtime_config_hash: item for item in matches}
-        if len(unique) != 1:
+                if match is not None:
+                    raise ValueError("historical_record_requires_readjudication")
+                match = context
+        if match is None or store.get_invalidation_epoch() != epoch:
             raise ValueError("historical_record_requires_readjudication")
-        return next(iter(unique.values()))
+        return match
 
     @property
     def cached_context_count(self) -> int:

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator, model_serializer
 from pydantic.json_schema import SkipJsonSchema
 
 from baloot_platform.configuration import VersionedConfigurationService
+from baloot_platform.configuration.models import configuration_tenant_visible
 from baloot_platform.configuration.schedule import (
     ConfigurationIntegrityError,
     ConfigurationScheduleConflict,
@@ -15,6 +16,11 @@ from baloot_platform.configuration.schedule import (
 )
 from baloot_platform.identity import IdentityService
 from baloot_platform.security import AuthorizationPolicy, Scope
+from baloot_platform.service.authorization import (
+    DEFAULT_TENANT,
+    configuration_read_tenant,
+    configuration_tenant_filter,
+)
 
 from .auth import require_identity
 
@@ -177,6 +183,12 @@ def _role(request: Request) -> str:
 
 
 def _admin(request: Request, policy: AuthorizationPolicy) -> None:
+    auth = getattr(request.state, "auth", None)
+    if auth is not None:
+        denial = auth.denial(policy, Scope.CONFIG_ADMIN, tenant_scoped=False)
+        if denial is not None:
+            raise HTTPException(403, denial)
+        return
     claims = getattr(request.state, "access_claims", None)
     try:
         policy.require(role=_role(request), required=Scope.CONFIG_ADMIN, claims=claims)
@@ -187,7 +199,7 @@ def _admin(request: Request, policy: AuthorizationPolicy) -> None:
 def is_configuration_admin(request: Request, policy: AuthorizationPolicy) -> bool:
     auth = getattr(request.state, "auth", None)
     if auth is not None:
-        return auth.authenticated and auth.denial(policy, Scope.CONFIG_ADMIN, tenant_job=False) is None
+        return auth.authenticated and auth.denial(policy, Scope.CONFIG_ADMIN, tenant_scoped=False) is None
     if not (getattr(request.state, "access_claims", None) or getattr(request.state, "api_key_valid", False)):
         return False
     try:
@@ -219,6 +231,24 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                                performance_profile: dict[str, Any]) -> APIRouter:
     router = APIRouter(prefix=_V1_CONFIGURATION, tags=["configuration-control-plane"])
 
+    def read_tenant(request: Request) -> str | None:
+        auth = getattr(request.state, "auth", None)
+        if auth is not None:
+            return configuration_read_tenant(auth, policy)
+        return None if is_configuration_admin(request, policy) else DEFAULT_TENANT
+
+    def tenant_filter(authorized: str | None, requested: str | None) -> str | None:
+        try:
+            return configuration_tenant_filter(authorized, requested)
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
+
+    def require_visible(request: Request, revision):
+        tenant = read_tenant(request)
+        if revision is None or (tenant is not None and not configuration_tenant_visible(revision.tenant_id, tenant)):
+            raise HTTPException(404, "configuration revision not found")
+        return revision
+
     @router.get("/profile")
     def registry_profile(request: Request):
         require_identity(request, identities)
@@ -234,9 +264,11 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                       scope: str | None = None, scopeKey: str | None = None, tenantId: str | None = None,
                       environment: str | None = None, status: str | None = None, limit: int = 200):
         require_identity(request, identities)
+        tenant = read_tenant(request)
         values = service.store.list_profiles(
-            family=family, profile_id=profileId, scope=scope, scope_key=scopeKey, tenant_id=tenantId,
-            environment=environment, status=status, limit=limit,
+            family=family, profile_id=profileId, scope=scope, scope_key=scopeKey,
+            tenant_id=tenant_filter(tenant, tenantId), environment=environment, status=status, limit=limit,
+            visible_to_tenant=tenant,
         )
         return {"items": [item.to_dict(include_payload=False) for item in values]}
 
@@ -254,8 +286,10 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                         sharedGameId: str | None = None, videoProfileId: str | None = None,
                         experimentKey: str | None = None, subjectId: str | None = None, atTime: str | None = None):
         require_identity(request, identities)
+        tenant = read_tenant(request)
         try:
-            return service.resolve_profile(family=family, profile_id=profileId, tenant_id=tenantId,
+            return service.resolve_profile(
+                family=family, profile_id=profileId, tenant_id=tenant_filter(tenant, tenantId) or tenant,
                 environment=environment, room_id=roomId, shared_game_id=sharedGameId,
                 video_profile_id=videoProfileId, user_experiment_key=experimentKey,
                 subject_id=subjectId, at_time=_wire_instant(request, atTime, "atTime"))
@@ -267,10 +301,8 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
     @router.get("/profiles:compare")
     def compare_profiles(request: Request, left: str, right: str):
         require_identity(request, identities)
-        left_value = service.store.get_profile(left)
-        right_value = service.store.get_profile(right)
-        if left_value is None or right_value is None:
-            raise HTTPException(404, "configuration profile revision not found")
+        left_value = require_visible(request, service.store.get_profile(left))
+        right_value = require_visible(request, service.store.get_profile(right))
         return {
             "left": left_value.to_dict(include_payload=False),
             "right": right_value.to_dict(include_payload=False),
@@ -298,9 +330,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
     @router.get("/profiles/{revision_id}")
     def get_profile(revision_id: str, request: Request, includePayload: bool = True):
         require_identity(request, identities)
-        value = service.store.get_profile(revision_id)
-        if value is None:
-            raise HTTPException(404, "configuration profile revision not found")
+        value = require_visible(request, service.store.get_profile(revision_id))
         return value.to_dict(include_payload=includePayload)
 
     @router.patch("/profiles/{revision_id}")
@@ -326,6 +356,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
     @router.post("/profiles/{revision_id}:validate")
     def validate_profile(revision_id: str, request: Request):
         require_identity(request, identities)
+        require_visible(request, service.store.get_profile(revision_id))
         try:
             return service.validate_profile_revision(revision_id)
         except KeyError as exc:
@@ -375,8 +406,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
     @router.get("/profiles/{revision_id}/events")
     def profile_events(revision_id: str, request: Request):
         require_identity(request, identities)
-        if service.store.get_profile(revision_id) is None:
-            raise HTTPException(404, "configuration profile revision not found")
+        require_visible(request, service.store.get_profile(revision_id))
         return service.store.events_with_verification("profile", revision_id)
 
     @router.get("/bundles", response_model=ConfigurationBundleListResponse)
@@ -384,9 +414,10 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                      scopeKey: str | None = None, tenantId: str | None = None,
                      environment: str | None = None, status: str | None = None, limit: int = 200):
         require_identity(request, identities)
+        tenant = read_tenant(request)
         values = service.store.list_bundles(
-            bundle_id=bundleId, scope=scope, scope_key=scopeKey, tenant_id=tenantId, environment=environment, status=status, limit=limit,
-            include_scheduled=True,
+            bundle_id=bundleId, scope=scope, scope_key=scopeKey, tenant_id=tenant_filter(tenant, tenantId),
+            environment=environment, status=status, limit=limit, include_scheduled=True, visible_to_tenant=tenant,
         )
         return {"items": [item.to_dict() for item in values]}
 
@@ -442,7 +473,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         if allowDraft:
             _admin(request, policy)
         try:
-            return service.resolve(revision_id=revision_id, allow_draft=allowDraft)
+            return service.resolve(revision_id=revision_id, allow_draft=allowDraft, visible_to_tenant=read_tenant(request))
         except KeyError as exc:
             raise HTTPException(404, "configuration bundle revision not found") from exc
         except PermissionError as exc:
@@ -454,7 +485,7 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
     def resolve_bundle_v2(revision_id: str, request: Request):
         require_identity(request, identities)
         try:
-            return service.freeze_v2(revision_id=revision_id)
+            return service.freeze_v2(revision_id=revision_id, visible_to_tenant=read_tenant(request))
         except KeyError as exc:
             raise HTTPException(404, "configuration bundle revision not found") from exc
         except PermissionError as exc:
@@ -510,16 +541,13 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
     @router.get("/bundles/{revision_id}/events")
     def bundle_events(revision_id: str, request: Request):
         require_identity(request, identities)
-        if service.store.get_bundle(revision_id) is None:
-            raise HTTPException(404, "configuration bundle revision not found")
+        require_visible(request, service.store.get_bundle(revision_id))
         return service.store.events_with_verification("bundle", revision_id)
 
     @router.get("/bundles/{revision_id}")
     def get_bundle(revision_id: str, request: Request):
         require_identity(request, identities)
-        value = service.store.get_bundle(revision_id)
-        if value is None:
-            raise HTTPException(404, "configuration bundle revision not found")
+        value = require_visible(request, service.store.get_bundle(revision_id))
         return value.to_dict()
 
     @router.get("/resolve")
@@ -528,13 +556,17 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
                         sharedGameId: str | None = None, videoProfileId: str | None = None,
                         experimentKey: str | None = None, subjectId: str | None = None, atTime: str | None = None):
         require_identity(request, identities)
+        tenant = read_tenant(request)
         try:
-            return service.resolve(bundle_id=bundleId, tenant_id=tenantId, environment=environment,
+            return service.resolve(bundle_id=bundleId, tenant_id=tenant_filter(tenant, tenantId) or tenant,
+                visible_to_tenant=tenant, environment=environment,
                 room_id=roomId, shared_game_id=sharedGameId, video_profile_id=videoProfileId,
                 user_experiment_key=experimentKey, subject_id=subjectId,
                 at_time=_wire_instant(request, atTime, "atTime"))
         except KeyError as exc:
             raise HTTPException(404, "published configuration bundle not found") from exc
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -552,10 +584,12 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
         atTime: str | None = None,
     ):
         require_identity(request, identities)
+        tenant = read_tenant(request)
         try:
             return service.freeze_v2(
                 bundle_id=bundleId,
-                tenant_id=tenantId,
+                tenant_id=tenant_filter(tenant, tenantId) or tenant,
+                visible_to_tenant=tenant,
                 environment=environment,
                 room_id=roomId,
                 shared_game_id=sharedGameId,
@@ -566,6 +600,8 @@ def build_configuration_router(service: VersionedConfigurationService, identitie
             )
         except KeyError as exc:
             raise HTTPException(404, "published configuration bundle not found") from exc
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
