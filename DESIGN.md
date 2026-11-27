@@ -9,6 +9,7 @@
 - The [research-notice renderer](scripts/render_research_notice.py) uses the [approved public v4 design binding](src/baloot_platform/video/render_bundle.py). See [Manual render kickoff](DELIVERY.md#manual-render-kickoff) for the build and kickoff receipts and the worker launch command.
 - Use the `vertical_social_v1` safe area from the [premium profile](configs/video/premium.yaml#L786) for essential text, cards and overlays. Leave the top and bottom overlay space and side gutters available. Decorative elements can extend beyond the content area.
 - The [approved layout pin](src/baloot_platform/video/remotion/scripts/approved-layout-pin.json) supplies the exact table SHA-256 to the JavaScript layout gate and Python media and release validation. The [approved table](src/baloot_platform/video/remotion/scripts/approved-layout-adjacencies.json) defines the notice height and the measured overlap allowance for each element pair and phase. Recalibrate and review changes before updating the table and its pin together. Measurement renders stay out of release.
+- The side seat tags flow below their name pills. Buyer badges enclose the rotated purchase card and wrap long labels to fit their side row. The layout table no longer allows the three west pill and buyer-badge overlaps. The south stack flows up from the safe-area bottom and reserves room for a raised card on reveal.
 
 ## Foundry dashboard
 

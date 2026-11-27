@@ -351,7 +351,10 @@ def test_layout_receipt_binds_raw_mp4_bundle_table_and_checkpoint_bytes(
     approved = (scripts / "approved-layout-adjacencies.json").read_bytes()
     if case == "widened":
         altered = json.loads(approved)
-        altered["rows"][0]["observedMaxWidth"] = 200
+        altered["rows"].append({
+            "phase": "hook", "pair": ["promptPill:0", "broadcastHud:0"],
+            "observedMaxWidth": 200, "observedMaxHeight": 5, "marginEachAxis": 2,
+        })
         approved = json.dumps(altered).encode("utf-8")
     elif case == "repinned":
         approved += b"\n"

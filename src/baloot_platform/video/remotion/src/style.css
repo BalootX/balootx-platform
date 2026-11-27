@@ -520,23 +520,21 @@
   width: 1080px;
 }
 
-.row-west {
+.row-west,
+.row-east {
   top: 900px;
-  left: 72px;
   width: 208px;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.row-west {
+  left: 72px;
 }
 
 .row-east {
-  top: 900px;
   left: 800px;
-  width: 208px;
-}
-
-.row-south {
-  z-index: 45;
-  top: 1234px;
-  left: 0;
-  width: 1080px;
 }
 
 .seat {
@@ -570,6 +568,25 @@
   white-space: nowrap;
 }
 
+.row-west .seat,
+.row-east .seat {
+  max-width: 100%;
+  height: auto;
+  min-height: 64px;
+}
+
+.row-west .name,
+.row-east .name {
+  min-width: 0;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.seat .count {
+  flex: none;
+}
+
 .seat.active {
   border-color: var(--mj-team-us);
   box-shadow:
@@ -583,38 +600,17 @@
 }
 
 .seat-tags {
-  position: absolute;
-  z-index: 31;
   display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: center;
   gap: 8px;
 }
 
-.tags-west {
-  top: 976px;
-  left: 72px;
-  width: 208px;
-}
-
-.tags-east {
-  top: 976px;
-  left: 800px;
-  width: 208px;
-}
-
-/* The tilted purchase card extends 16px above the badge row. */
-.tags-east > .tag.buyer:has(.pcard) {
-  margin-top: 8px;
-}
-
-/* North and south side items sit in a lane around an invisible copy of the name pill,
-   so long names push them outward instead of overlapping. */
+/* The middle track keeps the name centered and gives the side content its own space. */
 .seat-lane {
-  position: absolute;
-  z-index: 60;
-  left: 0;
   display: grid;
-  width: 1080px;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   column-gap: 16px;
@@ -622,39 +618,32 @@
 }
 
 .lane-north {
+  position: absolute;
+  z-index: 60;
   top: 474px;
+  left: 0;
+  width: 1080px;
   grid-template-rows: 64px;
 }
 
-.lane-south {
-  z-index: 31;
-  top: 1180px;
-  grid-template-rows: 40px;
-}
-
-/* The play prompt starts at y 1200. Leave room above it for the tilted card. */
-.lane-south.is-play-prompt {
-  top: 1140px;
-}
-
-/* Answer-only reveal: tags, name pill and choice badge share the lane bottom (y 1220),
-   badge beside the pill (column gap), all clear of the raised card below. */
-.lane-south.is-reveal {
+.south-stack {
+  position: absolute;
   z-index: 55;
+  right: 0;
+  /* Use the vertical_social_v1 inset when a V1 bundle omits safe_areas. */
+  bottom: 300px;
+  left: 0;
+  display: grid;
+  gap: 12px;
 }
 
-.lane-south.is-reveal .lane-end {
-  align-self: end;
+.lane-south {
+  align-items: end;
+  padding-inline: 72px;
 }
 
-.seat-lane .reveal-reason {
-  position: relative;
-  top: auto;
-  width: auto;
-}
-
-.row-south.is-reveal {
-  top: 1156px;
+.lane-south .lane-side {
+  max-width: 100%;
 }
 
 /* Tray bottom meets the pill-row bottom (y 538): top lands near the design's 420. */
@@ -681,21 +670,31 @@
   justify-self: start;
 }
 
-.seat-lane .seat-tags,
 .seat-lane .call,
 .seat-lane .ptray,
-.seat-lane .project-badge {
+.seat-lane .project-badge,
+.seat-row .call-play,
+.seat-row .ptray,
+.seat-row .project-badge {
   position: relative;
   inset: auto;
   transform: none;
 }
 
+.row-west > :is(.call-play, .ptray, .project-badge) {
+  align-self: end;
+}
+
+.row-east > :is(.call-play, .ptray, .project-badge) {
+  align-self: start;
+}
+
 .tag {
   display: flex;
-  height: 40px;
+  min-height: 40px;
   align-items: center;
   gap: 8px;
-  padding: 0 16px;
+  padding: 4px 16px;
   border-radius: 20px;
   color: var(--mj-ink-warm);
   font-size: 19px;
@@ -708,6 +707,16 @@
   background: var(--mj-team-us);
 }
 
+:is(.row-west, .row-east) .tag.buyer {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.tag.buyer .pcard {
+  flex: none;
+}
+
 .tag.dealer {
   background: var(--mj-sand);
 }
@@ -716,7 +725,6 @@
   display: inline-block;
   width: 48px;
   height: 67px;
-  margin: -14px 0;
   border-radius: 5px;
   box-shadow: 0 5px 12px rgba(0, 0, 0, 0.45);
   transform: rotate(-6deg);
@@ -956,16 +964,6 @@
   right: 290px;
 }
 
-.call-at-west.call-play {
-  top: 1040px;
-  left: 76px;
-}
-
-.call-at-east.call-play {
-  top: 1040px;
-  right: 76px;
-}
-
 .call-at-south.call-setup {
   bottom: 713px;
   left: 540px;
@@ -1063,16 +1061,6 @@
   left: 636px;
 }
 
-.tray-at-west {
-  top: 1040px;
-  left: 72px;
-}
-
-.tray-at-east {
-  top: 1040px;
-  right: 72px;
-}
-
 .tray-at-south {
   bottom: 713px;
   right: 72px;
@@ -1111,13 +1099,9 @@
 }
 
 .decision-prompt {
-  position: absolute;
-  z-index: 55;
-  top: 1200px;
-  left: 0;
-  display: flex;
-  width: 1080px;
-  justify-content: center;
+  display: grid;
+  justify-items: center;
+  gap: 16px;
 }
 
 .ask {
@@ -1173,11 +1157,8 @@
 }
 
 .decision-choices {
-  position: absolute;
-  bottom: calc(100% + 16px);
-  left: 72px;
   display: flex;
-  width: 936px;
+  max-width: 936px;
   flex-wrap: wrap;
   justify-content: center;
   gap: 12px;
@@ -1201,13 +1182,16 @@
 }
 
 .reveal-reason {
+  display: flex;
+  justify-content: center;
+}
+
+.proof-boundary-only {
   position: absolute;
   z-index: 55;
   top: 1104px;
   left: 0;
-  display: flex;
   width: 1080px;
-  justify-content: center;
 }
 
 .reason {
@@ -1406,20 +1390,23 @@
 }
 
 .observer-hand {
-  position: absolute;
-  z-index: 40;
-  top: 1306px;
-  left: 0;
-  width: 1080px;
-  height: 300px;
+  --hand-lift: 34px;
+  --hand-card-height: 297px;
+  display: grid;
+  grid-template-rows: var(--hand-card-height);
+  justify-items: center;
+  /* Reserve the rotated fan's lower edge within the safe area. */
+  padding-block-end: 26px;
+}
+
+.observer-hand:has(.is-recommended) {
+  padding-block-start: calc(var(--hand-lift) + 12px);
 }
 
 .observer-hand .card {
-  position: absolute;
-  top: 0;
-  left: 434px;
+  grid-area: 1 / 1;
   width: 212px;
-  height: 297px;
+  height: var(--hand-card-height);
   border-radius: 12px;
   box-shadow: 0 14px 26px rgba(0, 0, 0, 0.5);
 }

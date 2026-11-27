@@ -61,15 +61,21 @@ export const LayoutGeometryArtifact: React.FC<{
       if (width <= 0 || height <= 0) throw new Error("layout measurement root is unmeasured");
       const scaleX = bundle.render.width / width;
       const scaleY = bundle.render.height / height;
+      const bounds = (element: Element) => {
+        const rect = visibleBounds(element, root);
+        return {visible: rect.visible, left: (rect.left - left) * scaleX, top: (rect.top - top) * scaleY,
+          right: (rect.right - left) * scaleX, bottom: (rect.bottom - top) * scaleY};
+      };
       const roles = Object.fromEntries(Object.entries(selectors).map(([role, selector]) => {
-        const items = Array.from(root.querySelectorAll(selector), (element, index) => {
-          const rect = visibleBounds(element, root);
-          return {id: `${role}:${index}`, visible: rect.visible,
-            left: (rect.left - left) * scaleX, top: (rect.top - top) * scaleY,
-            right: (rect.right - left) * scaleX, bottom: (rect.bottom - top) * scaleY};
-        });
+        const items = Array.from(root.querySelectorAll(selector), (element, index) => ({id: `${role}:${index}`, ...bounds(element)}));
         return [role, {matchedCount: items.length, items}];
       }));
+      const buyerCard = root.querySelector(".tag.buyer > .pcard");
+      const card = buyerCard?.getBoundingClientRect();
+      const badge = buyerCard?.parentElement?.getBoundingClientRect();
+      const buyerCardContained = card && badge && card.width > 0 && card.height > 0
+        && card.left >= badge.left && card.top >= badge.top && card.right <= badge.right && card.bottom <= badge.bottom;
+      const observerCards = Array.from(root.querySelectorAll(".observer-hand .card"), bounds);
       const phase = bundle.timeline.segments.find(segment =>
         frame >= segment.startFrame && frame < segment.startFrame + segment.durationFrames)?.stage;
       const props = canonical({bundle, reducedMotion, capturePlaybackDom});
@@ -77,7 +83,7 @@ export const LayoutGeometryArtifact: React.FC<{
       const propsSha256 = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
       setSnapshot(JSON.stringify({schemaVersion: 1, measurementMethod: "DOM.getBoundingClientRect", coordinateSpace: "composition_pixels",
         phase, frame, width: bundle.render.width, height: bundle.render.height,
-        rootRect: {left, top, width, height}, binding: {...binding, propsSha256}, roles}));
+        rootRect: {left, top, width, height}, binding: {...binding, propsSha256}, roles, buyerCardContained, observerCards}));
     };
     void capture().catch(cancelRender);
   }, [bundle, binding, frame, reducedMotion, capturePlaybackDom]);

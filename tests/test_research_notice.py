@@ -759,7 +759,10 @@ def test_release_layout_rejects_mismatched_receipt_pins(tmp_path, approved_layou
     table_bytes = approved_layout_bytes
     if change == "widened-table":
         altered = json.loads(table_bytes)
-        altered["rows"][0]["observedMaxWidth"] = 200
+        altered["rows"].append({
+            "phase": "hook", "pair": ["promptPill:0", "broadcastHud:0"],
+            "observedMaxWidth": 200, "observedMaxHeight": 5, "marginEachAxis": 2,
+        })
         table_bytes = json.dumps(altered).encode("utf-8")
     geometry = _fake_qualification(video, "bundle-sha", files, table_bytes)
     manifest = {"files": files, "layoutGeometry": geometry}
