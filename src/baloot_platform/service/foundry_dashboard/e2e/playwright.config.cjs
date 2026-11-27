@@ -15,6 +15,7 @@ module.exports = defineConfig({
   use: {
     actionTimeout: 30_000,
     baseURL: `http://127.0.0.1:${port}`,
+    extraHTTPHeaders: {'x-api-key': process.env.BALOOT_OPERATOR_E2E_API_KEY},
     browserName: 'chromium',
     headless: true,
     locale: 'ar-SA',

@@ -14,6 +14,10 @@ class SharedDecisionAccessError(RuntimeError):
     """Raised when a known shared decision cannot be authorized safely."""
 
 
+class SharedGameNotFound(LookupError):
+    """Raised when the requester does not own a shared game."""
+
+
 class SharedDecisionAccessStore(Protocol):
     def get_run_for_decision(self, decision_id: str) -> Any: ...
     def get_run_for_game(self, game_id: str) -> Any: ...
@@ -104,6 +108,8 @@ def resolve_shared_decision_access(
 def resolve_shared_game_access(
     store: SharedDecisionAccessStore,
     game_id: str,
+    *,
+    subject_id: str | None = None,
 ) -> SharedDecisionAccessV1 | None:
     """Resolve aggregate game authority without treating an archive as completion."""
     if not isinstance(game_id, str) or not game_id.strip():
@@ -112,6 +118,10 @@ def resolve_shared_game_access(
         loaded = store.get_run_for_game(game_id)
     except Exception as exc:
         raise SharedDecisionAccessError("shared game access lookup failed") from exc
+    if subject_id is not None and (
+        loaded is None or not owns_subject(subject_id, str(loaded[0].subject_id or "").strip())
+    ):
+        raise SharedGameNotFound("archived game not found")
     return None if loaded is None else _resolved_shared_access(store, loaded, "")
 
 

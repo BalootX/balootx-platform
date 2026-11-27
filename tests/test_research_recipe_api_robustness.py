@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 import yaml
-from fastapi.testclient import TestClient
+from service_test_client import OperatorClient as TestClient
 
 from baloot_platform.research.recipe_api import (
     RecipeListCursorV1,
