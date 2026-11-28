@@ -70,16 +70,16 @@ The Python shards share a deadline derived from each job's timeout. The full mat
 
 - Keep PC work to Git edits and commits plus the required pre-push deny check and privacy screen. Close shells when their step ends.
 - The installed guard is the only reader of the deny inputs. Workers run it and read only its class counts. No agent opens, prints or copies the input file.
-- Required PR preflight checks that an approved GitHub App opened the PR, since GitHub uses the opener as the squash author. The check uses the PR opener's account identity from the event. See [the hosted workflow](.github/workflows/ci.yml).
+- Required PR preflight checks the opener's account identity from the event against the commit identity policy, since GitHub uses the opener as the squash author. See [the hosted workflow](.github/workflows/ci.yml).
 - Run tests, lint, scrubs, builds and renders through CI. On the PC, `run-locked.ps1` returns `SKIP_TO_CI`.
 - Use free GitHub-hosted runners for public repo checks. Use zero-cost server runners for private repos, deploys and jobs that use secrets.
 - If a check has no CI job, add one in the same PR.
 
 ### Commit identity policy
 
-[Commit identities](ci/commit-identities.json) lists exact name and address pairs for public project, bot and AI-tool attribution. A row's `use` applies to all checked fields or only the `Signed-off-by` trailer. The no-reply rule and the approved Dependabot deviation are recorded below. Preflight validates the rows against the [commit identity schema](schemas/contracts/commit-identities-v1.schema.json). Policy changes follow the [critical path review procedure](#merge).
+[Commit identities](ci/commit-identities.json) lists approved pull request opener account IDs and exact name and address pairs for public project, bot and AI-tool attribution. A row's `use` applies to all checked fields or only the `Signed-off-by` trailer. The no-reply rule and the approved Dependabot deviation are recorded below. Preflight validates the policy against the [commit identity schema](schemas/contracts/commit-identities-v1.schema.json). Policy changes follow the [critical path review procedure](#merge).
 
-The [hosted screening workflow](.github/workflows/commit-screen.yml) checks commit messages, authors, committers and identity-bearing trailers on every branch push, pull request and merge group. It reads the reviewed evaluator, policy and schema from the default branch for topic pushes, the pre-push tip for default-branch pushes, the merge parent for pull requests and the event base for merge groups. Screening fails if required base files are missing. The merge-group range includes the candidate commit. `ci-gate` requires screening on CI events, and topic pushes run screening on its own.
+The [hosted screening workflow](.github/workflows/commit-screen.yml) checks commit messages, authors, committers and identity-bearing trailers on every branch push, pull request and merge group. It reads the reviewed evaluator, policy and schema from the default branch for topic pushes, the pre-push tip for default-branch pushes, the merge parent for pull requests and the event base for merge groups. On pull requests it also requires a bot opener from the base policy, using the trusted event payload. Screening fails if required base files are missing. The merge-group range includes the candidate commit. `ci-gate` requires screening on CI events, and topic pushes run screening on its own.
 
 ## Work scheduling
 

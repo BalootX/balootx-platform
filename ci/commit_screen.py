@@ -165,7 +165,7 @@ def event_scope(event_name, event, candidate):
     raise ScreenError("The checkout must match a supported screening event.")
 
 
-def load_identities(base):
+def load_policy(base):
     try:
         policy = json.loads(git("show", f"{base}:{POLICY_PATH}"))
         schema = json.loads(git("show", f"{base}:{SCHEMA_PATH}"))
@@ -177,7 +177,10 @@ def load_identities(base):
     identities = {(row["name"], row["email"]): row["use"] for row in rows}
     if len(identities) != len(rows):
         raise ScreenError(f"Commit {base} needs unique commit identity pairs in its policy.")
-    return identities
+    openers = policy["pullRequestOpenerIds"]
+    if any(type(account_id) is not int for account_id in openers):
+        raise ScreenError(f"Commit {base} needs integer pull request opener IDs in its policy.")
+    return identities, set(openers)
 
 
 def screen(event_name, event, candidate):
@@ -185,7 +188,12 @@ def screen(event_name, event, candidate):
     if base is None:
         print("Screened 0 commits. The branch was deleted.")
         return
-    identities = load_identities(base)
+    identities, approved_openers = load_policy(base)
+    if event_name == "pull_request":
+        opener = event["pull_request"].get("user")
+        if (not isinstance(opener, dict) or opener.get("type") != "Bot"
+                or type(opener.get("id")) is not int or opener["id"] not in approved_openers):
+            raise ScreenError("Open this pull request through an approved GitHub App.")
     allowed_addresses = {email for (_, email), use in identities.items() if use == "all"}
     trailer_identities = {f"{name} <{email}>": (email, use) for (name, email), use in identities.items()}
     fields = []

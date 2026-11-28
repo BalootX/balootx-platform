@@ -126,6 +126,9 @@ def test_commit_identity_policy_schema(root, commit_identity_policy):
     validator.validate(policy)
     rows = policy["identities"]
     assert len({(row["name"], row["email"]) for row in rows}) == len(rows)
+    for invalid in ([], [0], [True], ["123"], [123, 123]):
+        with pytest.raises(ValidationError):
+            validator.validate({**policy, "pullRequestOpenerIds": invalid})
     _, domain = rows[0]["email"].split("@", 1)
     test_domain = "example.test"
     for field, invalid in (
@@ -159,6 +162,7 @@ SCREEN_ADDRESS = f"noreply@{SCREEN_DOMAIN}"
 SCREEN_IDENTITY = f"{SCREEN_NAME} <{SCREEN_ADDRESS}>"
 OTHER_ADDRESS = f"unlisted@{SCREEN_DOMAIN}"
 DEPENDABOT_NAME = "dependabot[bot]"
+SCREEN_OPENER_ID = 10001
 
 
 @pytest.fixture
@@ -188,7 +192,9 @@ def screen_history(tmp_path, monkeypatch, root, commit_identity_policy):
         entry for entry in commit_identity_policy["identities"] if entry["name"] in {DEPENDABOT_NAME, "GitHub"}
     ]
     provider_addresses = {(entry["name"], entry["use"]): entry["email"] for entry in provider_rows}
-    policy.write_text(json.dumps({"schemaVersion": 1, "identities": [row, *provider_rows]}), encoding="utf-8")
+    policy.write_text(json.dumps({
+        "schemaVersion": 1, "pullRequestOpenerIds": [SCREEN_OPENER_ID], "identities": [row, *provider_rows],
+    }), encoding="utf-8")
     git("add", ".")
     base = commit("Install identity policy")
     git("update-ref", "refs/remotes/origin/main", base)
@@ -206,6 +212,16 @@ def screen_push(before, head, *, branch="topic", commits=(), forced=False):
         "repository": {"default_branch": "main"}, "commits": [{"id": sha} for sha in commits],
         "head_commit": None if deleted else {"id": head},
     }
+
+
+def screen_pull_request(history, head, opener):
+    history.git("switch", "-q", "main")
+    history.git("merge", "--no-ff", "topic", "-m", "PR merge checkout")
+    candidate = history.git("rev-parse", "HEAD").decode("ascii").strip()
+    pr = {"base": {"sha": history.base}, "head": {"sha": head}}
+    if opener is not None:
+        pr["user"] = opener
+    return candidate, {"pull_request": pr}
 
 
 @pytest.mark.parametrize(("message", "overrides", "field"), [
@@ -472,15 +488,14 @@ def test_commit_screen_accepts_a_forced_rewind_with_no_new_commits(screen_histor
 def test_commit_screen_does_not_use_candidate_policy(screen_history, event_name):
     history = screen_history
     changed_row = {**history.row, "name": "Wrong Bot"}
-    history.policy.write_text(json.dumps({"schemaVersion": 1, "identities": [changed_row]}), encoding="utf-8")
+    history.policy.write_text(json.dumps({
+        "schemaVersion": 1, "pullRequestOpenerIds": [SCREEN_OPENER_ID], "identities": [changed_row],
+    }), encoding="utf-8")
     history.schema.write_text("{}", encoding="utf-8")
     history.git("add", ".")
     head = history.commit("Change the identity policy", author=f"Wrong Bot <{SCREEN_ADDRESS}>")
     if event_name == "pull_request":
-        history.git("switch", "-q", "main")
-        history.git("merge", "--no-ff", "topic", "-m", "PR merge checkout")
-        candidate = history.git("rev-parse", "HEAD").decode("ascii").strip()
-        event = {"pull_request": {"base": {"sha": history.base}, "head": {"sha": head}}}
+        candidate, event = screen_pull_request(history, head, {"id": SCREEN_OPENER_ID, "type": "Bot"})
     else:
         candidate = head
         history.git("update-ref", "refs/remotes/origin/main", candidate)
@@ -489,15 +504,41 @@ def test_commit_screen_does_not_use_candidate_policy(screen_history, event_name)
         commit_screen.screen(event_name, event, candidate)
 
 
+@pytest.mark.parametrize(("opener", "approved"), [
+    ({"type": "Bot", "id": SCREEN_OPENER_ID}, True),
+    ({"type": "Bot", "id": SCREEN_OPENER_ID + 1}, False),
+    ({"type": "User", "id": SCREEN_OPENER_ID}, False),
+    ({"type": "Bot", "id": str(SCREEN_OPENER_ID)}, False),
+    ({"type": "Bot", "id": True}, False),
+    ({"type": "Bot"}, False),
+    ({"id": SCREEN_OPENER_ID}, False),
+    (None, False),
+])
+def test_commit_screen_uses_base_policy_for_pull_request_opener(screen_history, opener, approved, capsys):
+    history = screen_history
+    policy = json.loads(history.policy.read_bytes())
+    policy["pullRequestOpenerIds"] = [SCREEN_OPENER_ID + 1]
+    history.policy.write_text(json.dumps(policy), encoding="utf-8")
+    history.git("add", str(history.policy))
+    head = history.commit("Change the candidate opener policy")
+    candidate, event = screen_pull_request(history, head, opener)
+    if approved:
+        commit_screen.screen("pull_request", event, candidate)
+        assert f"Screened 1 commits using the policy at {history.base}." in capsys.readouterr().out
+    else:
+        with pytest.raises(commit_screen.ScreenError, match="Open this pull request through an approved GitHub App"):
+            commit_screen.screen("pull_request", event, candidate)
+
+
 def test_commit_screen_requires_a_valid_base_policy(screen_history):
     history = screen_history
     with pytest.raises(commit_screen.ScreenError, match="needs a valid base"):
-        commit_screen.load_identities(history.legacy)
+        commit_screen.load_policy(history.legacy)
     history.policy.write_text('{"schemaVersion": 1, "identities": []}', encoding="utf-8")
     history.git("add", ".")
     invalid = history.commit("Invalid policy")
     with pytest.raises(commit_screen.ScreenError, match="needs a valid base"):
-        commit_screen.load_identities(invalid)
+        commit_screen.load_policy(invalid)
 
 
 
@@ -663,15 +704,18 @@ def test_hosted_ci_contract(root):
         assert flags and all("-P" in options.split() for options in flags), name
 
 
-def test_preflight_requires_an_approved_pull_request_opener(root):
+def test_preflight_requires_an_approved_pull_request_opener(root, commit_identity_policy):
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_bytes())["jobs"]
-    step = jobs["preflight"]["steps"][0]
+    checkout, step = jobs["preflight"]["steps"][:2]
+    assert checkout["uses"].startswith("actions/checkout@")
+    assert checkout["with"]["persist-credentials"] is False
     assert step["name"] == "Check pull request opener"
     assert step["if"] == "github.event_name == 'pull_request'"
-    assert step["env"]["PR_OPENER_ID"] == "${{ github.event.pull_request.user.id }}"
-    assert step["env"]["PR_OPENER_TYPE"] == "${{ github.event.pull_request.user.type }}"
-    allowed = step["env"]["ALLOWED_PR_OPENER_IDS"]
-    approved_ids = allowed.split()
+    assert step["env"] == {
+        "PR_OPENER_ID": "${{ github.event.pull_request.user.id }}",
+        "PR_OPENER_TYPE": "${{ github.event.pull_request.user.type }}",
+    }
+    approved_ids = [str(account_id) for account_id in commit_identity_policy["pullRequestOpenerIds"]]
     assert approved_ids and all(account_id.isascii() and account_id.isdecimal() for account_id in approved_ids)
     command = shlex.split(step["run"])
     assert command[:3] == ["python3", "-I", "-c"]
@@ -684,10 +728,8 @@ def test_preflight_requires_an_approved_pull_request_opener(root):
     for opener_id, opener_type, expected in cases:
         result = subprocess.run(
             [sys.executable, *command[1:]],
-            env={
-                **os.environ, "ALLOWED_PR_OPENER_IDS": allowed,
-                "PR_OPENER_ID": opener_id, "PR_OPENER_TYPE": opener_type,
-            },
+            cwd=root,
+            env={**os.environ, "PR_OPENER_ID": opener_id, "PR_OPENER_TYPE": opener_type},
             capture_output=True, text=True, timeout=10,
         )
         assert result.returncode == expected, result.stderr

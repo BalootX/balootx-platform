@@ -72,27 +72,31 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
-      - name: Check pull request opener
-        if: github.event_name == 'pull_request'
-        env:
-          # GitHub account IDs for tree-publisher and Dependabot.
-          ALLOWED_PR_OPENER_IDS: '357558349 49699333'
-          PR_OPENER_ID: ${{ github.event.pull_request.user.id }}
-          PR_OPENER_TYPE: ${{ github.event.pull_request.user.type }}
-        run: |
-          python3 -I -c '
-          import os
-
-          if (
-              os.environ["PR_OPENER_TYPE"] != "Bot"
-              or os.environ["PR_OPENER_ID"] not in os.environ["ALLOWED_PR_OPENER_IDS"].split()
-          ):
-              raise SystemExit("::error::Open this pull request through an approved GitHub App.")
-          '
       - &checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Check pull request opener
+        if: github.event_name == 'pull_request'
+        env:
+          PR_OPENER_ID: ${{ github.event.pull_request.user.id }}
+          PR_OPENER_TYPE: ${{ github.event.pull_request.user.type }}
+        run: |
+          python3 -I -c '
+          import json
+          import os
+          from pathlib import Path
+
+          policy = json.loads(Path("ci/commit-identities.json").read_bytes())
+          allowed = policy["pullRequestOpenerIds"]
+          if (
+              not isinstance(allowed, list)
+              or any(type(account_id) is not int or account_id < 1 for account_id in allowed)
+              or os.environ["PR_OPENER_TYPE"] != "Bot"
+              or os.environ["PR_OPENER_ID"] not in {str(account_id) for account_id in allowed}
+          ):
+              raise SystemExit("::error::Open this pull request through an approved GitHub App.")
+          '
       - &py313
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
