@@ -1675,20 +1675,46 @@ def test_viewer_seat_proof_dispatch_and_nightly_use_the_same_pinned_cohort(root)
     nightly = yaml.safe_load((root / ".github/workflows/nightly-candidates.yml").read_bytes())
     assert nightly["jobs"]["viewer-seat-proof"] == workflow_call
     shared = yaml.safe_load((root / workflow_call["uses"]).read_bytes())
-    assert shared[True] == {"workflow_call": None}
+    assert shared[True] == {
+        "workflow_call": None,
+        "workflow_dispatch": {
+            "inputs": {"public-fixture": {
+                "description": "Reviewed public fixture",
+                "type": "choice",
+                "required": True,
+                "options": ["research-r8-single-winner"],
+            }},
+        },
+    }
     assert shared["permissions"] == {"contents": "read"}
     assert set(shared["jobs"]) == {"proof"}
     proof = shared["jobs"]["proof"]
-    assert not {"if", "needs", "permissions", "continue-on-error"} & proof.keys()
+    assert proof["if"] == (
+        "${{ !inputs.public-fixture || "
+        "(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') }}"
+    )
+    assert not {"needs", "permissions", "continue-on-error"} & proof.keys()
     assert proof["runs-on"] == "ubuntu-24.04" and proof["timeout-minutes"] == 15
     assert proof["strategy"]["fail-fast"] is False
     assert set(proof["strategy"]["matrix"]) == {"include"}
-    cohort = proof["strategy"]["matrix"]["include"]
+    selector = proof["strategy"]["matrix"]["include"]
+    matrix = re.fullmatch(
+        r"\$\{\{ fromJSON\(inputs\.public-fixture == 'research-r8-single-winner' &&\s+'([^']+)'"
+        r"\s+\|\|\s+'([^']+)'\) \}\}", selector, re.DOTALL,
+    )
+    assert matrix
+    direct, cohort = map(json.loads, matrix.groups())
+    assert direct == [{
+        "clip": "r8-261218178-25",
+        "fixture": "examples/research-r8/research-scenario-v4-single-winner-r8-261218178-25.json",
+        "sha256": "77777c29c3455c998d0c980578f70cc1d3a2a391e017c6c637e3a69e3b286907",
+    }]
     assert len(cohort) == 3
     assert {row["clip"] for row in cohort} == {"16-05", "19-03", "18-03"}
     for row in cohort:
-        path = root / f"examples/research-scenario-v4-single-winner-202611{row['clip']}.json"
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == row["sha256"]
+        assert row["fixture"] == f"examples/research-scenario-v4-single-winner-202611{row['clip']}.json"
+    for row in direct + cohort:
+        assert hashlib.sha256((root / row["fixture"]).read_bytes()).hexdigest() == row["sha256"]
     assert proof["steps"][0]["with"] == {"persist-credentials": False}
     for step in proof["steps"]:
         if "uses" in step:
@@ -1696,6 +1722,8 @@ def test_viewer_seat_proof_dispatch_and_nightly_use_the_same_pinned_cohort(root)
         assert "continue-on-error" not in step
     run, upload = proof["steps"][-2:]
     assert "python -P scripts/viewer_seat_proof.py" in run["run"]
+    assert run["env"]["FIXTURE"] == "${{ matrix.fixture }}"
+    assert '--fixture "$FIXTURE"' in run["run"]
     assert run["env"]["FIXTURE_SHA256"] == "${{ matrix.sha256 }}"
     assert '--fixture-sha256 "$FIXTURE_SHA256"' in run["run"]
     assert upload["if"] == "${{ !cancelled() && steps.proof.outcome != 'skipped' }}"

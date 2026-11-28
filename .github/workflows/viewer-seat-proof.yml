@@ -2,24 +2,32 @@ name: Viewer-seat proof cohort
 
 on:
   workflow_call:
+  workflow_dispatch:
+    inputs:
+      public-fixture:
+        description: Reviewed public fixture
+        type: choice
+        required: true
+        options:
+          - research-r8-single-winner
 
 permissions:
   contents: read
 
 jobs:
   proof:
+    if: ${{ !inputs.public-fixture || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - clip: '16-05'
-            sha256: a2e1a514eecab50d5d5caa434297292a41fff016f297217b2095582257d04a5d
-          - clip: '19-03'
-            sha256: a9ee58ac29ccd1e98f3cbc1403ec5db53c65fc51c707928f37e0e986bdc8c9a3
-          - clip: '18-03'
-            sha256: dd07b0f7101c043fbcbf1b987d2991cce68c3d40cf5820c29c21753eafce4b38
+        include: >-
+          ${{ fromJSON(inputs.public-fixture == 'research-r8-single-winner' &&
+            '[{"clip":"r8-261218178-25","fixture":"examples/research-r8/research-scenario-v4-single-winner-r8-261218178-25.json","sha256":"77777c29c3455c998d0c980578f70cc1d3a2a391e017c6c637e3a69e3b286907"}]' ||
+            '[{"clip":"16-05","fixture":"examples/research-scenario-v4-single-winner-20261116-05.json","sha256":"a2e1a514eecab50d5d5caa434297292a41fff016f297217b2095582257d04a5d"},
+              {"clip":"19-03","fixture":"examples/research-scenario-v4-single-winner-20261119-03.json","sha256":"a9ee58ac29ccd1e98f3cbc1403ec5db53c65fc51c707928f37e0e986bdc8c9a3"},
+              {"clip":"18-03","fixture":"examples/research-scenario-v4-single-winner-20261118-03.json","sha256":"dd07b0f7101c043fbcbf1b987d2991cce68c3d40cf5820c29c21753eafce4b38"}]') }}
     env:
       PIP_RETRIES: '2'
       PIP_TIMEOUT: '30'
@@ -41,11 +49,12 @@ jobs:
         id: proof
         env:
           CLIP: ${{ matrix.clip }}
+          FIXTURE: ${{ matrix.fixture }}
           FIXTURE_SHA256: ${{ matrix.sha256 }}
           PYTHONUTF8: '1'
         run: |
           python -P scripts/viewer_seat_proof.py \
-            --fixture "examples/research-scenario-v4-single-winner-202611${CLIP}.json" \
+            --fixture "$FIXTURE" \
             --fixture-sha256 "$FIXTURE_SHA256" --out "viewer-seat-${CLIP}.json" \
             --backend native --native-library build/native-release/libbaloot_native.so
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

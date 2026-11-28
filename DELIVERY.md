@@ -120,6 +120,8 @@ Every listed critical changed path must exist at the PR base or head. The review
 
 ## Media release
 
+The [viewer-seat workflow](.github/workflows/viewer-seat-proof.yml) can run the pinned public R8 fixture by direct dispatch on protected `main`. The manual CI and nightly callers keep their three-fixture cohort. Verify the exact run, attempt, source commit and tree, job result, artifact digest and proof fields before using a receipt. Bind any candidate index and private publication evidence in the protected receiving record.
+
 - The flagship and decision Remotion commands claim a new output directory for each invocation. An existing directory fails immediately. The Python drivers stage each render separately and move its completed files to the expected artifact paths.
 - Standalone research-notice renders use the approved public v4 producer and require [manual render kickoff](#manual-render-kickoff). The producer writes `balootx-approved-v4-public` media and evidence. Its default output directory is `outputs/approved-v4-public` on a writable checkout. See the [rendered clip design](DESIGN.md#rendered-clips) for the presentation requirements.
 - Live clip publication requires individual release approval until the clip release gate is approved. Once approved, the gate can admit clips for publication. A production deploy requires the project owner's explicit approval.
